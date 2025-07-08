@@ -152,6 +152,11 @@ impl<'a> Element<'a> {
         self.content = Content::Text(text);
         self
     }
+
+    pub fn with_text(&mut self, text: &'a str) -> &mut Self {
+        self.content = Content::Text(text);
+        self
+    }
 }
 
 impl std::fmt::Display for Element<'_> {

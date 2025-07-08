@@ -1,6 +1,8 @@
-use xml_builder::Element;
 
-use crate::soap::Header;
+use crate::{
+    Element,
+    soap::{Header, NodeValue},
+};
 
 pub const WSA_NAMESPACE: &str = "http://www.w3.org/2005/08/addressing";
 pub const WSA_NAMESPACE_ALIAS: &str = "a";
@@ -44,6 +46,14 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
             from,
         } = self;
 
+        let action = action.into_element("Action");
+        let to = to.into_element("To");
+        let message_id = message_id.into_element("MessageID");
+        let relates_to = relates_to.map(|r| r.into_element("RelatesTo"));
+        let reply_to = reply_to.map(|r| r.into_element("ReplyTo"));
+        let fault_to = fault_to.map(|r| r.into_element("FaultTo"));
+        let from = from.map(|r| r.into_element("From"));
+
         let elements = [
             Some(action),
             Some(to),
@@ -55,12 +65,12 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
         ]
         .into_iter()
         .flatten()
-        .map(Into::into)
-        .map(|element: Element<'_>| {
-            element.set_namespace(xml_builder::Namespace::new(
-                WSA_NAMESPACE_ALIAS,
-                WSA_NAMESPACE,
-            ))
+        .map(|node| {
+            node
+                .set_namespace(xml_builder::Namespace::new(
+                    WSA_NAMESPACE_ALIAS,
+                    WSA_NAMESPACE,
+                ))
         })
         .collect::<Vec<_>>();
 

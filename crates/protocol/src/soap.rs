@@ -1,6 +1,4 @@
-use xml_builder::Element;
-
-use crate::{Node, stringify_boolean};
+use xml_builder::{Attribute, Element};
 
 #[macro_export]
 macro_rules! soap_ns {
@@ -19,6 +17,12 @@ pub trait SoapBodys<'a>: IntoIterator<Item = Element<'a>> {}
 pub struct SoapBuilder<'a> {
     header_nodes: Vec<Element<'a>>,
     body_nodes: Vec<Element<'a>>,
+}
+
+impl<'a> Default for SoapBuilder<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> SoapBuilder<'a> {
@@ -60,47 +64,44 @@ impl<'a> SoapBuilder<'a> {
     }
 }
 
+pub trait NodeValue<'a> {
+    fn into_element(self, name: &'static str) -> Element<'a>;
+}
+
 #[derive(Debug, Clone)]
 pub struct Header<'a, T>
 where
-    T: Node<'a>,
+    T: NodeValue<'a>,
 {
-    pub node: T,
+    pub value: T,
     pub must_understand: bool,
 
-    __phantom: std::marker::PhantomData<&'a ()>,
+    pub _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a, T> Into<Element<'a>> for Header<'a, T>
+impl<'a, T> NodeValue<'a> for Header<'a, T>
 where
-    T: Node<'a>,
+    T: NodeValue<'a>,
 {
-    fn into(self) -> Element<'a> {
-        self.into_element()
-    }
-}
-
-impl<'a, T> Node<'a> for Header<'a, T>
-where
-    T: Node<'a>,
-{
-    fn into_element(self) -> Element<'a> {
-        self.node.into_element().add_attribute(
-            xml_builder::Attribute::new("MustUnderstand", stringify_boolean(self.must_understand))
-                .set_namespace(soap_ns!()),
-        )
+    fn into_element(self, name: &'static str) -> Element<'a> {
+        let mut element = self.value.into_element(name);
+        if self.must_understand {
+            element = element
+                .add_attribute(Attribute::new("mustUnderstand", "true").set_namespace(soap_ns!()));
+        }
+        element
     }
 }
 
 impl<'a, T> Header<'a, T>
 where
-    T: Node<'a>,
+    T: NodeValue<'a>,
 {
-    pub fn new(node: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self {
-            node,
+            value,
             must_understand: false,
-            __phantom: std::marker::PhantomData,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -113,9 +114,9 @@ where
 impl<'a> From<&'a str> for Header<'a, &'a str> {
     fn from(value: &'a str) -> Self {
         Header {
-            node: value,
+            value,
             must_understand: false,
-            __phantom: std::marker::PhantomData,
+            _phantom: std::marker::PhantomData,
         }
     }
 }

@@ -9,6 +9,11 @@ pub fn main() {
                 .message_id("urn:uuid:12345678-1234-5678-1234-567812345678")
                 .build(),
         )
+        .add_header_nodes(
+            protocol::ws_management::headers_builder()
+                .resource_uri("resource_uri".must_understand())
+                .build(),
+        )
         .build()
         .expect("Failed to build SOAP message");
 

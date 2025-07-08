@@ -1,8 +1,8 @@
-use std::{collections::HashSet, vec};
+use std::collections::HashSet;
 
 use xml_builder::Element;
 
-use crate::{Node, opt_header, soap::Header};
+use crate::soap::{Header, NodeValue};
 
 pub const WSMAN_NAMESPACE: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
 pub const WSMAN_NAMESPACE_ALIAS: &str = "w";
@@ -18,27 +18,6 @@ pub fn headers_builder<'a>() -> WsManagementHeaderBuilder<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResourceUri<'a> {
-    uri: &'a str,
-}
-
-impl<'a> ResourceUri<'a> {
-    pub fn new(uri: &'a str) -> Self {
-        Self { uri }
-    }
-}
-
-impl<'a> Node<'a> for ResourceUri<'a> {
-    fn into_element(self) -> Element<'a> {
-        let element = Element::new("ResourceURI")
-            .set_namespace(namespace!())
-            .set_text(self.uri);
-
-        element
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct SelectorSet<'a> {
     selectors: HashSet<&'a str>,
 }
@@ -49,9 +28,9 @@ impl<'a> SelectorSet<'a> {
     }
 }
 
-impl<'a> Node<'a> for SelectorSet<'a> {
-    fn into_element(self) -> Element<'a> {
-        let mut element = Element::new("SelectorSet").set_namespace(namespace!());
+impl<'a> NodeValue<'a> for SelectorSet<'a> {
+    fn into_element(self, name: &'static str) -> Element<'a> {
+        let mut element = Element::new(name).set_namespace(namespace!());
 
         for selector in self.selectors {
             element = element.add_child(
@@ -76,9 +55,9 @@ impl<'a> OptionSet<'a> {
     }
 }
 
-impl<'a> Node<'a> for OptionSet<'a> {
-    fn into_element(self) -> Element<'a> {
-        let mut element = Element::new("OptionSet").set_namespace(namespace!());
+impl<'a> NodeValue<'a> for OptionSet<'a> {
+    fn into_element(self, name: &'static str) -> Element<'a> {
+        let mut element = Element::new(name).set_namespace(namespace!());
 
         for option in self.options {
             element = element.add_child(
@@ -94,24 +73,25 @@ impl<'a> Node<'a> for OptionSet<'a> {
 
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsManagementHeader<'a> {
-    pub resource_uri: Header<'a, ResourceUri<'a>>, // This should be a set to allow multiple URIs
-    #[builder(default)]
+    #[builder(setter(into))]
+    pub resource_uri: Header<'a, &'a str>, // This should be a set to allow multiple URIs
+    #[builder(default, setter(into))]
     pub selector_set: Option<Header<'a, SelectorSet<'a>>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub option_set: Option<Header<'a, OptionSet<'a>>>, // TODO: Implement as a complex type if needed
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub operation_timeout: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub max_envelope_size: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub locale: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub data_locale: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub sequence_id: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub operation_id: Option<Header<'a, &'a str>>,
-    #[builder(default)]
+    #[builder(default, setter(into))]
     pub fragment_transfer: Option<Header<'a, &'a str>>,
 }
 
@@ -121,26 +101,50 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let mut elements = vec![self.resource_uri.into_element()];
+        let WsManagementHeader {
+            resource_uri,
+            selector_set,
+            option_set,
+            operation_timeout,
+            max_envelope_size,
+            locale,
+            data_locale,
+            sequence_id,
+            operation_id,
+            fragment_transfer,
+        } = self;
 
-        opt_header!(
-            elements,
-            self.selector_set,
-            self.option_set,
-            self.operation_timeout,
-            self.max_envelope_size,
-            self.locale,
-            self.data_locale,
-            self.sequence_id,
-            self.operation_id,
-            self.fragment_transfer,
-        );
+        let resource_uri = resource_uri.into_element("ResourceURI");
+        let selector_set = selector_set.map(|s| s.into_element("SelectorSet"));
+        let option_set = option_set.map(|o| o.into_element("OptionSet"));
+        let operation_timeout =
+            operation_timeout.map(|o| o.into_element("OperationTimeout"));
+        let max_envelope_size =
+            max_envelope_size.map(|m| m.into_element("MaxEnvelopeSize"));
+        let locale = locale.map(|l| l.into_element("Locale"));
+        let data_locale = data_locale.map(|d| d.into_element("DataLocale"));
+        let sequence_id = sequence_id.map(|s| s.into_element("SequenceID"));
+        let operation_id = operation_id.map(|o| o.into_element("OperationID"));
+        let fragment_transfer =
+            fragment_transfer.map(|f| f.into_element("FragmentTransfer"));
 
-        elements
-            .into_iter()
-            .map(|e| e.set_namespace(namespace!()))
-            .collect::<Vec<_>>()
-            .into_iter()
+        let elements = [
+            Some(resource_uri),
+            selector_set,
+            option_set,
+            operation_timeout,
+            max_envelope_size,
+            locale,
+            data_locale,
+            sequence_id,
+            operation_id,
+            fragment_transfer,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|e| e.set_namespace(namespace!()))
+        .collect::<Vec<_>>();
+        elements.into_iter()
     }
 }
 

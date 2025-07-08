@@ -25,7 +25,7 @@ Protocol::soap_builder()
 
 use xml_builder::Element;
 
-use crate::soap::Header;
+use crate::soap::{Header, NodeValue};
 
 pub mod error;
 pub(crate) mod macros;
@@ -37,35 +37,29 @@ pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
 
 // We define into_element ourself to avoid Orphan rules
 // For example, if we want implement `Node` for `&str`, we cannot do it directly
-pub trait Node<'element> {
-    fn into_element(self) -> Element<'element>;
-}
-
 pub trait MustUnderstand<'a, T>
 where
-    T: Node<'a>,
+    T: NodeValue<'a>,
 {
     fn must_understand(self) -> Header<'a, T>;
 }
 
-impl<'a, TNode, THeader> MustUnderstand<'a, TNode> for THeader
+impl<'a, TNodeValue, THeader> MustUnderstand<'a, TNodeValue> for THeader
 where
-    TNode: Node<'a>,
-    THeader: Into<Header<'a, TNode>>,
+    TNodeValue: NodeValue<'a>,
+    THeader: Into<Header<'a, TNodeValue>>,
 {
-    fn must_understand(self) -> Header<'a, TNode> {
+    fn must_understand(self) -> Header<'a, TNodeValue> {
         let mut header = self.into();
         header.must_understand = true;
         header
     }
 }
 
-impl<'a> Node<'a> for &'a str {
-    fn into_element(self) -> Element<'a> {
-        Element::new(self)
+impl<'a> NodeValue<'a> for &'a str {
+    fn into_element(self, name: &'static str) -> Element<'a> {
+        let mut element = Element::new(name);
+        element.with_text(self);
+        element
     }
-}
-
-const fn stringify_boolean(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
 }
