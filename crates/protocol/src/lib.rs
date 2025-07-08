@@ -23,17 +23,49 @@ Protocol::soap_builder()
 
 */
 
+use xml_builder::Element;
+
+use crate::soap::Header;
+
 pub mod error;
+pub(crate) mod macros;
 pub mod soap;
 pub mod ws_addressing;
+pub mod ws_management;
 
 pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
 
-pub trait Node {
-    fn node_name(&self) -> &str;
-    fn namespace(&self) -> Option<&str>;
-    fn serialize(&self, namespace_alias: Option<&str>) -> String;
+// We define into_element ourself to avoid Orphan rules
+// For example, if we want implement `Node` for `&str`, we cannot do it directly
+pub trait Node<'element> {
+    fn into_element(self) -> Element<'element>;
 }
 
-pub trait SoapHeader: Node {}
-pub trait SoapBody: Node {}
+pub trait MustUnderstand<'a, T>
+where
+    T: Node<'a>,
+{
+    fn must_understand(self) -> Header<'a, T>;
+}
+
+impl<'a, TNode, THeader> MustUnderstand<'a, TNode> for THeader
+where
+    TNode: Node<'a>,
+    THeader: Into<Header<'a, TNode>>,
+{
+    fn must_understand(self) -> Header<'a, TNode> {
+        let mut header = self.into();
+        header.must_understand = true;
+        header
+    }
+}
+
+impl<'a> Node<'a> for &'a str {
+    fn into_element(self) -> Element<'a> {
+        Element::new(self)
+    }
+}
+
+const fn stringify_boolean(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
+}

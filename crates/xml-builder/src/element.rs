@@ -2,7 +2,18 @@ use std::collections::HashSet;
 
 use crate::{Attribute, Namespace};
 
+#[derive(Debug, Clone)]
+pub enum Content<'a> {
+    /// Represents a text content within an XML element.
+    Text(&'a str),
+    /// Represents a child element within an XML element.
+    Elements(Vec<Element<'a>>),
+
+    None,
+}
+
 /// Represents an XML element.
+#[derive(Debug, Clone)]
 pub struct Element<'a> {
     /// The name of the element.
     name: &'a str,
@@ -11,7 +22,7 @@ pub struct Element<'a> {
     /// The attributes of the element.
     attributes: Vec<Attribute<'a>>,
     /// The child elements of the element.
-    children: Vec<Element<'a>>,
+    content: Content<'a>,
 }
 
 impl<'a> Element<'a> {
@@ -32,7 +43,7 @@ impl<'a> Element<'a> {
             name,
             namespace: None,
             attributes: Vec::new(),
-            children: Vec::new(),
+            content: Content::None,
         }
     }
 
@@ -54,13 +65,21 @@ impl<'a> Element<'a> {
         self
     }
 
-    pub(crate) fn get_namespaces(&self, namspace_set: &mut HashSet<Namespace<'a>>) {
-        for child in &self.children {
-            child.get_namespaces(namspace_set);
+    pub(crate) fn get_namespaces(&self, namespaces_set: &mut HashSet<Namespace<'a>>) {
+        if let Some(namespace) = &self.namespace {
+            if !namespaces_set.contains(namespace) {
+                namespaces_set.insert(namespace.to_owned());
+            }
         }
 
-        if let Some(namespace) = &self.namespace {
-            namspace_set.insert(namespace.clone());
+        if let Content::Elements(children) = &self.content {
+            for child in children {
+                child.get_namespaces(namespaces_set);
+            }
+        }
+
+        for attribute in &self.attributes {
+            attribute.get_namespaces(namespaces_set);
         }
     }
 
@@ -97,7 +116,40 @@ impl<'a> Element<'a> {
     ///     .add_child(child);
     /// ```
     pub fn add_child(mut self, child: Element<'a>) -> Self {
-        self.children.push(child);
+        match self.content {
+            Content::None | Content::Text(_) => {
+                self.content = Content::Elements(vec![child]);
+            }
+            Content::Elements(ref mut children) => {
+                children.push(child);
+            }
+        }
+        self
+    }
+
+    pub fn add_children(mut self, children: Vec<Element<'a>>) -> Self {
+        for child in children {
+            self = self.add_child(child);
+        }
+        self
+    }
+
+    /// Sets the text content of the element and returns a modified `Element`.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text content to be set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml_builder::Element;   
+    /// let element = Element::new("root")
+    ///    .set_text("This is some text content.");
+    ///     
+    /// ```
+    pub fn set_text(mut self, text: &'a str) -> Self {
+        self.content = Content::Text(text);
         self
     }
 }
@@ -116,17 +168,23 @@ impl std::fmt::Display for Element<'_> {
             write!(f, " {attribute}")?;
         }
 
-        if self.children.is_empty() {
-            write!(f, "/>")?;
-        } else {
-            writeln!(f, ">")?;
-            for child in &self.children {
-                let child_string = child.to_string();
-                for line in child_string.lines() {
-                    writeln!(f, "    {line}")?;
-                }
+        match &self.content {
+            Content::None => {
+                write!(f, "/>")?;
             }
-            write!(f, "</{name}>")?;
+            Content::Text(value) => {
+                write!(f, ">{value}</{name}>")?;
+            }
+            Content::Elements(children) => {
+                writeln!(f, ">")?;
+                for child in children {
+                    let child_string = child.to_string();
+                    for line in child_string.lines() {
+                        writeln!(f, "    {line}")?;
+                    }
+                }
+                write!(f, "</{name}>")?;
+            }
         }
         Ok(())
     }
@@ -160,6 +218,8 @@ impl std::fmt::Display for RootElement<'_> {
         let mut namespace_set = HashSet::new();
         self.element.get_namespaces(&mut namespace_set);
 
+        // Assemble the name with namespace if it exists
+        // For example, <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
         let name = if let Some(namespace) = &self.element.namespace {
             namespace.alias.to_string() + ":" + self.element.name
         } else {
@@ -175,17 +235,23 @@ impl std::fmt::Display for RootElement<'_> {
             write!(f, " {attribute}")?;
         }
 
-        if self.element.children.is_empty() {
-            write!(f, "/>")?;
-        } else {
-            writeln!(f, ">")?;
-            for child in &self.element.children {
-                let child_string = child.to_string();
-                for line in child_string.lines() {
-                    writeln!(f, "    {line}")?;
-                }
+        match &self.element.content {
+            Content::None => {
+                write!(f, "/>")?;
             }
-            write!(f, "</{name}>")?;
+            Content::Text(value) => {
+                write!(f, ">{value}</{name}>")?;
+            }
+            Content::Elements(children) => {
+                writeln!(f, ">")?;
+                for child in children {
+                    let child_string = child.to_string();
+                    for line in child_string.lines() {
+                        writeln!(f, "    {line}")?;
+                    }
+                }
+                write!(f, "</{name}>")?;
+            }
         }
         Ok(())
     }
