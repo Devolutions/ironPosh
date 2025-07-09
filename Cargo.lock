@@ -175,7 +175,7 @@ dependencies = [
  "hyper",
  "thiserror",
  "typed-builder",
- "xml-builder",
+ "xml",
 ]
 
 [[package]]
@@ -186,6 +186,12 @@ checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rustc-demangle"
@@ -350,5 +356,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
-name = "xml-builder"
+name = "xml"
 version = "0.1.0"
+dependencies = [
+ "roxmltree",
+]

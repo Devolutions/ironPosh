@@ -1,6 +1,6 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use crate::{Attribute, Namespace};
+use crate::builder::{Attribute, Namespace, NamespaceFmt};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -35,7 +35,7 @@ impl<'a> Element<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Element;
+    /// use xml::builder::Element;
     /// let element = Element::new("root");
     /// ```
     pub fn new(name: &'a str) -> Self {
@@ -56,31 +56,13 @@ impl<'a> Element<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::{Element, Namespace};
+    /// use xml::builder::{Element, Namespace};
     /// let element = Element::new("root")
     ///     .set_namespace(Namespace::new("name", "http://example.com"));
     /// ```
     pub fn set_namespace(mut self, namespace: Namespace<'a>) -> Self {
         self.namespace = Some(namespace);
         self
-    }
-
-    pub(crate) fn get_namespaces(&self, namespaces_set: &mut HashSet<Namespace<'a>>) {
-        if let Some(namespace) = &self.namespace {
-            if !namespaces_set.contains(namespace) {
-                namespaces_set.insert(namespace.to_owned());
-            }
-        }
-
-        if let Content::Elements(children) = &self.content {
-            for child in children {
-                child.get_namespaces(namespaces_set);
-            }
-        }
-
-        for attribute in &self.attributes {
-            attribute.get_namespaces(namespaces_set);
-        }
     }
 
     /// Adds an attribute to the element and returns a modified `Element`.
@@ -92,7 +74,7 @@ impl<'a> Element<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::{Element, Attribute};
+    /// use xml::builder::{Element, Attribute};
     /// let element = Element::new("root")
     ///     .add_attribute(Attribute::new("attr1", "value1"));
     /// ```
@@ -110,7 +92,7 @@ impl<'a> Element<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Element;
+    /// use xml::builder::Element;
     /// let child = Element::new("child");
     /// let element = Element::new("root")
     ///     .add_child(child);
@@ -143,7 +125,7 @@ impl<'a> Element<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Element;   
+    /// use xml::builder::Element;   
     /// let element = Element::new("root")
     ///    .set_text("This is some text content.");
     ///     
@@ -159,18 +141,28 @@ impl<'a> Element<'a> {
     }
 }
 
-impl std::fmt::Display for Element<'_> {
+impl crate::builder::NamespaceFmt for Element<'_> {
     /// Formats the element and its content as an XML string.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = if let Some(namespace) = &self.namespace {
-            namespace.alias.to_string() + ":" + self.name
+    fn ns_fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        namespaces_map: &HashMap<Namespace<'_>, &str>,
+    ) -> std::fmt::Result {
+        let alias = self
+            .namespace
+            .as_ref()
+            .and_then(|ns| namespaces_map.get(ns));
+
+        let name = if let Some(alias) = alias {
+            format!("{}:{}", alias, self.name)
         } else {
             self.name.to_string()
         };
+
         write!(f, "<{name}")?;
 
         for attribute in &self.attributes {
-            write!(f, " {attribute}")?;
+            attribute.ns_fmt(f, namespaces_map)?;
         }
 
         match &self.content {
@@ -183,10 +175,10 @@ impl std::fmt::Display for Element<'_> {
             Content::Elements(children) => {
                 writeln!(f, ">")?;
                 for child in children {
-                    let child_string = child.to_string();
-                    for line in child_string.lines() {
-                        writeln!(f, "    {line}")?;
-                    }
+                    // Write indented XML using recursive call
+                    write!(f, "    ")?; // indent
+                    child.ns_fmt(f, namespaces_map)?; // recursive call
+                    writeln!(f)?; // newline
                 }
                 write!(f, "</{name}>")?;
             }
@@ -197,6 +189,7 @@ impl std::fmt::Display for Element<'_> {
 
 pub struct RootElement<'a> {
     element: Element<'a>,
+    namespaces: HashMap<Namespace<'a>, &'a str>,
 }
 
 impl<'a> RootElement<'a> {
@@ -209,35 +202,46 @@ impl<'a> RootElement<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::{Element, RootElement};
+    /// use xml::builder::{Element, RootElement};
     /// let element = Element::new("root");
     /// let root_element = RootElement::new(element);
     /// ```
     pub fn new(element: Element<'a>) -> Self {
-        RootElement { element }
+        RootElement {
+            element,
+            namespaces: HashMap::new(),
+        }
+    }
+
+    pub fn set_alias(mut self, namespace: &'a str, alias: &'a str) -> Self {
+        self.namespaces.insert(Namespace::new(namespace), alias);
+        self
     }
 }
 
 impl std::fmt::Display for RootElement<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut namespace_set = HashSet::new();
-        self.element.get_namespaces(&mut namespace_set);
+        let alias = self
+            .element
+            .namespace
+            .as_ref()
+            .and_then(|ns| self.namespaces.get(ns));
 
         // Assemble the name with namespace if it exists
         // For example, <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-        let name = if let Some(namespace) = &self.element.namespace {
-            namespace.alias.to_string() + ":" + self.element.name
+        let name = if let Some(alias) = &alias {
+            alias.to_string() + ":" + self.element.name
         } else {
             self.element.name.to_string()
         };
         write!(f, "<{name}")?;
 
-        for namespace in &namespace_set {
-            write!(f, " xmlns:{}=\"{}\"", namespace.alias, namespace.url)?;
+        for (url, alias) in &self.namespaces {
+            write!(f, " xmlns:{alias}=\"{url}\"")?;
         }
 
         for attribute in &self.element.attributes {
-            write!(f, " {attribute}")?;
+            attribute.ns_fmt(f, &self.namespaces)?;
         }
 
         match &self.element.content {
@@ -250,10 +254,10 @@ impl std::fmt::Display for RootElement<'_> {
             Content::Elements(children) => {
                 writeln!(f, ">")?;
                 for child in children {
-                    let child_string = child.to_string();
-                    for line in child_string.lines() {
-                        writeln!(f, "    {line}")?;
-                    }
+                    // Write indented XML using recursive call
+                    write!(f, "    ")?; // indent
+                    child.ns_fmt(f, &self.namespaces)?; // recursive call
+                    writeln!(f)?; // newline
                 }
                 write!(f, "</{name}>")?;
             }

@@ -1,9 +1,18 @@
-use xml_builder::{Attribute, Element};
+pub mod header;
+pub use header::*;
+use xml::builder::Element;
 
+use crate::{
+    ws_addressing::{WSA_NAMESPACE, WSA_NAMESPACE_ALIAS},
+    ws_management::WSMAN_NAMESPACE,
+};
+
+pub const SOAP_NAMESPACE: &str = "http://schemas.xmlsoap.org/soap/envelope/";
+pub const SOAP_ALIAS: &str = "s";
 #[macro_export]
 macro_rules! soap_ns {
     () => {
-        xml_builder::Namespace::new("s", "http://schemas.xmlsoap.org/soap/envelope/")
+        xml::builder::Namespace::new(crate::soap::SOAP_NAMESPACE)
     };
 }
 
@@ -58,65 +67,18 @@ impl<'a> SoapBuilder<'a> {
                     .add_children(self.body_nodes),
             );
 
-        let builder = xml_builder::Builder::new(None, xml_builder::RootElement::new(root_element));
+        let builder = xml::builder::Builder::new(
+            None,
+            xml::builder::RootElement::new(root_element)
+                .set_alias(SOAP_NAMESPACE, SOAP_ALIAS)
+                .set_alias(WSA_NAMESPACE, WSA_NAMESPACE_ALIAS)
+                .set_alias(WSMAN_NAMESPACE, WSA_NAMESPACE_ALIAS),
+        );
 
         Ok(builder.to_string())
     }
 }
 
-pub trait NodeValue<'a> {
+pub trait Value<'a> {
     fn into_element(self, name: &'static str) -> Element<'a>;
-}
-
-#[derive(Debug, Clone)]
-pub struct Header<'a, T>
-where
-    T: NodeValue<'a>,
-{
-    pub value: T,
-    pub must_understand: bool,
-
-    pub _phantom: std::marker::PhantomData<&'a ()>,
-}
-
-impl<'a, T> NodeValue<'a> for Header<'a, T>
-where
-    T: NodeValue<'a>,
-{
-    fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = self.value.into_element(name);
-        if self.must_understand {
-            element = element
-                .add_attribute(Attribute::new("mustUnderstand", "true").set_namespace(soap_ns!()));
-        }
-        element
-    }
-}
-
-impl<'a, T> Header<'a, T>
-where
-    T: NodeValue<'a>,
-{
-    pub fn new(value: T) -> Self {
-        Self {
-            value,
-            must_understand: false,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-
-    pub fn must_understand(mut self) -> Self {
-        self.must_understand = true;
-        self
-    }
-}
-
-impl<'a> From<&'a str> for Header<'a, &'a str> {
-    fn from(value: &'a str) -> Self {
-        Header {
-            value,
-            must_understand: false,
-            _phantom: std::marker::PhantomData,
-        }
-    }
 }

@@ -15,11 +15,11 @@ pub use self::declaration::*;
 pub use self::element::*;
 pub use self::namespace::*;
 
-pub trait ElementFmt {
-    fn serialize(
+pub trait NamespaceFmt {
+    fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        namespace_alias_map: HashMap<String, String>,
+        namespaces_alias_map: &HashMap<Namespace<'_>, &str>,
     ) -> std::fmt::Result;
 }
 
@@ -67,8 +67,7 @@ mod tests {
 
     #[test]
     fn test_xml_with_namespaces() {
-        let element =
-            Element::new("root").set_namespace(Namespace::new("ns1", "http://example.com/ns1"));
+        let element = Element::new("root").set_namespace(Namespace::new("http://example.com/ns1"));
         let root_element = RootElement::new(element);
         let builder = Builder::new(None, root_element);
         let xml_string = builder.to_string();
@@ -82,10 +81,10 @@ mod tests {
     fn test_full_xml_document() {
         let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
         let child = Element::new("child")
-            .set_namespace(Namespace::new("ns2", "http://example.com/ns2"))
+            .set_namespace(Namespace::new("http://example.com/ns2"))
             .add_attribute(Attribute::new("attr2", "value2"));
         let element = Element::new("root")
-            .set_namespace(Namespace::new("ns1", "http://example.com/ns1"))
+            .set_namespace(Namespace::new("http://example.com/ns1"))
             .add_attribute(Attribute::new("attr1", "value1"))
             .add_child(child);
         let root_element = RootElement::new(element);

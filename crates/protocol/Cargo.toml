@@ -7,4 +7,4 @@ edition = "2024"
 hyper = "1.6.0"
 thiserror = "2.0.12"
 typed-builder = "0.21.0"
-xml-builder = { path = "../xml-builder" }
+xml = { path = "../xml" }

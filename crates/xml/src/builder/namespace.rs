@@ -1,15 +1,22 @@
+use core::fmt;
 use std::hash::Hash;
 
 /// Represents a namespace in XML.
 #[derive(Debug, Clone, Eq)]
 pub struct Namespace<'a> {
     pub url: &'a str,
-    pub alias: &'a str,
 }
 
 impl PartialEq for Namespace<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
+    }
+}
+
+impl fmt::Display for Namespace<'_> {
+    /// Formats the namespace as a string in the format `xmlns:prefix="uri"`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.url.fmt(f)
     }
 }
 
@@ -30,13 +37,10 @@ impl<'a> Namespace<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Namespace;
+    /// use xml::builder::Namespace;
     /// let namespace = Namespace::new("xmlns", "http://example.com");
     /// ```
-    pub fn new(prefix: &'a str, uri: &'a str) -> Self {
-        Namespace {
-            url: uri,
-            alias: prefix,
-        }
+    pub fn new(uri: &'a str) -> Self {
+        Namespace { url: uri }
     }
 }

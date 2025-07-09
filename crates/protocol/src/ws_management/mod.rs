@@ -1,15 +1,15 @@
 use std::collections::HashSet;
 
-use xml_builder::Element;
+use xml::builder::Element;
 
-use crate::soap::{Header, NodeValue};
+use crate::soap::{Header, Value};
 
 pub const WSMAN_NAMESPACE: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
 pub const WSMAN_NAMESPACE_ALIAS: &str = "w";
 
-macro_rules! namespace {
+macro_rules! wsman_ns {
     () => {
-        xml_builder::Namespace::new(WSMAN_NAMESPACE_ALIAS, WSMAN_NAMESPACE)
+        xml::builder::Namespace::new(WSMAN_NAMESPACE)
     };
 }
 
@@ -28,14 +28,14 @@ impl<'a> SelectorSet<'a> {
     }
 }
 
-impl<'a> NodeValue<'a> for SelectorSet<'a> {
+impl<'a> Value<'a> for SelectorSet<'a> {
     fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace(namespace!());
+        let mut element = Element::new(name).set_namespace(wsman_ns!());
 
         for selector in self.selectors {
             element = element.add_child(
                 Element::new("Selector")
-                    .set_namespace(namespace!())
+                    .set_namespace(wsman_ns!())
                     .set_text(selector),
             );
         }
@@ -55,14 +55,14 @@ impl<'a> OptionSet<'a> {
     }
 }
 
-impl<'a> NodeValue<'a> for OptionSet<'a> {
+impl<'a> Value<'a> for OptionSet<'a> {
     fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace(namespace!());
+        let mut element = Element::new(name).set_namespace(wsman_ns!());
 
         for option in self.options {
             element = element.add_child(
                 Element::new("Option")
-                    .set_namespace(namespace!())
+                    .set_namespace(wsman_ns!())
                     .set_text(option),
             );
         }
@@ -96,7 +96,7 @@ pub struct WsManagementHeader<'a> {
 }
 
 impl<'a> IntoIterator for WsManagementHeader<'a> {
-    type Item = xml_builder::Element<'a>;
+    type Item = xml::builder::Element<'a>;
 
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -142,7 +142,7 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
         ]
         .into_iter()
         .flatten()
-        .map(|e| e.set_namespace(namespace!()))
+        .map(|e| e.set_namespace(wsman_ns!()))
         .collect::<Vec<_>>();
         elements.into_iter()
     }

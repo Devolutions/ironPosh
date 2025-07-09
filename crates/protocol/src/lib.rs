@@ -23,9 +23,9 @@ Protocol::soap_builder()
 
 */
 
-use xml_builder::Element;
+use xml::builder::Element;
 
-use crate::soap::{Header, NodeValue};
+use crate::soap::{Header, Value};
 
 pub mod error;
 pub(crate) mod macros;
@@ -39,14 +39,14 @@ pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
 // For example, if we want implement `Node` for `&str`, we cannot do it directly
 pub trait MustUnderstand<'a, T>
 where
-    T: NodeValue<'a>,
+    T: Value<'a>,
 {
     fn must_understand(self) -> Header<'a, T>;
 }
 
 impl<'a, TNodeValue, THeader> MustUnderstand<'a, TNodeValue> for THeader
 where
-    TNodeValue: NodeValue<'a>,
+    TNodeValue: Value<'a>,
     THeader: Into<Header<'a, TNodeValue>>,
 {
     fn must_understand(self) -> Header<'a, TNodeValue> {
@@ -56,7 +56,7 @@ where
     }
 }
 
-impl<'a> NodeValue<'a> for &'a str {
+impl<'a> Value<'a> for &'a str {
     fn into_element(self, name: &'static str) -> Element<'a> {
         let mut element = Element::new(name);
         element.with_text(self);

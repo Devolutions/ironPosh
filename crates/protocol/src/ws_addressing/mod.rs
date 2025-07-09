@@ -1,11 +1,13 @@
-
-use crate::{
-    Element,
-    soap::{Header, NodeValue},
-};
+use crate::soap::{Header, Value};
 
 pub const WSA_NAMESPACE: &str = "http://www.w3.org/2005/08/addressing";
 pub const WSA_NAMESPACE_ALIAS: &str = "a";
+
+macro_rules! wsa_ns {
+    () => {
+        xml::builder::Namespace::new(WSA_NAMESPACE)
+    };
+}
 
 pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {
     WsAddressingHeaders::builder()
@@ -31,7 +33,7 @@ pub struct WsAddressingHeaders<'a> {
 }
 
 impl<'a> IntoIterator for WsAddressingHeaders<'a> {
-    type Item = xml_builder::Element<'a>;
+    type Item = xml::builder::Element<'a>;
 
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
@@ -65,13 +67,7 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
         ]
         .into_iter()
         .flatten()
-        .map(|node| {
-            node
-                .set_namespace(xml_builder::Namespace::new(
-                    WSA_NAMESPACE_ALIAS,
-                    WSA_NAMESPACE,
-                ))
-        })
+        .map(|node| node.set_namespace(wsa_ns!()))
         .collect::<Vec<_>>();
 
         elements.into_iter()

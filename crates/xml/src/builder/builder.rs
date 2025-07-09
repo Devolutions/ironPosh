@@ -1,4 +1,4 @@
-use crate::{Declaration, RootElement};
+use crate::builder::{Declaration, RootElement};
 
 /// Represents a builder for constructing an XML document.
 pub struct Builder<'a> {
@@ -19,7 +19,7 @@ impl<'a> Builder<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::{Builder, Declaration, Element, RootElement};
+    /// use xml::builder::{Builder, Declaration, Element, RootElement};
     /// let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
     /// let element = Element::new("root");
     /// let root_element = RootElement::new(element);

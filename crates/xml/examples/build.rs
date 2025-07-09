@@ -1,4 +1,4 @@
-use xml_builder::{Attribute, Builder, Declaration, Element, Namespace, RootElement};
+use xml::builder::{Attribute, Builder, Declaration, Element, Namespace, RootElement};
 
 fn main() {
     // Create an XML declaration
@@ -10,7 +10,7 @@ fn main() {
         .add_attribute(Attribute::new("attr2", "value2"))
         .add_child(
             Element::new("child1")
-                .set_namespace(Namespace::new("ns", "http://example.com/ns"))
+                .set_namespace(Namespace::new("http://example.com/ns"))
                 .add_child(
                     Element::new("grandchild").add_attribute(Attribute::new("attr", "value")),
                 ),
@@ -18,7 +18,10 @@ fn main() {
         .add_child(Element::new("child2"));
 
     // Create a builder with the declaration and element
-    let builder = Builder::new(Some(declaration), RootElement::new(element));
+    let builder = Builder::new(
+        Some(declaration),
+        RootElement::new(element).set_alias("http://example.com/ns", "ns"),
+    );
 
     // Print the XML document
     println!("{}", builder.to_string());

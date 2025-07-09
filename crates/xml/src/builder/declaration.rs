@@ -19,7 +19,7 @@ impl<'a> Declaration<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Declaration;
+    /// use xml::builder::Declaration;
     /// let declaration = Declaration::new("1.0", "UTF-8");
     /// ```
     pub fn new(version: &'a str, encoding: &'a str) -> Self {
@@ -39,7 +39,7 @@ impl<'a> Declaration<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Declaration;
+    /// use xml::builder::Declaration;
     /// let declaration = Declaration::new("1.0", "UTF-8")
     ///     .with_standalone(true);
     /// ```
@@ -59,12 +59,7 @@ impl<'a> std::fmt::Display for Declaration<'a> {
         )?;
 
         if let Some(standalone) = self.standalone {
-            let standalone_as_string = if standalone {
-                "yes"
-            }
-            else {
-                "no"
-            };
+            let standalone_as_string = if standalone { "yes" } else { "no" };
 
             write!(f, r#" standalone="{standalone_as_string}""#)?;
         }

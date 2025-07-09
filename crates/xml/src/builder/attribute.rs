@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /// Represents an XML attribute with a name and value.
 #[derive(Debug, Clone)]
 pub struct Attribute<'a> {
@@ -6,7 +8,7 @@ pub struct Attribute<'a> {
     /// The value of the attribute.
     value: &'a str,
 
-    namespace: Option<crate::Namespace<'a>>,
+    namespace: Option<crate::builder::Namespace<'a>>,
 }
 
 impl<'a> Attribute<'a> {
@@ -20,7 +22,7 @@ impl<'a> Attribute<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml_builder::Attribute;
+    /// use xml::builder::Attribute;
     /// let attribute = Attribute::new("name", "value");
     /// ```
     pub fn new(name: &'a str, value: &'a str) -> Self {
@@ -31,14 +33,14 @@ impl<'a> Attribute<'a> {
         }
     }
 
-    pub fn set_namespace(mut self, namespace: crate::Namespace<'a>) -> Self {
+    pub fn set_namespace(mut self, namespace: crate::builder::Namespace<'a>) -> Self {
         self.namespace = Some(namespace);
         self
     }
 
     pub fn get_namespaces(
         &self,
-        namespaces_set: &mut std::collections::HashSet<crate::Namespace<'a>>,
+        namespaces_set: &mut std::collections::HashSet<crate::builder::Namespace<'a>>,
     ) {
         if let Some(namespace) = &self.namespace {
             namespaces_set.insert(namespace.clone());
@@ -46,15 +48,26 @@ impl<'a> Attribute<'a> {
     }
 }
 
-impl std::fmt::Display for Attribute<'_> {
+impl crate::builder::NamespaceFmt for Attribute<'_> {
     /// Formats the attribute as a string in the format `name="value"`.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(namespace) = &self.namespace {
-            write!(f, "{}:{}", namespace.alias, self.name)?;
+    fn ns_fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        alias_map: &HashMap<crate::builder::Namespace<'_>, &str>,
+    ) -> std::fmt::Result {
+        let namespace_alias = self
+            .namespace
+            .as_ref()
+            .and_then(|ns| alias_map.get(ns))
+            .copied();
+
+        let name = if let Some(alias) = namespace_alias {
+            format!("{}:{}", alias, self.name)
         } else {
-            write!(f, "{}", self.name)?;
-        }
-        write!(f, "{}=\"{}\"", self.name, self.value)?;
+            self.name.to_string()
+        };
+
+        write!(f, " {}=\"{}\"", name, self.value)?; // This line duplicates the name!
         Ok(())
     }
 }
