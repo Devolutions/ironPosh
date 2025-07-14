@@ -1,8 +1,8 @@
 use xml::{XmlError, parser::Node};
 
 use crate::{
-    must_be_text,
-    soap::{Header, Value},
+    define_tagname, must_be_text,
+    traits::{MustUnderstand, Tag, Tag1},
 };
 
 pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
@@ -18,23 +18,31 @@ pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {
     WsAddressingHeaders::builder()
 }
 
+define_tagname!(Action, Some(WSA_NAMESPACE));
+define_tagname!(To, Some(WSA_NAMESPACE));
+define_tagname!(MessageID, Some(WSA_NAMESPACE));
+define_tagname!(RelatesTo, Some(WSA_NAMESPACE));
+define_tagname!(ReplyTo, Some(WSA_NAMESPACE));
+define_tagname!(FaultTo, Some(WSA_NAMESPACE));
+define_tagname!(From, Some(WSA_NAMESPACE));
+
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsAddressingHeaders<'a> {
     #[builder(setter(into))]
-    pub action: Header<'a, &'a str>,
+    pub action: Tag1<'a, &'a str, Action, MustUnderstand>,
     #[builder(setter(into))]
-    pub to: Header<'a, &'a str>,
+    pub to: Tag<'a, &'a str, To>,
     #[builder(setter(into))]
-    pub message_id: Header<'a, &'a str>,
+    pub message_id: Tag<'a, &'a str, MessageID>,
 
     #[builder(default, setter(into))]
-    pub relates_to: Option<Header<'a, &'a str>>,
+    pub relates_to: Option<Tag<'a, &'a str, RelatesTo>>,
     #[builder(default, setter(into))]
-    pub reply_to: Option<Header<'a, &'a str>>,
+    pub reply_to: Option<Tag<'a, &'a str, ReplyTo>>,
     #[builder(default, setter(into))]
-    pub fault_to: Option<Header<'a, &'a str>>,
+    pub fault_to: Option<Tag<'a, &'a str, FaultTo>>,
     #[builder(default, setter(into))]
-    pub from: Option<Header<'a, &'a str>>,
+    pub from: Option<Tag<'a, &'a str, From>>,
 }
 
 impl<'a> IntoIterator for WsAddressingHeaders<'a> {
@@ -53,13 +61,13 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
             from,
         } = self;
 
-        let action = action.into_element("Action");
-        let to = to.into_element("To");
-        let message_id = message_id.into_element("MessageID");
-        let relates_to = relates_to.map(|r| r.into_element("RelatesTo"));
-        let reply_to = reply_to.map(|r| r.into_element("ReplyTo"));
-        let fault_to = fault_to.map(|r| r.into_element("FaultTo"));
-        let from = from.map(|r| r.into_element("From"));
+        let action = action.into_element();
+        let to = to.into_element();
+        let message_id = message_id.into_element();
+        let relates_to = relates_to.map(|r| r.into_element());
+        let reply_to = reply_to.map(|r| r.into_element());
+        let fault_to = fault_to.map(|r| r.into_element());
+        let from = from.map(|r| r.into_element());
 
         let elements = [
             Some(action),
@@ -135,7 +143,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    relates_to = Some(Header::from(value.trim()));
+                    relates_to = Some(value.trim());
                 }
                 "ReplyTo" => {
                     let value = {
@@ -146,7 +154,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    reply_to = Some(Header::from(value.trim()));
+                    reply_to = Some(value.trim());
                 }
                 "FaultTo" => {
                     let value = {
@@ -157,7 +165,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    fault_to = Some(Header::from(value.trim()));
+                    fault_to = Some(value.trim());
                 }
                 "From" => {
                     let value = {
@@ -168,7 +176,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    from = Some(Header::from(value.trim()));
+                    from = Some(value.trim());
                 }
                 tag_name => return Err(xml::XmlError::UnexpectedTag(tag_name.into())),
             }
@@ -181,13 +189,13 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
             message_id.ok_or(XmlError::GenericError("MessageID is required".into()))?;
 
         Ok(WsAddressingHeaders {
-            action: Header::from(action),
-            to: Header::from(to),
-            message_id: Header::from(message_id),
-            relates_to,
-            reply_to,
-            fault_to,
-            from,
+            action: Action::new_tag1(action, MustUnderstand { value: false }),
+            to: To::new_tag(to),
+            message_id: MessageID::new_tag(message_id),
+            relates_to: relates_to.map(|r| RelatesTo::new_tag(r)),
+            reply_to: reply_to.map(|r| ReplyTo::new_tag(r)),
+            fault_to: fault_to.map(|r| FaultTo::new_tag(r)),
+            from: from.map(|r| From::new_tag(r)),
         })
     }
 }

@@ -1,13 +1,10 @@
 pub mod header;
-pub mod must_understand;
 pub mod parsing;
-pub use header::*;
-pub use must_understand::*;
 use xml::builder::Element;
 
 use crate::{
     ws_addressing::{WSA_NAMESPACE, WSA_NAMESPACE_ALIAS},
-    ws_management::WSMAN_NAMESPACE,
+    ws_management::{WSMAN_NAMESPACE, WSMAN_NAMESPACE_ALIAS},
 };
 
 pub const SOAP_NAMESPACE: &str = "http://www.w3.org/2003/05/soap-envelope";
@@ -80,13 +77,9 @@ impl<'a> SoapBuilder<'a> {
             root_element
                 .add_namespace_alias(SOAP_NAMESPACE, SOAP_ALIAS)
                 .add_namespace_alias(WSA_NAMESPACE, WSA_NAMESPACE_ALIAS)
-                .add_namespace_alias(WSMAN_NAMESPACE, WSA_NAMESPACE_ALIAS),
+                .add_namespace_alias(WSMAN_NAMESPACE, WSMAN_NAMESPACE_ALIAS),
         );
 
         Ok(builder.to_string())
     }
-}
-
-pub trait Value<'a> {
-    fn into_element(self, name: &'static str) -> Element<'a>;
 }

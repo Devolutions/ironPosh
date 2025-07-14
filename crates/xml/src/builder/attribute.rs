@@ -33,6 +33,18 @@ impl<'a> Attribute<'a> {
         }
     }
 
+    pub fn new_with_namespace(
+        name: &'a str,
+        value: &'a str,
+        namespace: Option<impl Into<crate::builder::Namespace<'a>>>,
+    ) -> Self {
+        Attribute {
+            name,
+            value,
+            namespace: namespace.map(|ns| ns.into()),
+        }
+    }
+
     pub fn set_namespace(mut self, namespace: impl Into<crate::builder::Namespace<'a>>) -> Self {
         self.namespace = Some(namespace.into());
         self
@@ -55,12 +67,14 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
         f: &mut std::fmt::Formatter<'_>,
         alias_map: Option<&HashMap<super::namespace::Namespace<'_>, &str>>,
     ) -> std::fmt::Result {
-        let alias_map = alias_map.ok_or(std::fmt::Error)?;
-        let namespace_alias = self
-            .namespace
-            .as_ref()
-            .and_then(|ns| alias_map.get(ns))
-            .copied();
+        let namespace_alias = if let Some(alias_map) = alias_map {
+            self.namespace
+                .as_ref()
+                .and_then(|ns| alias_map.get(ns))
+                .copied()
+        } else {
+            return Err(std::fmt::Error);
+        };
 
         let name = if let Some(alias) = namespace_alias {
             format!("{}:{}", alias, self.name)
@@ -68,7 +82,7 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
             self.name.to_string()
         };
 
-        write!(f, " {}=\"{}\"", name, self.value)?; // This line duplicates the name!
+        write!(f, " {}=\"{}\"", name, self.value)?;
         Ok(())
     }
 }

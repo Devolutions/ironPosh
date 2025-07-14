@@ -23,36 +23,13 @@ Protocol::soap_builder()
 
 */
 
-use xml::builder::Element;
-
-use crate::soap::Value;
-
 pub mod error;
 pub(crate) mod macros;
 pub mod shell;
 pub mod soap;
 pub mod ws_addressing;
 pub mod ws_management;
+pub mod traits;
 
 pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
 
-pub trait TagName {
-    fn tag_name(&self) -> &'static str;
-}
-
-pub struct Tag<'a, V, N>
-where
-    V: Value<'a>,
-    N: TagName,
-{
-    pub name: N,
-    pub value: V,
-
-    __phantom: std::marker::PhantomData<&'a V>,
-}
-
-impl<'a> Value<'a> for &'a str {
-    fn into_element(self, name: &'static str) -> Element<'a> {
-        Element::new(name).set_text(self)
-    }
-}

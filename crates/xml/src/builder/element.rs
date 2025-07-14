@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::builder::{namespace, Attribute, Namespace, NamespaceFmt};
+use crate::builder::{Attribute, Namespace};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -63,8 +63,17 @@ impl<'a> Element<'a> {
     /// let element = Element::new("root")
     ///     .set_namespace(Namespace::new("name", "http://example.com"));
     /// ```
-    pub fn set_namespace(mut self, namespace: impl Into<Namespace<'a>>) -> Self {
-        self.namespace = Some(namespace.into());
+    pub fn set_namespace(mut self, ns: impl Into<Namespace<'a>>) -> Self {
+        self.namespace = Some(ns.into());
+        self
+    }
+
+    pub fn set_namespace_optional(mut self, ns: Option<impl Into<Namespace<'a>>>) -> Self {
+        if let Some(ns) = ns {
+            self.namespace = Some(ns.into());
+        } else {
+            self.namespace = None;
+        }
         self
     }
 
@@ -153,7 +162,6 @@ impl<'a> Element<'a> {
         self
     }
 
-
     pub fn set_text_owned(mut self, text: String) -> Self {
         self.content = Content::Text(std::borrow::Cow::Owned(text));
         self
@@ -191,14 +199,12 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             }),
         };
 
-        let alias = if let Some(alias) = &self.namespace {
-            let Some(ref namespaces_map) = namespace_alias_map else {
+        let alias = if let Some(namespace) = &self.namespace {
+            if let Some(ref namespaces_map) = namespace_alias_map {
+                namespaces_map.get(namespace).copied()
+            } else {
                 return Err(std::fmt::Error);
-            };
-
-            let alias = namespaces_map.get(&alias).ok_or(std::fmt::Error)?;
-
-            Some(*alias)
+            }
         } else {
             None
         };

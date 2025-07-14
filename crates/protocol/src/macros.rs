@@ -72,3 +72,101 @@ macro_rules! must_be_text {
         }
     };
 }
+
+#[macro_export]
+macro_rules! define_tagname {
+    ($name:ident, $namespace:expr) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name;
+
+        impl crate::traits::TagName for $name {
+            fn tag_name(&self) -> &'static str {
+                stringify!($name)
+            }
+
+            fn namespace(&self) -> Option<&'static str> {
+                $namespace
+            }
+        }
+
+        impl<'a> $name {
+            pub fn new_tag<V>(value: V) -> Tag<'a, V, Self>
+            where
+                V: crate::traits::TagValue<'a>,
+            {
+                Tag::new(Self, value.into())
+            }
+
+            pub fn new_tag1<V, A>(value: V, attr: A) -> crate::traits::Tag1<'a, V, Self, A>
+            where
+                V: crate::traits::TagValue<'a>,
+                A: crate::traits::Attribute<'a>,
+            {
+                crate::traits::Tag1::new(Self, value.into(), attr)
+            }
+        }
+    };
+}
+
+
+#[macro_export]
+macro_rules! define_tag {
+    ($name:ident, $(($typ:ident, $field:ident)),+) => {
+
+
+        #[derive(Debug, Clone)]
+        pub struct $name<'a, V, N, $($typ),+>
+        where
+            V: TagValue<'a>,
+            N: TagName,
+            $($typ: Attribute<'a>,)+
+        {
+            pub name: N,
+            pub value: V,
+            $(pub $field: $typ,)+
+
+            __phantom: std::marker::PhantomData<&'a V>,
+        }
+
+        impl<'a, V, N, $($typ),+> $name<'a, V, N, $($typ),+>
+        where
+            V: TagValue<'a>,
+            N: TagName,
+            $($typ: Attribute<'a>,)+
+        {
+            pub fn new(name: N, value: V, $($field: $typ),+) -> Self {
+                Self {
+                    name,
+                    value,
+                    $($field,)+
+                    __phantom: std::marker::PhantomData,
+                }
+            }
+
+            pub fn into_element(self) -> xml::builder::Element<'a> {
+                let mut element = self.value.into_element(self.name.tag_name(),self.name.namespace());
+
+                $(
+                    element = element.add_attribute(xml::builder::Attribute::new_with_namespace(
+                        self.$field.name(),
+                        self.$field.value(),
+                        self.$field.namespace(),
+                    ));
+                )+
+
+                element
+            }
+        }
+
+        impl<'a, V, N, $($typ),+> Into<xml::builder::Element<'a>> for $name<'a, V, N, $($typ),+>
+        where
+            V: TagValue<'a>,
+            N: TagName,
+            $($typ: Attribute<'a>,)+
+        {
+            fn into(self) -> xml::builder::Element<'a> {
+                self.into_element()
+            }
+        }
+    };
+}

@@ -20,9 +20,7 @@ impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
 
         let mut element = crate::builder::Element::new(name);
 
-        if let Some(ns) = namespace {
-            element = element.set_namespace(ns);
-        }
+        element = element.set_namespace_optional(namespace);
 
         Ok(element)
     }

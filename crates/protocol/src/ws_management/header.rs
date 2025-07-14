@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use xml::{XmlError, builder::Element, parser::Node};
 
 use crate::{
-    must_be_text,
-    soap::{Header, Value},
+    define_tagname, must_be_text,
+    traits::{MustUnderstand, Tag, Tag1, TagValue},
     ws_management::WSMAN_NAMESPACE,
     wsman_ns,
 };
@@ -13,20 +13,34 @@ pub fn headers_builder<'a>() -> WsManagementHeaderBuilder<'a> {
     WsManagementHeader::builder()
 }
 
+// Define tag names for WS-Management headers
+define_tagname!(ResourceURI, Some(WSMAN_NAMESPACE));
+define_tagname!(OperationTimeout, Some(WSMAN_NAMESPACE));
+define_tagname!(MaxEnvelopeSize, Some(WSMAN_NAMESPACE));
+define_tagname!(Locale, Some(WSMAN_NAMESPACE));
+define_tagname!(DataLocale, Some(WSMAN_NAMESPACE));
+define_tagname!(SequenceId, Some(WSMAN_NAMESPACE));
+define_tagname!(OperationID, Some(WSMAN_NAMESPACE));
+define_tagname!(FragmentTransfer, Some(WSMAN_NAMESPACE));
+define_tagname!(SelectorSet, Some(WSMAN_NAMESPACE));
+
+define_tagname!(OptionSet, Some(WSMAN_NAMESPACE));
+
 #[derive(Debug, Clone)]
-pub struct SelectorSet<'a> {
+pub struct SelectorSetValue<'a> {
     selectors: HashSet<&'a str>,
 }
 
-impl<'a> SelectorSet<'a> {
+impl<'a> SelectorSetValue<'a> {
     pub fn new(selectors: HashSet<&'a str>) -> Self {
         Self { selectors }
     }
 }
 
-impl<'a> Value<'a> for SelectorSet<'a> {
-    fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace(wsman_ns!());
+impl<'a> TagValue<'a> for SelectorSetValue<'a> {
+    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
+        let mut element =
+            Element::new(name).set_namespace_optional(namespace.or(Some(WSMAN_NAMESPACE)));
 
         for selector in self.selectors {
             element = element.add_child(
@@ -41,19 +55,23 @@ impl<'a> Value<'a> for SelectorSet<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct OptionSet<'a> {
+pub struct OptionSetValue<'a> {
     options: HashSet<&'a str>,
 }
 
-impl<'a> OptionSet<'a> {
+impl<'a> OptionSetValue<'a> {
     pub fn new(options: HashSet<&'a str>) -> Self {
         Self { options }
     }
 }
 
-impl<'a> Value<'a> for OptionSet<'a> {
-    fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace(wsman_ns!());
+impl<'a> TagValue<'a> for OptionSetValue<'a> {
+    fn into_element(self, name: &'static str, ns: Option<&'static str>) -> Element<'a> {
+        let mut element = Element::new(name);
+
+        if let Some(ns) = ns {
+            element = element.set_namespace(ns);
+        }
 
         for option in self.options {
             element = element.add_child(
@@ -69,26 +87,26 @@ impl<'a> Value<'a> for OptionSet<'a> {
 
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsManagementHeader<'a> {
-    #[builder(setter(into))]
-    pub resource_uri: Option<Header<'a, &'a str>>, // This should be a set to allow multiple URIs
     #[builder(default, setter(into))]
-    pub selector_set: Option<Header<'a, SelectorSet<'a>>>,
+    pub resource_uri: Option<Tag1<'a, &'a str, ResourceURI, MustUnderstand>>,
     #[builder(default, setter(into))]
-    pub option_set: Option<Header<'a, OptionSet<'a>>>, // TODO: Implement as a complex type if needed
+    pub selector_set: Option<Tag<'a, SelectorSetValue<'a>, SelectorSet>>,
     #[builder(default, setter(into))]
-    pub operation_timeout: Option<Header<'a, &'a str>>,
+    pub option_set: Option<Tag<'a, OptionSetValue<'a>, OptionSet>>,
     #[builder(default, setter(into))]
-    pub max_envelope_size: Option<Header<'a, &'a str>>,
+    pub operation_timeout: Option<Tag<'a, &'a str, OperationTimeout>>,
     #[builder(default, setter(into))]
-    pub locale: Option<Header<'a, &'a str>>,
+    pub max_envelope_size: Option<Tag<'a, &'a str, MaxEnvelopeSize>>,
     #[builder(default, setter(into))]
-    pub data_locale: Option<Header<'a, &'a str>>,
+    pub locale: Option<Tag<'a, &'a str, Locale>>,
     #[builder(default, setter(into))]
-    pub sequence_id: Option<Header<'a, &'a str>>,
+    pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
     #[builder(default, setter(into))]
-    pub operation_id: Option<Header<'a, &'a str>>,
+    pub sequence_id: Option<Tag<'a, &'a str, SequenceId>>,
     #[builder(default, setter(into))]
-    pub fragment_transfer: Option<Header<'a, &'a str>>,
+    pub operation_id: Option<Tag<'a, &'a str, OperationID>>,
+    #[builder(default, setter(into))]
+    pub fragment_transfer: Option<Tag<'a, &'a str, FragmentTransfer>>,
 }
 
 impl<'a> IntoIterator for WsManagementHeader<'a> {
@@ -110,16 +128,17 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
             fragment_transfer,
         } = self;
 
-        let resource_uri = resource_uri.map(|r| r.into_element("ResourceURI"));
-        let selector_set = selector_set.map(|s| s.into_element("SelectorSet"));
-        let option_set = option_set.map(|o| o.into_element("OptionSet"));
-        let operation_timeout = operation_timeout.map(|o| o.into_element("OperationTimeout"));
-        let max_envelope_size = max_envelope_size.map(|m| m.into_element("MaxEnvelopeSize"));
-        let locale = locale.map(|l| l.into_element("Locale"));
-        let data_locale = data_locale.map(|d| d.into_element("DataLocale"));
-        let sequence_id = sequence_id.map(|s| s.into_element("SequenceId"));
-        let operation_id = operation_id.map(|o| o.into_element("OperationID"));
-        let fragment_transfer = fragment_transfer.map(|f| f.into_element("FragmentTransfer"));
+        let resource_uri = resource_uri.map(|r| r.into_element());
+        println!("Resource URI: {:?}", resource_uri);
+        let selector_set = selector_set.map(|s| s.into_element());
+        let option_set = option_set.map(|o| o.into_element());
+        let operation_timeout = operation_timeout.map(|o| o.into_element());
+        let max_envelope_size = max_envelope_size.map(|m| m.into_element());
+        let locale = locale.map(|l| l.into_element());
+        let data_locale = data_locale.map(|d| d.into_element());
+        let sequence_id = sequence_id.map(|s| s.into_element());
+        let operation_id = operation_id.map(|o| o.into_element());
+        let fragment_transfer = fragment_transfer.map(|f| f.into_element());
 
         let elements = [
             resource_uri,
@@ -135,8 +154,8 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
         ]
         .into_iter()
         .flatten()
-        .map(|e| e.set_namespace(wsman_ns!()))
         .collect::<Vec<_>>();
+
         elements.into_iter()
     }
 }
@@ -171,7 +190,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    resource_uri = Some(Header::from(value.trim()));
+                    resource_uri = Some(ResourceURI::new_tag1(value.trim(), MustUnderstand::no()));
                 }
                 "SelectorSet" => {
                     let mut selectors = HashSet::new();
@@ -185,7 +204,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                             }
                         }
                     }
-                    selector_set = Some(Header::from(SelectorSet::new(selectors)));
+                    selector_set = Some(SelectorSet::new_tag(SelectorSetValue::new(selectors)));
                 }
                 "OptionSet" => {
                     let mut options = HashSet::new();
@@ -199,7 +218,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                             }
                         }
                     }
-                    option_set = Some(Header::from(OptionSet::new(options)));
+                    option_set = Some(OptionSet::new_tag(OptionSetValue::new(options)));
                 }
                 "OperationTimeout" => {
                     let value = {
@@ -210,7 +229,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    operation_timeout = Some(Header::from(value.trim()));
+                    operation_timeout = Some(OperationTimeout::new_tag(value.trim()));
                 }
                 "MaxEnvelopeSize" => {
                     let value = {
@@ -221,7 +240,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    max_envelope_size = Some(Header::from(value.trim()));
+                    max_envelope_size = Some(MaxEnvelopeSize::new_tag(value.trim()));
                 }
                 "Locale" => {
                     let value = {
@@ -232,7 +251,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    locale = Some(Header::from(value.trim()));
+                    locale = Some(Locale::new_tag(value.trim()));
                 }
                 "DataLocale" => {
                     let value = {
@@ -243,7 +262,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    data_locale = Some(Header::from(value.trim()));
+                    data_locale = Some(DataLocale::new_tag(value.trim()));
                 }
                 "SequenceId" => {
                     let value = {
@@ -254,7 +273,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    sequence_id = Some(Header::from(value.trim()));
+                    sequence_id = Some(SequenceId::new_tag(value.trim()));
                 }
                 "OperationID" => {
                     let value = {
@@ -265,7 +284,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    operation_id = Some(Header::from(value.trim()));
+                    operation_id = Some(OperationID::new_tag(value.trim()));
                 }
                 "FragmentTransfer" => {
                     let value = {
@@ -276,7 +295,7 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
                         let text = child.text().expect("must be text");
                         text
                     };
-                    fragment_transfer = Some(Header::from(value.trim()));
+                    fragment_transfer = Some(FragmentTransfer::new_tag(value.trim()));
                 }
                 tag_name => {
                     return Err(xml::XmlError::UnexpectedTag(tag_name.into()));
