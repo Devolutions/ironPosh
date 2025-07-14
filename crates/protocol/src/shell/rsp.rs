@@ -1,5 +1,5 @@
 use crate::{
-    define_custom_tagname, define_tagname,
+    define_custom_tagname, define_tagname, push_element,
     traits::{DeclareNamespaces, PowerShellNamespaceAlias, Tag},
 };
 
@@ -73,3 +73,63 @@ pub struct Shell<'a> {
         Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, &'a str, CreationXml>>>,
 }
 
+impl<'a> IntoIterator for Shell<'a> {
+    type Item = xml::builder::Element<'a>;
+
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let Self {
+            shell_id,
+            name,
+            resource_uri,
+            owner,
+            client_ip,
+            process_id,
+            idle_time_out,
+            input_streams,
+            output_streams,
+            max_idle_time_out,
+            locale,
+            data_locale,
+            compression_mode,
+            profile_loaded,
+            encoding,
+            buffer_mode,
+            state,
+            shell_run_time,
+            shell_inactivity,
+            creation_xml,
+        } = self;
+
+        let mut tags: Vec<Self::Item> = vec![];
+
+        push_element!(
+            tags,
+            [
+                Some(shell_id),
+                name,
+                resource_uri,
+                owner,
+                client_ip,
+                process_id,
+                idle_time_out,
+                input_streams,
+                output_streams,
+                max_idle_time_out,
+                locale,
+                data_locale,
+                compression_mode,
+                profile_loaded,
+                encoding,
+                buffer_mode,
+                state,
+                shell_run_time,
+                shell_inactivity,
+                creation_xml
+            ]
+        );
+
+        tags.into_iter()
+    }
+}

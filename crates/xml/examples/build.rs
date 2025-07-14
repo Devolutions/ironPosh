@@ -1,4 +1,4 @@
-use xml::builder::{Attribute, Builder, Declaration, Element, Namespace};
+use xml::builder::{Attribute, Builder, Declaration, Element};
 
 const NS1: &str = "http://example.com/ns1";
 const NS2: &str = "http://example.com/ns2";

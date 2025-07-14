@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hyper = { version = "1.6.0", features = ["http2", "tracing"] }
+hyper = { version = "1.6.0", features = ["http2"] }
 thiserror = "2.0.12"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"

@@ -54,3 +54,19 @@ where
         self.into_element()
     }
 }
+
+
+impl<'a,N,V> TagValue<'a> for Tag<'a, V, N>
+where
+    N: TagName,
+    V: TagValue<'a>,
+{
+    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
+        let parent = Element::new(name)
+            .set_namespace_optional(namespace);
+
+        let child = self.into_element();
+
+        parent.add_child(child)
+    }
+}

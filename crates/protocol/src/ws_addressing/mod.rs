@@ -1,18 +1,13 @@
-use xml::{XmlError, parser::Node};
+use xml::{XmlError, builder::Element, parser::Node};
 
 use crate::{
-    define_tagname, must_be_text,
-    traits::{MustUnderstand, Tag, Tag1},
+    define_tagname, must_be_text, push_element,
+    traits::{MustUnderstand, Tag, Tag1, TagValue},
 };
 
 pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
 pub const WSA_NAMESPACE_ALIAS: &str = "a";
 
-macro_rules! wsa_ns {
-    () => {
-        xml::builder::Namespace::new(WSA_NAMESPACE)
-    };
-}
 
 pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {
     WsAddressingHeaders::builder()
@@ -25,20 +20,21 @@ define_tagname!(RelatesTo, Some(WSA_NAMESPACE));
 define_tagname!(ReplyTo, Some(WSA_NAMESPACE));
 define_tagname!(FaultTo, Some(WSA_NAMESPACE));
 define_tagname!(From, Some(WSA_NAMESPACE));
+define_tagname!(Address, Some(WSA_NAMESPACE));
 
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsAddressingHeaders<'a> {
-    #[builder(setter(into))]
-    pub action: Tag1<'a, &'a str, Action, MustUnderstand>,
-    #[builder(setter(into))]
-    pub to: Tag<'a, &'a str, To>,
-    #[builder(setter(into))]
-    pub message_id: Tag<'a, &'a str, MessageID>,
+    #[builder(default, setter(into))]
+    pub action: Option<Tag1<'a, &'a str, Action, MustUnderstand>>,
+    #[builder(default, setter(into))]
+    pub to: Option<Tag<'a, &'a str, To>>,
+    #[builder(default, setter(into))]
+    pub message_id: Option<Tag<'a, &'a str, MessageID>>,
 
     #[builder(default, setter(into))]
     pub relates_to: Option<Tag<'a, &'a str, RelatesTo>>,
     #[builder(default, setter(into))]
-    pub reply_to: Option<Tag<'a, &'a str, ReplyTo>>,
+    pub reply_to: Option<Tag<'a, Tag1<'a, &'a str, Address, MustUnderstand>, ReplyTo>>,
     #[builder(default, setter(into))]
     pub fault_to: Option<Tag<'a, &'a str, FaultTo>>,
     #[builder(default, setter(into))]
@@ -61,29 +57,14 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
             from,
         } = self;
 
-        let action = action.into_element();
-        let to = to.into_element();
-        let message_id = message_id.into_element();
-        let relates_to = relates_to.map(|r| r.into_element());
-        let reply_to = reply_to.map(|r| r.into_element());
-        let fault_to = fault_to.map(|r| r.into_element());
-        let from = from.map(|r| r.into_element());
+        let mut tags = Vec::new();
 
-        let elements = [
-            Some(action),
-            Some(to),
-            Some(message_id),
-            relates_to,
-            reply_to,
-            fault_to,
-            from,
-        ]
-        .into_iter()
-        .flatten()
-        .map(|node| node.set_namespace(wsa_ns!()))
-        .collect::<Vec<_>>();
+        push_element!(
+            tags,
+            [action, to, message_id, relates_to, reply_to, fault_to, from]
+        );
 
-        elements.into_iter()
+        tags.into_iter()
     }
 }
 
@@ -182,18 +163,14 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
             }
         }
 
-        // Required fields
-        let action = action.ok_or(XmlError::GenericError("Action is required".into()))?;
-        let to = to.ok_or(XmlError::GenericError("To is required".into()))?;
-        let message_id =
-            message_id.ok_or(XmlError::GenericError("MessageID is required".into()))?;
-
         Ok(WsAddressingHeaders {
-            action: Action::new_tag1(action, MustUnderstand { value: false }),
-            to: To::new_tag(to),
-            message_id: MessageID::new_tag(message_id),
+            action: action.map(|action| Action::new_tag1(action, MustUnderstand { value: false })),
+            to: to.map(|t| To::new_tag(t)),
+            message_id: message_id.map(|m| MessageID::new_tag(m)),
             relates_to: relates_to.map(|r| RelatesTo::new_tag(r)),
-            reply_to: reply_to.map(|r| ReplyTo::new_tag(r)),
+            // reply_to: reply_to.map(|r| ReplyTo::new_tag(r)),
+            // TODO: Fix this
+            reply_to: None,
             fault_to: fault_to.map(|r| FaultTo::new_tag(r)),
             from: from.map(|r| From::new_tag(r)),
         })

@@ -1,6 +1,6 @@
 use protocol::{
     traits::MustUnderstand,
-    ws_addressing::{Action, MessageID, To},
+    ws_addressing::{Action, Address, MessageID, ReplyTo, To},
     ws_management::{MaxEnvelopeSize, ResourceURI},
 };
 
@@ -16,6 +16,10 @@ pub fn main() {
                 .message_id(MessageID::new_tag(
                     "urn:uuid:12345678-1234-5678-1234-567812345678",
                 ))
+                .reply_to(ReplyTo::new_tag(Address::new_tag1(
+                    "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous",
+                    MustUnderstand::yes(),
+                )))
                 .build(),
         )
         .add_header_nodes(

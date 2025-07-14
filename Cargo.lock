@@ -172,7 +172,6 @@ dependencies = [
  "http",
  "http-body",
  "tokio",
- "tracing",
 ]
 
 [[package]]

@@ -206,7 +206,7 @@ mod test {
 
         let addressing_header = soap.ws_addressing_header.unwrap();
         assert_eq!(
-            addressing_header.to.value,
+            addressing_header.to.unwrap().value,
             "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
         );
     }

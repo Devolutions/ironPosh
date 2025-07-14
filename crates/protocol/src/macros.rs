@@ -153,11 +153,13 @@ macro_rules! define_tag {
                 let mut element = self.value.into_element(self.name.tag_name(),self.name.namespace());
 
                 $(
-                    element = element.add_attribute(xml::builder::Attribute::new_with_namespace(
-                        self.$field.name(),
-                        self.$field.value(),
-                        self.$field.namespace(),
-                    ));
+                    if let Some(value) = self.$field.value()  {
+                        element = element.add_attribute(xml::builder::Attribute::new_with_namespace(
+                            self.$field.name(),
+                            value,
+                            self.$field.namespace(),
+                        ));
+                    }
                 )+
 
                 element
@@ -174,5 +176,33 @@ macro_rules! define_tag {
                 self.into_element()
             }
         }
+
+        impl<'a, V, N, $($typ),+> TagValue<'a> for $name<'a, V, N, $($typ),+>
+        where
+            N: TagName,
+            V: TagValue<'a>,
+            $($typ: Attribute<'a>,)+
+        {
+            fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> xml::builder::Element<'a> {
+                let parent = xml::builder::Element::new(name)
+                    .set_namespace_optional(namespace);
+
+                let child = self.into_element();
+
+                parent.add_child(child)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! push_element {
+    ($vec:expr,[$($tag:expr),*]) => {
+
+        $(
+            if let Some(tag) = $tag {
+                $vec.push(tag.into());
+            }
+        )*
     };
 }

@@ -3,8 +3,10 @@ use std::collections::HashSet;
 use xml::{XmlError, builder::Element, parser::Node};
 
 use crate::{
-    define_tagname, must_be_text,
-    traits::{MustUnderstand, Tag, Tag1, TagValue},
+    define_tagname, must_be_text, push_element,
+    traits::{
+        DeclareNamespaces, MustUnderstand, Tag, Tag1, TagValue, namespace::RspShellNamespaceAlias,
+    },
     ws_management::WSMAN_NAMESPACE,
     wsman_ns,
 };
@@ -23,6 +25,10 @@ define_tagname!(SequenceId, Some(WSMAN_NAMESPACE));
 define_tagname!(OperationID, Some(WSMAN_NAMESPACE));
 define_tagname!(FragmentTransfer, Some(WSMAN_NAMESPACE));
 define_tagname!(SelectorSet, Some(WSMAN_NAMESPACE));
+
+define_tagname!(SessionId, Some(WSMAN_NAMESPACE));
+
+define_tagname!(CompressionType, Some(WSMAN_NAMESPACE));
 
 define_tagname!(OptionSet, Some(WSMAN_NAMESPACE));
 
@@ -107,6 +113,16 @@ pub struct WsManagementHeader<'a> {
     pub operation_id: Option<Tag<'a, &'a str, OperationID>>,
     #[builder(default, setter(into))]
     pub fragment_transfer: Option<Tag<'a, &'a str, FragmentTransfer>>,
+    #[builder(default, setter(into))]
+    pub session_id: Option<Tag1<'a, &'a str, SessionId, MustUnderstand>>,
+    #[builder(default, setter(into))]
+    pub compression_type: Option<
+        DeclareNamespaces<
+            'a,
+            RspShellNamespaceAlias,
+            Tag1<'a, &'a str, CompressionType, MustUnderstand>,
+        >,
+    >,
 }
 
 impl<'a> IntoIterator for WsManagementHeader<'a> {
@@ -126,35 +142,29 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
             sequence_id,
             operation_id,
             fragment_transfer,
+            session_id,
+            compression_type,
         } = self;
 
-        let resource_uri = resource_uri.map(|r| r.into_element());
-        println!("Resource URI: {:?}", resource_uri);
-        let selector_set = selector_set.map(|s| s.into_element());
-        let option_set = option_set.map(|o| o.into_element());
-        let operation_timeout = operation_timeout.map(|o| o.into_element());
-        let max_envelope_size = max_envelope_size.map(|m| m.into_element());
-        let locale = locale.map(|l| l.into_element());
-        let data_locale = data_locale.map(|d| d.into_element());
-        let sequence_id = sequence_id.map(|s| s.into_element());
-        let operation_id = operation_id.map(|o| o.into_element());
-        let fragment_transfer = fragment_transfer.map(|f| f.into_element());
+        let mut elements = Vec::new();
 
-        let elements = [
-            resource_uri,
-            selector_set,
-            option_set,
-            operation_timeout,
-            max_envelope_size,
-            locale,
-            data_locale,
-            sequence_id,
-            operation_id,
-            fragment_transfer,
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        push_element!(
+            elements,
+            [
+                resource_uri,
+                selector_set,
+                option_set,
+                operation_timeout,
+                max_envelope_size,
+                locale,
+                data_locale,
+                sequence_id,
+                operation_id,
+                fragment_transfer,
+                session_id,
+                compression_type
+            ]
+        );
 
         elements.into_iter()
     }
@@ -314,6 +324,8 @@ impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
             sequence_id,
             operation_id,
             fragment_transfer,
+            session_id: None,       // SessionId is not parsed here
+            compression_type: None, // CompressionType is not parsed here
         })
     }
 }

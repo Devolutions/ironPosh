@@ -1,6 +1,6 @@
 pub trait Attribute<'a> {
     fn name(&self) -> &'static str;
-    fn value(&self) -> &'a str;
+    fn value(&self) -> Option<&'a str>;
     fn namespace(&self) -> Option<&'static str>;
 }
 
@@ -24,8 +24,8 @@ impl<'a> Attribute<'a> for MustUnderstand {
         "mustUnderstand"
     }
 
-    fn value(&self) -> &'a str {
-        if self.value { "true" } else { "false" }
+    fn value(&self) -> Option<&'a str> {
+        if self.value { Some("true") } else { None }
     }
 
     fn namespace(&self) -> Option<&'static str> {

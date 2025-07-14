@@ -244,12 +244,9 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 write!(f, ">{value}</{name}>")?;
             }
             Content::Elements(children) => {
-                writeln!(f, ">")?;
+                write!(f, ">")?;
                 for child in children {
-                    // Write indented XML using recursive call
-                    write!(f, "    ")?; // indent
                     child.ns_fmt(f, namespace_alias_map.as_ref().map(|v| &**v))?;
-                    writeln!(f)?; // newline
                 }
                 write!(f, "</{name}>")?;
             }
