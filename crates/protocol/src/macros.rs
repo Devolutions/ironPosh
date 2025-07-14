@@ -80,13 +80,8 @@ macro_rules! define_custom_tagname {
         pub struct $name;
 
         impl crate::traits::TagName for $name {
-            fn tag_name(&self) -> &'static str {
-                $tagName
-            }
-
-            fn namespace(&self) -> Option<&'static str> {
-                $namespace
-            }
+            const TAG_NAME: &'static str = $tagName;
+            const NAMESPACE: Option<&'static str> = $namespace;
         }
 
         impl<'a> $name {
@@ -94,7 +89,7 @@ macro_rules! define_custom_tagname {
             where
                 V: crate::traits::TagValue<'a>,
             {
-                Tag::new(Self, value.into())
+                Tag::new(value.into())
             }
 
             pub fn new_tag1<V, A>(value: V, attr: A) -> crate::traits::Tag1<'a, V, Self, A>
@@ -102,7 +97,16 @@ macro_rules! define_custom_tagname {
                 V: crate::traits::TagValue<'a>,
                 A: crate::traits::Attribute<'a>,
             {
-                crate::traits::Tag1::new(Self, value.into(), attr)
+                crate::traits::Tag1::new(value.into(), attr)
+            }
+        }
+
+        impl<'a, V> std::convert::From<V> for Tag<'a, V, $name>
+        where
+            V: crate::traits::TagValue<'a>,
+        {
+            fn from(value: V) -> Self {
+                Tag::new(value)
             }
         }
     };
@@ -127,11 +131,11 @@ macro_rules! define_tag {
             N: TagName,
             $($typ: Attribute<'a>,)+
         {
-            pub name: N,
             pub value: V,
             $(pub $field: $typ,)+
 
             __phantom: std::marker::PhantomData<&'a V>,
+            __phantom_name: std::marker::PhantomData<N>,
         }
 
         impl<'a, V, N, $($typ),+> $name<'a, V, N, $($typ),+>
@@ -140,24 +144,24 @@ macro_rules! define_tag {
             N: TagName,
             $($typ: Attribute<'a>,)+
         {
-            pub fn new(name: N, value: V, $($field: $typ),+) -> Self {
+            pub fn new(value: V, $($field: $typ),+) -> Self {
                 Self {
-                    name,
                     value,
                     $($field,)+
                     __phantom: std::marker::PhantomData,
+                    __phantom_name: std::marker::PhantomData,
                 }
             }
 
             pub fn into_element(self) -> xml::builder::Element<'a> {
-                let mut element = self.value.into_element(self.name.tag_name(),self.name.namespace());
+                let mut element = self.value.into_element(N::TAG_NAME, N::NAMESPACE);
 
                 $(
                     if let Some(value) = self.$field.value()  {
                         element = element.add_attribute(xml::builder::Attribute::new_with_namespace(
-                            self.$field.name(),
+                            $typ::NAME,
                             value,
-                            self.$field.namespace(),
+                            $typ::NAMESPACE
                         ));
                     }
                 )+

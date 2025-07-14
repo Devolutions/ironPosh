@@ -62,7 +62,8 @@ impl<'a> Default for EnumerateValue<'a> {
 
 impl<'a> TagValue<'a> for EnumerateValue<'a> {
     fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace_optional(namespace.or(Some(WSMAN_NAMESPACE)));
+        let mut element =
+            Element::new(name).set_namespace_optional(namespace.or(Some(WSMAN_NAMESPACE)));
 
         if let Some(optimize) = self.optimize_enumeration {
             let opt_elem = Element::new("OptimizeEnumeration")
@@ -112,7 +113,9 @@ impl<'a> PullValue<'a> {
 
 impl<'a> TagValue<'a> for PullValue<'a> {
     fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let mut element = Element::new(name).set_namespace_optional(namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")));
+        let mut element = Element::new(name).set_namespace_optional(
+            namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")),
+        );
 
         let context_elem = Element::new("EnumerationContext")
             .set_namespace("http://schemas.xmlsoap.org/ws/2004/09/enumeration")
@@ -152,7 +155,9 @@ impl<'a> TagValue<'a> for ReleaseValue<'a> {
             .set_text(self.enumeration_context);
 
         Element::new(name)
-            .set_namespace_optional(namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")))
+            .set_namespace_optional(
+                namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")),
+            )
             .add_child(context_elem)
     }
 }
@@ -177,7 +182,9 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
             .set_text(self.enumeration_context);
 
         Element::new(name)
-            .set_namespace_optional(namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")))
+            .set_namespace_optional(
+                namespace.or(Some("http://schemas.xmlsoap.org/ws/2004/09/enumeration")),
+            )
             .add_child(context_elem)
     }
 }
@@ -185,25 +192,25 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
 // Main body builder structure
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsManagementBody<'a> {
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub identify: Option<Tag<'a, (), Identify>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub get: Option<Tag<'a, &'a str, Get>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub put: Option<Tag<'a, &'a str, Put>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub create: Option<Tag<'a, &'a str, Create>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub delete: Option<Tag<'a, &'a str, Delete>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub rename: Option<Tag<'a, &'a str, Delete>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub enumerate: Option<Tag<'a, EnumerateValue<'a>, Enumerate>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub pull: Option<Tag<'a, PullValue<'a>, Pull>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub release: Option<Tag<'a, ReleaseValue<'a>, Release>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub get_status: Option<Tag<'a, GetStatusValue<'a>, GetStatus>>,
 }
 

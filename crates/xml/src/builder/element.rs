@@ -77,15 +77,13 @@ impl<'a> Element<'a> {
         self
     }
 
-    
-
     /// Namespace alias map is used to resolve namespace prefixes.
     /// for example, if the element has a namespace with a prefix "ns",
     /// the alias map will contain an entry for "ns" pointing to the namespace URI.
     ///  <SomeElement xmlns:ns="http://example.com/ns">
     ///     <ns:SomeChildElement/>
     ///  </SomeElement>
-    /// 
+    ///
     pub fn add_namespace_alias(mut self, namespace: &'a str, alias: &'a str) -> Self {
         if self.namespaces.is_none() {
             self.namespaces = Some(HashMap::new());

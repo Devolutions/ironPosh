@@ -93,29 +93,29 @@ impl<'a> TagValue<'a> for OptionSetValue<'a> {
 
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsManagementHeader<'a> {
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub resource_uri: Option<Tag1<'a, &'a str, ResourceURI, MustUnderstand>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub selector_set: Option<Tag<'a, SelectorSetValue<'a>, SelectorSet>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub option_set: Option<Tag<'a, OptionSetValue<'a>, OptionSet>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub operation_timeout: Option<Tag<'a, &'a str, OperationTimeout>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub max_envelope_size: Option<Tag<'a, &'a str, MaxEnvelopeSize>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub locale: Option<Tag<'a, &'a str, Locale>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub sequence_id: Option<Tag<'a, &'a str, SequenceId>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub operation_id: Option<Tag<'a, &'a str, OperationID>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub fragment_transfer: Option<Tag<'a, &'a str, FragmentTransfer>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub session_id: Option<Tag1<'a, &'a str, SessionId, MustUnderstand>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub compression_type: Option<
         DeclareNamespaces<
             'a,

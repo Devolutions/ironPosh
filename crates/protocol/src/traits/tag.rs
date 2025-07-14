@@ -10,10 +10,10 @@ where
     V: TagValue<'a>,
     N: TagName,
 {
-    pub name: N,
     pub value: V,
 
     __phantom: std::marker::PhantomData<&'a V>,
+    __phantom_name: std::marker::PhantomData<N>,
 }
 
 impl<'a, V, N> AsRef<V> for Tag<'a, V, N>
@@ -31,17 +31,16 @@ where
     V: TagValue<'a>,
     N: TagName,
 {
-    pub fn new(name: N, value: V) -> Self {
+    pub fn new(value: V) -> Self {
         Self {
-            name,
             value,
             __phantom: std::marker::PhantomData,
+            __phantom_name: std::marker::PhantomData,
         }
     }
 
     pub fn into_element(self) -> Element<'a> {
-        self.value
-            .into_element(self.name.tag_name(), self.name.namespace())
+        self.value.into_element(N::TAG_NAME, N::NAMESPACE)
     }
 }
 
@@ -55,15 +54,13 @@ where
     }
 }
 
-
-impl<'a,N,V> TagValue<'a> for Tag<'a, V, N>
+impl<'a, N, V> TagValue<'a> for Tag<'a, V, N>
 where
     N: TagName,
     V: TagValue<'a>,
 {
     fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let parent = Element::new(name)
-            .set_namespace_optional(namespace);
+        let parent = Element::new(name).set_namespace_optional(namespace);
 
         let child = self.into_element();
 

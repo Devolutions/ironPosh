@@ -53,7 +53,16 @@ where
             __phantom_namespace: std::marker::PhantomData,
         }
     }
+}
 
+impl<'a, N, T> From<T> for DeclareNamespaces<'a, N, T>
+where
+    T: Into<Element<'a>> + Debug + Clone,
+    N: NamespaceAliasTuple<'a>,
+{
+    fn from(tag: T) -> Self {
+        Self::new(tag)
+    }
 }
 
 impl<'a, N, T> AsRef<T> for DeclareNamespaces<'a, N, T>

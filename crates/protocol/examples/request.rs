@@ -3,7 +3,7 @@ use hyper::{
     header::{AUTHORIZATION, CONTENT_TYPE, HOST},
 };
 use protocol::{
-    traits::{DeclareNamespaces, MustUnderstand},
+    traits::{DeclareNamespaces, MustUnderstand, Tag},
     ws_addressing::{Action, Address, MessageID, ReplyTo, To},
     ws_management::{
         CompressionType, DataLocale, Locale, MaxEnvelopeSize, OperationID, OperationTimeout,
@@ -16,10 +16,13 @@ pub fn main() {
     let mut options = std::collections::HashSet::new();
     options.insert("protocolversion");
     let option_set_value = OptionSetValue::new(options);
+
+    let to_tag: Tag<'_, &str, To> = "test".into();
+
     let soap = protocol::soap::SoapBuilder::default()
         .add_header_nodes(
             protocol::ws_addressing::headers_builder()
-                .to(To::new_tag("http://10.10.0.3:5985/wsman?PSVersion=7.4.10"))
+                .to("test")
                 .action(Action::new_tag1(
                     "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
                     MustUnderstand::yes(),

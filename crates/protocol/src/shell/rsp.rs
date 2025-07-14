@@ -32,43 +32,43 @@ define_custom_tagname!(CreationXml, "creationXml", None);
 pub struct Shell<'a> {
     #[builder(setter(into))]
     pub shell_id: Tag<'a, &'a str, ShellId>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub name: Option<Tag<'a, &'a str, Name>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub resource_uri: Option<Tag<'a, &'a str, ResourceUri>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub owner: Option<Tag<'a, &'a str, Owner>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub client_ip: Option<Tag<'a, &'a str, ClientIP>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub process_id: Option<Tag<'a, &'a str, ProcessId>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub idle_time_out: Option<Tag<'a, &'a str, IdleTimeOut>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub input_streams: Option<Tag<'a, &'a str, InputStreams>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub output_streams: Option<Tag<'a, &'a str, OutputStreams>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub max_idle_time_out: Option<Tag<'a, &'a str, MaxIdleTimeOut>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub locale: Option<Tag<'a, &'a str, Locale>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub compression_mode: Option<Tag<'a, &'a str, CompressionMode>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub profile_loaded: Option<Tag<'a, &'a str, ProfileLoaded>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub encoding: Option<Tag<'a, &'a str, Encoding>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub buffer_mode: Option<Tag<'a, &'a str, BufferMode>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub state: Option<Tag<'a, &'a str, State>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub shell_run_time: Option<Tag<'a, &'a str, ShellRunTime>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub shell_inactivity: Option<Tag<'a, &'a str, ShellInactivity>>,
-    #[builder(default, setter(into))]
+    #[builder(default, setter(strip_option, into))]
     pub creation_xml:
         Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, &'a str, CreationXml>>>,
 }

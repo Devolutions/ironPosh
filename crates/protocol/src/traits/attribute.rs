@@ -1,7 +1,8 @@
 pub trait Attribute<'a> {
-    fn name(&self) -> &'static str;
     fn value(&self) -> Option<&'a str>;
-    fn namespace(&self) -> Option<&'static str>;
+
+    const NAME: &'static str;
+    const NAMESPACE: Option<&'static str>;
 }
 
 #[derive(Debug, Clone)]
@@ -20,15 +21,10 @@ impl MustUnderstand {
 }
 
 impl<'a> Attribute<'a> for MustUnderstand {
-    fn name(&self) -> &'static str {
-        "mustUnderstand"
-    }
+    const NAME: &'static str = "mustUnderstand";
+    const NAMESPACE: Option<&'static str> = Some(crate::soap::SOAP_NAMESPACE);
 
     fn value(&self) -> Option<&'a str> {
         if self.value { Some("true") } else { None }
-    }
-
-    fn namespace(&self) -> Option<&'static str> {
-        Some(crate::soap::SOAP_NAMESPACE)
     }
 }

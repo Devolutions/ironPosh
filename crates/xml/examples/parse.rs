@@ -52,7 +52,6 @@ pub fn main() {
             if child.is_text() {
                 println!("Text: {}", child.text().unwrap_or("No text"));
             }
-            
         });
         println!("Node: {} =============", node.tag_name().name());
     })
