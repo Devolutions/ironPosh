@@ -1,91 +1,75 @@
 use crate::{
-    define_tagname,
-    traits::{Tag, TagValue},
+    define_custom_tagname, define_tagname,
+    traits::{DeclareNamespaces, PowerShellNamespaceAlias, Tag},
 };
 
 pub const PWSH_NS: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
 pub const PWSH_NS_ALIAS: &str = "rsp";
 
 // Define tag names for PowerShell remoting shell elements
+define_tagname!(ShellId, Some(PWSH_NS));
+define_tagname!(Name, Some(PWSH_NS));
+define_tagname!(ResourceUri, Some(PWSH_NS));
+define_tagname!(Owner, Some(PWSH_NS));
+define_tagname!(ClientIP, Some(PWSH_NS));
+define_tagname!(ProcessId, Some(PWSH_NS));
+define_tagname!(IdleTimeOut, Some(PWSH_NS));
 define_tagname!(InputStreams, Some(PWSH_NS));
 define_tagname!(OutputStreams, Some(PWSH_NS));
-define_tagname!(CreationXml, Some(PWSH_NS));
-
-#[derive(Debug, Clone)]
-pub struct ShellElement;
-
-// Custom implementation for ShellElement to have the correct tag name
-impl crate::traits::TagName for ShellElement {
-    fn tag_name(&self) -> &'static str {
-        "Shell"
-    }
-
-    fn namespace(&self) -> Option<&'static str> {
-        Some(PWSH_NS)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ShellContent<'a> {
-    pub input_stream: &'a str,
-    pub output_stream: &'a str,
-    pub creation_xml: &'a str,
-}
-
-impl<'a> TagValue<'a> for ShellContent<'a> {
-    fn into_element(
-        self,
-        name: &'static str,
-        namespace: Option<&'static str>,
-    ) -> xml::builder::Element<'a> {
-        let mut element = xml::builder::Element::new(name);
-
-        if let Some(ns) = namespace {
-            element = element.set_namespace(ns);
-        }
-
-        let input_streams = self
-            .input_stream
-            .into_element("InputStreams", Some(PWSH_NS));
-        let output_streams = self
-            .output_stream
-            .into_element("OutputStreams", Some(PWSH_NS));
-        let creation_xml = self.creation_xml.into_element("CreationXml", Some(PWSH_NS));
-
-        element
-            .add_namespace_alias(PWSH_NS, PWSH_NS_ALIAS)
-            .add_child(input_streams)
-            .add_child(output_streams)
-            .add_child(creation_xml)
-    }
-}
+define_tagname!(MaxIdleTimeOut, Some(PWSH_NS));
+define_tagname!(Locale, Some(PWSH_NS));
+define_tagname!(DataLocale, Some(PWSH_NS));
+define_tagname!(CompressionMode, Some(PWSH_NS));
+define_tagname!(ProfileLoaded, Some(PWSH_NS));
+define_tagname!(Encoding, Some(PWSH_NS));
+define_tagname!(BufferMode, Some(PWSH_NS));
+define_tagname!(State, Some(PWSH_NS));
+define_tagname!(ShellRunTime, Some(PWSH_NS));
+define_tagname!(ShellInactivity, Some(PWSH_NS));
+define_custom_tagname!(CreationXml, "creationXml", None);
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct Shell<'a> {
     #[builder(setter(into))]
-    pub input_stream: &'a str,
-    #[builder(setter(into))]
-    pub output_stream: &'a str,
-    #[builder(setter(into))]
-    pub creation_xml: &'a str,
+    pub shell_id: Tag<'a, &'a str, ShellId>,
+    #[builder(default, setter(into))]
+    pub name: Option<Tag<'a, &'a str, Name>>,
+    #[builder(default, setter(into))]
+    pub resource_uri: Option<Tag<'a, &'a str, ResourceUri>>,
+    #[builder(default, setter(into))]
+    pub owner: Option<Tag<'a, &'a str, Owner>>,
+    #[builder(default, setter(into))]
+    pub client_ip: Option<Tag<'a, &'a str, ClientIP>>,
+    #[builder(default, setter(into))]
+    pub process_id: Option<Tag<'a, &'a str, ProcessId>>,
+    #[builder(default, setter(into))]
+    pub idle_time_out: Option<Tag<'a, &'a str, IdleTimeOut>>,
+    #[builder(default, setter(into))]
+    pub input_streams: Option<Tag<'a, &'a str, InputStreams>>,
+    #[builder(default, setter(into))]
+    pub output_streams: Option<Tag<'a, &'a str, OutputStreams>>,
+    #[builder(default, setter(into))]
+    pub max_idle_time_out: Option<Tag<'a, &'a str, MaxIdleTimeOut>>,
+    #[builder(default, setter(into))]
+    pub locale: Option<Tag<'a, &'a str, Locale>>,
+    #[builder(default, setter(into))]
+    pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
+    #[builder(default, setter(into))]
+    pub compression_mode: Option<Tag<'a, &'a str, CompressionMode>>,
+    #[builder(default, setter(into))]
+    pub profile_loaded: Option<Tag<'a, &'a str, ProfileLoaded>>,
+    #[builder(default, setter(into))]
+    pub encoding: Option<Tag<'a, &'a str, Encoding>>,
+    #[builder(default, setter(into))]
+    pub buffer_mode: Option<Tag<'a, &'a str, BufferMode>>,
+    #[builder(default, setter(into))]
+    pub state: Option<Tag<'a, &'a str, State>>,
+    #[builder(default, setter(into))]
+    pub shell_run_time: Option<Tag<'a, &'a str, ShellRunTime>>,
+    #[builder(default, setter(into))]
+    pub shell_inactivity: Option<Tag<'a, &'a str, ShellInactivity>>,
+    #[builder(default, setter(into))]
+    pub creation_xml:
+        Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, &'a str, CreationXml>>>,
 }
 
-impl<'a> Shell<'a> {
-    pub fn into_tag(self) -> Tag<'a, ShellContent<'a>, ShellElement> {
-        let content = ShellContent {
-            input_stream: self.input_stream,
-            output_stream: self.output_stream,
-            creation_xml: self.creation_xml,
-        };
-
-        Tag::new(ShellElement, content)
-    }
-
-    pub fn into_element(self) -> xml::builder::Element<'a> {
-        self.into_tag().into_element()
-    }
-}
-
-pub fn shell_builder<'a>() -> ShellBuilder<'a> {
-    Shell::builder()
-}

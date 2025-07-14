@@ -74,14 +74,14 @@ macro_rules! must_be_text {
 }
 
 #[macro_export]
-macro_rules! define_tagname {
-    ($name:ident, $namespace:expr) => {
+macro_rules! define_custom_tagname {
+    ($name:ident, $tagName:expr, $namespace:expr) => {
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name;
 
         impl crate::traits::TagName for $name {
             fn tag_name(&self) -> &'static str {
-                stringify!($name)
+                $tagName
             }
 
             fn namespace(&self) -> Option<&'static str> {
@@ -108,6 +108,12 @@ macro_rules! define_tagname {
     };
 }
 
+#[macro_export]
+macro_rules! define_tagname {
+    ($name:ident, $namespace:expr) => {
+        crate::define_custom_tagname!($name, stringify!($name), $namespace);
+    };
+}
 
 #[macro_export]
 macro_rules! define_tag {
