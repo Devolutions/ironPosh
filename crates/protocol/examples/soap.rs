@@ -1,4 +1,5 @@
-use protocol::MustUnderstand;
+use protocol::soap::MustUnderstand;
+
 
 pub fn main() {
     let result = protocol::soap::SoapBuilder::new()

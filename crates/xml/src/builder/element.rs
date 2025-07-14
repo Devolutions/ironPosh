@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
-use crate::builder::{Attribute, Namespace, NamespaceFmt};
+use crate::builder::{namespace, Attribute, Namespace, NamespaceFmt};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
     /// Represents a text content within an XML element.
-    Text(&'a str),
+    Text(Cow<'a, str>),
     /// Represents a child element within an XML element.
     Elements(Vec<Element<'a>>),
 
@@ -23,6 +23,8 @@ pub struct Element<'a> {
     attributes: Vec<Attribute<'a>>,
     /// The child elements of the element.
     content: Content<'a>,
+    /// The namespaces declaretions for this and child elements.
+    namespaces: Option<HashMap<Namespace<'a>, &'a str>>,
 }
 
 impl<'a> Element<'a> {
@@ -44,6 +46,7 @@ impl<'a> Element<'a> {
             namespace: None,
             attributes: Vec::new(),
             content: Content::None,
+            namespaces: None,
         }
     }
 
@@ -60,8 +63,23 @@ impl<'a> Element<'a> {
     /// let element = Element::new("root")
     ///     .set_namespace(Namespace::new("name", "http://example.com"));
     /// ```
-    pub fn set_namespace(mut self, namespace: Namespace<'a>) -> Self {
-        self.namespace = Some(namespace);
+    pub fn set_namespace(mut self, namespace: impl Into<Namespace<'a>>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    pub fn add_namespace_alias(mut self, namespace: &'a str, alias: &'a str) -> Self {
+        if self.namespaces.is_none() {
+            self.namespaces = Some(HashMap::new());
+        }
+
+        let namespace = Namespace::new(namespace);
+
+        self.namespaces
+            .as_mut()
+            .expect("Namespaces should be initialized")
+            .insert(namespace.clone(), alias);
+
         self
     }
 
@@ -131,12 +149,23 @@ impl<'a> Element<'a> {
     ///     
     /// ```
     pub fn set_text(mut self, text: &'a str) -> Self {
-        self.content = Content::Text(text);
+        self.content = Content::Text(std::borrow::Cow::Borrowed(text));
+        self
+    }
+
+
+    pub fn set_text_owned(mut self, text: String) -> Self {
+        self.content = Content::Text(std::borrow::Cow::Owned(text));
         self
     }
 
     pub fn with_text(&mut self, text: &'a str) -> &mut Self {
-        self.content = Content::Text(text);
+        self.content = Content::Text(std::borrow::Cow::Borrowed(text));
+        self
+    }
+
+    pub fn with_text_owned(&mut self, text: String) -> &mut Self {
+        self.content = Content::Text(std::borrow::Cow::Owned(text));
         self
     }
 }
@@ -146,12 +175,33 @@ impl crate::builder::NamespaceFmt for Element<'_> {
     fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        namespaces_map: &HashMap<Namespace<'_>, &str>,
+        parent_namespaces_map: Option<&HashMap<Namespace<'_>, &str>>,
     ) -> std::fmt::Result {
-        let alias = self
-            .namespace
-            .as_ref()
-            .and_then(|ns| namespaces_map.get(ns));
+        let namespace_alias_map = match (parent_namespaces_map, &self.namespaces) {
+            (None, None) => None,
+            (None, Some(my_map)) => Some(Cow::Borrowed(my_map)),
+            (Some(parent_map), None) => Some(Cow::Borrowed(parent_map)),
+            (Some(parent_map), Some(my_map)) => Some({
+                let mut merged_namespace = HashMap::new();
+
+                merged_namespace.extend(parent_map.iter().map(|(ns, alias)| (ns.clone(), *alias)));
+                merged_namespace.extend(my_map.iter().map(|(ns, alias)| (ns.clone(), *alias)));
+
+                Cow::Owned(merged_namespace)
+            }),
+        };
+
+        let alias = if let Some(alias) = &self.namespace {
+            let Some(ref namespaces_map) = namespace_alias_map else {
+                return Err(std::fmt::Error);
+            };
+
+            let alias = namespaces_map.get(&alias).ok_or(std::fmt::Error)?;
+
+            Some(*alias)
+        } else {
+            None
+        };
 
         let name = if let Some(alias) = alias {
             format!("{}:{}", alias, self.name)
@@ -161,8 +211,14 @@ impl crate::builder::NamespaceFmt for Element<'_> {
 
         write!(f, "<{name}")?;
 
+        if let Some(this_namespaces) = &self.namespaces {
+            for (url, alias) in this_namespaces {
+                write!(f, " xmlns:{alias}=\"{url}\"")?;
+            }
+        }
+
         for attribute in &self.attributes {
-            attribute.ns_fmt(f, namespaces_map)?;
+            attribute.ns_fmt(f, namespace_alias_map.as_ref().map(|v| &**v))?;
         }
 
         match &self.content {
@@ -177,86 +233,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 for child in children {
                     // Write indented XML using recursive call
                     write!(f, "    ")?; // indent
-                    child.ns_fmt(f, namespaces_map)?; // recursive call
-                    writeln!(f)?; // newline
-                }
-                write!(f, "</{name}>")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-pub struct RootElement<'a> {
-    element: Element<'a>,
-    namespaces: HashMap<Namespace<'a>, &'a str>,
-}
-
-impl<'a> RootElement<'a> {
-    /// Creates a new instance of `RootElement` with the given element.
-    ///
-    /// # Arguments
-    ///
-    /// * `element` - The root element of the XML document.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use xml::builder::{Element, RootElement};
-    /// let element = Element::new("root");
-    /// let root_element = RootElement::new(element);
-    /// ```
-    pub fn new(element: Element<'a>) -> Self {
-        RootElement {
-            element,
-            namespaces: HashMap::new(),
-        }
-    }
-
-    pub fn set_alias(mut self, namespace: &'a str, alias: &'a str) -> Self {
-        self.namespaces.insert(Namespace::new(namespace), alias);
-        self
-    }
-}
-
-impl std::fmt::Display for RootElement<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let alias = self
-            .element
-            .namespace
-            .as_ref()
-            .and_then(|ns| self.namespaces.get(ns));
-
-        // Assemble the name with namespace if it exists
-        // For example, <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-        let name = if let Some(alias) = &alias {
-            alias.to_string() + ":" + self.element.name
-        } else {
-            self.element.name.to_string()
-        };
-        write!(f, "<{name}")?;
-
-        for (url, alias) in &self.namespaces {
-            write!(f, " xmlns:{alias}=\"{url}\"")?;
-        }
-
-        for attribute in &self.element.attributes {
-            attribute.ns_fmt(f, &self.namespaces)?;
-        }
-
-        match &self.element.content {
-            Content::None => {
-                write!(f, "/>")?;
-            }
-            Content::Text(value) => {
-                write!(f, ">{value}</{name}>")?;
-            }
-            Content::Elements(children) => {
-                writeln!(f, ">")?;
-                for child in children {
-                    // Write indented XML using recursive call
-                    write!(f, "    ")?; // indent
-                    child.ns_fmt(f, &self.namespaces)?; // recursive call
+                    child.ns_fmt(f, namespace_alias_map.as_ref().map(|v| &**v))?;
                     writeln!(f)?; // newline
                 }
                 write!(f, "</{name}>")?;

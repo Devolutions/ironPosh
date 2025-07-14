@@ -1,5 +1,8 @@
 pub mod header;
+pub mod must_understand;
+pub mod parsing;
 pub use header::*;
+pub use must_understand::*;
 use xml::builder::Element;
 
 use crate::{
@@ -7,8 +10,9 @@ use crate::{
     ws_management::WSMAN_NAMESPACE,
 };
 
-pub const SOAP_NAMESPACE: &str = "http://schemas.xmlsoap.org/soap/envelope/";
+pub const SOAP_NAMESPACE: &str = "http://www.w3.org/2003/05/soap-envelope";
 pub const SOAP_ALIAS: &str = "s";
+
 #[macro_export]
 macro_rules! soap_ns {
     () => {
@@ -20,8 +24,12 @@ pub enum SoapVersion {
     V1_2,
 }
 
-pub trait SoapHeaders<'a>: IntoIterator<Item = Element<'a>> {}
-pub trait SoapBodys<'a>: IntoIterator<Item = Element<'a>> {}
+pub trait SoapHeaders<'a>: IntoIterator<Item = Element<'a>> {
+    const NAMESPACE: &'static str;
+}
+pub trait SoapBodys<'a>: IntoIterator<Item = Element<'a>> {
+    const NAMESPACE: &'static str;
+}
 
 pub struct SoapBuilder<'a> {
     header_nodes: Vec<Element<'a>>,
@@ -69,10 +77,10 @@ impl<'a> SoapBuilder<'a> {
 
         let builder = xml::builder::Builder::new(
             None,
-            xml::builder::RootElement::new(root_element)
-                .set_alias(SOAP_NAMESPACE, SOAP_ALIAS)
-                .set_alias(WSA_NAMESPACE, WSA_NAMESPACE_ALIAS)
-                .set_alias(WSMAN_NAMESPACE, WSA_NAMESPACE_ALIAS),
+            root_element
+                .add_namespace_alias(SOAP_NAMESPACE, SOAP_ALIAS)
+                .add_namespace_alias(WSA_NAMESPACE, WSA_NAMESPACE_ALIAS)
+                .add_namespace_alias(WSMAN_NAMESPACE, WSA_NAMESPACE_ALIAS),
         );
 
         Ok(builder.to_string())

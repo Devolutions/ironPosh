@@ -1,7 +1,8 @@
-use xml::builder::{Attribute, Element};
+use xml::{
+    builder::{Attribute, Element},
+};
 
 use crate::{soap::Value, soap_ns};
-
 
 #[derive(Debug, Clone)]
 pub struct Header<'a, T>
@@ -14,14 +15,13 @@ where
     pub _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a,T> AsRef<T> for Header<'a, T>
+impl<'a, T> AsRef<T> for Header<'a, T>
 where
     T: Value<'a>,
 {
     fn as_ref(&self) -> &T {
         &self.value
     }
-    
 }
 
 impl<'a, T> From<T> for Header<'a, T>
@@ -36,8 +36,6 @@ where
         }
     }
 }
-
-
 
 impl<'a, T> Value<'a> for Header<'a, T>
 where

@@ -1,6 +1,11 @@
-use crate::soap::{Header, Value};
+use xml::{XmlError, parser::Node};
 
-pub const WSA_NAMESPACE: &str = "http://www.w3.org/2005/08/addressing";
+use crate::{
+    must_be_text,
+    soap::{Header, Value},
+};
+
+pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
 pub const WSA_NAMESPACE_ALIAS: &str = "a";
 
 macro_rules! wsa_ns {
@@ -74,4 +79,119 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
     }
 }
 
-impl<'a> crate::soap::SoapHeaders<'a> for WsAddressingHeaders<'a> {}
+impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsAddressingHeaders<'a> {
+    type Error = xml::XmlError<'a>;
+
+    fn try_from(value: Vec<Node<'a, 'a>>) -> Result<Self, Self::Error> {
+        let mut action = None;
+        let mut to = None;
+        let mut message_id = None;
+        let mut relates_to = None;
+        let mut reply_to = None;
+        let mut fault_to = None;
+        let mut from = None;
+
+        for node in value {
+            match node.tag_name().name() {
+                "Action" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    action = Some(value.trim());
+                }
+                "To" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    to = Some(value.trim());
+                }
+                "MessageID" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    message_id = Some(value.trim());
+                }
+                "RelatesTo" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    relates_to = Some(Header::from(value.trim()));
+                }
+                "ReplyTo" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    reply_to = Some(Header::from(value.trim()));
+                }
+                "FaultTo" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    fault_to = Some(Header::from(value.trim()));
+                }
+                "From" => {
+                    let value = {
+                        let child = node
+                            .first_child()
+                            .ok_or(XmlError::GenericError("expecting node".into()))?;
+                        must_be_text!(child);
+                        let text = child.text().expect("must be text");
+                        text
+                    };
+                    from = Some(Header::from(value.trim()));
+                }
+                tag_name => return Err(xml::XmlError::UnexpectedTag(tag_name.into())),
+            }
+        }
+
+        // Required fields
+        let action = action.ok_or(XmlError::GenericError("Action is required".into()))?;
+        let to = to.ok_or(XmlError::GenericError("To is required".into()))?;
+        let message_id =
+            message_id.ok_or(XmlError::GenericError("MessageID is required".into()))?;
+
+        Ok(WsAddressingHeaders {
+            action: Header::from(action),
+            to: Header::from(to),
+            message_id: Header::from(message_id),
+            relates_to,
+            reply_to,
+            fault_to,
+            from,
+        })
+    }
+}
+
+impl<'a> crate::soap::SoapHeaders<'a> for WsAddressingHeaders<'a> {
+    const NAMESPACE: &'static str = WSA_NAMESPACE;
+}

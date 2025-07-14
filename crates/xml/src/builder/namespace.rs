@@ -7,6 +7,12 @@ pub struct Namespace<'a> {
     pub url: &'a str,
 }
 
+impl<'a> From<&'a str> for Namespace<'a> {
+    fn from(url: &'a str) -> Self {
+        Namespace { url }
+    }
+}
+
 impl PartialEq for Namespace<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url

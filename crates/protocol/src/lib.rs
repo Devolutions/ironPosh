@@ -25,41 +25,34 @@ Protocol::soap_builder()
 
 use xml::builder::Element;
 
-use crate::soap::{Header, Value};
+use crate::soap::Value;
 
 pub mod error;
 pub(crate) mod macros;
+pub mod shell;
 pub mod soap;
 pub mod ws_addressing;
 pub mod ws_management;
 
 pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
 
-// We define into_element ourself to avoid Orphan rules
-// For example, if we want implement `Node` for `&str`, we cannot do it directly
-pub trait MustUnderstand<'a, T>
-where
-    T: Value<'a>,
-{
-    fn must_understand(self) -> Header<'a, T>;
+pub trait TagName {
+    fn tag_name(&self) -> &'static str;
 }
 
-impl<'a, TNodeValue, THeader> MustUnderstand<'a, TNodeValue> for THeader
+pub struct Tag<'a, V, N>
 where
-    TNodeValue: Value<'a>,
-    THeader: Into<Header<'a, TNodeValue>>,
+    V: Value<'a>,
+    N: TagName,
 {
-    fn must_understand(self) -> Header<'a, TNodeValue> {
-        let mut header = self.into();
-        header.must_understand = true;
-        header
-    }
+    pub name: N,
+    pub value: V,
+
+    __phantom: std::marker::PhantomData<&'a V>,
 }
 
 impl<'a> Value<'a> for &'a str {
     fn into_element(self, name: &'static str) -> Element<'a> {
-        let mut element = Element::new(name);
-        element.with_text(self);
-        element
+        Element::new(name).set_text(self)
     }
 }

@@ -1,22 +1,33 @@
 pub use roxmltree::*;
 
-impl<'a> From<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
-    fn from(node: roxmltree::Node<'a, 'a>) -> Self {
-        let mut element = crate::builder::Element::new(node.tag_name().name());
+impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
+    type Error = crate::XmlError<'a>;
 
-        for child in node.children() {
-            if child.is_element() {
-                let child_element = crate::builder::Element::from(child);
-                element = element.add_child(child_element);
-            } else if child.is_text() {
-                let text_content = child.text().unwrap_or_default();
-                element = element.set_text(text_content);
-            } else {
-                // Handle other node types if necessary (e.g., comments, processing instructions)
-                // For now, we will ignore them.
-            }
+    fn try_from(value: roxmltree::Node<'a, 'a>) -> Result<Self, Self::Error> {
+        if !value.is_element() {
+            return Err(crate::XmlError::InvalidNodeType {
+                expected: NodeType::Element,
+                found: value.node_type(),
+            });
         }
 
-        element
+        let tag_name = value.tag_name();
+        let namespace = tag_name
+            .namespace()
+            .map(|ns| crate::builder::Namespace::new(ns));
+
+        let name = tag_name.name();
+
+        let mut element = crate::builder::Element::new(name);
+
+        if let Some(ns) = namespace {
+            element = element.set_namespace(ns);
+        }
+
+        Ok(element)
     }
+}
+
+pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, roxmltree::Error> {
+    roxmltree::Document::parse(xml)
 }

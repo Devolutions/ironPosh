@@ -10,3 +10,4 @@ keywords = ["xml", "xml-builder", "xml-generation"]
 
 [dependencies]
 roxmltree = "0.20.0"
+thiserror = "2.0.12"

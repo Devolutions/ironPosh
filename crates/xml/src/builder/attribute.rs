@@ -33,8 +33,8 @@ impl<'a> Attribute<'a> {
         }
     }
 
-    pub fn set_namespace(mut self, namespace: crate::builder::Namespace<'a>) -> Self {
-        self.namespace = Some(namespace);
+    pub fn set_namespace(mut self, namespace: impl Into<crate::builder::Namespace<'a>>) -> Self {
+        self.namespace = Some(namespace.into());
         self
     }
 
@@ -53,8 +53,9 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
     fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        alias_map: &HashMap<crate::builder::Namespace<'_>, &str>,
+        alias_map: Option<&HashMap<super::namespace::Namespace<'_>, &str>>,
     ) -> std::fmt::Result {
+        let alias_map = alias_map.ok_or(std::fmt::Error)?;
         let namespace_alias = self
             .namespace
             .as_ref()
