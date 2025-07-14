@@ -101,14 +101,6 @@ macro_rules! define_custom_tagname {
             }
         }
 
-        impl<'a, V> std::convert::From<V> for Tag<'a, V, $name>
-        where
-            V: crate::traits::TagValue<'a>,
-        {
-            fn from(value: V) -> Self {
-                Tag::new(value)
-            }
-        }
     };
 }
 

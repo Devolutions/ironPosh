@@ -1,6 +1,9 @@
 use std::fmt::Debug;
 use xml::builder::Element;
 
+use crate::traits::Tag1;
+
+use super::attribute::Attribute;
 use super::tag_name::TagName;
 use super::tag_value::TagValue;
 
@@ -65,5 +68,25 @@ where
         let child = self.into_element();
 
         parent.add_child(child)
+    }
+}
+
+impl<'a, N, A> From<(&'a str, A)> for Tag1<'a, &'a str, N, A>
+where
+    N: TagName,
+    A: Attribute<'a>,
+{
+    fn from((value, attr): (&'a str, A)) -> Self {
+        Tag1::new(value, attr)
+    }
+}
+
+impl<'a, V, N> std::convert::From<V> for Tag<'a, V, N>
+where
+    V: crate::traits::TagValue<'a>,
+    N: crate::traits::TagName,
+{
+    fn from(value: V) -> Self {
+        Tag::new(value)
     }
 }

@@ -25,3 +25,4 @@ impl<'a> TagValue<'a> for () {
         element
     }
 }
+

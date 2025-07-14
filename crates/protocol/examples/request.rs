@@ -3,7 +3,7 @@ use hyper::{
     header::{AUTHORIZATION, CONTENT_TYPE, HOST},
 };
 use protocol::{
-    traits::{DeclareNamespaces, MustUnderstand, Tag},
+    traits::{DeclareNamespaces, MustUnderstand, Tag, Tag1},
     ws_addressing::{Action, Address, MessageID, ReplyTo, To},
     ws_management::{
         CompressionType, DataLocale, Locale, MaxEnvelopeSize, OperationID, OperationTimeout,
@@ -17,48 +17,42 @@ pub fn main() {
     options.insert("protocolversion");
     let option_set_value = OptionSetValue::new(options);
 
-    let to_tag: Tag<'_, &str, To> = "test".into();
-
     let soap = protocol::soap::SoapBuilder::default()
         .add_header_nodes(
             protocol::ws_addressing::headers_builder()
-                .to("test")
-                .action(Action::new_tag1(
+                .to("http://10.10.0.3:5985/wsman?PSVersion=7.4.10")
+                .action((
                     "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
                     MustUnderstand::yes(),
                 ))
-                .reply_to(ReplyTo::new_tag(Address::new_tag1(
+                .reply_to(Tag1::from((
                     "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous",
                     MustUnderstand::yes(),
                 )))
-                .message_id(MessageID::new_tag(
-                    "uuid:D1D65143-B634-4725-BBF6-869CC4D3062F",
-                ))
+                .message_id("uuid:D1D65143-B634-4725-BBF6-869CC4D3062F")
                 .build(),
         )
         .add_header_nodes(
             protocol::ws_management::headers_builder()
-                .resource_uri(ResourceURI::new_tag1(
+                .resource_uri((
                     "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                     MustUnderstand::yes(),
                 ))
-                .max_envelope_size(MaxEnvelopeSize::new_tag("512000"))
-                .locale(Locale::new_tag("en-US"))
-                .data_locale(DataLocale::new_tag("en-CA"))
-                .sequence_id(SequenceId::new_tag("1"))
-                .operation_id(OperationID::new_tag(
-                    "uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649",
-                ))
-                .operation_timeout(OperationTimeout::new_tag("PT180.000S"))
-                .session_id(SessionId::new_tag1(
+                .max_envelope_size("512000")
+                .locale("en-US")
+                .data_locale("en-CA")
+                .sequence_id("1")
+                .operation_id("uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649")
+                .operation_timeout("PT180.000S")
+                .session_id((
                     "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                     MustUnderstand::no(),
                 ))
-                .compression_type(DeclareNamespaces::new(CompressionType::new_tag1(
+                .compression_type(DeclareNamespaces::new(Tag1::from((
                     "xpress",
                     MustUnderstand::yes(),
-                )))
-                .option_set(OptionSet::new_tag(option_set_value))
+                ))))
+                .option_set(option_set_value)
                 .build(),
         )
         .build()

@@ -25,11 +25,8 @@ define_tagname!(SequenceId, Some(WSMAN_NAMESPACE));
 define_tagname!(OperationID, Some(WSMAN_NAMESPACE));
 define_tagname!(FragmentTransfer, Some(WSMAN_NAMESPACE));
 define_tagname!(SelectorSet, Some(WSMAN_NAMESPACE));
-
 define_tagname!(SessionId, Some(WSMAN_NAMESPACE));
-
 define_tagname!(CompressionType, Some(WSMAN_NAMESPACE));
-
 define_tagname!(OptionSet, Some(WSMAN_NAMESPACE));
 
 #[derive(Debug, Clone)]
