@@ -22,55 +22,5 @@ const SOAP: &str = r#"
 "#;
 
 pub fn main() {
-    let parsed = xml::parser::parse(SOAP).expect("Failed to parse XML");
-    // println!("{:#?}", parsed);
-
-    let root = parsed.root().first_child().unwrap();
-    // println!("Root: {:#?}", root);
-    let header = root
-        .children()
-        .find(|n| n.tag_name().name() == "Header")
-        .unwrap();
-    // println!("Header: {:#?}", header);
-
-    let wsa_node = header
-        .children()
-        .filter(|n| {
-            n.tag_name().namespace() == Some("http://schemas.xmlsoap.org/ws/2004/08/addressing")
-        })
-        .collect::<Vec<_>>();
-
-    println!("WSA Node: {:#?}", wsa_node);
-
-    wsa_node.iter().for_each(|node| {
-        println!("Node: {} =============", node.tag_name().name());
-        node.children().for_each(|child| {
-            if child.is_element() {
-                println!("Element: {}", child.tag_name().name());
-            }
-
-            if child.is_text() {
-                println!("Text: {}", child.text().unwrap_or("No text"));
-            }
-        });
-        println!("Node: {} =============", node.tag_name().name());
-    })
-
-    // let itr = parsed
-    //     .root()
-    //     .first_child()
-    //     .unwrap()
-    //     .children()
-    //     .filter(|n| {
-    //         println!("Node: {:#?}", n.tag_name());
-    //         n.tag_name().namespace() == Some("http://schemas.xmlsoap.org/ws/2004/08/addressing")
-    //     });
-
-    // for node in itr {
-    //     println!(
-    //         "Node: {} - Text: {}",
-    //         node.tag_name().name(),
-    //         node.text().unwrap_or("No text")
-    //     );
-    // }
+    let mut parsed = xml::parser::parse(SOAP).expect("Failed to parse XML");
 }

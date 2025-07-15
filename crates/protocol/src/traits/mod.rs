@@ -8,7 +8,7 @@ pub mod tag_value;
 
 // Re-export all public items for backward compatibility
 pub use attribute::{Attribute, MustUnderstand};
-pub use namespace::{DeclareNamespaces, NamespaceAliasTuple, PowerShellNamespaceAlias};
+pub use namespace::{DeclareNamespaces, NamespaceWithAlias, PowerShellNamespaceAlias};
 pub use tag::Tag;
 pub use tag_name::TagName;
 pub use tag_value::TagValue;

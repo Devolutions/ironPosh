@@ -3,12 +3,8 @@ use hyper::{
     header::{AUTHORIZATION, CONTENT_TYPE, HOST},
 };
 use protocol::{
-    traits::{DeclareNamespaces, MustUnderstand, Tag, Tag1},
-    ws_addressing::{Action, Address, MessageID, ReplyTo, To},
-    ws_management::{
-        CompressionType, DataLocale, Locale, MaxEnvelopeSize, OperationID, OperationTimeout,
-        OptionSet, OptionSetValue, ResourceURI, SequenceId, SessionId,
-    },
+    traits::{MustUnderstand, Tag1},
+    ws_management::OptionSetValue,
 };
 
 pub fn main() {
@@ -48,10 +44,7 @@ pub fn main() {
                     "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                     MustUnderstand::no(),
                 ))
-                .compression_type(DeclareNamespaces::new(Tag1::from((
-                    "xpress",
-                    MustUnderstand::yes(),
-                ))))
+                .compression_type(("xpress", MustUnderstand::yes()))
                 .option_set(option_set_value)
                 .build(),
         )

@@ -71,12 +71,13 @@ where
     }
 }
 
-impl<'a, N, A> From<(&'a str, A)> for Tag1<'a, &'a str, N, A>
+impl<'a, N, A, V> From<(V, A)> for Tag1<'a, V, N, A>
 where
     N: TagName,
     A: Attribute<'a>,
+    V: TagValue<'a>,
 {
-    fn from((value, attr): (&'a str, A)) -> Self {
+    fn from((value, attr): (V, A)) -> Self {
         Tag1::new(value, attr)
     }
 }

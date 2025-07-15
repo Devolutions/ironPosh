@@ -1,4 +1,4 @@
-use xml::{XmlError, builder::Element, parser::Node};
+use xml::{XmlError, parser::Node};
 
 use crate::{
     define_tagname, must_be_text, push_element,
@@ -29,7 +29,6 @@ pub struct WsAddressingHeaders<'a> {
     pub to: Option<Tag<'a, &'a str, To>>,
     #[builder(default, setter(strip_option, into))]
     pub message_id: Option<Tag<'a, &'a str, MessageID>>,
-
     #[builder(default, setter(strip_option, into))]
     pub relates_to: Option<Tag<'a, &'a str, RelatesTo>>,
     #[builder(default, setter(strip_option, into))]
