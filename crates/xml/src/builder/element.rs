@@ -164,8 +164,8 @@ impl<'a> Element<'a> {
     ///    .set_text("This is some text content.");
     ///     
     /// ```
-    pub fn set_text(mut self, text: &'a str) -> Self {
-        self.content = Content::Text(std::borrow::Cow::Borrowed(text));
+    pub fn set_text(mut self, text: impl Into<&'a str>) -> Self {
+        self.content = Content::Text(std::borrow::Cow::Borrowed(text.into()));
         self
     }
 

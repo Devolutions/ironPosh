@@ -3,14 +3,14 @@ use hyper::{
     header::{AUTHORIZATION, CONTENT_TYPE, HOST},
 };
 use protocol::{
-    traits::{MustUnderstand, Tag1},
+    traits::{MustUnderstand, Tag1, tag_value::Text},
     ws_management::OptionSetValue,
 };
 
 pub fn main() {
     // Create the option set for protocol version
     let mut options = std::collections::HashSet::new();
-    options.insert("protocolversion");
+    options.insert("protocolversion".into());
     let option_set_value = OptionSetValue::new(options);
 
     let soap = protocol::soap::SoapBuilder::default()
@@ -44,7 +44,7 @@ pub fn main() {
                     "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                     MustUnderstand::no(),
                 ))
-                .compression_type(("xpress", MustUnderstand::yes()))
+                .compression_type((Text::from("xpress"), MustUnderstand::yes()))
                 .option_set(option_set_value)
                 .build(),
         )

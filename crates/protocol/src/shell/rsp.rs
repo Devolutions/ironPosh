@@ -1,6 +1,6 @@
 use crate::{
     define_custom_tagname, define_tagname, push_element,
-    traits::{DeclareNamespaces, PowerShellNamespaceAlias, Tag},
+    traits::{DeclareNamespaces, PowerShellNamespaceAlias, Tag, tag_value::Text},
 };
 
 pub const PWSH_NS: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
@@ -31,46 +31,46 @@ define_custom_tagname!(CreationXml, "creationXml", None);
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct Shell<'a> {
     #[builder(setter(into))]
-    pub shell_id: Tag<'a, &'a str, ShellId>,
+    pub shell_id: Tag<'a, Text<'a>, ShellId>,
     #[builder(default, setter(strip_option, into))]
-    pub name: Option<Tag<'a, &'a str, Name>>,
+    pub name: Option<Tag<'a, Text<'a>, Name>>,
     #[builder(default, setter(strip_option, into))]
-    pub resource_uri: Option<Tag<'a, &'a str, ResourceUri>>,
+    pub resource_uri: Option<Tag<'a, Text<'a>, ResourceUri>>,
     #[builder(default, setter(strip_option, into))]
-    pub owner: Option<Tag<'a, &'a str, Owner>>,
+    pub owner: Option<Tag<'a, Text<'a>, Owner>>,
     #[builder(default, setter(strip_option, into))]
-    pub client_ip: Option<Tag<'a, &'a str, ClientIP>>,
+    pub client_ip: Option<Tag<'a, Text<'a>, ClientIP>>,
     #[builder(default, setter(strip_option, into))]
-    pub process_id: Option<Tag<'a, &'a str, ProcessId>>,
+    pub process_id: Option<Tag<'a, Text<'a>, ProcessId>>,
     #[builder(default, setter(strip_option, into))]
-    pub idle_time_out: Option<Tag<'a, &'a str, IdleTimeOut>>,
+    pub idle_time_out: Option<Tag<'a, Text<'a>, IdleTimeOut>>,
     #[builder(default, setter(strip_option, into))]
-    pub input_streams: Option<Tag<'a, &'a str, InputStreams>>,
+    pub input_streams: Option<Tag<'a, Text<'a>, InputStreams>>,
     #[builder(default, setter(strip_option, into))]
-    pub output_streams: Option<Tag<'a, &'a str, OutputStreams>>,
+    pub output_streams: Option<Tag<'a, Text<'a>, OutputStreams>>,
     #[builder(default, setter(strip_option, into))]
-    pub max_idle_time_out: Option<Tag<'a, &'a str, MaxIdleTimeOut>>,
+    pub max_idle_time_out: Option<Tag<'a, Text<'a>, MaxIdleTimeOut>>,
     #[builder(default, setter(strip_option, into))]
-    pub locale: Option<Tag<'a, &'a str, Locale>>,
+    pub locale: Option<Tag<'a, Text<'a>, Locale>>,
     #[builder(default, setter(strip_option, into))]
-    pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
+    pub data_locale: Option<Tag<'a, Text<'a>, DataLocale>>,
     #[builder(default, setter(strip_option, into))]
-    pub compression_mode: Option<Tag<'a, &'a str, CompressionMode>>,
+    pub compression_mode: Option<Tag<'a, Text<'a>, CompressionMode>>,
     #[builder(default, setter(strip_option, into))]
-    pub profile_loaded: Option<Tag<'a, &'a str, ProfileLoaded>>,
+    pub profile_loaded: Option<Tag<'a, Text<'a>, ProfileLoaded>>,
     #[builder(default, setter(strip_option, into))]
-    pub encoding: Option<Tag<'a, &'a str, Encoding>>,
+    pub encoding: Option<Tag<'a, Text<'a>, Encoding>>,
     #[builder(default, setter(strip_option, into))]
-    pub buffer_mode: Option<Tag<'a, &'a str, BufferMode>>,
+    pub buffer_mode: Option<Tag<'a, Text<'a>, BufferMode>>,
     #[builder(default, setter(strip_option, into))]
-    pub state: Option<Tag<'a, &'a str, State>>,
+    pub state: Option<Tag<'a, Text<'a>, State>>,
     #[builder(default, setter(strip_option, into))]
-    pub shell_run_time: Option<Tag<'a, &'a str, ShellRunTime>>,
+    pub shell_run_time: Option<Tag<'a, Text<'a>, ShellRunTime>>,
     #[builder(default, setter(strip_option, into))]
-    pub shell_inactivity: Option<Tag<'a, &'a str, ShellInactivity>>,
+    pub shell_inactivity: Option<Tag<'a, Text<'a>, ShellInactivity>>,
     #[builder(default, setter(strip_option, into))]
     pub creation_xml:
-        Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, &'a str, CreationXml>>>,
+        Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, Text<'a>, CreationXml>>>,
 }
 
 impl<'a> IntoIterator for Shell<'a> {

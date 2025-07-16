@@ -1,3 +1,5 @@
+use xml::parser::{XmlDeserialize, XmlVisitor};
+
 pub trait Attribute<'a> {
     fn value(&self) -> Option<&'a str>;
 
@@ -29,3 +31,50 @@ impl<'a> Attribute<'a> for MustUnderstand {
     }
 }
 
+pub struct MustUnderstandVisitor {
+    value: Option<MustUnderstand>,
+}
+
+impl<'a> xml::parser::XmlVisitor<'a> for MustUnderstandVisitor {
+    type Value = MustUnderstand;
+
+    fn visit(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        let attributes = node.attributes();
+
+        for attr in attributes {
+            if attr.name() == MustUnderstand::NAME && attr.namespace() == MustUnderstand::NAMESPACE
+            {
+                match attr.value() {
+                    "true" => self.value = Some(MustUnderstand::yes()),
+                    "false" => self.value = Some(MustUnderstand::no()),
+                    _ => {
+                        return Err(xml::XmlError::InvalidXml(
+                            "Invalid value for mustUnderstand attribute".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+        self.value.ok_or(xml::XmlError::InvalidXml(
+            "No mustUnderstand attribute found".to_string(),
+        ))
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for MustUnderstand {
+    type Visitor = MustUnderstandVisitor;
+
+    fn visitor() -> Self::Visitor {
+        MustUnderstandVisitor { value: None }
+    }
+
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+        let mut visitor = Self::visitor();
+        visitor.visit(node)?;
+        visitor.finish()
+    }
+}

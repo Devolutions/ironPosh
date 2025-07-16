@@ -2,7 +2,7 @@ use xml::builder::Element;
 
 use crate::{
     define_tagname,
-    traits::{Tag, TagValue},
+    traits::{tag_value::Text, Tag, TagValue},
     ws_management::WSMAN_NAMESPACE,
     wsman_ns,
 };
@@ -26,7 +26,7 @@ define_tagname!(GetStatus, Some(WSMAN_NAMESPACE));
 pub struct EnumerateValue<'a> {
     pub optimize_enumeration: Option<bool>,
     pub max_elements: Option<u32>,
-    pub filter: Option<&'a str>,
+    pub filter: Option<Text<'a>>,
 }
 
 impl<'a> EnumerateValue<'a> {
@@ -48,7 +48,7 @@ impl<'a> EnumerateValue<'a> {
         self
     }
 
-    pub fn with_filter(mut self, filter: &'a str) -> Self {
+    pub fn with_filter(mut self, filter: Text<'a>) -> Self {
         self.filter = Some(filter);
         self
     }
@@ -93,12 +93,12 @@ impl<'a> TagValue<'a> for EnumerateValue<'a> {
 
 #[derive(Debug, Clone)]
 pub struct PullValue<'a> {
-    pub enumeration_context: &'a str,
+    pub enumeration_context: Text<'a>,
     pub max_elements: Option<u32>,
 }
 
 impl<'a> PullValue<'a> {
-    pub fn new(enumeration_context: &'a str) -> Self {
+    pub fn new(enumeration_context: Text<'a>) -> Self {
         Self {
             enumeration_context,
             max_elements: None,
@@ -137,11 +137,11 @@ impl<'a> TagValue<'a> for PullValue<'a> {
 
 #[derive(Debug, Clone)]
 pub struct ReleaseValue<'a> {
-    pub enumeration_context: &'a str,
+    pub enumeration_context: Text<'a>,
 }
 
 impl<'a> ReleaseValue<'a> {
-    pub fn new(enumeration_context: &'a str) -> Self {
+    pub fn new(enumeration_context: Text<'a>) -> Self {
         Self {
             enumeration_context,
         }
@@ -164,11 +164,11 @@ impl<'a> TagValue<'a> for ReleaseValue<'a> {
 
 #[derive(Debug, Clone)]
 pub struct GetStatusValue<'a> {
-    pub enumeration_context: &'a str,
+    pub enumeration_context: Text<'a>,
 }
 
 impl<'a> GetStatusValue<'a> {
-    pub fn new(enumeration_context: &'a str) -> Self {
+    pub fn new(enumeration_context: Text<'a>) -> Self {
         Self {
             enumeration_context,
         }
@@ -195,15 +195,15 @@ pub struct WsManagementBody<'a> {
     #[builder(default, setter(strip_option, into))]
     pub identify: Option<Tag<'a, (), Identify>>,
     #[builder(default, setter(strip_option, into))]
-    pub get: Option<Tag<'a, &'a str, Get>>,
+    pub get: Option<Tag<'a, Text<'a>, Get>>,
     #[builder(default, setter(strip_option, into))]
-    pub put: Option<Tag<'a, &'a str, Put>>,
+    pub put: Option<Tag<'a, Text<'a>, Put>>,
     #[builder(default, setter(strip_option, into))]
-    pub create: Option<Tag<'a, &'a str, Create>>,
+    pub create: Option<Tag<'a, Text<'a>, Create>>,
     #[builder(default, setter(strip_option, into))]
-    pub delete: Option<Tag<'a, &'a str, Delete>>,
+    pub delete: Option<Tag<'a, Text<'a>, Delete>>,
     #[builder(default, setter(strip_option, into))]
-    pub rename: Option<Tag<'a, &'a str, Delete>>,
+    pub rename: Option<Tag<'a, Text<'a>, Delete>>,
     #[builder(default, setter(strip_option, into))]
     pub enumerate: Option<Tag<'a, EnumerateValue<'a>, Enumerate>>,
     #[builder(default, setter(strip_option, into))]

@@ -6,6 +6,7 @@ use crate::{
     define_tagname, must_be_text, push_element,
     traits::{
         DeclareNamespaces, MustUnderstand, Tag, Tag1, TagValue, namespace::RspShellNamespaceAlias,
+        tag_value::Text,
     },
     ws_management::WSMAN_NAMESPACE,
     wsman_ns,
@@ -31,11 +32,11 @@ define_tagname!(OptionSet, Some(WSMAN_NAMESPACE));
 
 #[derive(Debug, Clone)]
 pub struct SelectorSetValue<'a> {
-    selectors: HashSet<&'a str>,
+    selectors: HashSet<Text<'a>>,
 }
 
 impl<'a> SelectorSetValue<'a> {
-    pub fn new(selectors: HashSet<&'a str>) -> Self {
+    pub fn new(selectors: HashSet<Text<'a>>) -> Self {
         Self { selectors }
     }
 }
@@ -59,11 +60,11 @@ impl<'a> TagValue<'a> for SelectorSetValue<'a> {
 
 #[derive(Debug, Clone)]
 pub struct OptionSetValue<'a> {
-    options: HashSet<&'a str>,
+    options: HashSet<Text<'a>>,
 }
 
 impl<'a> OptionSetValue<'a> {
-    pub fn new(options: HashSet<&'a str>) -> Self {
+    pub fn new(options: HashSet<Text<'a>>) -> Self {
         Self { options }
     }
 }
@@ -91,33 +92,33 @@ impl<'a> TagValue<'a> for OptionSetValue<'a> {
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsManagementHeader<'a> {
     #[builder(default, setter(strip_option, into))]
-    pub resource_uri: Option<Tag1<'a, &'a str, ResourceURI, MustUnderstand>>,
+    pub resource_uri: Option<Tag1<'a, Text<'a>, ResourceURI, MustUnderstand>>,
     #[builder(default, setter(strip_option, into))]
     pub selector_set: Option<Tag<'a, SelectorSetValue<'a>, SelectorSet>>,
     #[builder(default, setter(strip_option, into))]
     pub option_set: Option<Tag<'a, OptionSetValue<'a>, OptionSet>>,
     #[builder(default, setter(strip_option, into))]
-    pub operation_timeout: Option<Tag<'a, &'a str, OperationTimeout>>,
+    pub operation_timeout: Option<Tag<'a, Text<'a>, OperationTimeout>>,
     #[builder(default, setter(strip_option, into))]
-    pub max_envelope_size: Option<Tag<'a, &'a str, MaxEnvelopeSize>>,
+    pub max_envelope_size: Option<Tag<'a, Text<'a>, MaxEnvelopeSize>>,
     #[builder(default, setter(strip_option, into))]
-    pub locale: Option<Tag<'a, &'a str, Locale>>,
+    pub locale: Option<Tag<'a, Text<'a>, Locale>>,
     #[builder(default, setter(strip_option, into))]
-    pub data_locale: Option<Tag<'a, &'a str, DataLocale>>,
+    pub data_locale: Option<Tag<'a, Text<'a>, DataLocale>>,
     #[builder(default, setter(strip_option, into))]
-    pub sequence_id: Option<Tag<'a, &'a str, SequenceId>>,
+    pub sequence_id: Option<Tag<'a, Text<'a>, SequenceId>>,
     #[builder(default, setter(strip_option, into))]
-    pub operation_id: Option<Tag<'a, &'a str, OperationID>>,
+    pub operation_id: Option<Tag<'a, Text<'a>, OperationID>>,
     #[builder(default, setter(strip_option, into))]
-    pub fragment_transfer: Option<Tag<'a, &'a str, FragmentTransfer>>,
+    pub fragment_transfer: Option<Tag<'a, Text<'a>, FragmentTransfer>>,
     #[builder(default, setter(strip_option, into))]
-    pub session_id: Option<Tag1<'a, &'a str, SessionId, MustUnderstand>>,
+    pub session_id: Option<Tag1<'a, Text<'a>, SessionId, MustUnderstand>>,
     #[builder(default, setter(strip_option, into))]
     pub compression_type: Option<
         DeclareNamespaces<
             'a,
             RspShellNamespaceAlias,
-            Tag1<'a, &'a str, CompressionType, MustUnderstand>,
+            Tag1<'a, Text<'a>, CompressionType, MustUnderstand>,
         >,
     >,
 }
@@ -171,158 +172,3 @@ impl<'a> crate::soap::SoapHeaders<'a> for WsManagementHeader<'a> {
     const NAMESPACE: &'static str = WSMAN_NAMESPACE;
 }
 
-impl<'a> TryFrom<Vec<Node<'a, 'a>>> for WsManagementHeader<'a> {
-    type Error = xml::XmlError<'a>;
-
-    fn try_from(value: Vec<Node<'a, 'a>>) -> Result<Self, Self::Error> {
-        let mut resource_uri = None;
-        let mut selector_set = None;
-        let mut option_set = None;
-        let mut operation_timeout = None;
-        let mut max_envelope_size = None;
-        let mut locale = None;
-        let mut data_locale = None;
-        let mut sequence_id = None;
-        let mut operation_id = None;
-        let mut fragment_transfer = None;
-
-        for node in value {
-            match node.tag_name().name() {
-                "ResourceURI" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    resource_uri = Some(ResourceURI::new_tag1(value.trim(), MustUnderstand::no()));
-                }
-                "SelectorSet" => {
-                    let mut selectors = HashSet::new();
-                    for child in node.children() {
-                        if child.tag_name().name() == "Selector" {
-                            if let Some(text_child) = child.first_child() {
-                                must_be_text!(text_child);
-                                if let Some(text) = text_child.text() {
-                                    selectors.insert(text.trim());
-                                }
-                            }
-                        }
-                    }
-                    selector_set = Some(SelectorSet::new_tag(SelectorSetValue::new(selectors)));
-                }
-                "OptionSet" => {
-                    let mut options = HashSet::new();
-                    for child in node.children() {
-                        if child.tag_name().name() == "Option" {
-                            if let Some(text_child) = child.first_child() {
-                                must_be_text!(text_child);
-                                if let Some(text) = text_child.text() {
-                                    options.insert(text.trim());
-                                }
-                            }
-                        }
-                    }
-                    option_set = Some(OptionSet::new_tag(OptionSetValue::new(options)));
-                }
-                "OperationTimeout" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    operation_timeout = Some(OperationTimeout::new_tag(value.trim()));
-                }
-                "MaxEnvelopeSize" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    max_envelope_size = Some(MaxEnvelopeSize::new_tag(value.trim()));
-                }
-                "Locale" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    locale = Some(Locale::new_tag(value.trim()));
-                }
-                "DataLocale" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    data_locale = Some(DataLocale::new_tag(value.trim()));
-                }
-                "SequenceId" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    sequence_id = Some(SequenceId::new_tag(value.trim()));
-                }
-                "OperationID" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    operation_id = Some(OperationID::new_tag(value.trim()));
-                }
-                "FragmentTransfer" => {
-                    let value = {
-                        let child = node
-                            .first_child()
-                            .ok_or(XmlError::GenericError("expecting node".into()))?;
-                        must_be_text!(child);
-                        let text = child.text().expect("must be text");
-                        text
-                    };
-                    fragment_transfer = Some(FragmentTransfer::new_tag(value.trim()));
-                }
-                tag_name => {
-                    return Err(xml::XmlError::UnexpectedTag(tag_name.into()));
-                }
-            }
-        }
-
-        Ok(WsManagementHeader {
-            resource_uri,
-            selector_set,
-            option_set,
-            operation_timeout,
-            max_envelope_size,
-            locale,
-            data_locale,
-            sequence_id,
-            operation_id,
-            fragment_transfer,
-            session_id: None,       // SessionId is not parsed here
-            compression_type: None, // CompressionType is not parsed here
-        })
-    }
-}
