@@ -1,32 +1,7 @@
 use crate::{
-    define_custom_tagname, define_tagname, push_element,
-    traits::{DeclareNamespaces, PowerShellNamespaceAlias, Tag, tag_value::Text},
+    push_elements,
+    traits::{Tag, TagList, tag_name::*, tag_value::Text},
 };
-
-pub const PWSH_NS: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
-pub const PWSH_NS_ALIAS: &str = "rsp";
-
-// Define tag names for PowerShell remoting shell elements
-define_tagname!(ShellId, Some(PWSH_NS));
-define_tagname!(Name, Some(PWSH_NS));
-define_tagname!(ResourceUri, Some(PWSH_NS));
-define_tagname!(Owner, Some(PWSH_NS));
-define_tagname!(ClientIP, Some(PWSH_NS));
-define_tagname!(ProcessId, Some(PWSH_NS));
-define_tagname!(IdleTimeOut, Some(PWSH_NS));
-define_tagname!(InputStreams, Some(PWSH_NS));
-define_tagname!(OutputStreams, Some(PWSH_NS));
-define_tagname!(MaxIdleTimeOut, Some(PWSH_NS));
-define_tagname!(Locale, Some(PWSH_NS));
-define_tagname!(DataLocale, Some(PWSH_NS));
-define_tagname!(CompressionMode, Some(PWSH_NS));
-define_tagname!(ProfileLoaded, Some(PWSH_NS));
-define_tagname!(Encoding, Some(PWSH_NS));
-define_tagname!(BufferMode, Some(PWSH_NS));
-define_tagname!(State, Some(PWSH_NS));
-define_tagname!(ShellRunTime, Some(PWSH_NS));
-define_tagname!(ShellInactivity, Some(PWSH_NS));
-define_custom_tagname!(CreationXml, "creationXml", None);
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct Shell<'a> {
@@ -69,8 +44,7 @@ pub struct Shell<'a> {
     #[builder(default, setter(strip_option, into))]
     pub shell_inactivity: Option<Tag<'a, Text<'a>, ShellInactivity>>,
     #[builder(default, setter(strip_option, into))]
-    pub creation_xml:
-        Option<DeclareNamespaces<'a, PowerShellNamespaceAlias, Tag<'a, Text<'a>, CreationXml>>>,
+    pub creation_xml: Option<Tag<'a, TagList<'a>, CreationXml>>,
 }
 
 impl<'a> IntoIterator for Shell<'a> {
@@ -104,7 +78,7 @@ impl<'a> IntoIterator for Shell<'a> {
 
         let mut tags: Vec<Self::Item> = vec![];
 
-        push_element!(
+        push_elements!(
             tags,
             [
                 Some(shell_id),

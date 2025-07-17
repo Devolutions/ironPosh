@@ -1,29 +1,16 @@
-
 use crate::{
-    define_tagname, push_element,
-    traits::{MustUnderstand, Tag, Tag1, tag_value::Text},
+    push_elements,
+    traits::{Tag, TagList, tag_name::*, tag_value::Text},
 };
-
-pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
-pub const WSA_NAMESPACE_ALIAS: &str = "a";
 
 pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {
     WsAddressingHeaders::builder()
 }
 
-define_tagname!(Action, Some(WSA_NAMESPACE));
-define_tagname!(To, Some(WSA_NAMESPACE));
-define_tagname!(MessageID, Some(WSA_NAMESPACE));
-define_tagname!(RelatesTo, Some(WSA_NAMESPACE));
-define_tagname!(ReplyTo, Some(WSA_NAMESPACE));
-define_tagname!(FaultTo, Some(WSA_NAMESPACE));
-define_tagname!(From, Some(WSA_NAMESPACE));
-define_tagname!(Address, Some(WSA_NAMESPACE));
-
 #[derive(typed_builder::TypedBuilder, Debug, Clone)]
 pub struct WsAddressingHeaders<'a> {
     #[builder(default, setter(strip_option, into))]
-    pub action: Option<Tag1<'a, Text<'a>, Action, MustUnderstand>>,
+    pub action: Option<Tag<'a, Text<'a>, Action>>,
     #[builder(default, setter(strip_option, into))]
     pub to: Option<Tag<'a, Text<'a>, To>>,
     #[builder(default, setter(strip_option, into))]
@@ -31,7 +18,7 @@ pub struct WsAddressingHeaders<'a> {
     #[builder(default, setter(strip_option, into))]
     pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
     #[builder(default, setter(strip_option, into))]
-    pub reply_to: Option<Tag<'a, Tag1<'a, Text<'a>, Address, MustUnderstand>, ReplyTo>>,
+    pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
     #[builder(default, setter(strip_option, into))]
     pub fault_to: Option<Tag<'a, Text<'a>, FaultTo>>,
     #[builder(default, setter(strip_option, into))]
@@ -56,15 +43,11 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
 
         let mut tags = Vec::new();
 
-        push_element!(
+        push_elements!(
             tags,
             [action, to, message_id, relates_to, reply_to, fault_to, from]
         );
 
         tags.into_iter()
     }
-}
-
-impl<'a> crate::soap::SoapHeaders<'a> for WsAddressingHeaders<'a> {
-    const NAMESPACE: &'static str = WSA_NAMESPACE;
 }

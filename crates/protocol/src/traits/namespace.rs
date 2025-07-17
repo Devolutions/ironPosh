@@ -1,110 +1,169 @@
 use std::fmt::Debug;
-use xml::builder::Element;
+use xml::parser::XmlDeserialize;
 
-use crate::traits::{Attribute, Tag1, Tag2, TagName, TagValue};
+pub const PWSH_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
+pub const PWSH_NAMESPACE_ALIAS: &str = "rsp";
 
-pub trait NamespaceWithAlias<'a> {
-    const NAMESPACE: &'static str;
-    const ALIAS: &'static str;
+pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
+pub const WSA_NAMESPACE_ALIAS: &str = "a";
+
+pub const SOAP_NAMESPACE: &str = "http://www.w3.org/2003/05/soap-envelope";
+pub const SOAP_NAMESPACE_ALIAS: &str = "s";
+
+pub const WSMAN_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd";
+pub const WSMAN_NAMESPACE_ALIAS: &str = "w";
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Namespace {
+    PowerShell,
+    RspShell,
+    WsAddressing,
+    WsManagementHeader,
+    Soap,
 }
 
-#[derive(Debug, Clone)]
-pub struct PowerShellNamespaceAlias;
+impl Namespace {
+    pub fn as_tuple(&self) -> (&'static str, &'static str) {
+        match self {
+            Namespace::PowerShell => (PWSH_NAMESPACE, PWSH_NAMESPACE_ALIAS),
+            Namespace::RspShell => (
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
+                "rsp",
+            ),
+            Namespace::WsAddressing => (WSA_NAMESPACE, WSA_NAMESPACE_ALIAS),
+            Namespace::WsManagementHeader => (WSMAN_NAMESPACE, WSMAN_NAMESPACE_ALIAS),
+            Namespace::Soap => (SOAP_NAMESPACE, SOAP_NAMESPACE_ALIAS),
+        }
+    }
 
-impl NamespaceWithAlias<'_> for PowerShellNamespaceAlias {
-    const NAMESPACE: &'static str = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell";
-    const ALIAS: &'static str = "ps";
+    pub fn url(&self) -> &'static str {
+        self.as_tuple().0
+    }
+
+    pub fn alias(&self) -> &'static str {
+        self.as_tuple().1
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct RspShellNamespaceAlias;
+impl<'a> XmlDeserialize<'a> for Namespace {
+    type Visitor = NamespaceVisitor;
 
-impl NamespaceWithAlias<'_> for RspShellNamespaceAlias {
-    const NAMESPACE: &'static str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
-    const ALIAS: &'static str = "rsp";
+    fn visitor() -> Self::Visitor {
+        NamespaceVisitor { namespace: None }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct DeclareNamespaces<'a, N, T>
-where
-    T: Into<Element<'a>> + Debug + Clone,
-    N: NamespaceWithAlias<'a>,
-{
-    tag: T,
-    __phantom: std::marker::PhantomData<&'a T>,
-    __phantom_namespace: std::marker::PhantomData<N>,
-}
+impl TryFrom<&str> for Namespace {
+    type Error = &'static str;
 
-impl<'a, N, T> DeclareNamespaces<'a, N, T>
-where
-    T: Into<Element<'a>> + Debug + Clone,
-    N: NamespaceWithAlias<'a>,
-{
-    pub fn new(tag: T) -> Self {
-        Self {
-            tag,
-            __phantom: std::marker::PhantomData,
-            __phantom_namespace: std::marker::PhantomData,
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell" => {
+                Ok(Namespace::PowerShell)
+            }
+            "http://schemas.microsoft.com/wbem/wsman/1/windows/shell" => Ok(Namespace::RspShell),
+            "http://www.w3.org/2005/08/addressing" => Ok(Namespace::WsAddressing),
+            "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" => Ok(Namespace::WsManagementHeader),
+            _ => Err("Unknown namespace"),
         }
     }
 }
 
-impl<'a, N, T> From<T> for DeclareNamespaces<'a, N, T>
-where
-    T: Into<Element<'a>> + Debug + Clone,
-    N: NamespaceWithAlias<'a>,
-{
-    fn from(tag: T) -> Self {
-        Self::new(tag)
+pub struct NamespaceVisitor {
+    namespace: Option<Namespace>,
+}
+
+impl<'a> xml::parser::XmlVisitor<'a> for NamespaceVisitor {
+    type Value = Namespace;
+
+    fn visit_children(
+        &mut self,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), xml::XmlError<'a>> {
+        Ok(())
+    }
+
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        let Some(namespace) = node.tag_name().namespace() else {
+            return Err(xml::XmlError::InvalidXml("No namespace found".to_string()));
+        };
+
+        match Namespace::try_from(namespace) {
+            Ok(ns) => {
+                self.namespace = Some(ns);
+            }
+            Err(_) => {
+                return Err(xml::XmlError::InvalidXml(format!(
+                    "Unknown namespace: {namespace}"
+                )));
+            }
+        };
+
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+        self.namespace
+            .ok_or(xml::XmlError::InvalidXml("No namespace found".to_string()))
     }
 }
 
-impl<'a, N, T> AsRef<T> for DeclareNamespaces<'a, N, T>
-where
-    T: Into<Element<'a>> + Debug + Clone,
-    N: NamespaceWithAlias<'a>,
-{
-    fn as_ref(&self) -> &T {
-        &self.tag
+#[derive(Debug, Clone)]
+pub struct NamespaceDeclaration(Vec<Namespace>);
+
+impl Default for NamespaceDeclaration {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl<'a, T, N> From<DeclareNamespaces<'a, N, T>> for Element<'a>
-where
-    T: Into<Element<'a>> + Debug + Clone,
-    N: NamespaceWithAlias<'a>,
-{
-    fn from(val: DeclareNamespaces<'a, N, T>) -> Self {
-        let mut element = val.tag.into();
-        element = element.add_namespace_alias(N::NAMESPACE, N::ALIAS);
-        element
+impl NamespaceDeclaration {
+    pub fn new() -> Self {
+        NamespaceDeclaration(Vec::new())
+    }
+
+    pub fn namespaces(&self) -> &[Namespace] {
+        &self.0
+    }
+
+    pub fn push(&mut self, namespace: Namespace) {
+        self.0.push(namespace);
     }
 }
 
-impl<'a, V, N, A, NS> From<(V, A)> for DeclareNamespaces<'a, NS, Tag1<'a, V, N, A>>
-where
-    A: Attribute<'a> + Debug + Clone,
-    V: TagValue<'a> + Debug + Clone,
-    N: TagName + Debug + Clone,
-    NS: NamespaceWithAlias<'a> + Debug + Clone,
-{
-    fn from(value: (V, A)) -> Self {
-        let tag = Tag1::from(value);
-        DeclareNamespaces::new(tag)
+pub struct NamespaceDeclarationVisitor {
+    namespaces: Vec<Namespace>,
+}
+
+impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
+    type Value = NamespaceDeclaration;
+
+    fn visit_children(
+        &mut self,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), xml::XmlError<'a>> {
+        Ok(())
+    }
+
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        todo!()
+    }
+
+    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+        Ok(NamespaceDeclaration(self.namespaces))
     }
 }
 
-impl<'a, V, N, A, A1, NS> From<(V, A, A1)> for DeclareNamespaces<'a, NS, Tag2<'a, V, N, A, A1>>
-where
-    A: Attribute<'a> + Debug + Clone,
-    A1: Attribute<'a> + Debug + Clone,
-    V: TagValue<'a> + Debug + Clone,
-    N: TagName + Debug + Clone,
-    NS: NamespaceWithAlias<'a> + Debug + Clone,
-{
-    fn from(value: (V, A, A1)) -> Self {
-        let (v, a, a1) = value;
-        let tag = Tag2::new(v, a, a1);
-        DeclareNamespaces::new(tag)
+impl<'a> XmlDeserialize<'a> for NamespaceDeclaration {
+    type Visitor = NamespaceDeclarationVisitor;
+
+    fn visitor() -> Self::Visitor {
+        NamespaceDeclarationVisitor {
+            namespaces: Vec::new(),
+        }
+    }
+
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+        xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }

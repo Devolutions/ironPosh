@@ -45,7 +45,7 @@ impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
 
     fn visit_children(
         &mut self,
-        children: xml::parser::Children<'a, 'a>,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
         let child_nodes: Vec<_> = children.collect();
 
@@ -57,7 +57,9 @@ impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
             )));
         }
 
-        let child = child_nodes[0];
+        let child = child_nodes.first().ok_or_else(|| {
+            xml::XmlError::InvalidXml("Expected at least one child node".to_string())
+        })?;
 
         // Validate that child node is a text node
         if !child.is_text() {
@@ -103,7 +105,7 @@ impl<'a> XmlVisitor<'a> for EmptyVisitor {
 
     fn visit_children(
         &mut self,
-        children: xml::parser::Children<'a, 'a>,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
         let child_count = children.count();
 

@@ -14,9 +14,7 @@ impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
         }
 
         let tag_name = value.tag_name();
-        let namespace = tag_name
-            .namespace()
-            .map(crate::builder::Namespace::new);
+        let namespace = tag_name.namespace().map(crate::builder::Namespace::new);
 
         let name = tag_name.name();
 
@@ -41,7 +39,7 @@ pub trait XmlVisitor<'a> {
     /// Default implementation calls visit_children for backward compatibility
     fn visit_children(
         &mut self,
-        node: roxmltree::Children<'a, 'a>,
+        node: impl Iterator<Item = roxmltree::Node<'a, 'a>>,
     ) -> Result<(), crate::XmlError<'a>>;
 
     /// Visit the children of a node - used by TagValue types that process content
@@ -83,5 +81,13 @@ pub trait XmlDeserialize<'a>: Sized {
     /// One-liner users will call.
     fn from_node(node: roxmltree::Node<'a, 'a>) -> Result<Self, XmlError<'a>> {
         NodeDeserializer::new(node).deserialize(Self::visitor())
+    }
+
+    fn from_children(
+        children: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
+    ) -> Result<Self, XmlError<'a>> {
+        let mut visitor = Self::visitor();
+        visitor.visit_children(children)?;
+        visitor.finish()
     }
 }

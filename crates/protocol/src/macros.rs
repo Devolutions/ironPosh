@@ -85,19 +85,11 @@ macro_rules! define_custom_tagname {
         }
 
         impl<'a> $name {
-            pub fn new_tag<V>(value: V) -> Tag<'a, V, Self>
+            pub fn new_tag<V>(value: V) -> $crate::traits::tag::Tag<'a, V, Self>
             where
                 V: $crate::traits::TagValue<'a>,
             {
-                Tag::new(value.into())
-            }
-
-            pub fn new_tag1<V, A>(value: V, attr: A) -> crate::traits::Tag1<'a, V, Self, A>
-            where
-                V: crate::traits::TagValue<'a>,
-                A: crate::traits::Attribute<'a>,
-            {
-                crate::traits::Tag1::new(value.into(), attr)
+                crate::traits::tag::Tag::new(value.into())
             }
         }
     };
@@ -191,7 +183,7 @@ macro_rules! define_tag {
 }
 
 #[macro_export]
-macro_rules! push_element {
+macro_rules! push_elements {
     ($vec:expr,[$($tag:expr),*]) => {
 
         $(

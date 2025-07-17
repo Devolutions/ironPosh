@@ -1,8 +1,8 @@
-use std::fmt::Debug;
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::traits::Tag1;
+use crate::traits::Namespace;
+use crate::traits::namespace::NamespaceDeclaration;
 use crate::traits::tag_value::Text;
 
 use super::attribute::Attribute;
@@ -16,6 +16,9 @@ where
     N: TagName,
 {
     pub value: V,
+    pub attributes: Vec<Attribute>,
+    pub namespaces: NamespaceDeclaration,
+    pub namespace: Option<Namespace>,
 
     __phantom: std::marker::PhantomData<&'a V>,
     __phantom_name: std::marker::PhantomData<N>,
@@ -27,6 +30,9 @@ where
     N: TagName,
 {
     pub tag: Option<V>,
+    pub attributes: Vec<Attribute>,
+    pub namespaces: NamespaceDeclaration,
+    pub namespace: Option<Namespace>,
     __phantom: std::marker::PhantomData<&'a N>,
 }
 
@@ -58,24 +64,40 @@ where
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
-            let value = V::from_node(node)?;
+            let value =
+                V::from_children(node.children().filter(|c| c.is_element() || c.is_text()))?;
             self.tag = Some(value);
         }
+
+        for _ in node.attributes() {
+            if let Ok(attribute) = Attribute::from_node(node) {
+                self.attributes.push(attribute);
+            }
+        }
+
+        self.namespaces = NamespaceDeclaration::from_node(node)?;
+
+        self.namespace = Namespace::from_node(node).ok();
+
         Ok(())
     }
 
     fn visit_children(
         &mut self,
-        _children: xml::parser::Children<'a, 'a>,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
-        // Tag uses visit_node, not visit_children
-        Ok(())
+        Err(xml::XmlError::InvalidXml(
+            "Expected a single tag, found multiple children".to_string(),
+        ))
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
         self.tag
             .map(|value| Tag {
                 value,
+                attributes: self.attributes,
+                namespaces: self.namespaces,
+                namespace: self.namespace,
                 __phantom: std::marker::PhantomData,
                 __phantom_name: std::marker::PhantomData,
             })
@@ -95,13 +117,15 @@ where
     fn visitor() -> Self::Visitor {
         TagVisitor {
             tag: None,
+            attributes: Vec::new(),
+            namespaces: NamespaceDeclaration::new(),
+            namespace: None,
             __phantom: std::marker::PhantomData,
         }
     }
 
     fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
-        NodeDeserializer::new(node)
-            .deserialize(Self::visitor())
+        NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }
 
@@ -123,6 +147,9 @@ where
     pub fn new(value: V) -> Self {
         Self {
             value,
+            attributes: Vec::new(),
+            namespaces: NamespaceDeclaration::new(),
+            namespace: None,
             __phantom: std::marker::PhantomData,
             __phantom_name: std::marker::PhantomData,
         }
@@ -150,45 +177,4 @@ where
     fn from(value: &'a str) -> Self {
         Tag::new(value.into())
     }
-}
-
-impl<'a, N, A, V> From<(V, A)> for Tag1<'a, V, N, A>
-where
-    N: TagName,
-    A: Attribute<'a>,
-    V: TagValue<'a>,
-{
-    fn from((value, attr): (V, A)) -> Self {
-        Tag1::new(value, attr)
-    }
-}
-
-impl<'a, N, A> From<(&'a str, A)> for Tag1<'a, Text<'a>, N, A>
-where
-    N: TagName,
-    A: Attribute<'a>,
-{
-    fn from(value: (&'a str, A)) -> Self {
-        Tag1::new(value.0.into(), value.1)
-    }
-}
-
-impl<'a, V, N> std::convert::From<V> for Tag<'a, V, N>
-where
-    V: crate::traits::TagValue<'a>,
-    N: crate::traits::TagName,
-{
-    fn from(value: V) -> Self {
-        Tag::new(value)
-    }
-}
-
-pub struct Tag1Visitor<'a, V, N, A>
-where
-    V: TagValue<'a>,
-    N: TagName,
-    A: Attribute<'a>,
-{
-    tag: Option<Tag1<'a, V, N, A>>,
-    __phantom: std::marker::PhantomData<&'a N>,
 }

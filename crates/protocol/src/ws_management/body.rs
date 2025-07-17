@@ -1,25 +1,10 @@
 use xml::builder::Element;
 
-use crate::{
-    define_tagname,
-    traits::{Tag, TagValue, tag_value::Text},
-    ws_management::WSMAN_NAMESPACE,
-    wsman_ns,
-};
+use crate::traits::{Tag, TagValue, tag_name::*, tag_value::Text};
 
 pub fn body_builder<'a>() -> WsManagementBodyBuilder<'a> {
     WsManagementBody::builder()
 }
-
-define_tagname!(Identify, Some(WSMAN_NAMESPACE));
-define_tagname!(Get, Some(WSMAN_NAMESPACE));
-define_tagname!(Put, Some(WSMAN_NAMESPACE));
-define_tagname!(Create, Some(WSMAN_NAMESPACE));
-define_tagname!(Delete, Some(WSMAN_NAMESPACE));
-define_tagname!(Enumerate, Some(WSMAN_NAMESPACE));
-define_tagname!(Pull, Some(WSMAN_NAMESPACE));
-define_tagname!(Release, Some(WSMAN_NAMESPACE));
-define_tagname!(GetStatus, Some(WSMAN_NAMESPACE));
 
 // Enumeration operations
 #[derive(Debug, Clone)]
@@ -62,30 +47,30 @@ impl<'a> Default for EnumerateValue<'a> {
 
 impl<'a> TagValue<'a> for EnumerateValue<'a> {
     fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let mut element =
-            Element::new(name).set_namespace_optional(namespace.or(Some(WSMAN_NAMESPACE)));
+        let element = Element::new(name).set_namespace_optional(namespace);
 
-        if let Some(optimize) = self.optimize_enumeration {
-            let opt_elem = Element::new("OptimizeEnumeration")
-                .set_namespace(wsman_ns!())
-                .set_text(if optimize { "true" } else { "false" });
-            element = element.add_child(opt_elem);
-        }
+        eprintln!("EnumerateValue into_element: {element:?}, not finshied");
+        // if let Some(optimize) = self.optimize_enumeration {
+        //     let opt_elem = Element::new("OptimizeEnumeration")
+        //         .set_namespace(wsman_ns!())
+        //         .set_text(if optimize { "true" } else { "false" });
+        //     element = element.add_child(opt_elem);
+        // }
 
-        if let Some(max) = self.max_elements {
-            let max_elem = Element::new("MaxElements")
-                .set_namespace(wsman_ns!())
-                .set_text_owned(max.to_string());
-            element = element.add_child(max_elem);
-        }
+        // if let Some(max) = self.max_elements {
+        //     let max_elem = Element::new("MaxElements")
+        //         .set_namespace(wsman_ns!())
+        //         .set_text_owned(max.to_string());
+        //     element = element.add_child(max_elem);
+        // }
 
-        if let Some(filter) = self.filter {
-            let filter_elem = Element::new("Filter")
-                .set_namespace(WSMAN_NAMESPACE)
-                .set_text(filter);
+        // if let Some(filter) = self.filter {
+        //     let filter_elem = Element::new("Filter")
+        //         .set_namespace(WSMAN_NAMESPACE)
+        //         .set_text(filter);
 
-            element = element.add_child(filter_elem);
-        }
+        //     element = element.add_child(filter_elem);
+        // }
 
         element
     }
@@ -125,7 +110,7 @@ impl<'a> TagValue<'a> for PullValue<'a> {
 
         if let Some(max) = self.max_elements {
             let max_elem = Element::new("MaxElements")
-                .set_namespace(wsman_ns!())
+                // .set_namespace(wsman_ns!())
                 .set_text_owned(max.to_string());
 
             element = element.add_child(max_elem);
@@ -212,64 +197,4 @@ pub struct WsManagementBody<'a> {
     pub release: Option<Tag<'a, ReleaseValue<'a>, Release>>,
     #[builder(default, setter(strip_option, into))]
     pub get_status: Option<Tag<'a, GetStatusValue<'a>, GetStatus>>,
-}
-
-impl<'a> IntoIterator for WsManagementBody<'a> {
-    type Item = Element<'a>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let WsManagementBody {
-            identify,
-            get,
-            put,
-            create,
-            delete,
-            rename,
-            enumerate,
-            pull,
-            release,
-            get_status,
-        } = self;
-
-        let mut elements = Vec::new();
-
-        if let Some(identify) = identify {
-            elements.push(identify.into());
-        }
-        if let Some(get) = get {
-            elements.push(get.into());
-        }
-        if let Some(put) = put {
-            elements.push(put.into());
-        }
-
-        if let Some(create) = create {
-            elements.push(create.into());
-        }
-        if let Some(delete) = delete {
-            elements.push(delete.into());
-        }
-        if let Some(rename) = rename {
-            elements.push(rename.into());
-        }
-        if let Some(enumerate) = enumerate {
-            elements.push(enumerate.into());
-        }
-        if let Some(pull) = pull {
-            elements.push(pull.into());
-        }
-        if let Some(release) = release {
-            elements.push(release.into());
-        }
-        if let Some(get_status) = get_status {
-            elements.push(get_status.into());
-        }
-
-        elements.into_iter()
-    }
-}
-
-impl<'a> crate::soap::SoapBodys<'a> for WsManagementBody<'a> {
-    const NAMESPACE: &'static str = WSMAN_NAMESPACE;
 }
