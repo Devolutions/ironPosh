@@ -22,17 +22,24 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor {
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
         let mut attr = None;
         for attribute in node.attributes() {
+            tracing::debug!(
+                "AttributeVisitor checking attribute: name='{}', value='{}'",
+                attribute.name(),
+                attribute.value()
+            );
             match attribute.name() {
-                "MustUnderstand" => {
+                "mustUnderstand" => {
                     if let Ok(value) = attribute.value().parse::<bool>() {
                         attr = Some(Attribute::MustUnderstand(value));
+                        tracing::debug!("Parsed mustUnderstand attribute: {}", value);
                     } else {
                         return Err(xml::XmlError::InvalidXml(
-                            "Invalid value for MustUnderstand".to_string(),
+                            "Invalid value for mustUnderstand".to_string(),
                         ));
                     }
                 }
                 _ => {
+                    tracing::debug!("Ignoring unknown attribute: {}", attribute.name());
                     continue;
                 }
             }
@@ -40,12 +47,12 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor {
 
         if let Some(attribute) = attr {
             self.attribute = Some(attribute);
+            Ok(())
         } else {
-            return Err(xml::XmlError::InvalidXml(
+            Err(xml::XmlError::InvalidXml(
                 "No valid attribute found".to_string(),
-            ));
+            ))
         }
-        Ok(())
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {

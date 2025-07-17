@@ -1,6 +1,6 @@
 use xml::builder::Element;
 
-use crate::traits::{Tag, TagValue, tag_name::*, tag_value::Text};
+use crate::cores::{Tag, TagValue, tag_name::*, tag_value::Text};
 
 pub fn body_builder<'a>() -> WsManagementBodyBuilder<'a> {
     WsManagementBody::builder()

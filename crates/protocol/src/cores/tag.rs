@@ -1,9 +1,10 @@
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
+use tracing::debug;
 
-use crate::traits::Namespace;
-use crate::traits::namespace::NamespaceDeclaration;
-use crate::traits::tag_value::Text;
+use crate::cores::Namespace;
+use crate::cores::namespace::NamespaceDeclaration;
+use crate::cores::tag_value::Text;
 
 use super::attribute::Attribute;
 use super::tag_name::TagName;
@@ -63,15 +64,26 @@ where
     type Value = Tag<'a, V, N>;
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        debug!("TagVisitor visiting node: tag_name='{}', expected='{}', namespace={:?}", 
+               node.tag_name().name(), N::TAG_NAME, node.tag_name().namespace());
+        
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
+            debug!("Tag name matches! Processing children...");
             let value =
                 V::from_children(node.children().filter(|c| c.is_element() || c.is_text()))?;
             self.tag = Some(value);
+            debug!("Successfully created tag value");
+        } else {
+            debug!("Tag name doesn't match or node is not an element");
         }
 
-        for _ in node.attributes() {
+        for attr in node.attributes() {
+            debug!("Processing attribute: name='{}', value='{}'", attr.name(), attr.value());
             if let Ok(attribute) = Attribute::from_node(node) {
+                debug!("Successfully parsed attribute: {:?}", attribute);
                 self.attributes.push(attribute);
+            } else {
+                debug!("Failed to parse attribute: {}", attr.name());
             }
         }
 
@@ -80,9 +92,7 @@ where
         self.namespace = Namespace::from_node(node).ok();
 
         Ok(())
-    }
-
-    fn visit_children(
+    }    fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {

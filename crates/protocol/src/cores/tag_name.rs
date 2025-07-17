@@ -1,4 +1,4 @@
-use crate::traits::namespace::*;
+use crate::cores::namespace::*;
 use crate::{define_custom_tagname, define_tagname};
 
 pub trait TagName {
@@ -30,6 +30,13 @@ define_tagname!(ShellRunTime, Some(PWSH_NAMESPACE));
 define_tagname!(ShellInactivity, Some(PWSH_NAMESPACE));
 define_custom_tagname!(CreationXml, "creationXml", None);
 
+// PowerShell Remoting Operations
+define_tagname!(Shell, Some(PWSH_NAMESPACE));
+define_tagname!(Command, Some(PWSH_NAMESPACE));
+define_tagname!(Receive, Some(PWSH_NAMESPACE));
+define_tagname!(Send, Some(PWSH_NAMESPACE));
+define_tagname!(Signal, Some(PWSH_NAMESPACE));
+
 // ====================
 // WS-Addressing (WSA)
 // ====================
@@ -52,24 +59,24 @@ define_tagname!(Body, Some(SOAP_NAMESPACE));
 // ===========================
 // WS-Management (WSMAN)
 // ===========================
-define_tagname!(Identify, Some(WSMAN_NAMESPACE));
-define_tagname!(Get, Some(WSMAN_NAMESPACE));
-define_tagname!(Put, Some(WSMAN_NAMESPACE));
-define_tagname!(Create, Some(WSMAN_NAMESPACE));
-define_tagname!(Delete, Some(WSMAN_NAMESPACE));
-define_tagname!(Enumerate, Some(WSMAN_NAMESPACE));
-define_tagname!(Pull, Some(WSMAN_NAMESPACE));
-define_tagname!(Release, Some(WSMAN_NAMESPACE));
-define_tagname!(GetStatus, Some(WSMAN_NAMESPACE));
+define_tagname!(Identify, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Get, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Put, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Create, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Delete, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Enumerate, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Pull, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(Release, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(GetStatus, Some(MS_WSMAN_NAMESPACE));
 
 // WSMAN Headers
-define_tagname!(ResourceURI, Some(WSMAN_NAMESPACE));
-define_tagname!(OperationTimeout, Some(WSMAN_NAMESPACE));
-define_tagname!(MaxEnvelopeSize, Some(WSMAN_NAMESPACE));
-define_tagname!(SequenceId, Some(WSMAN_NAMESPACE));
-define_tagname!(OperationID, Some(WSMAN_NAMESPACE));
-define_tagname!(FragmentTransfer, Some(WSMAN_NAMESPACE));
-define_tagname!(SelectorSet, Some(WSMAN_NAMESPACE));
-define_tagname!(SessionId, Some(WSMAN_NAMESPACE));
-define_tagname!(CompressionType, Some(WSMAN_NAMESPACE));
-define_tagname!(OptionSet, Some(WSMAN_NAMESPACE));
+define_tagname!(ResourceURI, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(OperationTimeout, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(MaxEnvelopeSize, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(SequenceId, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(OperationID, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(FragmentTransfer, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(SelectorSet, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(SessionId, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(CompressionType, Some(MS_WSMAN_NAMESPACE));
+define_tagname!(OptionSet, Some(MS_WSMAN_NAMESPACE));

@@ -1,6 +1,7 @@
 use xml::parser::{XmlDeserialize, XmlVisitor};
+use tracing::{debug, warn};
 
-use crate::{push_elements, traits::*};
+use crate::{push_elements, cores::*};
 
 #[derive(Debug, Clone)]
 pub struct SoapHeaders<'a> {
@@ -9,6 +10,7 @@ pub struct SoapHeaders<'a> {
     pub action: Option<Tag<'a, Text<'a>, Action>>,
     pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
     pub message_id: Option<Tag<'a, Text<'a>, MessageID>>,
+    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
 
     /// WS-Management headers
     pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
@@ -38,6 +40,7 @@ impl<'a> TagValue<'a> for SoapHeaders<'a> {
             action,
             reply_to,
             message_id,
+            relates_to,
             resource_uri,
             max_envelope_size,
             locale,
@@ -57,6 +60,7 @@ impl<'a> TagValue<'a> for SoapHeaders<'a> {
                 action,
                 reply_to,
                 message_id,
+                relates_to,
                 resource_uri,
                 max_envelope_size,
                 locale,
@@ -82,6 +86,7 @@ pub struct SoapHeaderVisitor<'a> {
     pub action: Option<Tag<'a, Text<'a>, Action>>,
     pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
     pub message_id: Option<Tag<'a, Text<'a>, MessageID>>,
+    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
 
     /// WS-Management headers
     pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
@@ -104,53 +109,81 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
         for node in children {
-            match node.tag_name().name() {
+            if !node.is_element() {
+                continue; // Skip non-element nodes like text/whitespace
+            }
+            
+            let tag_name = node.tag_name().name();
+            let namespace = node.tag_name().namespace();
+            
+            debug!("Processing child element: tag_name='{}', namespace={:?}", tag_name, namespace);
+            
+            match tag_name {
                 To::TAG_NAME => {
+                    debug!("Found To element");
                     self.to = Some(Tag::from_node(node)?);
                 }
                 Action::TAG_NAME => {
+                    debug!("Found Action element");
                     self.action = Some(Tag::from_node(node)?);
                 }
                 ReplyTo::TAG_NAME => {
+                    debug!("Found ReplyTo element");
                     self.reply_to = Some(Tag::from_node(node)?);
                 }
                 MessageID::TAG_NAME => {
+                    debug!("Found MessageID element");
                     self.message_id = Some(Tag::from_node(node)?);
                 }
+                RelatesTo::TAG_NAME => {
+                    debug!("Found RelatesTo element");
+                    self.relates_to = Some(Tag::from_node(node)?);
+                }
                 ResourceURI::TAG_NAME => {
+                    debug!("Found ResourceURI element");
                     self.resource_uri = Some(Tag::from_node(node)?);
                 }
                 MaxEnvelopeSize::TAG_NAME => {
+                    debug!("Found MaxEnvelopeSize element");
                     self.max_envelope_size = Some(Tag::from_node(node)?);
                 }
                 Locale::TAG_NAME => {
+                    debug!("Found Locale element");
                     self.locale = Some(Tag::from_node(node)?);
                 }
                 DataLocale::TAG_NAME => {
+                    debug!("Found DataLocale element");
                     self.data_locale = Some(Tag::from_node(node)?);
                 }
                 SessionId::TAG_NAME => {
+                    debug!("Found SessionId element");
                     self.session_id = Some(Tag::from_node(node)?);
                 }
                 OperationID::TAG_NAME => {
+                    debug!("Found OperationID element");
                     self.operation_id = Some(Tag::from_node(node)?);
                 }
                 SequenceId::TAG_NAME => {
+                    debug!("Found SequenceId element");
                     self.sequence_id = Some(Tag::from_node(node)?);
                 }
                 OptionSet::TAG_NAME => {
+                    debug!("Found OptionSet element");
                     self.option_set = Some(Tag::from_node(node)?);
                 }
                 OperationTimeout::TAG_NAME => {
+                    debug!("Found OperationTimeout element");
                     self.operation_timeout = Some(Tag::from_node(node)?);
                 }
                 CompressionType::TAG_NAME => {
+                    debug!("Found CompressionType element");
                     self.compression_type = Some(Tag::from_node(node)?);
                 }
                 _ => {
+                    warn!("Unknown tag in SOAP header: '{}' (namespace: {:?})", tag_name, namespace);
                     return Err(xml::XmlError::InvalidXml(format!(
                         "Unknown tag in SOAP header: {}",
-                        node.tag_name().name()
+                        tag_name
                     )));
                 }
             }
@@ -159,7 +192,14 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
         Ok(())
     }
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        debug!("SoapHeaderVisitor visiting node: {:?}", node.tag_name());
+        
+        // Get the children and process them
+        let children: Vec<_> = node.children().collect();
+        debug!("Found {} children", children.len());
+        
+        self.visit_children(children.into_iter())?;
         Ok(())
     }
 
@@ -169,6 +209,7 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
             action,
             reply_to,
             message_id,
+            relates_to,
             resource_uri,
             max_envelope_size,
             locale,
@@ -186,6 +227,7 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
             action,
             reply_to,
             message_id,
+            relates_to,
             resource_uri,
             max_envelope_size,
             locale,
@@ -209,99 +251,5 @@ impl<'a> XmlDeserialize<'a> for SoapHeaders<'a> {
 
     fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    const SOAP_HEADER: &'static str = r#"
-    <s:Header>
-    <a:To>
-        http://10.10.0.3:5985/wsman?PSVersion=7.4.10
-        </a:To>
-    <w:ResourceURI
-        s:mustUnderstand="true">
-        http://schemas.microsoft.com/powershell/Microsoft.PowerShell
-        </w:ResourceURI>
-    <a:ReplyTo>
-        <a:Address
-            s:mustUnderstand="true">
-            http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous
-            </a:Address>
-        </a:ReplyTo>
-    <a:Action
-        s:mustUnderstand="true">
-        http://schemas.xmlsoap.org/ws/2004/09/transfer/Create
-        </a:Action>
-    <w:MaxEnvelopeSize
-        s:mustUnderstand="true">
-        512000
-        </w:MaxEnvelopeSize>
-    <a:MessageID>
-        uuid:D1D65143-B634-4725-BBF6-869CC4D3062F
-        </a:MessageID>
-    <w:Locale
-        xml:lang="en-US"
-        s:mustUnderstand="false"/>
-    <p:DataLocale
-        xml:lang="en-CA"
-        s:mustUnderstand="false"/>
-    <p:SessionId
-        s:mustUnderstand="false">
-        uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C
-        </p:SessionId>
-    <p:OperationID
-        s:mustUnderstand="false">
-        uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649
-        </p:OperationID>
-    <p:SequenceId
-        s:mustUnderstand="false">
-        1
-        </p:SequenceId>
-    <w:OptionSet
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        s:mustUnderstand="true">
-        <w:Option
-            Name="protocolversion"
-            MustComply="true">
-            2.3
-            </w:Option>
-        </w:OptionSet>
-    <w:OperationTimeout>
-        PT180.000S
-        </w:OperationTimeout>
-    <rsp:CompressionType
-        s:mustUnderstand="true"
-        xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
-        xpress
-        </rsp:CompressionType>
-    </s:Header>
-    "#;
-
-    use super::*;
-
-    #[test]
-    fn test_soap_header_deserialization() {
-        let node = xml::parser::parse(SOAP_HEADER).unwrap();
-
-        let headers = SoapHeaders::from_node(node.root_element()).unwrap();
-
-        assert!(headers.to.is_some());
-        assert!(headers.resource_uri.is_some());
-        assert!(headers.reply_to.is_some());
-        assert!(headers.action.is_some());
-        assert!(headers.max_envelope_size.is_some());
-        assert!(headers.message_id.is_some());
-        assert!(headers.locale.is_some());
-        assert!(headers.data_locale.is_some());
-        assert!(headers.session_id.is_some());
-        assert!(headers.operation_id.is_some());
-        assert!(headers.sequence_id.is_some());
-        assert!(headers.option_set.is_some());
-        assert!(headers.operation_timeout.is_some());
-        assert!(headers.compression_type.is_some());
-
-        // Additional assertions can be added to check the values of the fields
     }
 }

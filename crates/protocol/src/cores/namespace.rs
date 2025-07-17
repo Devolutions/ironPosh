@@ -4,22 +4,33 @@ use xml::parser::XmlDeserialize;
 pub const PWSH_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
 pub const PWSH_NAMESPACE_ALIAS: &str = "rsp";
 
+pub const POWERSHELL_NAMESPACE: &str =
+    "http://schemas.microsoft.com/powershell/Microsoft.PowerShell";
+
 pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
 pub const WSA_NAMESPACE_ALIAS: &str = "a";
 
 pub const SOAP_NAMESPACE: &str = "http://www.w3.org/2003/05/soap-envelope";
 pub const SOAP_NAMESPACE_ALIAS: &str = "s";
 
-pub const WSMAN_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd";
-pub const WSMAN_NAMESPACE_ALIAS: &str = "w";
+pub const MS_WSMAN_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd";
+pub const MS_WSMAN_NAMESPACE_ALIAS: &str = "w";
+
+pub const WS_MANAGEMENT_NAMESPACE: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
+pub const WS_MANAGEMENT_NAMESPACE_ALIAS: &str = "wsman";
+
+pub const WS_TRANSFER_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/09/transfer";
+pub const WS_TRANSFER_NAMESPACE_ALIAS: &str = "x";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Namespace {
     PowerShell,
     RspShell,
     WsAddressing,
-    WsManagementHeader,
+    MsWsManagement,
+    WsManagement,
     Soap,
+    WsTrasfer,
 }
 
 impl Namespace {
@@ -31,8 +42,10 @@ impl Namespace {
                 "rsp",
             ),
             Namespace::WsAddressing => (WSA_NAMESPACE, WSA_NAMESPACE_ALIAS),
-            Namespace::WsManagementHeader => (WSMAN_NAMESPACE, WSMAN_NAMESPACE_ALIAS),
+            Namespace::MsWsManagement => (MS_WSMAN_NAMESPACE, MS_WSMAN_NAMESPACE_ALIAS),
+            Namespace::WsManagement => (WS_MANAGEMENT_NAMESPACE, WS_MANAGEMENT_NAMESPACE_ALIAS),
             Namespace::Soap => (SOAP_NAMESPACE, SOAP_NAMESPACE_ALIAS),
+            Namespace::WsTrasfer => (WS_TRANSFER_NAMESPACE, WS_TRANSFER_NAMESPACE_ALIAS),
         }
     }
 
@@ -58,12 +71,13 @@ impl TryFrom<&str> for Namespace {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell" => {
-                Ok(Namespace::PowerShell)
-            }
-            "http://schemas.microsoft.com/wbem/wsman/1/windows/shell" => Ok(Namespace::RspShell),
-            "http://www.w3.org/2005/08/addressing" => Ok(Namespace::WsAddressing),
-            "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" => Ok(Namespace::WsManagementHeader),
+            POWERSHELL_NAMESPACE => Ok(Namespace::PowerShell),
+            PWSH_NAMESPACE => Ok(Namespace::RspShell),
+            WSA_NAMESPACE => Ok(Namespace::WsAddressing),
+            MS_WSMAN_NAMESPACE => Ok(Namespace::MsWsManagement),
+            WS_MANAGEMENT_NAMESPACE => Ok(Namespace::WsManagement),
+            SOAP_NAMESPACE => Ok(Namespace::Soap),
+            WS_TRANSFER_NAMESPACE => Ok(Namespace::WsTrasfer),
             _ => Err("Unknown namespace"),
         }
     }
@@ -145,12 +159,33 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
         Ok(())
     }
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
-        todo!()
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        let namespaces = node.namespaces();
+        for namespace in namespaces {
+            match Namespace::try_from(namespace) {
+                Ok(ns) => self.namespaces.push(ns),
+                Err(_) => {
+                    return Err(xml::XmlError::InvalidXml(format!(
+                        "Unknown namespace: {:?}",
+                        namespace
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
         Ok(NamespaceDeclaration(self.namespaces))
+    }
+}
+
+impl<'a> TryFrom<&xml::parser::Namespace<'a>> for Namespace {
+    type Error = &'static str;
+
+    fn try_from(namespace: &xml::parser::Namespace<'a>) -> Result<Self, Self::Error> {
+        Self::try_from(namespace.uri())
+            .or_else(|_| Self::try_from(namespace.uri()))
     }
 }
 

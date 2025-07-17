@@ -79,17 +79,17 @@ macro_rules! define_custom_tagname {
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name;
 
-        impl $crate::traits::TagName for $name {
+        impl $crate::cores::TagName for $name {
             const TAG_NAME: &'static str = $tagName;
             const NAMESPACE: Option<&'static str> = $namespace;
         }
 
         impl<'a> $name {
-            pub fn new_tag<V>(value: V) -> $crate::traits::tag::Tag<'a, V, Self>
+            pub fn new_tag<V>(value: V) -> $crate::cores::tag::Tag<'a, V, Self>
             where
-                V: $crate::traits::TagValue<'a>,
+                V: $crate::cores::TagValue<'a>,
             {
-                crate::traits::tag::Tag::new(value.into())
+                crate::cores::tag::Tag::new(value.into())
             }
         }
     };

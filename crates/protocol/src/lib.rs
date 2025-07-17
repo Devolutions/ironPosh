@@ -1,9 +1,9 @@
 pub mod error;
 pub mod http;
 pub(crate) mod macros;
-pub mod shell;
+pub mod rsp;
 pub mod soap;
-pub mod traits;
+pub mod cores;
 pub mod ws_addressing;
 pub mod ws_management;
 

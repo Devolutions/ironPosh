@@ -3,11 +3,11 @@ use xml::{
     parser::{XmlDeserialize, XmlVisitor},
 };
 
-use crate::traits::{TagValue, anytag::AnyTag};
+use crate::cores::{TagValue, anytag::AnyTag};
 
 #[derive(Debug, Clone)]
 pub struct TagList<'a> {
-    items: Vec<crate::traits::anytag::AnyTag<'a>>,
+    items: Vec<crate::cores::anytag::AnyTag<'a>>,
 }
 
 impl<'a> TagValue<'a> for TagList<'a> {

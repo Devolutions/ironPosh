@@ -1,6 +1,6 @@
 use crate::{
     push_elements,
-    traits::{Tag, TagList, tag_name::*, tag_value::Text},
+    cores::{Tag, TagList, tag_name::*, tag_value::Text},
 };
 
 pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use xml::builder::Element;
 
-use crate::traits::{TagValue, tag_value::Text};
+use crate::cores::{TagValue, tag_value::Text};
 
 // pub fn headers_builder<'a>() -> WsManagementHeaderBuilder<'a> {
 //     WsManagementHeader::builder()

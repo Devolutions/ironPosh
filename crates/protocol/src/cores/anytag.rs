@@ -1,6 +1,6 @@
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::traits::{Tag, TagList, TagName, tag_name::*, tag_value::Text};
+use crate::cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text};
 
 #[macro_export]
 macro_rules! define_any_tag {
