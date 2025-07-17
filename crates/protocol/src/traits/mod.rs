@@ -3,6 +3,7 @@ use crate::define_tag;
 pub mod attribute;
 pub mod namespace;
 pub mod tag;
+pub mod tag_list;
 pub mod tag_name;
 pub mod tag_value;
 
@@ -10,6 +11,7 @@ pub mod tag_value;
 pub use attribute::{Attribute, MustUnderstand};
 pub use namespace::{DeclareNamespaces, NamespaceWithAlias, PowerShellNamespaceAlias};
 pub use tag::Tag;
+pub use tag_list::TagList;
 pub use tag_name::TagName;
 pub use tag_value::TagValue;
 

@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use xml::{XmlError, builder::Element, parser::Node};
+use xml::builder::Element;
 
 use crate::{
-    define_tagname, must_be_text, push_element,
+    define_tagname, push_element,
     traits::{
         DeclareNamespaces, MustUnderstand, Tag, Tag1, TagValue, namespace::RspShellNamespaceAlias,
         tag_value::Text,
@@ -171,4 +171,3 @@ impl<'a> IntoIterator for WsManagementHeader<'a> {
 impl<'a> crate::soap::SoapHeaders<'a> for WsManagementHeader<'a> {
     const NAMESPACE: &'static str = WSMAN_NAMESPACE;
 }
-

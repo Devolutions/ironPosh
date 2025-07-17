@@ -44,7 +44,7 @@ impl<'a> NodeDeserializer<'a> {
     where
         V: XmlVisitor<'a>,
     {
-        visitor.visit(self.root)?;
+        visitor.visit_node(self.root)?;
         visitor.finish()
     }
 }
@@ -56,11 +56,19 @@ where
 {
     type Value = Tag<'a, V, N>;
 
-    fn visit(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
             let value = V::from_node(node)?;
             self.tag = Some(value);
         }
+        Ok(())
+    }
+
+    fn visit_children(
+        &mut self,
+        _children: xml::parser::Children<'a, 'a>,
+    ) -> Result<(), xml::XmlError<'a>> {
+        // Tag uses visit_node, not visit_children
         Ok(())
     }
 
@@ -94,7 +102,6 @@ where
     fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
         NodeDeserializer::new(node)
             .deserialize(Self::visitor())
-            .map_err(|e| xml::XmlError::from(e))
     }
 }
 
@@ -126,27 +133,13 @@ where
     }
 }
 
-impl<'a, V, N> Into<Element<'a>> for Tag<'a, V, N>
+impl<'a, V, N> From<Tag<'a, V, N>> for Element<'a>
 where
     V: TagValue<'a>,
     N: TagName,
 {
-    fn into(self) -> Element<'a> {
-        self.into_element()
-    }
-}
-
-impl<'a, N, V> TagValue<'a> for Tag<'a, V, N>
-where
-    N: TagName,
-    V: TagValue<'a>,
-{
-    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let parent = Element::new(name).set_namespace_optional(namespace);
-
-        let child = self.into_element();
-
-        parent.add_child(child)
+    fn from(val: Tag<'a, V, N>) -> Self {
+        val.into_element()
     }
 }
 
@@ -189,7 +182,6 @@ where
         Tag::new(value)
     }
 }
-
 
 pub struct Tag1Visitor<'a, V, N, A>
 where

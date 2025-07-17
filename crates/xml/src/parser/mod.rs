@@ -16,7 +16,7 @@ impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
         let tag_name = value.tag_name();
         let namespace = tag_name
             .namespace()
-            .map(|ns| crate::builder::Namespace::new(ns));
+            .map(crate::builder::Namespace::new);
 
         let name = tag_name.name();
 
@@ -37,9 +37,16 @@ pub trait XmlVisitor<'a> {
     /// Rust value produced after the whole subtree was walked.
     type Value;
 
-    /// Called once per node; implementer decides what to do with it
-    /// (recurse, grab attributes, read text, etc.).
-    fn visit(&mut self, node: roxmltree::Node<'a, 'a>) -> Result<(), crate::XmlError<'a>>;
+    /// Visit a specific node - used by Tag types that need to match by name
+    /// Default implementation calls visit_children for backward compatibility
+    fn visit_children(
+        &mut self,
+        node: roxmltree::Children<'a, 'a>,
+    ) -> Result<(), crate::XmlError<'a>>;
+
+    /// Visit the children of a node - used by TagValue types that process content
+    /// Default implementation does nothing
+    fn visit_node(&mut self, _node: roxmltree::Node<'a, 'a>) -> Result<(), crate::XmlError<'a>>;
 
     /// Return the finished value after traversal.
     fn finish(self) -> Result<Self::Value, XmlError<'a>>;
@@ -60,7 +67,7 @@ impl<'a> NodeDeserializer<'a> {
     where
         V: XmlVisitor<'a>,
     {
-        visitor.visit(self.root)?;
+        visitor.visit_node(self.root)?;
         visitor.finish()
     }
 }

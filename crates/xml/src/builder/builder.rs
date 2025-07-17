@@ -37,7 +37,7 @@ impl<'a> std::fmt::Display for Builder<'a> {
     /// Formats the builder and its content as an XML document string.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(declaration) = &self.declaration {
-            write!(f, "{declaration} \n")?;
+            writeln!(f, "{declaration} ")?;
         }
 
         self.element.ns_fmt(f, None)?;

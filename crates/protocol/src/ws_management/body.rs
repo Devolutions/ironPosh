@@ -2,7 +2,7 @@ use xml::builder::Element;
 
 use crate::{
     define_tagname,
-    traits::{tag_value::Text, Tag, TagValue},
+    traits::{Tag, TagValue, tag_value::Text},
     ws_management::WSMAN_NAMESPACE,
     wsman_ns,
 };

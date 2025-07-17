@@ -8,6 +8,6 @@ pub const WSMAN_NAMESPACE_ALIAS: &str = "w";
 #[macro_export]
 macro_rules! wsman_ns {
     () => {
-        xml::builder::Namespace::new(crate::ws_management::WSMAN_NAMESPACE)
+        xml::builder::Namespace::new($crate::ws_management::WSMAN_NAMESPACE)
     };
 }

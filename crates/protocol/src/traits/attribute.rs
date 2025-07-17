@@ -38,7 +38,7 @@ pub struct MustUnderstandVisitor {
 impl<'a> xml::parser::XmlVisitor<'a> for MustUnderstandVisitor {
     type Value = MustUnderstand;
 
-    fn visit(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
         let attributes = node.attributes();
 
         for attr in attributes {
@@ -58,6 +58,14 @@ impl<'a> xml::parser::XmlVisitor<'a> for MustUnderstandVisitor {
         Ok(())
     }
 
+    fn visit_children(
+        &mut self,
+        _children: xml::parser::Children<'a, 'a>,
+    ) -> Result<(), xml::XmlError<'a>> {
+        // Attributes don't process children
+        Ok(())
+    }
+
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
         self.value.ok_or(xml::XmlError::InvalidXml(
             "No mustUnderstand attribute found".to_string(),
@@ -74,7 +82,7 @@ impl<'a> XmlDeserialize<'a> for MustUnderstand {
 
     fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
         let mut visitor = Self::visitor();
-        visitor.visit(node)?;
+        visitor.visit_node(node)?;
         visitor.finish()
     }
 }

@@ -69,13 +69,13 @@ where
     }
 }
 
-impl<'a, T, N> Into<Element<'a>> for DeclareNamespaces<'a, N, T>
+impl<'a, T, N> From<DeclareNamespaces<'a, N, T>> for Element<'a>
 where
     T: Into<Element<'a>> + Debug + Clone,
     N: NamespaceWithAlias<'a>,
 {
-    fn into(self) -> Element<'a> {
-        let mut element = self.tag.into();
+    fn from(val: DeclareNamespaces<'a, N, T>) -> Self {
+        let mut element = val.tag.into();
         element = element.add_namespace_alias(N::NAMESPACE, N::ALIAS);
         element
     }

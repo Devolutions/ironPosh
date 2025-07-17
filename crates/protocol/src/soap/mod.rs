@@ -13,7 +13,7 @@ pub const SOAP_ALIAS: &str = "s";
 #[macro_export]
 macro_rules! soap_ns {
     () => {
-        xml::builder::Namespace::new(crate::soap::SOAP_NAMESPACE)
+        xml::builder::Namespace::new($crate::soap::SOAP_NAMESPACE)
     };
 }
 

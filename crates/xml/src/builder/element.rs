@@ -231,7 +231,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
         }
 
         for attribute in &self.attributes {
-            attribute.ns_fmt(f, namespace_alias_map.as_ref().map(|v| &**v))?;
+            attribute.ns_fmt(f, namespace_alias_map.as_deref())?;
         }
 
         match &self.content {
@@ -244,7 +244,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             Content::Elements(children) => {
                 write!(f, ">")?;
                 for child in children {
-                    child.ns_fmt(f, namespace_alias_map.as_ref().map(|v| &**v))?;
+                    child.ns_fmt(f, namespace_alias_map.as_deref())?;
                 }
                 write!(f, "</{name}>")?;
             }

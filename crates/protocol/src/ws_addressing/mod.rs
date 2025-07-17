@@ -1,8 +1,7 @@
-use xml::{XmlError, parser::Node};
 
 use crate::{
-    define_tagname, must_be_text, push_element,
-    traits::{MustUnderstand, Tag, Tag1, TagValue, tag_value::Text},
+    define_tagname, push_element,
+    traits::{MustUnderstand, Tag, Tag1, tag_value::Text},
 };
 
 pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
@@ -65,7 +64,6 @@ impl<'a> IntoIterator for WsAddressingHeaders<'a> {
         tags.into_iter()
     }
 }
-
 
 impl<'a> crate::soap::SoapHeaders<'a> for WsAddressingHeaders<'a> {
     const NAMESPACE: &'static str = WSA_NAMESPACE;
