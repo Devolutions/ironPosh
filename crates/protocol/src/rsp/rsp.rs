@@ -1,6 +1,6 @@
 use crate::{
+    cores::{Tag, tag_name::*, tag_value::Text},
     push_elements,
-    cores::{Tag, TagList, tag_name::*, tag_value::Text},
 };
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
@@ -44,7 +44,7 @@ pub struct Shell<'a> {
     #[builder(default, setter(strip_option, into))]
     pub shell_inactivity: Option<Tag<'a, Text<'a>, ShellInactivity>>,
     #[builder(default, setter(strip_option, into))]
-    pub creation_xml: Option<Tag<'a, TagList<'a>, CreationXml>>,
+    pub creation_xml: Option<Tag<'a, Text<'a>, CreationXml>>,
 }
 
 impl<'a> IntoIterator for Shell<'a> {

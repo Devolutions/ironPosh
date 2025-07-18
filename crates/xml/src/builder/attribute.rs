@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 /// Represents an XML attribute with a name and value.
 #[derive(Debug, Clone)]
@@ -6,7 +6,7 @@ pub struct Attribute<'a> {
     /// The name of the attribute.
     name: &'a str,
     /// The value of the attribute.
-    value: &'a str,
+    value: Cow<'a, str>,
 
     namespace: Option<crate::builder::Namespace<'a>>,
 }
@@ -25,22 +25,22 @@ impl<'a> Attribute<'a> {
     /// use xml::builder::Attribute;
     /// let attribute = Attribute::new("name", "value");
     /// ```
-    pub fn new(name: &'a str, value: &'a str) -> Self {
+    pub fn new(name: &'a str, value: impl Into<Cow<'a, str>>) -> Self {
         Attribute {
             name,
-            value,
+            value: value.into(),
             namespace: None,
         }
     }
 
     pub fn new_with_namespace(
         name: &'a str,
-        value: &'a str,
+        value: impl Into<Cow<'a, str>>,
         namespace: Option<impl Into<crate::builder::Namespace<'a>>>,
     ) -> Self {
         Attribute {
             name,
-            value,
+            value: value.into(),
             namespace: namespace.map(|ns| ns.into()),
         }
     }

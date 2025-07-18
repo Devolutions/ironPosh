@@ -1,6 +1,18 @@
+use std::borrow::Cow;
+
 #[derive(Debug, Clone)]
 pub enum Attribute {
     MustUnderstand(bool),
+}
+
+impl<'a> From<Attribute> for xml::builder::Attribute<'a> {
+    fn from(val: Attribute) -> Self {
+        match val {
+            Attribute::MustUnderstand(value) => {
+                xml::builder::Attribute::new("mustUnderstand", Cow::Owned(value.to_string()))
+            }
+        }
+    }
 }
 
 pub struct AttributeVisitor {

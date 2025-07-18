@@ -4,7 +4,7 @@ use xml::{
 };
 
 pub trait TagValue<'a> {
-    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a>;
+    fn into_element(self, element: Element<'a>) -> Element<'a>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,11 +23,13 @@ impl<'a> From<Text<'a>> for &'a str {
 }
 
 impl<'a> TagValue<'a> for Text<'a> {
-    fn into_element(self, name: &'a str, namespace: Option<&'a str>) -> Element<'a> {
-        let mut element = Element::new(name).set_text(self.0.as_ref());
-        if let Some(ns) = namespace {
-            element = element.set_namespace(ns);
-        }
+    fn into_element(self, element: Element<'a>) -> Element<'a> {
+        element.set_text(self.0.as_ref())
+    }
+}
+
+impl<'a> TagValue<'a> for () {
+    fn into_element(self, element: Element<'a>) -> Element<'a> {
         element
     }
 }
@@ -139,25 +141,7 @@ impl<'a> XmlDeserialize<'a> for Empty {
 }
 
 impl<'a> TagValue<'a> for Empty {
-    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let mut element = Element::new(name);
-
-        if let Some(ns) = namespace {
-            element = element.set_namespace(ns);
-        }
-
-        element
-    }
-}
-
-impl<'a> TagValue<'a> for () {
-    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        let mut element = Element::new(name);
-
-        if let Some(ns) = namespace {
-            element = element.set_namespace(ns);
-        }
-
+    fn into_element(self, element: Element<'a>) -> Element<'a> {
         element
     }
 }

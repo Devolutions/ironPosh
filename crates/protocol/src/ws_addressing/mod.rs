@@ -1,53 +1,66 @@
-use crate::{
-    push_elements,
-    cores::{Tag, TagList, tag_name::*, tag_value::Text},
-};
+use tracing::warn;
+use xml::parser::{XmlDeserialize, XmlVisitor};
 
-pub fn headers_builder<'a>() -> WsAddressingHeadersBuilder<'a> {
-    WsAddressingHeaders::builder()
+use crate::cores::{Tag, TagValue, tag_name::*, tag_value::Text};
+
+#[derive(Debug, Clone)]
+pub struct AddressValue<'a> {
+    pub url: Tag<'a, Text<'a>, Address>,
 }
 
-#[derive(typed_builder::TypedBuilder, Debug, Clone)]
-pub struct WsAddressingHeaders<'a> {
-    #[builder(default, setter(strip_option, into))]
-    pub action: Option<Tag<'a, Text<'a>, Action>>,
-    #[builder(default, setter(strip_option, into))]
-    pub to: Option<Tag<'a, Text<'a>, To>>,
-    #[builder(default, setter(strip_option, into))]
-    pub message_id: Option<Tag<'a, Text<'a>, MessageID>>,
-    #[builder(default, setter(strip_option, into))]
-    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
-    #[builder(default, setter(strip_option, into))]
-    pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
-    #[builder(default, setter(strip_option, into))]
-    pub fault_to: Option<Tag<'a, Text<'a>, FaultTo>>,
-    #[builder(default, setter(strip_option, into))]
-    pub from: Option<Tag<'a, Text<'a>, From>>,
+impl<'a> TagValue<'a> for AddressValue<'a> {
+    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+        let inner_element = self.url.into_element();
+        element.add_child(inner_element)
+    }
 }
 
-impl<'a> IntoIterator for WsAddressingHeaders<'a> {
-    type Item = xml::builder::Element<'a>;
+pub struct AddressVisitor<'a> {
+    address: Option<AddressValue<'a>>,
+}
 
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+impl<'a> XmlVisitor<'a> for AddressVisitor<'a> {
+    type Value = AddressValue<'a>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        let WsAddressingHeaders {
-            action,
-            to,
-            message_id,
-            relates_to,
-            reply_to,
-            fault_to,
-            from,
-        } = self;
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), xml::XmlError<'a>> {
+        for child in children {
+            if !child.is_element() {
+                continue;
+            }
 
-        let mut tags = Vec::new();
+            match (child.tag_name().name(), child.tag_name().namespace()) {
+                (Address::TAG_NAME, Address::NAMESPACE) => {
+                    let tag = Tag::from_node(child)?;
+                    self.address = Some(AddressValue { url: tag });
+                }
+                _ => {
+                    warn!(
+                        "Unexpected child element in AddressValue: {}",
+                        child.tag_name().name()
+                    );
+                }
+            }
+        }
 
-        push_elements!(
-            tags,
-            [action, to, message_id, relates_to, reply_to, fault_to, from]
-        );
+        Ok(())
+    }
 
-        tags.into_iter()
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+        todo!()
+    }
+
+    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+        todo!()
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for AddressValue<'a> {
+    type Visitor = AddressVisitor<'a>;
+
+    fn visitor() -> Self::Visitor {
+        AddressVisitor { address: None }
     }
 }

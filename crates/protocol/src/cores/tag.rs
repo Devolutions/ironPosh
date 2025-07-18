@@ -1,6 +1,6 @@
+use tracing::debug;
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
-use tracing::debug;
 
 use crate::cores::Namespace;
 use crate::cores::namespace::NamespaceDeclaration;
@@ -18,11 +18,69 @@ where
 {
     pub value: V,
     pub attributes: Vec<Attribute>,
+    /// The namespaces are the declaration of namespaces used in this tag.
+    /// For example
+    /// <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+    /// would have a namespace declaration for "s" with the URI "http://schemas.xmlsoap.org/soap/envelope/".
     pub namespaces: NamespaceDeclaration,
+
+    /// The namespace of this tag, if any.
+    /// Example: <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+    /// would have a namespace in the the URI of "http://www.w3.org/2003/05/soap-envelope", corresponds to Namespace::Soap.
     pub namespace: Option<Namespace>,
 
     __phantom: std::marker::PhantomData<&'a V>,
     __phantom_name: std::marker::PhantomData<N>,
+}
+
+impl<'a, V, N> Tag<'a, V, N>
+where
+    V: TagValue<'a>,
+    N: TagName,
+{
+    pub fn new(value: V) -> Self {
+        Self {
+            value,
+            attributes: Vec::new(),
+            namespaces: NamespaceDeclaration::new(),
+            namespace: None,
+            __phantom: std::marker::PhantomData,
+            __phantom_name: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_attribute(mut self, attribute: Attribute) -> Self {
+        self.attributes.push(attribute);
+        self
+    }
+
+    pub fn with_namespace(mut self, namespace: Namespace) -> Self {
+        self.namespace = Some(namespace);
+        self
+    }
+
+    pub fn with_declaration(mut self, declaration: NamespaceDeclaration) -> Self {
+        self.namespaces = declaration;
+        self
+    }
+
+    pub fn into_element(self) -> Element<'a> {
+        let mut element = Element::new(N::TAG_NAME);
+        if let Some(ns) = N::NAMESPACE {
+            element = element.set_namespace(ns);
+        }
+        self.value.into_element(element)
+    }
+}
+
+impl<'a, V, N> From<V> for Tag<'a, V, N>
+where
+    V: TagValue<'a>,
+    N: TagName + 'a,
+{
+    fn from(value: V) -> Self {
+        Tag::new(value)
+    }
 }
 
 pub struct TagVisitor<'a, V, N>
@@ -64,9 +122,13 @@ where
     type Value = Tag<'a, V, N>;
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
-        debug!("TagVisitor visiting node: tag_name='{}', expected='{}', namespace={:?}", 
-               node.tag_name().name(), N::TAG_NAME, node.tag_name().namespace());
-        
+        debug!(
+            "TagVisitor visiting node: tag_name='{}', expected='{}', namespace={:?}",
+            node.tag_name().name(),
+            N::TAG_NAME,
+            node.tag_name().namespace()
+        );
+
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
             debug!("Tag name matches! Processing children...");
             let value =
@@ -78,7 +140,11 @@ where
         }
 
         for attr in node.attributes() {
-            debug!("Processing attribute: name='{}', value='{}'", attr.name(), attr.value());
+            debug!(
+                "Processing attribute: name='{}', value='{}'",
+                attr.name(),
+                attr.value()
+            );
             if let Ok(attribute) = Attribute::from_node(node) {
                 debug!("Successfully parsed attribute: {:?}", attribute);
                 self.attributes.push(attribute);
@@ -92,7 +158,8 @@ where
         self.namespace = Namespace::from_node(node).ok();
 
         Ok(())
-    }    fn visit_children(
+    }
+    fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
@@ -146,27 +213,6 @@ where
 {
     fn as_ref(&self) -> &V {
         &self.value
-    }
-}
-
-impl<'a, V, N> Tag<'a, V, N>
-where
-    V: TagValue<'a>,
-    N: TagName,
-{
-    pub fn new(value: V) -> Self {
-        Self {
-            value,
-            attributes: Vec::new(),
-            namespaces: NamespaceDeclaration::new(),
-            namespace: None,
-            __phantom: std::marker::PhantomData,
-            __phantom_name: std::marker::PhantomData,
-        }
-    }
-
-    pub fn into_element(self) -> Element<'a> {
-        self.value.into_element(N::TAG_NAME, N::NAMESPACE)
     }
 }
 

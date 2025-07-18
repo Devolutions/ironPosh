@@ -1,4 +1,4 @@
-use protocol::{soap::header::SoapHeaders, cores::Attribute};
+use protocol::{cores::Attribute, soap::header::SoapHeaders};
 use tracing::{debug, info};
 use xml::parser::XmlDeserialize;
 

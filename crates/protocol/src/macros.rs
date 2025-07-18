@@ -89,7 +89,7 @@ macro_rules! define_custom_tagname {
             where
                 V: $crate::cores::TagValue<'a>,
             {
-                crate::cores::tag::Tag::new(value.into())
+                $crate::cores::tag::Tag::new(value.into())
             }
         }
     };

@@ -1,37 +1,48 @@
-use xml::parser::{XmlDeserialize, XmlVisitor};
 use tracing::{debug, warn};
+use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::{push_elements, cores::*};
+use crate::{cores::*, push_elements, ws_addressing::AddressValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct SoapHeaders<'a> {
     /// WS-Addressing headers
+    #[builder(default, setter(into, strip_option))]
     pub to: Option<Tag<'a, Text<'a>, To>>,
+    #[builder(default, setter(into, strip_option))]
     pub action: Option<Tag<'a, Text<'a>, Action>>,
-    pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
+    #[builder(default, setter(into, strip_option))]
+    pub reply_to: Option<Tag<'a, AddressValue<'a>, ReplyTo>>,
+    #[builder(default, setter(into, strip_option))]
     pub message_id: Option<Tag<'a, Text<'a>, MessageID>>,
+    #[builder(default, setter(into, strip_option))]
     pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
 
     /// WS-Management headers
+    #[builder(default, setter(into, strip_option))]
     pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
+    #[builder(default, setter(into, strip_option))]
     pub max_envelope_size: Option<Tag<'a, Text<'a>, MaxEnvelopeSize>>,
+    #[builder(default, setter(into, strip_option))]
     pub locale: Option<Tag<'a, Text<'a>, Locale>>,
+    #[builder(default, setter(into, strip_option))]
     pub data_locale: Option<Tag<'a, Text<'a>, DataLocale>>,
+    #[builder(default, setter(into, strip_option))]
     pub session_id: Option<Tag<'a, Text<'a>, SessionId>>,
+    #[builder(default, setter(into, strip_option))]
     pub operation_id: Option<Tag<'a, Text<'a>, OperationID>>,
+    #[builder(default, setter(into, strip_option))]
     pub sequence_id: Option<Tag<'a, Text<'a>, SequenceId>>,
+    #[builder(default, setter(into, strip_option))]
     pub option_set: Option<Tag<'a, TagList<'a>, OptionSet>>,
+    #[builder(default, setter(into, strip_option))]
     pub operation_timeout: Option<Tag<'a, Text<'a>, OperationTimeout>>,
+    #[builder(default, setter(into, strip_option))]
     pub compression_type: Option<Tag<'a, TagList<'a>, CompressionType>>,
 }
 
 impl<'a> TagValue<'a> for SoapHeaders<'a> {
-    fn into_element(
-        self,
-        name: &'static str,
-        namespace: Option<&'static str>,
-    ) -> xml::builder::Element<'a> {
-        let mut header = xml::builder::Element::new(name).set_namespace_optional(namespace);
+    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+        let mut header = element;
 
         let mut array = Vec::new();
 
@@ -84,7 +95,7 @@ pub struct SoapHeaderVisitor<'a> {
     /// WS-Addressing headers
     pub to: Option<Tag<'a, Text<'a>, To>>,
     pub action: Option<Tag<'a, Text<'a>, Action>>,
-    pub reply_to: Option<Tag<'a, TagList<'a>, ReplyTo>>,
+    pub reply_to: Option<Tag<'a, AddressValue<'a>, ReplyTo>>,
     pub message_id: Option<Tag<'a, Text<'a>, MessageID>>,
     pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
 
@@ -108,82 +119,87 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
-        for node in children {
-            if !node.is_element() {
+        for child in children {
+            if !child.is_element() {
                 continue; // Skip non-element nodes like text/whitespace
             }
-            
-            let tag_name = node.tag_name().name();
-            let namespace = node.tag_name().namespace();
-            
-            debug!("Processing child element: tag_name='{}', namespace={:?}", tag_name, namespace);
-            
+
+            let tag_name = child.tag_name().name();
+            let namespace = child.tag_name().namespace();
+
+            debug!(
+                "Processing child element: tag_name='{}', namespace={:?}",
+                tag_name, namespace
+            );
+
             match tag_name {
                 To::TAG_NAME => {
                     debug!("Found To element");
-                    self.to = Some(Tag::from_node(node)?);
+                    self.to = Some(Tag::from_node(child)?);
                 }
                 Action::TAG_NAME => {
                     debug!("Found Action element");
-                    self.action = Some(Tag::from_node(node)?);
+                    self.action = Some(Tag::from_node(child)?);
                 }
                 ReplyTo::TAG_NAME => {
                     debug!("Found ReplyTo element");
-                    self.reply_to = Some(Tag::from_node(node)?);
+                    self.reply_to = Some(Tag::from_node(child)?);
                 }
                 MessageID::TAG_NAME => {
                     debug!("Found MessageID element");
-                    self.message_id = Some(Tag::from_node(node)?);
+                    self.message_id = Some(Tag::from_node(child)?);
                 }
                 RelatesTo::TAG_NAME => {
                     debug!("Found RelatesTo element");
-                    self.relates_to = Some(Tag::from_node(node)?);
+                    self.relates_to = Some(Tag::from_node(child)?);
                 }
                 ResourceURI::TAG_NAME => {
                     debug!("Found ResourceURI element");
-                    self.resource_uri = Some(Tag::from_node(node)?);
+                    self.resource_uri = Some(Tag::from_node(child)?);
                 }
                 MaxEnvelopeSize::TAG_NAME => {
                     debug!("Found MaxEnvelopeSize element");
-                    self.max_envelope_size = Some(Tag::from_node(node)?);
+                    self.max_envelope_size = Some(Tag::from_node(child)?);
                 }
                 Locale::TAG_NAME => {
                     debug!("Found Locale element");
-                    self.locale = Some(Tag::from_node(node)?);
+                    self.locale = Some(Tag::from_node(child)?);
                 }
                 DataLocale::TAG_NAME => {
                     debug!("Found DataLocale element");
-                    self.data_locale = Some(Tag::from_node(node)?);
+                    self.data_locale = Some(Tag::from_node(child)?);
                 }
                 SessionId::TAG_NAME => {
                     debug!("Found SessionId element");
-                    self.session_id = Some(Tag::from_node(node)?);
+                    self.session_id = Some(Tag::from_node(child)?);
                 }
                 OperationID::TAG_NAME => {
                     debug!("Found OperationID element");
-                    self.operation_id = Some(Tag::from_node(node)?);
+                    self.operation_id = Some(Tag::from_node(child)?);
                 }
                 SequenceId::TAG_NAME => {
                     debug!("Found SequenceId element");
-                    self.sequence_id = Some(Tag::from_node(node)?);
+                    self.sequence_id = Some(Tag::from_node(child)?);
                 }
                 OptionSet::TAG_NAME => {
                     debug!("Found OptionSet element");
-                    self.option_set = Some(Tag::from_node(node)?);
+                    self.option_set = Some(Tag::from_node(child)?);
                 }
                 OperationTimeout::TAG_NAME => {
                     debug!("Found OperationTimeout element");
-                    self.operation_timeout = Some(Tag::from_node(node)?);
+                    self.operation_timeout = Some(Tag::from_node(child)?);
                 }
                 CompressionType::TAG_NAME => {
                     debug!("Found CompressionType element");
-                    self.compression_type = Some(Tag::from_node(node)?);
+                    self.compression_type = Some(Tag::from_node(child)?);
                 }
                 _ => {
-                    warn!("Unknown tag in SOAP header: '{}' (namespace: {:?})", tag_name, namespace);
+                    warn!(
+                        "Unknown tag in SOAP header: '{}' (namespace: {:?})",
+                        tag_name, namespace
+                    );
                     return Err(xml::XmlError::InvalidXml(format!(
-                        "Unknown tag in SOAP header: {}",
-                        tag_name
+                        "Unknown tag in SOAP header: {tag_name}"
                     )));
                 }
             }
@@ -194,11 +210,11 @@ impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
         debug!("SoapHeaderVisitor visiting node: {:?}", node.tag_name());
-        
+
         // Get the children and process them
         let children: Vec<_> = node.children().collect();
         debug!("Found {} children", children.len());
-        
+
         self.visit_children(children.into_iter())?;
         Ok(())
     }

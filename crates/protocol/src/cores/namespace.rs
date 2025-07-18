@@ -166,8 +166,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
                 Ok(ns) => self.namespaces.push(ns),
                 Err(_) => {
                     return Err(xml::XmlError::InvalidXml(format!(
-                        "Unknown namespace: {:?}",
-                        namespace
+                        "Unknown namespace: {namespace:?}"
                     )));
                 }
             }
@@ -184,8 +183,7 @@ impl<'a> TryFrom<&xml::parser::Namespace<'a>> for Namespace {
     type Error = &'static str;
 
     fn try_from(namespace: &xml::parser::Namespace<'a>) -> Result<Self, Self::Error> {
-        Self::try_from(namespace.uri())
-            .or_else(|_| Self::try_from(namespace.uri()))
+        Self::try_from(namespace.uri()).or_else(|_| Self::try_from(namespace.uri()))
     }
 }
 

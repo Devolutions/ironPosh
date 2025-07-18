@@ -3,37 +3,48 @@ use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{cores::*, push_elements};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct SoapBody<'a> {
     /// WS-Management operations
+    #[builder(default, setter(into, strip_option))]
     pub identify: Option<Tag<'a, Empty, Identify>>,
+    #[builder(default, setter(into, strip_option))]
     pub get: Option<Tag<'a, Text<'a>, Get>>,
+    #[builder(default, setter(into, strip_option))]
     pub put: Option<Tag<'a, Text<'a>, Put>>,
+    #[builder(default, setter(into, strip_option))]
     pub create: Option<Tag<'a, Text<'a>, Create>>,
+    #[builder(default, setter(into, strip_option))]
     pub delete: Option<Tag<'a, Text<'a>, Delete>>,
+    #[builder(default, setter(into, strip_option))]
     pub enumerate: Option<Tag<'a, TagList<'a>, Enumerate>>,
+    #[builder(default, setter(into, strip_option))]
     pub pull: Option<Tag<'a, TagList<'a>, Pull>>,
+    #[builder(default, setter(into, strip_option))]
     pub release: Option<Tag<'a, TagList<'a>, Release>>,
+    #[builder(default, setter(into, strip_option))]
     pub get_status: Option<Tag<'a, TagList<'a>, GetStatus>>,
 
     /// PowerShell Remoting operations
+    #[builder(default, setter(into, strip_option))]
     pub shell: Option<Tag<'a, TagList<'a>, Shell>>,
+    #[builder(default, setter(into, strip_option))]
     pub command: Option<Tag<'a, TagList<'a>, Command>>,
+    #[builder(default, setter(into, strip_option))]
     pub receive: Option<Tag<'a, TagList<'a>, Receive>>,
+    #[builder(default, setter(into, strip_option))]
     pub send: Option<Tag<'a, TagList<'a>, Send>>,
+    #[builder(default, setter(into, strip_option))]
     pub signal: Option<Tag<'a, TagList<'a>, Signal>>,
 
     /// Custom/Generic content
+    #[builder(default, setter(into, strip_option))]
     pub custom_content: Option<TagList<'a>>,
 }
 
 impl<'a> TagValue<'a> for SoapBody<'a> {
-    fn into_element(
-        self,
-        name: &'static str,
-        namespace: Option<&'static str>,
-    ) -> xml::builder::Element<'a> {
-        let mut body = xml::builder::Element::new(name).set_namespace_optional(namespace);
+    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+        let mut body = element;
 
         let mut array = Vec::new();
 
@@ -65,7 +76,8 @@ impl<'a> TagValue<'a> for SoapBody<'a> {
 
         // Add custom content if present
         if let Some(content) = custom_content {
-            body = body.add_child(content.into_element("CustomContent", None));
+            let custom_element = xml::builder::Element::new("CustomContent");
+            body = body.add_child(content.into_element(custom_element));
         }
 
         body = body.add_children(array);
@@ -106,7 +118,7 @@ impl<'a> XmlVisitor<'a> for SoapBodyVisitor<'a> {
     ) -> Result<(), xml::XmlError<'a>> {
         for node in children {
             if !node.is_element() {
-                continue; // Skip non-element nodes like text/whitespace
+                continue; // Skip non-element nodes like whitespace/comments/CDATA
             }
 
             let tag_name = node.tag_name().name();

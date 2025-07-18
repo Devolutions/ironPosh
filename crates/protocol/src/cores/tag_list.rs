@@ -10,18 +10,34 @@ pub struct TagList<'a> {
     items: Vec<crate::cores::anytag::AnyTag<'a>>,
 }
 
-impl<'a> TagValue<'a> for TagList<'a> {
-    fn into_element(self, name: &'static str, namespace: Option<&'static str>) -> Element<'a> {
-        
+impl<'a> Default for TagList<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        Element::new(name)
-            .set_namespace_optional(namespace)
-            .add_children(
-                self.items
-                    .into_iter()
-                    .map(|tag| tag.into_element())
-                    .collect(),
-            )
+impl<'a> TagList<'a> {
+    pub fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    pub fn add_tag(&mut self, tag: AnyTag<'a>) {
+        self.items.push(tag);
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item = AnyTag<'a>> {
+        self.items.into_iter()
+    }
+}
+
+impl<'a> TagValue<'a> for TagList<'a> {
+    fn into_element(self, element: Element<'a>) -> Element<'a> {
+        element.add_children(
+            self.items
+                .into_iter()
+                .map(|tag| tag.into_element())
+                .collect(),
+        )
     }
 }
 
