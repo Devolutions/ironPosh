@@ -1,7 +1,7 @@
 use tracing::{debug, warn};
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::{cores::*, push_elements};
+use crate::{cores::*, push_elements, rsp::rsp::ShellValue};
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct SoapBody<'a> {
@@ -27,7 +27,7 @@ pub struct SoapBody<'a> {
 
     /// PowerShell Remoting operations
     #[builder(default, setter(into, strip_option))]
-    pub shell: Option<Tag<'a, TagList<'a>, Shell>>,
+    pub shell: Option<Tag<'a, ShellValue<'a>, Shell>>,
     #[builder(default, setter(into, strip_option))]
     pub command: Option<Tag<'a, TagList<'a>, Command>>,
     #[builder(default, setter(into, strip_option))]
@@ -43,7 +43,7 @@ pub struct SoapBody<'a> {
 }
 
 impl<'a> TagValue<'a> for SoapBody<'a> {
-    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+    fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
         let mut body = element;
 
         let mut array = Vec::new();
@@ -77,7 +77,7 @@ impl<'a> TagValue<'a> for SoapBody<'a> {
         // Add custom content if present
         if let Some(content) = custom_content {
             let custom_element = xml::builder::Element::new("CustomContent");
-            body = body.add_child(content.into_element(custom_element));
+            body = body.add_child(content.append_to_element(custom_element));
         }
 
         body = body.add_children(array);
@@ -99,7 +99,7 @@ pub struct SoapBodyVisitor<'a> {
     pub get_status: Option<Tag<'a, TagList<'a>, GetStatus>>,
 
     /// PowerShell Remoting operations
-    pub shell: Option<Tag<'a, TagList<'a>, Shell>>,
+    pub shell: Option<Tag<'a, ShellValue<'a>, Shell>>,
     pub command: Option<Tag<'a, TagList<'a>, Command>>,
     pub receive: Option<Tag<'a, TagList<'a>, Receive>>,
     pub send: Option<Tag<'a, TagList<'a>, Send>>,

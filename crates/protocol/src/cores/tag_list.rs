@@ -31,7 +31,7 @@ impl<'a> TagList<'a> {
 }
 
 impl<'a> TagValue<'a> for TagList<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         element.add_children(
             self.items
                 .into_iter()

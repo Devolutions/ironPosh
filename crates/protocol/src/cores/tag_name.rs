@@ -80,3 +80,4 @@ define_tagname!(SelectorSet, Some(MS_WSMAN_NAMESPACE));
 define_tagname!(SessionId, Some(MS_WSMAN_NAMESPACE));
 define_tagname!(CompressionType, Some(MS_WSMAN_NAMESPACE));
 define_tagname!(OptionSet, Some(MS_WSMAN_NAMESPACE));
+define_custom_tagname!(OptionTagName, "Option", Some(MS_WSMAN_NAMESPACE));

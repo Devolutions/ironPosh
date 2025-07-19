@@ -4,7 +4,7 @@ use xml::{
 };
 
 pub trait TagValue<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a>;
+    fn append_to_element(self, element: Element<'a>) -> Element<'a>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,13 +23,13 @@ impl<'a> From<Text<'a>> for &'a str {
 }
 
 impl<'a> TagValue<'a> for Text<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         element.set_text(self.0.as_ref())
     }
 }
 
 impl<'a> TagValue<'a> for () {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         element
     }
 }
@@ -141,7 +141,7 @@ impl<'a> XmlDeserialize<'a> for Empty {
 }
 
 impl<'a> TagValue<'a> for Empty {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         element
     }
 }

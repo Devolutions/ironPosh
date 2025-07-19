@@ -1,26 +1,78 @@
 use std::borrow::Cow;
 
-#[derive(Debug, Clone)]
-pub enum Attribute {
-    MustUnderstand(bool),
-}
+// Macro that ensures compile-time safety by generating all the boilerplate
+macro_rules! define_attributes {
+    (
+        $(
+            $variant:ident($type:ty) => $attr_name:literal, $parser:expr
+        ),* $(,)?
+    ) => {
+        #[derive(Debug, Clone)]
+        pub enum Attribute<'a> {
+            $(
+                $variant($type),
+            )*
+        }
 
-impl<'a> From<Attribute> for xml::builder::Attribute<'a> {
-    fn from(val: Attribute) -> Self {
-        match val {
-            Attribute::MustUnderstand(value) => {
-                xml::builder::Attribute::new("mustUnderstand", Cow::Owned(value.to_string()))
+        impl<'a> Attribute<'a> {
+            /// Convert an attribute name to the corresponding enum variant type
+            /// This is automatically generated to match all enum variants
+            fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, xml::XmlError<'a>> {
+                match name {
+                    $(
+                        $attr_name => {
+                            match $parser(value) {
+                                Ok(val) => Ok(Some(Attribute::$variant(val))),
+                                Err(e) => Err(xml::XmlError::InvalidXml(
+                                    format!("Invalid value for {}: {}", $attr_name, e)
+                                )),
+                            }
+                        }
+                    )*
+                    _ => Ok(None), // Unknown attribute, ignore
+                }
+            }
+
+            /// Get the attribute name for this enum variant
+            /// This is automatically generated to be exhaustive
+            pub fn attribute_name(&self) -> &'static str {
+                match self {
+                    $(
+                        Attribute::$variant(_) => $attr_name,
+                    )*
+                }
             }
         }
-    }
+
+        impl<'a> From<Attribute<'a>> for xml::builder::Attribute<'a> {
+            fn from(val: Attribute<'a>) -> Self {
+                match val {
+                    $(
+                        Attribute::$variant(value) => {
+                            xml::builder::Attribute::new($attr_name, Cow::Owned(format!("{}", value)))
+                        }
+                    )*
+                }
+            }
+        }
+    };
 }
 
-pub struct AttributeVisitor {
-    attribute: Option<Attribute>,
+// Define all attributes here - adding a new one automatically updates ALL related code
+define_attributes!(
+    MustUnderstand(bool) => "mustUnderstand", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    Name(Cow<'a, str>) => "Name", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    MustComply(bool) => "MustComply", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    ShellId(Cow<'a, str>) => "ShellId", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    // Add new attributes here and they automatically get handled everywhere!
+);
+
+pub struct AttributeVisitor<'a> {
+    attribute: Option<Attribute<'a>>,
 }
 
-impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor {
-    type Value = Attribute;
+impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
+    type Value = Attribute<'a>;
 
     fn visit_children(
         &mut self,
@@ -32,39 +84,28 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor {
     }
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
-        let mut attr = None;
         for attribute in node.attributes() {
             tracing::debug!(
                 "AttributeVisitor checking attribute: name='{}', value='{}'",
                 attribute.name(),
                 attribute.value()
             );
-            match attribute.name() {
-                "mustUnderstand" => {
-                    if let Ok(value) = attribute.value().parse::<bool>() {
-                        attr = Some(Attribute::MustUnderstand(value));
-                        tracing::debug!("Parsed mustUnderstand attribute: {}", value);
-                    } else {
-                        return Err(xml::XmlError::InvalidXml(
-                            "Invalid value for mustUnderstand".to_string(),
-                        ));
-                    }
-                }
-                _ => {
-                    tracing::debug!("Ignoring unknown attribute: {}", attribute.name());
-                    continue;
-                }
+
+            // Try to parse this attribute using our compile-time safe method
+            if let Some(parsed_attr) =
+                Attribute::from_name_and_value(attribute.name(), attribute.value())?
+            {
+                self.attribute = Some(parsed_attr);
+                tracing::debug!("Successfully parsed attribute: {:?}", self.attribute);
+                return Ok(()); // Take the first recognized attribute
+            } else {
+                tracing::debug!("Ignoring unknown attribute: {}", attribute.name());
             }
         }
 
-        if let Some(attribute) = attr {
-            self.attribute = Some(attribute);
-            Ok(())
-        } else {
-            Err(xml::XmlError::InvalidXml(
-                "No valid attribute found".to_string(),
-            ))
-        }
+        Err(xml::XmlError::InvalidXml(
+            "No valid attribute found".to_string(),
+        ))
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
@@ -73,8 +114,8 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor {
     }
 }
 
-impl<'a> xml::parser::XmlDeserialize<'a> for Attribute {
-    type Visitor = AttributeVisitor;
+impl<'a> xml::parser::XmlDeserialize<'a> for Attribute<'a> {
+    type Visitor = AttributeVisitor<'a>;
 
     fn visitor() -> Self::Visitor {
         AttributeVisitor { attribute: None }
@@ -82,5 +123,65 @@ impl<'a> xml::parser::XmlDeserialize<'a> for Attribute {
 
     fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compile_time_exhaustiveness() {
+        // This test demonstrates that the macro generates exhaustive matches
+        let attrs = vec![
+            Attribute::MustUnderstand(true),
+            Attribute::Name(Cow::Borrowed("test")),
+            Attribute::MustComply(false),
+            // If you add a new variant, the macro will automatically handle it
+        ];
+
+        for attr in attrs {
+            let _name = attr.attribute_name();
+            let _xml_attr: xml::builder::Attribute = attr.clone().into();
+        }
+    }
+
+    #[test]
+    fn test_parsing_round_trip() {
+        let test_cases = [
+            ("mustUnderstand", "true"),
+            ("Name", "test-name"),
+            ("MustComply", "false"),
+        ];
+
+        for (attr_name, attr_value) in test_cases {
+            if let Some(parsed) = Attribute::from_name_and_value(attr_name, attr_value).unwrap() {
+                // Test that we can get the name back
+                assert_eq!(parsed.attribute_name(), attr_name);
+
+                // Test round trip to XML attribute
+                let _xml_attr: xml::builder::Attribute = parsed.into();
+            }
+        }
+    }
+
+    #[test]
+    fn test_adding_new_attribute_example() {
+        // To add a new attribute, you would update the define_attributes! macro call:
+        //
+        // define_attributes!(
+        //     MustUnderstand(bool) => "mustUnderstand", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+        //     Name(Cow<'a, str>) => "Name", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+        //     MustComply(bool) => "MustComply", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+        //     NewAttribute(i32) => "NewAttr", |v: &str| v.parse::<i32>().map_err(|e| e.to_string()),  // <- Add this line
+        // );
+        //
+        // That's it! The macro automatically updates:
+        // - The enum definition
+        // - The from_name_and_value parsing
+        // - The attribute_name method
+        // - The From<Attribute> for xml::builder::Attribute trait
+        //
+        // This provides TRUE compile-time safety - you cannot forget to handle a case!
     }
 }

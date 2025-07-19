@@ -84,7 +84,7 @@ impl<'a> Element<'a> {
     ///     <ns:SomeChildElement/>
     ///  </SomeElement>
     ///
-    pub fn add_namespace_alias(mut self, namespace: &'a str, alias: &'a str) -> Self {
+    pub fn add_namespace_declaration(mut self, namespace: &'a str, alias: &'a str) -> Self {
         if self.namespaces.is_none() {
             self.namespaces = Some(HashMap::new());
         }

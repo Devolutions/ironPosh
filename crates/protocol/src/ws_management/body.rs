@@ -42,7 +42,7 @@ impl<'a> Default for EnumerateValue<'a> {
 }
 
 impl<'a> TagValue<'a> for EnumerateValue<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         todo!("[EnumerateValue] Implement into_element");
     }
 }
@@ -68,7 +68,7 @@ impl<'a> PullValue<'a> {
 }
 
 impl<'a> TagValue<'a> for PullValue<'a> {
-    fn into_element(self, mut element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
         let context_elem = Element::new("EnumerationContext")
             .set_namespace("http://schemas.xmlsoap.org/ws/2004/09/enumeration")
             .set_text(self.enumeration_context);
@@ -99,7 +99,7 @@ impl<'a> ReleaseValue<'a> {
 }
 
 impl<'a> TagValue<'a> for ReleaseValue<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         let context_elem = Element::new("EnumerationContext")
             .set_namespace("http://schemas.xmlsoap.org/ws/2004/09/enumeration")
             .set_text(self.enumeration_context);
@@ -122,7 +122,7 @@ impl<'a> GetStatusValue<'a> {
 }
 
 impl<'a> TagValue<'a> for GetStatusValue<'a> {
-    fn into_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
         let context_elem = Element::new("EnumerationContext")
             .set_namespace("http://schemas.xmlsoap.org/ws/2004/09/enumeration")
             .set_text(self.enumeration_context);

@@ -23,7 +23,7 @@ fn main() {
         .add_child(
             Element::new("child2")
                 .set_namespace(NS2)
-                .add_namespace_alias(NS2, NS2_ALIAS)
+                .add_namespace_declaration(NS2, NS2_ALIAS)
                 .set_text("Text content for child2")
                 .add_attribute(Attribute::new("attr2", "value2").set_namespace(NS1)),
         )
@@ -32,7 +32,7 @@ fn main() {
     // Create a builder with the declaration and element
     let builder = Builder::new(
         Some(declaration),
-        element.add_namespace_alias(NS1, NS1_ALIAS),
+        element.add_namespace_declaration(NS1, NS1_ALIAS),
     );
 
     // Print the XML document

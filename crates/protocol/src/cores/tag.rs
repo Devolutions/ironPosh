@@ -17,12 +17,12 @@ where
     N: TagName,
 {
     pub value: V,
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<Attribute<'a>>,
     /// The namespaces are the declaration of namespaces used in this tag.
     /// For example
     /// <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
     /// would have a namespace declaration for "s" with the URI "http://schemas.xmlsoap.org/soap/envelope/".
-    pub namespaces: NamespaceDeclaration,
+    pub namespaces_declaration: NamespaceDeclaration,
 
     /// The namespace of this tag, if any.
     /// Example: <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
@@ -42,14 +42,20 @@ where
         Self {
             value,
             attributes: Vec::new(),
-            namespaces: NamespaceDeclaration::new(),
+            namespaces_declaration: NamespaceDeclaration::new(),
             namespace: None,
             __phantom: std::marker::PhantomData,
             __phantom_name: std::marker::PhantomData,
         }
     }
 
-    pub fn with_attribute(mut self, attribute: Attribute) -> Self {
+    /// Does not do anything, just returns self.
+    /// This is useful for compiler to infer the type of `N` when using `Tag::new`.
+    pub fn with_name(self, _name: N) -> Self {
+        self
+    }
+
+    pub fn with_attribute(mut self, attribute: Attribute<'a>) -> Self {
         self.attributes.push(attribute);
         self
     }
@@ -59,8 +65,8 @@ where
         self
     }
 
-    pub fn with_declaration(mut self, declaration: NamespaceDeclaration) -> Self {
-        self.namespaces = declaration;
+    pub fn with_declaration(mut self, declaration: Namespace) -> Self {
+        self.namespaces_declaration.push(declaration);
         self
     }
 
@@ -69,7 +75,18 @@ where
         if let Some(ns) = N::NAMESPACE {
             element = element.set_namespace(ns);
         }
-        self.value.into_element(element)
+
+        // Add namespace declarations to the element
+        for namespace in self.namespaces_declaration.namespaces() {
+            let (url, alias) = namespace.as_tuple();
+            element = element.add_namespace_declaration(url, alias);
+        }
+
+        for attribute in self.attributes {
+            element = element.add_attribute(attribute.into());
+        }
+
+        self.value.append_to_element(element)
     }
 }
 
@@ -89,7 +106,7 @@ where
     N: TagName,
 {
     pub tag: Option<V>,
-    pub attributes: Vec<Attribute>,
+    pub attributes: Vec<Attribute<'a>>,
     pub namespaces: NamespaceDeclaration,
     pub namespace: Option<Namespace>,
     __phantom: std::marker::PhantomData<&'a N>,
@@ -173,7 +190,7 @@ where
             .map(|value| Tag {
                 value,
                 attributes: self.attributes,
-                namespaces: self.namespaces,
+                namespaces_declaration: self.namespaces,
                 namespace: self.namespace,
                 __phantom: std::marker::PhantomData,
                 __phantom_name: std::marker::PhantomData,

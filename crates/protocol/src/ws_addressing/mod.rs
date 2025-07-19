@@ -9,7 +9,7 @@ pub struct AddressValue<'a> {
 }
 
 impl<'a> TagValue<'a> for AddressValue<'a> {
-    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+    fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
         let inner_element = self.url.into_element();
         element.add_child(inner_element)
     }

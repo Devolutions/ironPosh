@@ -18,7 +18,7 @@ pub struct SoapEnvelope<'a> {
 }
 
 impl<'a> TagValue<'a> for SoapEnvelope<'a> {
-    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+    fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
         let envelope = element;
 
         if let Some(header) = self.header {

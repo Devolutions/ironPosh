@@ -1,7 +1,7 @@
 use tracing::{debug, warn};
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::{cores::*, push_elements, ws_addressing::AddressValue};
+use crate::{cores::*, push_elements, ws_addressing::AddressValue, ws_management::OptionSetValue};
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct SoapHeaders<'a> {
@@ -33,15 +33,15 @@ pub struct SoapHeaders<'a> {
     #[builder(default, setter(into, strip_option))]
     pub sequence_id: Option<Tag<'a, Text<'a>, SequenceId>>,
     #[builder(default, setter(into, strip_option))]
-    pub option_set: Option<Tag<'a, TagList<'a>, OptionSet>>,
+    pub option_set: Option<Tag<'a, OptionSetValue<'a>, OptionSet>>,
     #[builder(default, setter(into, strip_option))]
     pub operation_timeout: Option<Tag<'a, Text<'a>, OperationTimeout>>,
     #[builder(default, setter(into, strip_option))]
-    pub compression_type: Option<Tag<'a, TagList<'a>, CompressionType>>,
+    pub compression_type: Option<Tag<'a, Text<'a>, CompressionType>>,
 }
 
 impl<'a> TagValue<'a> for SoapHeaders<'a> {
-    fn into_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
+    fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
         let mut header = element;
 
         let mut array = Vec::new();
@@ -107,9 +107,9 @@ pub struct SoapHeaderVisitor<'a> {
     pub session_id: Option<Tag<'a, Text<'a>, SessionId>>,
     pub operation_id: Option<Tag<'a, Text<'a>, OperationID>>,
     pub sequence_id: Option<Tag<'a, Text<'a>, SequenceId>>,
-    pub option_set: Option<Tag<'a, TagList<'a>, OptionSet>>,
+    pub option_set: Option<Tag<'a, OptionSetValue<'a>, OptionSet>>,
     pub operation_timeout: Option<Tag<'a, Text<'a>, OperationTimeout>>,
-    pub compression_type: Option<Tag<'a, TagList<'a>, CompressionType>>,
+    pub compression_type: Option<Tag<'a, Text<'a>, CompressionType>>,
 }
 
 impl<'a> XmlVisitor<'a> for SoapHeaderVisitor<'a> {
