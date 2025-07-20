@@ -40,6 +40,12 @@ pub struct OptionSetValue<'a> {
     pub options: Vec<Tag<'a, Text<'a>, OptionTagName>>,
 }
 
+impl<'a> Default for OptionSetValue<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> OptionSetValue<'a> {
     pub fn new() -> Self {
         Self {

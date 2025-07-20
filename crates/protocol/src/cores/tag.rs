@@ -24,11 +24,6 @@ where
     /// would have a namespace declaration for "s" with the URI "http://schemas.xmlsoap.org/soap/envelope/".
     pub namespaces_declaration: NamespaceDeclaration,
 
-    /// The namespace of this tag, if any.
-    /// Example: <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-    /// would have a namespace in the the URI of "http://www.w3.org/2003/05/soap-envelope", corresponds to Namespace::Soap.
-    pub namespace: Option<Namespace>,
-
     __phantom: std::marker::PhantomData<&'a V>,
     __phantom_name: std::marker::PhantomData<N>,
 }
@@ -43,7 +38,6 @@ where
             value,
             attributes: Vec::new(),
             namespaces_declaration: NamespaceDeclaration::new(),
-            namespace: None,
             __phantom: std::marker::PhantomData,
             __phantom_name: std::marker::PhantomData,
         }
@@ -57,11 +51,6 @@ where
 
     pub fn with_attribute(mut self, attribute: Attribute<'a>) -> Self {
         self.attributes.push(attribute);
-        self
-    }
-
-    pub fn with_namespace(mut self, namespace: Namespace) -> Self {
-        self.namespace = Some(namespace);
         self
     }
 
@@ -87,6 +76,10 @@ where
         }
 
         self.value.append_to_element(element)
+    }
+
+    pub fn name(&self) -> &'static str {
+        N::TAG_NAME
     }
 }
 
@@ -191,7 +184,6 @@ where
                 value,
                 attributes: self.attributes,
                 namespaces_declaration: self.namespaces,
-                namespace: self.namespace,
                 __phantom: std::marker::PhantomData,
                 __phantom_name: std::marker::PhantomData,
             })
