@@ -164,24 +164,5 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn test_adding_new_attribute_example() {
-        // To add a new attribute, you would update the define_attributes! macro call:
-        //
-        // define_attributes!(
-        //     MustUnderstand(bool) => "mustUnderstand", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
-        //     Name(Cow<'a, str>) => "Name", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
-        //     MustComply(bool) => "MustComply", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
-        //     NewAttribute(i32) => "NewAttr", |v: &str| v.parse::<i32>().map_err(|e| e.to_string()),  // <- Add this line
-        // );
-        //
-        // That's it! The macro automatically updates:
-        // - The enum definition
-        // - The from_name_and_value parsing
-        // - The attribute_name method
-        // - The From<Attribute> for xml::builder::Attribute trait
-        //
-        // This provides TRUE compile-time safety - you cannot forget to handle a case!
-    }
+  
 }

@@ -1,5 +1,4 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
-use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{cores::*, rsp::rsp::ShellValue};
 
