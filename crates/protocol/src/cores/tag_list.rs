@@ -25,6 +25,11 @@ impl<'a> TagList<'a> {
         self.items.push(tag);
     }
 
+    pub fn with_tag(mut self, tag: AnyTag<'a>) -> Self {
+        self.add_tag(tag);
+        self
+    }
+
     pub fn into_iter(self) -> impl Iterator<Item = AnyTag<'a>> {
         self.items.into_iter()
     }

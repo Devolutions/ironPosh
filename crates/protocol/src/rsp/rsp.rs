@@ -8,6 +8,11 @@ use crate::{
 };
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
+// The XmlTagContainer derive macro generates:
+// - TagValue implementation
+// - ShellValueVisitor struct
+// - XmlVisitor implementation for ShellValueVisitor
+// - XmlDeserialize implementation
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct ShellValue<'a> {
     #[builder(default, setter(strip_option, into))]
@@ -51,9 +56,3 @@ pub struct ShellValue<'a> {
     #[builder(default, setter(strip_option, into))]
     pub creation_xml: Option<Tag<'a, Text<'a>, CreationXml>>,
 }
-
-// The XmlTagContainer derive macro generates:
-// - TagValue implementation
-// - ShellValueVisitor struct
-// - XmlVisitor implementation for ShellValueVisitor
-// - XmlDeserialize implementation

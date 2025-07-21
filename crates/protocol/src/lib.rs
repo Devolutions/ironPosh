@@ -6,5 +6,6 @@ pub mod rsp;
 pub mod soap;
 pub mod ws_addressing;
 pub mod ws_management;
+pub mod powershell_remoting;
 
 pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;

@@ -28,18 +28,77 @@ where
     __phantom_name: std::marker::PhantomData<N>,
 }
 
+pub struct TagNameHolder<'a, N, V>
+where
+    N: TagName,
+    V: TagValue<'a>,
+{
+    name: N,
+    attributes: Option<Vec<Attribute<'a>>>,
+    namespaces_declaration: NamespaceDeclaration,
+    __phantom: std::marker::PhantomData<&'a V>,
+}
+
+impl<'a, N, V> TagNameHolder<'a, N, V>
+where
+    N: TagName,
+    V: TagValue<'a>,
+{
+    pub fn with_value(self, value: V) -> Tag<'a, V, N> {
+        let mut tag = Tag::new(value).with_name(self.name);
+
+        if let Some(attrs) = self.attributes {
+            for attr in attrs {
+                tag = tag.with_attribute(attr);
+            }
+        }
+
+        for declaration in self.namespaces_declaration {
+            tag = tag.with_declaration(declaration);
+        }
+
+        tag
+    }
+
+    pub fn with_attribute(mut self, attribute: Attribute<'a>) -> Self {
+        if let Some(ref mut attrs) = self.attributes {
+            attrs.push(attribute);
+        } else {
+            self.attributes = Some(vec![attribute]);
+        }
+        self
+    }
+
+    pub fn with_declaration(mut self, declaration: Namespace) -> Self {
+        self.namespaces_declaration.push(declaration);
+        self
+    }
+}
+
 impl<'a, V, N> Tag<'a, V, N>
 where
     V: TagValue<'a>,
     N: TagName,
 {
-    pub fn new(value: V) -> Self {
+    pub fn new(value: impl Into<V>) -> Self {
         Self {
-            value,
+            value: value.into(),
             attributes: Vec::new(),
             namespaces_declaration: NamespaceDeclaration::new(),
             __phantom: std::marker::PhantomData,
             __phantom_name: std::marker::PhantomData,
+        }
+    }
+
+    pub fn from_name(name: N) -> TagNameHolder<'a, N, V>
+    where
+        N: TagName,
+    {
+        TagNameHolder {
+            name,
+            attributes: None,
+            namespaces_declaration: NamespaceDeclaration::new(),
+            __phantom: std::marker::PhantomData,
         }
     }
 
@@ -240,6 +299,6 @@ where
     N: TagName,
 {
     fn from(value: &'a str) -> Self {
-        Tag::new(value.into())
+        Tag::new(value)
     }
 }

@@ -97,6 +97,11 @@ macro_rules! define_any_tag {
     };
 }
 
+// Define the `AnyTag` enum for the following purposes:
+// Right now, since we are having all tag and tag name definations defined in compile time (i.e Sized, no dynamic trait objects),
+// Hence, for the purpose of having a dynamic representation of any tag, we define `AnyTag`.
+// This will allow us to have a single enum that can represent any tag type, which can be useful for generic processing of XML documents.
+// while perserving the compile-time safety of tag definitions.
 define_any_tag!(
     AnyTag,
     AnyTagVisitor,
@@ -154,4 +159,21 @@ define_any_tag!(
         Tag<'a, Text<'a>, ShellInactivity>
     ),
     (CreationXml, CreationXml, Tag<'a, TagList<'a>, CreationXml>),
+    (Version, Version, Tag<'a, Text<'a>, Version>),
+    (BA, BA, Tag<'a, Text<'a>, BA>),
+    // PowerShell Serialization Format
+    (I32Tag, I32, Tag<'a, Text<'a>, I32>),
+    (TN, TN, Tag<'a, TagList<'a>, TN>),
+    (T, T, Tag<'a, Text<'a>, T>),
+    (ToString, ToString, Tag<'a, Text<'a>, ToString>),
+    (DCT, DCT, Tag<'a, TagList<'a>, DCT>),
+    (En, En, Tag<'a, TagList<'a>, En>),
+    (Key, Key, Tag<'a, Text<'a>, Key>),
+    (Value, Value, Tag<'a, Text<'a>, Value>),
+    (Nil, Nil, Tag<'a, Text<'a>, Nil>),
+    (B, B, Tag<'a, Text<'a>, B>),
+    (S, S, Tag<'a, Text<'a>, S>),
+    // Complex objects
+    (Obj, Obj, Tag<'a, TagList<'a>, Obj>),
+    (MS, MS, Tag<'a, TagList<'a>, MS>),
 );

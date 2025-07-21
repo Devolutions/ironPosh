@@ -1,9 +1,17 @@
 use crate::cores::namespace::*;
-use crate::{define_custom_tagname, define_tagname};
+use crate::{define_custom_tagname, define_tag_wrapper, define_tagname};
 
 pub trait TagName {
     const TAG_NAME: &'static str;
     const NAMESPACE: Option<&'static str>;
+
+    fn tag_name(&self) -> &'static str {
+        Self::TAG_NAME
+    }
+
+    fn namespace(&self) -> Option<&'static str> {
+        Self::NAMESPACE
+    }
 }
 
 // ==========================
@@ -81,3 +89,37 @@ define_tagname!(SessionId, Some(MS_WSMAN_NAMESPACE));
 define_tagname!(CompressionType, Some(MS_WSMAN_NAMESPACE));
 define_tagname!(OptionSet, Some(MS_WSMAN_NAMESPACE));
 define_custom_tagname!(OptionTagName, "Option", Some(MS_WSMAN_NAMESPACE));
+
+// PowerShell Remoting Protocol;
+define_tagname!(Obj, None);
+define_tag_wrapper!(ObjWrapper, Obj);
+define_tagname!(MS, None);
+define_tag_wrapper!(MSWrapper, MS);
+define_tagname!(Version, None);
+define_tag_wrapper!(VersionWrapper, Version);
+define_tagname!(BA, None);
+define_tag_wrapper!(BAWrapper, BA);
+
+// PowerShell Serialization Format
+define_tagname!(I32, None);  // 32-bit integer
+define_tag_wrapper!(I32Wrapper, I32);
+define_tagname!(TN, None);   // Type Name
+define_tag_wrapper!(TNWrapper, TN);
+define_tagname!(T, None);    // Type
+define_tag_wrapper!(TWrapper, T);
+define_custom_tagname!(ToString, "ToString", None); // ToString representation
+define_tag_wrapper!(ToStringWrapper, ToString);
+define_tagname!(DCT, None);  // Dictionary
+define_tag_wrapper!(DCTWrapper, DCT);
+define_tagname!(En, None);   // Dictionary Entry
+define_tag_wrapper!(EnWrapper, En);
+define_tagname!(Key, None);  // Dictionary Key
+define_tag_wrapper!(KeyWrapper, Key);
+define_tagname!(Value, None); // Dictionary Value
+define_tag_wrapper!(ValueWrapper, Value);
+define_tagname!(Nil, None);  // Null Value
+define_tag_wrapper!(NilWrapper, Nil);
+define_tagname!(B, None);    // Boolean
+define_tag_wrapper!(BWrapper, B);
+define_tagname!(S, None);    // String
+define_tag_wrapper!(SWrapper, S);

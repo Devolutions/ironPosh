@@ -4,7 +4,7 @@ use std::borrow::Cow;
 macro_rules! define_attributes {
     (
         $(
-            $variant:ident($type:ty) => $attr_name:literal, $parser:expr
+            $variant:ident($type:ty) => ($namespace:expr, $attr_name:literal), $parser:expr
         ),* $(,)?
     ) => {
         #[derive(Debug, Clone)]
@@ -42,14 +42,34 @@ macro_rules! define_attributes {
                     )*
                 }
             }
+
+            /// Get the namespace for this enum variant
+            /// This is automatically generated to be exhaustive
+            pub fn namespace(&self) -> Option<crate::cores::namespace::Namespace> {
+                match self {
+                    $(
+                        Attribute::$variant(_) => $namespace,
+                    )*
+                }
+            }
         }
 
         impl<'a> From<Attribute<'a>> for xml::builder::Attribute<'a> {
             fn from(val: Attribute<'a>) -> Self {
+                let namespace = val.namespace().map(|ns| {
+                    let (uri, _alias) = ns.as_tuple();
+                    xml::builder::Namespace::new(uri)
+                });
+
                 match val {
                     $(
                         Attribute::$variant(value) => {
-                            xml::builder::Attribute::new($attr_name, Cow::Owned(format!("{}", value)))
+                            let attr = xml::builder::Attribute::new($attr_name, Cow::Owned(format!("{}", value)));
+                            if let Some(ns) = namespace {
+                                attr.set_namespace(ns)
+                            } else {
+                                attr
+                            }
                         }
                     )*
                 }
@@ -60,10 +80,12 @@ macro_rules! define_attributes {
 
 // Define all attributes here - adding a new one automatically updates ALL related code
 define_attributes!(
-    MustUnderstand(bool) => "mustUnderstand", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
-    Name(Cow<'a, str>) => "Name", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
-    MustComply(bool) => "MustComply", |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
-    ShellId(Cow<'a, str>) => "ShellId", |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    MustUnderstand(bool) => (Some(crate::cores::namespace::Namespace::Soap), "mustUnderstand"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    Name(Cow<'a, str>) => (None, "Name"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    MustComply(bool) => (Some(crate::cores::namespace::Namespace::WsManagement), "MustComply"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    ShellId(Cow<'a, str>) => (Some(crate::cores::namespace::Namespace::RspShell), "ShellId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    RefId(Cow<'a, str>) => (None, "RefId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    N(Cow<'a, str>) => (None, "N"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     // Add new attributes here and they automatically get handled everywhere!
 );
 
@@ -164,5 +186,4 @@ mod tests {
             }
         }
     }
-  
 }

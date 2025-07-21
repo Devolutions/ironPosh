@@ -17,4 +17,7 @@ pub enum ProtocolError {
 
     #[error("Unexpected error: {0}")]
     Unexpected(String),
+
+    #[error("IO Error: {0}")]
+    IoError(#[from] std::io::Error),
 }

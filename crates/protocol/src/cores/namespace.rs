@@ -145,6 +145,15 @@ impl NamespaceDeclaration {
     }
 }
 
+impl IntoIterator for NamespaceDeclaration {
+    type Item = Namespace;
+    type IntoIter = std::vec::IntoIter<Namespace>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 pub struct NamespaceDeclarationVisitor {
     namespaces: Vec<Namespace>,
 }

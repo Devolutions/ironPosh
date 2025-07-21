@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::builder::{Attribute, Namespace};
+use crate::builder::{Attribute, Namespace, NamespaceFmt};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -164,8 +164,8 @@ impl<'a> Element<'a> {
     ///    .set_text("This is some text content.");
     ///     
     /// ```
-    pub fn set_text(mut self, text: impl Into<&'a str>) -> Self {
-        self.content = Content::Text(std::borrow::Cow::Borrowed(text.into()));
+    pub fn set_text(mut self, text: impl Into<Cow<'a, str>>) -> Self {
+        self.content = Content::Text(text.into());
         self
     }
 
@@ -182,6 +182,14 @@ impl<'a> Element<'a> {
     pub fn with_text_owned(&mut self, text: String) -> &mut Self {
         self.content = Content::Text(std::borrow::Cow::Owned(text));
         self
+    }
+}
+
+impl std::fmt::Display for Element<'_> {
+    /// Formats the element and its content as an XML string.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ns_fmt(f, None)
+            .inspect_err(|_| eprintln!("Error formatting XML for element: {}", self.name))
     }
 }
 
@@ -210,6 +218,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             if let Some(ref namespaces_map) = namespace_alias_map {
                 namespaces_map.get(namespace).copied()
             } else {
+                eprintln!("No namespace alias map provided for element: {}", self.name);
                 return Err(std::fmt::Error);
             }
         } else {

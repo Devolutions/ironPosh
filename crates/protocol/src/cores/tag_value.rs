@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use xml::{
     builder::Element,
     parser::{XmlDeserialize, XmlVisitor},
@@ -8,23 +10,35 @@ pub trait TagValue<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Text<'a>(&'a str);
+pub struct Text<'a>(Cow<'a, str>);
 
-impl<'a> From<&'a str> for Text<'a> {
+impl<'a> std::convert::From<&'a str> for Text<'a> {
     fn from(value: &'a str) -> Self {
-        Text(value)
+        Text(value.into())
     }
 }
 
-impl<'a> From<Text<'a>> for &'a str {
-    fn from(val: Text<'a>) -> Self {
-        val.0
+impl<'a> std::convert::From<String> for Text<'a> {
+    fn from(value: String) -> Self {
+        Text(value.into())
+    }
+}
+
+impl<'a> Into<Cow<'a, str>> for Text<'a> {
+    fn into(self) -> Cow<'a, str> {
+        self.0
+    }
+}
+
+impl<'a> From<&'a Text<'a>> for &'a str {
+    fn from(val: &'a Text<'a>) -> Self {
+        val.0.as_ref()
     }
 }
 
 impl<'a> TagValue<'a> for Text<'a> {
     fn append_to_element(self, element: Element<'a>) -> Element<'a> {
-        element.set_text(self.0.as_ref())
+        element.set_text(self.0)
     }
 }
 
@@ -71,7 +85,7 @@ impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
         }
 
         if let Some(text) = child.text() {
-            self.value = Some(Text(text.trim()));
+            self.value = Some(Text(text.trim().into()));
         }
 
         Ok(())
