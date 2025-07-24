@@ -1,6 +1,7 @@
-pub mod powershell_remoting;
-pub use powershell_remoting::*;
-pub mod ps_objects;
+pub mod cores;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PowerShellRemotingError {

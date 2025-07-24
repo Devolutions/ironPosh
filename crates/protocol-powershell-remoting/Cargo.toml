@@ -10,6 +10,4 @@ quick-xml = { version = "0.38.0", features = ["serde", "serde-types", "serialize
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"
 typed-builder = "0.21.0"
-uuid = { version = "1.11.0", features = ["serde", "v4"] }
-semver = { version = "1.0.21", features = ["serde"] }
-chrono = { version = "0.4.38", features = ["serde"] }
+xml = { version = "0.1.0", path = "../xml" }

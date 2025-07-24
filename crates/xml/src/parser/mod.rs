@@ -2,7 +2,7 @@ pub use roxmltree::*;
 
 use crate::XmlError;
 
-impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
+impl<'a> TryFrom<crate::parser::Node<'a, 'a>> for crate::builder::Element<'a> {
     type Error = crate::XmlError<'a>;
 
     fn try_from(value: roxmltree::Node<'a, 'a>) -> Result<Self, Self::Error> {
@@ -26,7 +26,7 @@ impl<'a> TryFrom<roxmltree::Node<'a, 'a>> for crate::builder::Element<'a> {
     }
 }
 
-pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, roxmltree::Error> {
+pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, crate::parser::Error> {
     roxmltree::Document::parse(xml)
 }
 
@@ -39,12 +39,12 @@ pub trait XmlVisitor<'a> {
     /// Default implementation calls visit_children for backward compatibility
     fn visit_children(
         &mut self,
-        node: impl Iterator<Item = roxmltree::Node<'a, 'a>>,
+        node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
     ) -> Result<(), crate::XmlError<'a>>;
 
     /// Visit the children of a node - used by TagValue types that process content
     /// Default implementation does nothing
-    fn visit_node(&mut self, _node: roxmltree::Node<'a, 'a>) -> Result<(), crate::XmlError<'a>>;
+    fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError<'a>>;
 
     /// Return the finished value after traversal.
     fn finish(self) -> Result<Self::Value, XmlError<'a>>;
