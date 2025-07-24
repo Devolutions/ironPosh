@@ -228,13 +228,34 @@ where
 
         Ok(())
     }
+
     fn visit_children(
         &mut self,
-        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
     ) -> Result<(), xml::XmlError<'a>> {
-        Err(xml::XmlError::InvalidXml(
-            "Expected a single tag, found multiple children".to_string(),
-        ))
+        for child in children {
+            if child.is_element()
+                && child.tag_name().name() == N::TAG_NAME
+                && child.tag_name().namespace() == N::NAMESPACE
+            {
+                debug!("Visiting child node: {}", child.tag_name().name());
+                self.visit_node(child)?;
+            } else {
+                debug!(
+                    "Skipping child node: {} (namespace: {:?})",
+                    child.tag_name().name(),
+                    child.tag_name().namespace()
+                );
+
+                return Err(xml::XmlError::InvalidXml(format!(
+                    "Unexpected child node: {} (namespace: {:?})",
+                    child.tag_name().name(),
+                    child.tag_name().namespace()
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
@@ -300,5 +321,16 @@ where
 {
     fn from(value: &'a str) -> Self {
         Tag::new(value)
+    }
+}
+
+impl<'a, V, N> TagValue<'a> for Tag<'a, V, N>
+where
+    V: TagValue<'a>,
+    N: TagName,
+{
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
+        let inner_element = self.into_element();
+        element.add_child(inner_element)
     }
 }

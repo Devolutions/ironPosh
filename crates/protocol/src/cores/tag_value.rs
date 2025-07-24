@@ -24,6 +24,12 @@ impl<'a> std::convert::From<String> for Text<'a> {
     }
 }
 
+impl<'a> AsRef<str> for Text<'a> {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 impl<'a> Into<Cow<'a, str>> for Text<'a> {
     fn into(self) -> Cow<'a, str> {
         self.0

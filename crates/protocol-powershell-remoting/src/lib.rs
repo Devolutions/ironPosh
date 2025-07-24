@@ -1,0 +1,21 @@
+pub mod powershell_remoting;
+pub use powershell_remoting::*;
+pub mod ps_objects;
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PowerShellRemotingError {
+    #[error("Invalid PowerShell remoting message: {0}")]
+    InvalidMessage(String),
+
+    #[error("PowerShell remoting error: {0}")]
+    RemotingError(String),
+
+    #[error("IO Error: {0}")]
+    IoError(String),
+}
+
+impl From<std::io::Error> for PowerShellRemotingError {
+    fn from(err: std::io::Error) -> Self {
+        PowerShellRemotingError::IoError(err.to_string())
+    }
+}

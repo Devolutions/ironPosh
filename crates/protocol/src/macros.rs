@@ -36,116 +36,190 @@ macro_rules! define_tagname {
 }
 
 #[macro_export]
-macro_rules! define_tag_wrapper {
-    ($struct_name:ident, $tag_name_type:ty) => {
-        pub struct $struct_name<'a, V>
-        where
-            V: $crate::cores::TagValue<'a>,
-        {
-            pub tag: $crate::cores::Tag<'a, V, $tag_name_type>,
-        }
-
-        impl<'a, V> $crate::cores::TagValue<'a> for $struct_name<'a, V>
-        where
-            V: $crate::cores::TagValue<'a>,
-        {
-            fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
-                element.add_child(self.tag.into_element())
-            }
-        }
-
-        impl<'a, V> $struct_name<'a, V>
-        where
-            V: $crate::cores::TagValue<'a>,
-        {
-            pub fn new(tag: $crate::cores::Tag<'a, V, $tag_name_type>) -> Self {
-                Self { tag }
-            }
-        }
-
-        impl<'a, V> xml::parser::XmlDeserialize<'a> for $struct_name<'a, V>
-        where
-            V: $crate::cores::TagValue<'a> + xml::parser::XmlDeserialize<'a>,
-        {
-            type Visitor = paste::paste! { [<$struct_name Visitor>]<'a, V> };
-
-            fn visitor() -> Self::Visitor {
-                paste::paste! { [<$struct_name Visitor>]::new() }
-            }
-        }
-
-        paste::paste! {
-            pub struct [<$struct_name Visitor>]<'a, V>
-            where
-                V: $crate::cores::TagValue<'a>,
-            {
-                tag: Option<$crate::cores::Tag<'a, V, $tag_name_type>>,
-            }
-
-            impl<'a, V> [<$struct_name Visitor>]<'a, V>
-            where
-                V: $crate::cores::TagValue<'a>,
-            {
-                pub fn new() -> Self {
-                    Self { tag: None }
-                }
-            }
-
-            impl<'a, V> xml::parser::XmlVisitor<'a> for [<$struct_name Visitor>]<'a, V>
-            where
-                V: $crate::cores::TagValue<'a> + xml::parser::XmlDeserialize<'a>,
-            {
-                type Value = $struct_name<'a, V>;
-
-                fn visit_children(
-                    &mut self,
-                    node: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-                ) -> Result<(), xml::XmlError<'a>> {
-                    for child in node {
-                        if !child.is_element() {
-                            continue;
-                        }
-
-                        match (child.tag_name().name(), child.tag_name().namespace()) {
-                            (<$tag_name_type>::TAG_NAME, <$tag_name_type>::NAMESPACE) => {
-                                let tag = <$crate::cores::Tag<V, $tag_name_type> as xml::parser::XmlDeserialize>::from_node(child)?;
-                                self.tag = Some(tag);
-                            }
-                            _ => {
-                                tracing::warn!(
-                                    "Unexpected child element in {}: {} (namespace: {:?})",
-                                    stringify!($struct_name),
-                                    child.tag_name().name(),
-                                    child.tag_name().namespace()
-                                );
-                            }
-                        }
-                    }
-
-                    if self.tag.is_none() {
-                        return Err(xml::XmlError::InvalidXml(
-                            format!("{} must contain a valid tag", stringify!($struct_name)),
-                        ));
-                    }
-
-                    Ok(())
-                }
-
-                fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
-                    Err(xml::XmlError::InvalidXml(
-                        format!("{}Visitor should not be called with a single node", stringify!($struct_name)),
-                    ))
-                }
-
-                fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
-                    self.tag
-                        .map(|tag| $struct_name { tag })
-                        .ok_or(xml::XmlError::InvalidXml(
-                            format!("No valid tag found in {}Visitor", stringify!($struct_name)),
-                        ))
-                }
+macro_rules! impl_tag_value {
+    (
+        struct -> $struct_name:ident<$lifetime:lifetime>
+        required -> [
+            $(
+                $req_field:ident
+            ),* $(,)?
+        ]
+        optional -> [
+            $(
+                $opt_field:ident
+            ),* $(,)?
+        ]
+    ) => {
+        impl<$lifetime> $crate::cores::TagValue<$lifetime> for $struct_name<$lifetime> {
+            fn append_to_element(self, mut element: xml::builder::Element<$lifetime>) -> xml::builder::Element<$lifetime> {
+                // Append required fields
+                $(
+                    element = element.add_child(self.$req_field.into_element());
+                )*
+                
+                // Append optional fields conditionally
+                $(
+                    element = match self.$opt_field {
+                        Some(tag) => element.add_child(tag.into_element()),
+                        None => element,
+                    };
+                )*
+                
+                element
             }
         }
     };
 }
 
+#[macro_export]
+macro_rules! impl_xml_deserialize {
+    (
+        struct -> $struct_name:ident<$lifetime:lifetime>
+        required -> [
+            $(
+                $req_field:ident: $req_field_type:ty
+            ),* $(,)?
+        ]
+        optional -> [
+            $(
+                $opt_field:ident: $opt_field_type:ty
+            ),* $(,)?
+        ]
+    ) => {
+        paste::paste! {
+            pub struct [<$struct_name Visitor>]<$lifetime> {
+                $(
+                    $req_field: Option<$req_field_type>,
+                )*
+                $(
+                    $opt_field: Option<$opt_field_type>,  // This will be Option<Tag<...>> 
+                )*
+            }
+
+            impl<$lifetime> Default for [<$struct_name Visitor>]<$lifetime> {
+                fn default() -> Self {
+                    Self {
+                        $(
+                            $req_field: None,
+                        )*
+                        $(
+                            $opt_field: None,
+                        )*
+                    }
+                }
+            }
+
+            impl<$lifetime> xml::parser::XmlVisitor<$lifetime> for [<$struct_name Visitor>]<$lifetime> {
+                type Value = $struct_name<$lifetime>;
+
+                fn visit_children(
+                    &mut self,
+                    children: impl Iterator<Item = xml::parser::Node<$lifetime, $lifetime>>,
+                ) -> Result<(), xml::XmlError<$lifetime>> {
+                    for child in children {
+                        if !child.is_element() {
+                            continue;
+                        }
+
+                        let tag_name = child.tag_name().name();
+                        let namespace = child.tag_name().namespace();
+
+                        // We need a way to match tag names to field types
+                        // For now, let's use a simpler approach where we try to deserialize each field type
+                        let mut matched = false;
+
+                        $(
+                            // Try to match required fields
+                            if !matched {
+                                if let Ok(tag) = <$req_field_type as xml::parser::XmlDeserialize>::from_node(child) {
+                                    if self.$req_field.is_some() {
+                                        return Err(xml::XmlError::InvalidXml(format!(
+                                            "Duplicate {} tag in {}", 
+                                            tag_name,
+                                            stringify!($struct_name)
+                                        )));
+                                    }
+                                    self.$req_field = Some(tag);
+                                    matched = true;
+                                }
+                            }
+                        )*
+
+                        $(
+                            // Try to match optional fields - deserialize the Tag type and wrap in Some
+                            if !matched {
+                                if let Ok(tag) = <$opt_field_type as xml::parser::XmlDeserialize>::from_node(child) {
+                                    if self.$opt_field.is_some() {
+                                        return Err(xml::XmlError::InvalidXml(format!(
+                                            "Duplicate {} tag in {}", 
+                                            tag_name,
+                                            stringify!($struct_name)
+                                        )));
+                                    }
+                                    self.$opt_field = Some(tag);
+                                    matched = true;
+                                }
+                            }
+                        )*
+
+                        if !matched {
+                            return Err(xml::XmlError::InvalidXml(format!(
+                                "Unknown tag in {}: {} (namespace: {:?})", 
+                                stringify!($struct_name), 
+                                tag_name,
+                                namespace
+                            )));
+                        }
+                    }
+
+                    Ok(())
+                }
+
+                fn visit_node(&mut self, node: xml::parser::Node<$lifetime, $lifetime>) -> Result<(), xml::XmlError<$lifetime>> {
+                    let children: Vec<_> = node.children().collect();
+                    self.visit_children(children.into_iter())?;
+                    Ok(())
+                }
+
+                fn finish(self) -> Result<Self::Value, xml::XmlError<$lifetime>> {
+                    // Required fields must be present
+                    $(
+                        let $req_field = self.$req_field.ok_or_else(|| {
+                            xml::XmlError::InvalidXml(format!(
+                                "Missing {} in {}", 
+                                stringify!($req_field), 
+                                stringify!($struct_name)
+                            ))
+                        })?;
+                    )*
+
+                    // Optional fields - wrap in Some() if present, None if not
+                    $(
+                        let $opt_field = self.$opt_field;
+                    )*
+
+                    Ok($struct_name {
+                        $(
+                            $req_field,
+                        )*
+                        $(
+                            $opt_field,
+                        )*
+                    })
+                }
+            }
+
+            impl<$lifetime> xml::parser::XmlDeserialize<$lifetime> for $struct_name<$lifetime> {
+                type Visitor = [<$struct_name Visitor>]<$lifetime>;
+
+                fn visitor() -> Self::Visitor {
+                    [<$struct_name Visitor>]::default()
+                }
+
+                fn from_node(node: xml::parser::Node<$lifetime, $lifetime>) -> Result<Self, xml::XmlError<$lifetime>> {
+                    xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+                }
+            }
+        }
+    };
+}

@@ -92,7 +92,7 @@ impl MessageType {
 }
 
 impl TryFrom<u32> for MessageType {
-    type Error = crate::error::ProtocolError;
+    type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
@@ -127,7 +127,7 @@ impl TryFrom<u32> for MessageType {
             0x00041011 => Ok(MessageType::InformationRecord),
             0x00041100 => Ok(MessageType::PipelineHostCall),
             0x00041101 => Ok(MessageType::PipelineHostResponse),
-            _ => Err(crate::error::ProtocolError::Unexpected(format!(
+            _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
                 "Unknown MessageType value: 0x{:08x}",
                 value
             ))),
@@ -170,7 +170,7 @@ pub struct PowerShellFragment<'a> {
 impl<'a> PowerShellFragment<'a> {
     pub fn parse(
         cursor: &mut std::io::Cursor<&'a [u8]>,
-    ) -> Result<Self, crate::error::ProtocolError> {
+    ) -> Result<Self, crate::PowerShellRemotingError> {
         let mut object_id = [0u8; 8];
         let mut fragment_id = [0u8; 8];
         let mut blob_length = [0u8; 4];
@@ -190,7 +190,7 @@ impl<'a> PowerShellFragment<'a> {
         let current_pos = cursor.position() as usize;
         let data = cursor.get_ref();
         if current_pos + blob_size > data.len() {
-            return Err(crate::error::ProtocolError::Unexpected(
+            return Err(crate::PowerShellRemotingError::InvalidMessage(
                 "Not enough data for PowerShell fragment".to_string(),
             ));
         }

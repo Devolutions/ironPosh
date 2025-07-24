@@ -2,13 +2,11 @@ pub mod body;
 pub mod header;
 pub mod parsing;
 
-use tracing::warn;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{
     cores::{Tag, TagValue, tag_name::*},
     soap::{body::SoapBody, header::SoapHeaders},
-    define_tag_wrapper,
 };
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
@@ -94,4 +92,3 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
         })
     }
 }
-
