@@ -3078,7 +3078,7 @@ pub mod header {
         fn visit_children(
             &mut self,
             children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-        ) -> Result<(), xml::XmlError<'a>> {
+        ) -> Result<(), xml::XmlError> {
             for child in children {
                 if !child.is_element() {
                     continue;
@@ -3179,14 +3179,14 @@ pub mod header {
         fn visit_node(
             &mut self,
             node: xml::parser::Node<'a, 'a>,
-        ) -> Result<(), xml::XmlError<'a>> {
+        ) -> Result<(), xml::XmlError> {
             (/*ERROR*/);
             let children: Vec<_> = node.children().collect();
             (/*ERROR*/);
             self.visit_children(children.into_iter())?;
             Ok(())
         }
-        fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+        fn finish(self) -> Result<Self::Value, xml::XmlError> {
             let Self {
                 to,
                 action,
@@ -3230,7 +3230,7 @@ pub mod header {
         }
         fn from_node(
             node: xml::parser::Node<'a, 'a>,
-        ) -> Result<Self, xml::XmlError<'a>> {
+        ) -> Result<Self, xml::XmlError> {
             xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
         }
     }

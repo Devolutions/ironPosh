@@ -1,4 +1,4 @@
-use crate::cores::{PsObject, PsProperty, PsValue};
+use crate::messages::{PsObject, PsProperty, PsValue};
 use xml::parser::{parse, XmlDeserialize};
 
 #[cfg(test)]

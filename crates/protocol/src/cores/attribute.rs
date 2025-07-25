@@ -17,7 +17,7 @@ macro_rules! define_attributes {
         impl<'a> Attribute<'a> {
             /// Convert an attribute name to the corresponding enum variant type
             /// This is automatically generated to match all enum variants
-            fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, xml::XmlError<'a>> {
+            fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, xml::XmlError> {
                 match name {
                     $(
                         $attr_name => {
@@ -99,13 +99,13 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
     fn visit_children(
         &mut self,
         _node: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         Err(xml::XmlError::InvalidXml(
             "Expected no children for Attribute".to_string(),
         ))
     }
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         for attribute in node.attributes() {
             tracing::debug!(
                 "AttributeVisitor checking attribute: name='{}', value='{}'",
@@ -130,7 +130,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
         ))
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         self.attribute
             .ok_or(xml::XmlError::InvalidXml("No attribute found".to_string()))
     }
@@ -143,7 +143,7 @@ impl<'a> xml::parser::XmlDeserialize<'a> for Attribute<'a> {
         AttributeVisitor { attribute: None }
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }

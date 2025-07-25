@@ -3,7 +3,7 @@ pub use roxmltree::*;
 use crate::XmlError;
 
 impl<'a> TryFrom<crate::parser::Node<'a, 'a>> for crate::builder::Element<'a> {
-    type Error = crate::XmlError<'a>;
+    type Error = crate::XmlError;
 
     fn try_from(value: roxmltree::Node<'a, 'a>) -> Result<Self, Self::Error> {
         if !value.is_element() {
@@ -40,14 +40,14 @@ pub trait XmlVisitor<'a> {
     fn visit_children(
         &mut self,
         node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
-    ) -> Result<(), crate::XmlError<'a>>;
+    ) -> Result<(), crate::XmlError>;
 
     /// Visit the children of a node - used by TagValue types that process content
     /// Default implementation does nothing
-    fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError<'a>>;
+    fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError>;
 
     /// Return the finished value after traversal.
-    fn finish(self) -> Result<Self::Value, XmlError<'a>>;
+    fn finish(self) -> Result<Self::Value, XmlError>;
 }
 
 /// =========== 2.  Blanket “Deserializer” driver  =============
@@ -61,7 +61,7 @@ impl<'a> NodeDeserializer<'a> {
     }
 
     /// Drive any visitor over the subtree rooted at `self.root`
-    pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, XmlError<'a>>
+    pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, XmlError>
     where
         V: XmlVisitor<'a>,
     {
@@ -79,13 +79,13 @@ pub trait XmlDeserialize<'a>: Sized {
     fn visitor() -> Self::Visitor;
 
     /// One-liner users will call.
-    fn from_node(node: roxmltree::Node<'a, 'a>) -> Result<Self, XmlError<'a>> {
+    fn from_node(node: roxmltree::Node<'a, 'a>) -> Result<Self, XmlError> {
         NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 
     fn from_children(
         children: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
-    ) -> Result<Self, XmlError<'a>> {
+    ) -> Result<Self, XmlError> {
         let mut visitor = Self::visitor();
         visitor.visit_children(children)?;
         visitor.finish()

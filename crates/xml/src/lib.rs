@@ -4,21 +4,21 @@ pub mod builder;
 pub mod parser;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum XmlError<'a> {
+pub enum XmlError {
     #[error("Invalid XML: {0}")]
     ParserError(#[from] roxmltree::Error),
 
     #[error("Invalid namespace: expected '{expected}', found '{found:?}'")]
     XmlInvalidNamespace {
-        expected: &'a str,
-        found: Option<&'a str>,
+        expected: String,
+        found: Option<String>,
     },
 
     #[error("Invalid tag: expected '{expected}', found '{found:?}'")]
-    XmlInvalidTag { expected: &'a str, found: &'a str },
+    XmlInvalidTag { expected: String, found: String },
 
     #[error("Invalid number of tags for {tag}: found {value}")]
-    TagCountInvalid { tag: &'a str, value: usize },
+    TagCountInvalid { tag: String, value: usize },
 
     #[error("Invalid XML: {0}")]
     InvalidXml(String),
@@ -32,3 +32,4 @@ pub enum XmlError<'a> {
     #[error("Invalid node type: expected '{expected:?}', found {found:?}")]
     InvalidNodeType { expected: NodeType, found: NodeType },
 }
+

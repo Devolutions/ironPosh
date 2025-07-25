@@ -115,7 +115,7 @@ macro_rules! impl_xml_deserialize {
                 fn visit_children(
                     &mut self,
                     children: impl Iterator<Item = xml::parser::Node<$lifetime, $lifetime>>,
-                ) -> Result<(), xml::XmlError<$lifetime>> {
+                ) -> Result<(), xml::XmlError> {
                     for child in children {
                         if !child.is_element() {
                             continue;
@@ -175,13 +175,13 @@ macro_rules! impl_xml_deserialize {
                     Ok(())
                 }
 
-                fn visit_node(&mut self, node: xml::parser::Node<$lifetime, $lifetime>) -> Result<(), xml::XmlError<$lifetime>> {
+                fn visit_node(&mut self, node: xml::parser::Node<$lifetime, $lifetime>) -> Result<(), xml::XmlError> {
                     let children: Vec<_> = node.children().collect();
                     self.visit_children(children.into_iter())?;
                     Ok(())
                 }
 
-                fn finish(self) -> Result<Self::Value, xml::XmlError<$lifetime>> {
+                fn finish(self) -> Result<Self::Value, xml::XmlError> {
                     // Required fields must be present
                     $(
                         let $req_field = self.$req_field.ok_or_else(|| {
@@ -216,7 +216,7 @@ macro_rules! impl_xml_deserialize {
                     [<$struct_name Visitor>]::default()
                 }
 
-                fn from_node(node: xml::parser::Node<$lifetime, $lifetime>) -> Result<Self, xml::XmlError<$lifetime>> {
+                fn from_node(node: xml::parser::Node<$lifetime, $lifetime>) -> Result<Self, xml::XmlError> {
                     xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
                 }
             }

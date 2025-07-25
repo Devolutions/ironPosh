@@ -25,7 +25,7 @@ impl<'a> XmlVisitor<'a> for AddressVisitor<'a> {
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         for child in children {
             if !child.is_element() {
                 continue;
@@ -48,11 +48,11 @@ impl<'a> XmlVisitor<'a> for AddressVisitor<'a> {
         Ok(())
     }
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         todo!()
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         todo!()
     }
 }

@@ -168,7 +168,7 @@ fn generate_simple_xml_visitor_impl(
             fn visit_children(
                 &mut self,
                 children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-            ) -> Result<(), xml::XmlError<'a>> {
+            ) -> Result<(), xml::XmlError> {
                 for child in children {
                     if !child.is_element() {
                         continue; // Skip non-element nodes like text/whitespace
@@ -190,7 +190,7 @@ fn generate_simple_xml_visitor_impl(
                 Ok(())
             }
 
-            fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+            fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
                 // Get the children and process them
                 let children: Vec<_> = node.children().collect();
 
@@ -198,7 +198,7 @@ fn generate_simple_xml_visitor_impl(
                 Ok(())
             }
 
-            fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+            fn finish(self) -> Result<Self::Value, xml::XmlError> {
                 let Self { #field_list } = self;
 
                 Ok(#struct_name {
@@ -273,7 +273,7 @@ fn generate_xml_deserialize_impl(
                 #visitor_name::default()
             }
 
-            fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+            fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
                 xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
             }
         }

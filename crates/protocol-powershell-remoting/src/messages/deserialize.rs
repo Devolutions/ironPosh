@@ -25,7 +25,7 @@ impl<'a> PsValueVisitor<'a> {
 impl<'a> XmlVisitor<'a> for PsValueVisitor<'a> {
     type Value = PsValue;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         if !node.is_element() {
             return Ok(());
         }
@@ -93,13 +93,13 @@ impl<'a> XmlVisitor<'a> for PsValueVisitor<'a> {
     fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         // PsValue typically doesn't need to process children separately
         // since visit_node handles the element content
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         self.value.ok_or_else(|| xml::XmlError::GenericError("No PsValue found".to_string()))
     }
 }
@@ -137,7 +137,7 @@ impl<'a> PsPropertyVisitor<'a> {
 impl<'a> XmlVisitor<'a> for PsPropertyVisitor<'a> {
     type Value = PsProperty;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         if !node.is_element() {
             return Ok(());
         }
@@ -163,12 +163,12 @@ impl<'a> XmlVisitor<'a> for PsPropertyVisitor<'a> {
     fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         // PsProperty handles its content through visit_node
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         let value = self.value.ok_or_else(|| xml::XmlError::GenericError("No value found for PsProperty".to_string()))?;
         
         Ok(PsProperty {
@@ -220,7 +220,7 @@ impl<'a> PsObjectVisitor<'a> {
 impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
     type Value = PsObject;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         if !node.is_element() {
             return Ok(());
         }
@@ -245,7 +245,7 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         for child in children {
             if !child.is_element() {
                 continue;
@@ -339,7 +339,7 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(PsObject {
             ref_id: self.ref_id,
             type_names: self.type_names,

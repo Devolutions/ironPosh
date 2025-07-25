@@ -174,7 +174,7 @@ impl<'a> NodeDeserializer<'a> {
     }
 
     /// Drive any visitor over the subtree rooted at `self.root`
-    pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, xml::XmlError<'a>>
+    pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, xml::XmlError>
     where
         V: XmlVisitor<'a>,
     {
@@ -190,7 +190,7 @@ where
 {
     type Value = Tag<'a, V, N>;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         debug!(
             "TagVisitor visiting node: tag_name='{}', expected='{}', namespace={:?}",
             node.tag_name().name(),
@@ -232,7 +232,7 @@ where
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         for child in children {
             if child.is_element()
                 && child.tag_name().name() == N::TAG_NAME
@@ -258,7 +258,7 @@ where
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         self.tag
             .map(|value| Tag {
                 value,
@@ -290,7 +290,7 @@ where
         }
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
         NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }

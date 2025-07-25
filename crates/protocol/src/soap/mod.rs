@@ -41,14 +41,14 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
     fn visit_children(
         &mut self,
         node: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         Err(xml::XmlError::InvalidXml(format!(
             "Expected a single envelope, found {} children",
             node.count()
         )))
     }
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         if !node.is_root() {
             return Err(xml::XmlError::InvalidXml(
                 "SoapEnvelope must be a root element".to_string(),
@@ -83,7 +83,7 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(SoapEnvelope {
             header: self.header,
             body: self

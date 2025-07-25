@@ -56,7 +56,7 @@ impl<'a> XmlVisitor<'a> for TagListVisitor<'a> {
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         for child in children {
             if child.is_element() {
                 let tag = AnyTag::from_node(child)?;
@@ -71,13 +71,13 @@ impl<'a> XmlVisitor<'a> for TagListVisitor<'a> {
         Ok(())
     }
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         Err(xml::XmlError::InvalidXml(
             "TagListVisitor should not be called with a single node".to_string(),
         ))
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(TagList { items: self.items })
     }
 }

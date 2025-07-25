@@ -93,11 +93,11 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceVisitor {
     fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         Ok(())
     }
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         let Some(namespace) = node.tag_name().namespace() else {
             return Err(xml::XmlError::InvalidXml("No namespace found".to_string()));
         };
@@ -116,7 +116,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceVisitor {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         self.namespace
             .ok_or(xml::XmlError::InvalidXml("No namespace found".to_string()))
     }
@@ -164,11 +164,11 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
     fn visit_children(
         &mut self,
         _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         Ok(())
     }
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         let namespaces = node.namespaces();
         for namespace in namespaces {
             match Namespace::try_from(namespace) {
@@ -183,7 +183,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(NamespaceDeclaration(self.namespaces))
     }
 }
@@ -205,7 +205,7 @@ impl<'a> XmlDeserialize<'a> for NamespaceDeclaration {
         }
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }

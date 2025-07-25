@@ -1,4 +1,4 @@
-use crate::cores::{PsObject, PsProperty, PsValue};
+use crate::{PsObject, PsProperty, PsValue};
 use xml::parser::{parse, XmlDeserialize};
 use std::collections::HashMap;
 

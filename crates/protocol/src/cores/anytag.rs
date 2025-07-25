@@ -12,7 +12,7 @@ macro_rules! define_any_tag {
 
         $(
             impl<'a> std::convert::TryInto<$tag_type> for AnyTag<'a> {
-                type Error = xml::XmlError<'a>;
+                type Error = xml::XmlError;
 
                 fn try_into(self) -> Result<$tag_type, Self::Error> {
                     match self {
@@ -51,14 +51,14 @@ macro_rules! define_any_tag {
             fn visit_children(
                 &mut self,
                 node: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-            ) -> Result<(), xml::XmlError<'a>> {
+            ) -> Result<(), xml::XmlError> {
                 Err(xml::XmlError::InvalidXml(format!(
                     "Expected a single tag, found {} children",
                     node.count()
                 )))
             }
 
-            fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+            fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
                 match node.tag_name().name() {
                     $(
                         <$tag_name>::TAG_NAME => {
@@ -77,7 +77,7 @@ macro_rules! define_any_tag {
                 Ok(())
             }
 
-            fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+            fn finish(self) -> Result<Self::Value, xml::XmlError> {
                 self.tag
                     .ok_or(xml::XmlError::InvalidXml("No valid tag found".to_string()))
             }
@@ -90,7 +90,7 @@ macro_rules! define_any_tag {
                 $visitor_name { tag: None }
             }
 
-            fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+            fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
                 xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
             }
         }

@@ -61,14 +61,14 @@ pub struct TextVisitor<'a> {
 impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
     type Value = Text<'a>;
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         Ok(())
     }
 
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         let child_nodes: Vec<_> = children.collect();
 
         // Validate there's only one child node
@@ -97,7 +97,7 @@ impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         self.value.ok_or(xml::XmlError::InvalidXml(
             "No text found in the node".to_string(),
         ))
@@ -111,7 +111,7 @@ impl<'a> XmlDeserialize<'a> for Text<'a> {
         TextVisitor { value: None }
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }
@@ -121,14 +121,14 @@ pub struct EmptyVisitor;
 impl<'a> XmlVisitor<'a> for EmptyVisitor {
     type Value = Empty;
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError<'a>> {
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         Ok(())
     }
 
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), xml::XmlError<'a>> {
+    ) -> Result<(), xml::XmlError> {
         let child_count = children.count();
 
         if child_count != 0 {
@@ -140,7 +140,7 @@ impl<'a> XmlVisitor<'a> for EmptyVisitor {
         Ok(())
     }
 
-    fn finish(self) -> Result<Self::Value, xml::XmlError<'a>> {
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(Empty)
     }
 }
@@ -155,7 +155,7 @@ impl<'a> XmlDeserialize<'a> for Empty {
         EmptyVisitor
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError<'a>> {
+    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
         xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
     }
 }
