@@ -65,7 +65,7 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
     fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        alias_map: Option<&HashMap<super::namespace::Namespace<'_>, &str>>,
+        alias_map: Option<&HashMap<super::namespace::Namespace<'_>, Option<&str>>>,
     ) -> std::fmt::Result {
         let namespace_alias = if let Some(alias_map) = alias_map {
             self.namespace
@@ -81,7 +81,7 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
             }
         };
 
-        let name = if let Some(alias) = namespace_alias {
+        let name = if let Some(Some(alias)) = namespace_alias {
             format!("{}:{}", alias, self.name)
         } else {
             self.name.to_string()

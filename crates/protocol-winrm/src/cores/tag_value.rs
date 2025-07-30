@@ -165,3 +165,9 @@ impl<'a> TagValue<'a> for Empty {
         element
     }
 }
+
+impl Into<Empty> for () {
+    fn into(self) -> Empty {
+        Empty
+    }
+}

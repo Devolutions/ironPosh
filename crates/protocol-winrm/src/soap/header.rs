@@ -26,9 +26,9 @@ pub struct SoapHeaders<'a> {
     #[builder(default, setter(into, strip_option))]
     pub max_envelope_size: Option<Tag<'a, Text<'a>, MaxEnvelopeSize>>,
     #[builder(default, setter(into, strip_option))]
-    pub locale: Option<Tag<'a, Text<'a>, Locale>>,
+    pub locale: Option<Tag<'a, Empty, Locale>>,
     #[builder(default, setter(into, strip_option))]
-    pub data_locale: Option<Tag<'a, Text<'a>, DataLocale>>,
+    pub data_locale: Option<Tag<'a, Empty, DataLocale>>,
     #[builder(default, setter(into, strip_option))]
     pub session_id: Option<Tag<'a, Text<'a>, SessionId>>,
     #[builder(default, setter(into, strip_option))]

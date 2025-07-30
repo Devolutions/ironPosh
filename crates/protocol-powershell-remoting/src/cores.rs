@@ -1,11 +1,14 @@
 use std::io::Read;
 
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+use crate::PsObject;
+
+#[derive(Debug, Clone, Copy)]
 pub enum Destination {
-    Client = 0x00000001,
-    Server = 0x00000002,
+    Client = 0x0000_0001,
+    Server = 0x0000_0002,
 }
 
 impl TryFrom<u32> for Destination {
@@ -13,11 +16,10 @@ impl TryFrom<u32> for Destination {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0x00000001 => Ok(Destination::Client),
-            0x00000002 => Ok(Destination::Server),
+            0x0000_0001 => Ok(Destination::Client),
+            0x0000_0002 => Ok(Destination::Server),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Unknown Destination value: 0x{:08x}",
-                value
+                "Unknown Destination value: 0x{value:08x}"
             ))),
         }
     }
@@ -133,8 +135,7 @@ impl TryFrom<u32> for MessageType {
             0x00041100 => Ok(MessageType::PipelineHostCall),
             0x00041101 => Ok(MessageType::PipelineHostResponse),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Unknown MessageType value: 0x{:08x}",
-                value
+                "Unknown MessageType value: 0x{value:08x}"
             ))),
         }
     }
@@ -152,20 +153,21 @@ pub struct PID {
 
 #[derive(Debug, Clone)]
 ///https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/497ac440-89fb-4cb3-9cc1-3434c1aa74c3
-pub struct PowerShellRemotingMessage<'a> {
+pub struct PowerShellRemotingMessage {
     pub destination: Destination,
     pub message_type: MessageType,
     /// Runspace Pool ID (RPID)
-    pub rpid: [u8; 16],
+    pub rpid: Uuid,
     /// PowerShell Process ID (PID)
-    pub pid: [u8; 16],
-    pub data: &'a [u8],
+    pub pid: Uuid,
+    pub data: Vec<u8>, // This will hold the serialized PsObject data
 }
 
-impl<'a> PowerShellRemotingMessage<'a> {
-    pub fn parse(
-        cursor: &mut std::io::Cursor<&'a [u8]>,
-    ) -> Result<Self, crate::PowerShellRemotingError> {
+impl PowerShellRemotingMessage {
+    pub fn parse<T>(cursor: &mut std::io::Cursor<T>) -> Result<Self, crate::PowerShellRemotingError>
+    where
+        T: AsRef<[u8]>,
+    {
         let destination = cursor.read_u32::<LittleEndian>()?;
         let message_type = cursor
             .read_u32::<LittleEndian>()
@@ -177,38 +179,67 @@ impl<'a> PowerShellRemotingMessage<'a> {
         let mut pid_bytes = [0u8; 16];
         cursor.read_exact(&mut pid_bytes)?;
 
-        let rest = cursor.get_ref();
-        let data = &rest[cursor.position() as usize..];
+        let mut rest = vec![];
+        cursor.read_to_end(&mut rest)?;
 
         Ok(Self {
             destination: Destination::try_from(destination).map_err(|e| {
                 crate::PowerShellRemotingError::InvalidMessage(format!(
-                    "Invalid destination value: {}",
-                    e
+                    "Invalid destination value: {e}"
                 ))
             })?,
             message_type,
-            rpid: rpid_bytes,
-            pid: pid_bytes,
-            data,
+            rpid: Uuid::from_bytes(rpid_bytes),
+            pid: Uuid::from_bytes(pid_bytes),
+            data: rest,
         })
+    }
+
+    pub fn new(
+        destination: Destination,
+        message_type: MessageType,
+        rpid: Uuid,
+        pid: Uuid,
+        data: &PsObject,
+    ) -> Self {
+        Self {
+            destination,
+            message_type,
+            rpid,
+            pid,
+            data: data.to_element().to_string().into_bytes(),
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer
+            .write_u32::<LittleEndian>(self.destination as u32)
+            .unwrap();
+        buffer
+            .write_u32::<LittleEndian>(self.message_type.value())
+            .unwrap();
+        buffer.extend_from_slice(self.rpid.as_bytes());
+        buffer.extend_from_slice(self.pid.as_bytes());
+        buffer.extend_from_slice(&self.data);
+        buffer
     }
 }
 
 /// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/3610dae4-67f7-4175-82da-a3fab83af288
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
-pub struct PowerShellFragment<'a> {
+pub struct PowerShellFragment {
     pub object_id: u64,
     pub fragment_id: u64,
     pub end_of_fragment: bool,
     pub start_of_fragment: bool,
     pub blob_length: u32,
-    pub blob: &'a [u8],
+    pub blob: Vec<u8>, // This will hold the serialized PsObject data
 }
 
-impl<'a> PowerShellFragment<'a> {
+impl PowerShellFragment {
     pub fn parse(
-        cursor: &mut std::io::Cursor<&'a [u8]>,
+        cursor: &mut std::io::Cursor<&[u8]>,
     ) -> Result<Self, crate::PowerShellRemotingError> {
         let object_id = cursor.read_u64::<BigEndian>()?;
         let fragment_id = cursor.read_u64::<BigEndian>()?;
@@ -238,12 +269,41 @@ impl<'a> PowerShellFragment<'a> {
             end_of_fragment,
             start_of_fragment,
             blob_length,
-            blob,
+            blob: blob.to_vec(),
         })
+    }
+
+    pub fn new(
+        object_id: u64,
+        fragment_id: u64,
+        end_of_fragment: bool,
+        start_of_fragment: bool,
+        blob: PowerShellRemotingMessage,
+    ) -> Self {
+        let blob_length = blob.data.len() as u32;
+        Self {
+            object_id,
+            fragment_id,
+            end_of_fragment,
+            start_of_fragment,
+            blob_length,
+            blob: blob.into_vec(),
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        buffer.write_u64::<BigEndian>(self.object_id).unwrap();
+        buffer.write_u64::<BigEndian>(self.fragment_id).unwrap();
+        let flags = (self.end_of_fragment as u8) << 1 | (self.start_of_fragment as u8);
+        buffer.write_u8(flags).unwrap();
+        buffer.write_u32::<BigEndian>(self.blob_length).unwrap();
+        buffer.extend_from_slice(&self.blob);
+        buffer
     }
 }
 
-impl std::fmt::Display for PowerShellFragment<'_> {
+impl std::fmt::Display for PowerShellFragment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -255,7 +315,7 @@ impl std::fmt::Display for PowerShellFragment<'_> {
             self.blob_length,
             self.blob
                 .iter()
-                .map(|b| format!("{:02x}", b))
+                .map(|b| format!("{b:02x}"))
                 .collect::<Vec<String>>()
                 .join(" ")
         )

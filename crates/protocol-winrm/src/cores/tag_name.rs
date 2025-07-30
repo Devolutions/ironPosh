@@ -15,80 +15,88 @@ pub trait TagName {
 }
 
 // ==========================
-// PowerShell Remoting Shell
+// PowerShell Remoting Shell (rsp namespace)
 // ==========================
-define_tagname!(ShellId, Some(PWSH_NAMESPACE));
-define_tagname!(Name, Some(PWSH_NAMESPACE));
-define_tagname!(ResourceUri, Some(PWSH_NAMESPACE));
-define_tagname!(Owner, Some(PWSH_NAMESPACE));
-define_tagname!(ClientIP, Some(PWSH_NAMESPACE));
-define_tagname!(ProcessId, Some(PWSH_NAMESPACE));
-define_tagname!(IdleTimeOut, Some(PWSH_NAMESPACE));
-define_tagname!(InputStreams, Some(PWSH_NAMESPACE));
-define_tagname!(OutputStreams, Some(PWSH_NAMESPACE));
-define_tagname!(MaxIdleTimeOut, Some(PWSH_NAMESPACE));
-define_tagname!(Locale, Some(PWSH_NAMESPACE));
-define_tagname!(DataLocale, Some(PWSH_NAMESPACE));
-define_tagname!(CompressionMode, Some(PWSH_NAMESPACE));
-define_tagname!(ProfileLoaded, Some(PWSH_NAMESPACE));
-define_tagname!(Encoding, Some(PWSH_NAMESPACE));
-define_tagname!(BufferMode, Some(PWSH_NAMESPACE));
-define_tagname!(State, Some(PWSH_NAMESPACE));
-define_tagname!(ShellRunTime, Some(PWSH_NAMESPACE));
-define_tagname!(ShellInactivity, Some(PWSH_NAMESPACE));
+define_tagname!(ShellId, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Name, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ResourceUri, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Owner, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ClientIP, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ProcessId, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(IdleTimeOut, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(InputStreams, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(OutputStreams, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(MaxIdleTimeOut, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(CompressionMode, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ProfileLoaded, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Encoding, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(BufferMode, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(State, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ShellRunTime, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(ShellInactivity, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(CompressionType, Some(WSMAN_SHELL_NAMESPACE_URI));
 define_custom_tagname!(CreationXml, "creationXml", None);
 
-// PowerShell Remoting Operations
-define_tagname!(Shell, Some(PWSH_NAMESPACE));
-define_tagname!(Command, Some(PWSH_NAMESPACE));
-define_tagname!(Receive, Some(PWSH_NAMESPACE));
-define_tagname!(Send, Some(PWSH_NAMESPACE));
-define_tagname!(Signal, Some(PWSH_NAMESPACE));
+// PowerShell Remoting Operations (rsp namespace)
+define_tagname!(Shell, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Command, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Receive, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Send, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(Signal, Some(WSMAN_SHELL_NAMESPACE_URI));
 
 // ====================
-// WS-Addressing (WSA)
+// WS-Addressing (a namespace)
 // ====================
-define_tagname!(Action, Some(WSA_NAMESPACE));
-define_tagname!(To, Some(WSA_NAMESPACE));
-define_tagname!(MessageID, Some(WSA_NAMESPACE));
-define_tagname!(RelatesTo, Some(WSA_NAMESPACE));
-define_tagname!(ReplyTo, Some(WSA_NAMESPACE));
-define_tagname!(FaultTo, Some(WSA_NAMESPACE));
-define_tagname!(From, Some(WSA_NAMESPACE));
-define_tagname!(Address, Some(WSA_NAMESPACE));
+define_tagname!(Action, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(To, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(MessageID, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(RelatesTo, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(ReplyTo, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(FaultTo, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(From, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(Address, Some(WS_ADDRESSING_NAMESPACE_URI));
 
 // =============
-// SOAP (Envelope)
+// SOAP (s namespace)
 // =============
-define_tagname!(Envelope, Some(SOAP_NAMESPACE));
-define_tagname!(Header, Some(SOAP_NAMESPACE));
-define_tagname!(Body, Some(SOAP_NAMESPACE));
+define_tagname!(Envelope, Some(SOAP_ENVELOPE_NAMESPACE_URI));
+define_tagname!(Header, Some(SOAP_ENVELOPE_NAMESPACE_URI));
+define_tagname!(Body, Some(SOAP_ENVELOPE_NAMESPACE_URI));
 
-// ===========================
-// WS-Management (WSMAN)
-// ===========================
-define_tagname!(Identify, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Get, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Put, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Create, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Delete, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Enumerate, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Pull, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(Release, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(GetStatus, Some(MS_WSMAN_NAMESPACE));
+// ===============================
+// WS-Management DMTF (w namespace)
+// ===============================
+define_tagname!(Identify, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Get, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Put, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Delete, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Enumerate, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Pull, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Release, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(GetStatus, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 
-// WSMAN Headers
-define_tagname!(ResourceURI, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(OperationTimeout, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(MaxEnvelopeSize, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(SequenceId, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(OperationID, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(FragmentTransfer, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(SelectorSet, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(SessionId, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(CompressionType, Some(MS_WSMAN_NAMESPACE));
-define_tagname!(OptionSet, Some(MS_WSMAN_NAMESPACE));
-define_custom_tagname!(OptionTagName, "Option", Some(MS_WSMAN_NAMESPACE));
+// WS-Management DMTF Headers (w namespace)
+define_tagname!(ResourceURI, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(OperationTimeout, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(MaxEnvelopeSize, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(FragmentTransfer, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(SelectorSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(OptionSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(Locale, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_custom_tagname!(OptionTagName, "Option", Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+
+// ===================================
+// WS-Transfer (x namespace) 
+// ===================================
+define_tagname!(Create, Some(WS_TRANSFER_NAMESPACE_URI));
+
+// ====================================
+// Microsoft WS-Management (p namespace)
+// ====================================
+define_tagname!(SequenceId, Some(MS_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(OperationID, Some(MS_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(SessionId, Some(MS_WSMAN_SCHEMA_NAMESPACE_URI));
+define_tagname!(DataLocale, Some(MS_WSMAN_SCHEMA_NAMESPACE_URI));
 
 // PowerShell Remoting Protocol;
 define_tagname!(Obj, None);

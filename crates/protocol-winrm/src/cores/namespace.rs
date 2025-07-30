@@ -1,51 +1,72 @@
 use std::fmt::Debug;
 use xml::parser::XmlDeserialize;
 
-pub const PWSH_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
-pub const PWSH_NAMESPACE_ALIAS: &str = "rsp";
+pub const WSMAN_SHELL_NAMESPACE_URI: &str =
+    "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
+pub const WSMAN_SHELL_NAMESPACE_ALIAS: &str = "rsp";
 
-pub const POWERSHELL_NAMESPACE: &str =
+pub const POWERSHELL_REMOTING_NAMESPACE_URI: &str =
     "http://schemas.microsoft.com/powershell/Microsoft.PowerShell";
 
-pub const WSA_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
-pub const WSA_NAMESPACE_ALIAS: &str = "a";
+pub const WS_ADDRESSING_NAMESPACE_URI: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
+pub const WS_ADDRESSING_NAMESPACE_ALIAS: &str = "a";
 
-pub const SOAP_NAMESPACE: &str = "http://www.w3.org/2003/05/soap-envelope";
-pub const SOAP_NAMESPACE_ALIAS: &str = "s";
+pub const SOAP_ENVELOPE_NAMESPACE_URI: &str = "http://www.w3.org/2003/05/soap-envelope";
+pub const SOAP_ENVELOPE_NAMESPACE_ALIAS: &str = "s";
 
-pub const MS_WSMAN_NAMESPACE: &str = "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd";
-pub const MS_WSMAN_NAMESPACE_ALIAS: &str = "w";
+pub const MS_WSMAN_SCHEMA_NAMESPACE_URI: &str =
+    "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd";
+pub const MS_WSMAN_SCHEMA_NAMESPACE_ALIAS: &str = "p";
 
-pub const WS_MANAGEMENT_NAMESPACE: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
-pub const WS_MANAGEMENT_NAMESPACE_ALIAS: &str = "wsman";
+pub const DMTF_WSMAN_SCHEMA_NAMESPACE_URI: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
+pub const DMTF_WSMAN_SCHEMA_NAMESPACE_ALIAS: &str = "w";
 
-pub const WS_TRANSFER_NAMESPACE: &str = "http://schemas.xmlsoap.org/ws/2004/09/transfer";
+pub const WS_TRANSFER_NAMESPACE_URI: &str = "http://schemas.xmlsoap.org/ws/2004/09/transfer";
 pub const WS_TRANSFER_NAMESPACE_ALIAS: &str = "x";
+
+pub const XML_SCHEMA_INSTANCE_NAMESPACE_URI: &str = "http://www.w3.org/2001/XMLSchema-instance";
+pub const XML_SCHEMA_INSTANCE_NAMESPACE_ALIAS: &str = "xsi";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Namespace {
-    PowerShell,
-    RspShell,
-    WsAddressing,
-    MsWsManagement,
-    WsManagement,
-    Soap,
-    WsTrasfer,
+    WsmanShell,
+    WsAddressing2004,
+    MsWsmanSchema,
+    DmtfWsmanSchema,
+    SoapEnvelope2003,
+    WsTransfer2004,
+    PowerShellRemoting,
+    XmlSchemaInstance,
 }
 
 impl Namespace {
-    pub fn as_tuple(&self) -> (&'static str, &'static str) {
+    pub fn as_tuple(&self) -> (&'static str, Option<&'static str>) {
         match self {
-            Namespace::PowerShell => (PWSH_NAMESPACE, PWSH_NAMESPACE_ALIAS),
-            Namespace::RspShell => (
-                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
-                "rsp",
+            Namespace::WsmanShell => (WSMAN_SHELL_NAMESPACE_URI, Some(WSMAN_SHELL_NAMESPACE_ALIAS)),
+            Namespace::WsAddressing2004 => (
+                WS_ADDRESSING_NAMESPACE_URI,
+                Some(WS_ADDRESSING_NAMESPACE_ALIAS),
             ),
-            Namespace::WsAddressing => (WSA_NAMESPACE, WSA_NAMESPACE_ALIAS),
-            Namespace::MsWsManagement => (MS_WSMAN_NAMESPACE, MS_WSMAN_NAMESPACE_ALIAS),
-            Namespace::WsManagement => (WS_MANAGEMENT_NAMESPACE, WS_MANAGEMENT_NAMESPACE_ALIAS),
-            Namespace::Soap => (SOAP_NAMESPACE, SOAP_NAMESPACE_ALIAS),
-            Namespace::WsTrasfer => (WS_TRANSFER_NAMESPACE, WS_TRANSFER_NAMESPACE_ALIAS),
+            Namespace::MsWsmanSchema => (
+                MS_WSMAN_SCHEMA_NAMESPACE_URI,
+                Some(MS_WSMAN_SCHEMA_NAMESPACE_ALIAS),
+            ),
+            Namespace::DmtfWsmanSchema => (
+                DMTF_WSMAN_SCHEMA_NAMESPACE_URI,
+                Some(DMTF_WSMAN_SCHEMA_NAMESPACE_ALIAS),
+            ),
+            Namespace::SoapEnvelope2003 => (
+                SOAP_ENVELOPE_NAMESPACE_URI,
+                Some(SOAP_ENVELOPE_NAMESPACE_ALIAS),
+            ),
+            Namespace::WsTransfer2004 => {
+                (WS_TRANSFER_NAMESPACE_URI, Some(WS_TRANSFER_NAMESPACE_ALIAS))
+            }
+            Namespace::PowerShellRemoting => (POWERSHELL_REMOTING_NAMESPACE_URI, None),
+            Namespace::XmlSchemaInstance => (
+                XML_SCHEMA_INSTANCE_NAMESPACE_URI,
+                Some(XML_SCHEMA_INSTANCE_NAMESPACE_ALIAS),
+            ),
         }
     }
 
@@ -53,7 +74,7 @@ impl Namespace {
         self.as_tuple().0
     }
 
-    pub fn alias(&self) -> &'static str {
+    pub fn alias(&self) -> Option<&'static str> {
         self.as_tuple().1
     }
 }
@@ -71,13 +92,14 @@ impl TryFrom<&str> for Namespace {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            POWERSHELL_NAMESPACE => Ok(Namespace::PowerShell),
-            PWSH_NAMESPACE => Ok(Namespace::RspShell),
-            WSA_NAMESPACE => Ok(Namespace::WsAddressing),
-            MS_WSMAN_NAMESPACE => Ok(Namespace::MsWsManagement),
-            WS_MANAGEMENT_NAMESPACE => Ok(Namespace::WsManagement),
-            SOAP_NAMESPACE => Ok(Namespace::Soap),
-            WS_TRANSFER_NAMESPACE => Ok(Namespace::WsTrasfer),
+            POWERSHELL_REMOTING_NAMESPACE_URI => Ok(Namespace::PowerShellRemoting),
+            WSMAN_SHELL_NAMESPACE_URI => Ok(Namespace::WsmanShell),
+            WS_ADDRESSING_NAMESPACE_URI => Ok(Namespace::WsAddressing2004),
+            MS_WSMAN_SCHEMA_NAMESPACE_URI => Ok(Namespace::MsWsmanSchema),
+            DMTF_WSMAN_SCHEMA_NAMESPACE_URI => Ok(Namespace::DmtfWsmanSchema),
+            SOAP_ENVELOPE_NAMESPACE_URI => Ok(Namespace::SoapEnvelope2003),
+            WS_TRANSFER_NAMESPACE_URI => Ok(Namespace::WsTransfer2004),
+            XML_SCHEMA_INSTANCE_NAMESPACE_URI => Ok(Namespace::XmlSchemaInstance),
             _ => Err("Unknown namespace"),
         }
     }

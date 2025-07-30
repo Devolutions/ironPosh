@@ -13,6 +13,12 @@ pub struct PsValueVisitor<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> Default for PsValueVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> PsValueVisitor<'a> {
     pub fn new() -> Self {
         Self {
@@ -40,25 +46,25 @@ impl<'a> XmlVisitor<'a> for PsValueVisitor<'a> {
             "B" => {
                 let text = node.text().unwrap_or("false");
                 let bool_val = text.parse::<bool>()
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid boolean value: {}", text)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid boolean value: {text}")))?;
                 self.value = Some(PsValue::Bool(bool_val));
             }
             "I32" => {
                 let text = node.text().unwrap_or("0");
                 let int_val = text.parse::<i32>()
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid i32 value: {}", text)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid i32 value: {text}")))?;
                 self.value = Some(PsValue::I32(int_val));
             }
             "U32" => {
                 let text = node.text().unwrap_or("0");
                 let uint_val = text.parse::<u32>()
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid u32 value: {}", text)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid u32 value: {text}")))?;
                 self.value = Some(PsValue::U32(uint_val));
             }
             "I64" => {
                 let text = node.text().unwrap_or("0");
                 let long_val = text.parse::<i64>()
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid i64 value: {}", text)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid i64 value: {text}")))?;
                 self.value = Some(PsValue::I64(long_val));
             }
             "G" => {
@@ -71,7 +77,7 @@ impl<'a> XmlVisitor<'a> for PsValueVisitor<'a> {
             "BA" => {
                 let text = node.text().unwrap_or("");
                 let bytes = B64.decode(text)
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid base64 data: {}", text)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid base64 data: {text}")))?;
                 self.value = Some(PsValue::Bytes(bytes));
             }
             "Version" => {
@@ -123,6 +129,12 @@ pub struct PsPropertyVisitor<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> Default for PsPropertyVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> PsPropertyVisitor<'a> {
     pub fn new() -> Self {
         Self {
@@ -149,7 +161,7 @@ impl<'a> XmlVisitor<'a> for PsPropertyVisitor<'a> {
 
         if let Some(ref_id_attr) = node.attribute("RefId") {
             let ref_id = ref_id_attr.parse::<u32>()
-                .map_err(|_| xml::XmlError::GenericError(format!("Invalid RefId value: {}", ref_id_attr)))?;
+                .map_err(|_| xml::XmlError::GenericError(format!("Invalid RefId value: {ref_id_attr}")))?;
             self.ref_id = Some(ref_id);
         }
 
@@ -202,6 +214,12 @@ pub struct PsObjectVisitor<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> Default for PsObjectVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> PsObjectVisitor<'a> {
     pub fn new() -> Self {
         Self {
@@ -231,7 +249,7 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
             // Extract RefId attribute from the Obj element
             if let Some(ref_id_attr) = node.attribute("RefId") {
                 let ref_id = ref_id_attr.parse::<u32>()
-                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid RefId value: {}", ref_id_attr)))?;
+                    .map_err(|_| xml::XmlError::GenericError(format!("Invalid RefId value: {ref_id_attr}")))?;
                 self.ref_id = Some(ref_id);
             }
 
@@ -258,11 +276,10 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
                     // Parse type names: <TN RefId="0"><T>Type1</T><T>Type2</T></TN>
                     let mut type_names = Vec::new();
                     for t_child in child.children() {
-                        if t_child.is_element() && t_child.tag_name().name() == "T" {
-                            if let Some(text) = t_child.text() {
+                        if t_child.is_element() && t_child.tag_name().name() == "T"
+                            && let Some(text) = t_child.text() {
                                 type_names.push(text.to_string());
                             }
-                        }
                     }
                     self.type_names = Some(type_names);
                 }
@@ -270,7 +287,7 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
                     // Parse TNRef: <TNRef RefId="..."/>
                     if let Some(ref_id_attr) = child.attribute("RefId") {
                         let tn_ref = ref_id_attr.parse::<u32>()
-                            .map_err(|_| xml::XmlError::GenericError(format!("Invalid TNRef RefId value: {}", ref_id_attr)))?;
+                            .map_err(|_| xml::XmlError::GenericError(format!("Invalid TNRef RefId value: {ref_id_attr}")))?;
                         self.tn_ref = Some(tn_ref);
                     }
                 }
@@ -309,8 +326,8 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
                             let mut value: Option<PsValue> = None;
 
                             for entry_child in en_child.children() {
-                                if entry_child.is_element() {
-                                    if let Some(n_attr) = entry_child.attribute("N") {
+                                if entry_child.is_element()
+                                    && let Some(n_attr) = entry_child.attribute("N") {
                                         match n_attr {
                                             "Key" => {
                                                 key = Some(PsValue::from_node(entry_child)?);
@@ -321,7 +338,6 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
                                             _ => {}
                                         }
                                     }
-                                }
                             }
 
                             if let (Some(k), Some(v)) = (key, value) {

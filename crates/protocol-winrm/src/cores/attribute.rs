@@ -80,12 +80,13 @@ macro_rules! define_attributes {
 
 // Define all attributes here - adding a new one automatically updates ALL related code
 define_attributes!(
-    MustUnderstand(bool) => (Some(crate::cores::namespace::Namespace::Soap), "mustUnderstand"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    MustUnderstand(bool) => (Some(crate::cores::namespace::Namespace::SoapEnvelope2003), "mustUnderstand"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
     Name(Cow<'a, str>) => (None, "Name"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
-    MustComply(bool) => (Some(crate::cores::namespace::Namespace::WsManagement), "MustComply"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
-    ShellId(Cow<'a, str>) => (Some(crate::cores::namespace::Namespace::RspShell), "ShellId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    MustComply(bool) => (Some(crate::cores::namespace::Namespace::DmtfWsmanSchema), "MustComply"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    ShellId(Cow<'a, str>) => (None, "ShellId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     RefId(Cow<'a, str>) => (None, "RefId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     N(Cow<'a, str>) => (None, "N"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    XmlLang(Cow<'a, str>) => (None, "xml:lang"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     // Add new attributes here and they automatically get handled everywhere!
 );
 

@@ -1,9 +1,5 @@
-use protocol::{
-    cores::{
-        Tag, TagList, Attribute,
-        tag_name::*,
-        tag_value::Text,
-    },
+use protocol_winrm::{
+    cores::{Attribute, Tag, TagList, tag_name::*, tag_value::Text},
     rsp::rsp::ShellValue,
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
@@ -12,6 +8,8 @@ use protocol::{
 
 #[cfg(test)]
 mod tests {
+    use protocol_winrm::cores::{Empty, EmptyVisitor};
+
     use super::*;
 
     #[test]
@@ -29,10 +27,10 @@ mod tests {
 
         let shell_tag = Tag::new(shell)
             .with_name(Shell)
-            .with_attribute(protocol::cores::Attribute::ShellId(
+            .with_attribute(protocol_winrm::cores::Attribute::ShellId(
                 "2D6534D0-6B12-40E3-B773-CBA26459CFA8".into(),
             ))
-            .with_attribute(protocol::cores::Attribute::Name("Runspace1".into()));
+            .with_attribute(protocol_winrm::cores::Attribute::Name("Runspace1".into()));
 
         // Build the OptionSet with protocolversion
         let option_set_tag = OptionSetValue::new()
@@ -45,10 +43,10 @@ mod tests {
                 "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous",
             ))
             .with_name(Address)
-            .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
         })
         .with_name(ReplyTo)
-        .with_attribute(protocol::cores::Attribute::MustUnderstand(true));
+        .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true));
 
         // Build the complete SOAP envelope
         let envelope = SoapEnvelope::builder()
@@ -61,7 +59,7 @@ mod tests {
                             "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
                         ))
                         .with_name(Action)
-                        .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+                        .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .reply_to(reply_to_address)
                     .message_id("uuid:D1D65143-B634-4725-BBF6-869CC4D3062F")
@@ -71,48 +69,54 @@ mod tests {
                             "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                         ))
                         .with_name(ResourceURI)
-                        .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+                        .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .max_envelope_size(
                         Tag::new(Text::from("512000"))
                             .with_name(MaxEnvelopeSize)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .locale(
-                        Tag::new(Text::from("en-US"))
-                            .with_name(Locale)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(false)),
+                        Tag::new(()).with_name(Locale).with_attribute(
+                            protocol_winrm::cores::Attribute::MustUnderstand(false),
+                        ),
                     )
                     .data_locale(
-                        Tag::new(Text::from("en-CA"))
-                            .with_name(DataLocale)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(false)),
+                        Tag::new(()).with_name(DataLocale).with_attribute(
+                            protocol_winrm::cores::Attribute::MustUnderstand(false),
+                        ),
                     )
                     .session_id(
                         Tag::new(Text::from("uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C"))
                             .with_name(SessionId)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(false)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(
+                                false,
+                            )),
                     )
                     .operation_id(
                         Tag::new(Text::from("uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649"))
                             .with_name(OperationID)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(false)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(
+                                false,
+                            )),
                     )
                     .sequence_id(
                         Tag::new(Text::from("1"))
                             .with_name(SequenceId)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(false)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(
+                                false,
+                            )),
                     )
                     .option_set(
                         Tag::new(option_set_tag)
                             .with_name(OptionSet)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .operation_timeout("PT180.000S")
                     .compression_type(
                         Tag::new(Text::from("xpress"))
                             .with_name(CompressionType)
-                            .with_attribute(protocol::cores::Attribute::MustUnderstand(true)),
+                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .build(),
             )
@@ -122,12 +126,11 @@ mod tests {
         // Convert envelope to Tag and add namespace declarations
         let envelope: Tag<'_, _, Envelope> = envelope.into();
         let envelope = envelope
-            .with_declaration(protocol::cores::namespace::Namespace::Soap)
-            .with_declaration(protocol::cores::namespace::Namespace::WsAddressing)
-            .with_declaration(protocol::cores::namespace::Namespace::MsWsManagement)
-            .with_declaration(protocol::cores::namespace::Namespace::WsManagement)
-            .with_declaration(protocol::cores::namespace::Namespace::WsTrasfer)
-            .with_declaration(protocol::cores::namespace::Namespace::RspShell);
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::SoapEnvelope2003)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::WsAddressing2004)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::MsWsmanSchema)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::WsTransfer2004)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::PowerShellRemoting);
 
         // Convert Tag to Element
         let element = envelope.into_element();
@@ -187,9 +190,11 @@ mod tests {
 
         // Verify options were added correctly
         assert_eq!(option_set.options.len(), 2);
-        
+
         // Find and verify the console mode option
-        let console_option = option_set.options.iter()
+        let console_option = option_set
+            .options
+            .iter()
             .find(|opt| {
                 opt.attributes.iter().any(|attr| {
                     if let Attribute::Name(name) = attr {
@@ -201,15 +206,18 @@ mod tests {
             })
             .expect("Console mode option should exist");
         assert_eq!(console_option.value, Text::from("TRUE"));
-        
+
         // Verify it doesn't have MustComply attribute
-        let has_must_comply = console_option.attributes.iter().any(|attr| {
-            matches!(attr, Attribute::MustComply(_))
-        });
+        let has_must_comply = console_option
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, Attribute::MustComply(_)));
         assert!(!has_must_comply);
 
         // Find and verify the protocol version option
-        let protocol_option = option_set.options.iter()
+        let protocol_option = option_set
+            .options
+            .iter()
             .find(|opt| {
                 opt.attributes.iter().any(|attr| {
                     if let Attribute::Name(name) = attr {
@@ -221,16 +229,15 @@ mod tests {
             })
             .expect("Protocol version option should exist");
         assert_eq!(protocol_option.value, Text::from("2.3"));
-        
+
         // Verify it has MustComply attribute set to true
-        let must_comply_value = protocol_option.attributes.iter()
-            .find_map(|attr| {
-                if let Attribute::MustComply(value) = attr {
-                    Some(*value)
-                } else {
-                    None
-                }
-            });
+        let must_comply_value = protocol_option.attributes.iter().find_map(|attr| {
+            if let Attribute::MustComply(value) = attr {
+                Some(*value)
+            } else {
+                None
+            }
+        });
         assert_eq!(must_comply_value, Some(true));
     }
 }

@@ -19,7 +19,7 @@ pub trait NamespaceFmt {
     fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        namespaces_alias_map: Option<&HashMap<Namespace<'_>, &str>>,
+        namespaces_alias_map: Option<&HashMap<Namespace<'_>, Option<&str>>>,
     ) -> std::fmt::Result;
 }
 

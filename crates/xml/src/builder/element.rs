@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use tracing::{error, warn};
+
 use crate::builder::{Attribute, Namespace, NamespaceFmt};
 
 #[derive(Debug, Clone)]
@@ -24,7 +26,7 @@ pub struct Element<'a> {
     /// The child elements of the element.
     content: Content<'a>,
     /// The namespaces declaretions for this and child elements.
-    namespaces: Option<HashMap<Namespace<'a>, &'a str>>,
+    namespaces_declaration: Option<HashMap<Namespace<'a>, Option<&'a str>>>,
 }
 
 impl<'a> Element<'a> {
@@ -46,7 +48,7 @@ impl<'a> Element<'a> {
             namespace: None,
             attributes: Vec::new(),
             content: Content::None,
-            namespaces: None,
+            namespaces_declaration: None,
         }
     }
 
@@ -84,14 +86,14 @@ impl<'a> Element<'a> {
     ///     <ns:SomeChildElement/>
     ///  </SomeElement>
     ///
-    pub fn add_namespace_declaration(mut self, namespace: &'a str, alias: &'a str) -> Self {
-        if self.namespaces.is_none() {
-            self.namespaces = Some(HashMap::new());
+    pub fn add_namespace_declaration(mut self, namespace: &'a str, alias: Option<&'a str>) -> Self {
+        if self.namespaces_declaration.is_none() {
+            self.namespaces_declaration = Some(HashMap::new());
         }
 
         let namespace = Namespace::new(namespace);
 
-        self.namespaces
+        self.namespaces_declaration
             .as_mut()
             .expect("Namespaces should be initialized")
             .insert(namespace.clone(), alias);
@@ -193,17 +195,32 @@ impl std::fmt::Display for Element<'_> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum AliasStatus {
+    ElementHasNoNamespace,
+    NamespaceFoundWithAlias(String),
+    NamespaceFoundWithoutAlias,
+    NamespaceNotFoundInDeclaration,
+    NamespaceDeclarationMapMissing,
+}
+
 impl crate::builder::NamespaceFmt for Element<'_> {
     /// Formats the element and its content as an XML string.
     fn ns_fmt(
         &self,
         f: &mut std::fmt::Formatter<'_>,
-        parent_namespaces_map: Option<&HashMap<Namespace<'_>, &str>>,
+        parent_declaration_map: Option<&HashMap<Namespace<'_>, Option<&str>>>,
     ) -> std::fmt::Result {
-        let namespace_alias_map = match (parent_namespaces_map, &self.namespaces) {
+        let namespace_declaration_map = match (parent_declaration_map, &self.namespaces_declaration)
+        {
+            // The case where no declarations are present, and the current element has no namespace declarations.
             (None, None) => None,
+            // The case where no declarations are present in parent, this should only happen at the root element.
             (None, Some(my_map)) => Some(Cow::Borrowed(my_map)),
+            // The case where parent declarations are present, and the current element has no namespace declarations.
             (Some(parent_map), None) => Some(Cow::Borrowed(parent_map)),
+            // The case where both parent and current element have namespace declarations.
+            // We merge the two maps, giving priority to the current element's declarations.
             (Some(parent_map), Some(my_map)) => Some({
                 let mut merged_namespace = HashMap::new();
 
@@ -214,33 +231,57 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             }),
         };
 
-        let alias = if let Some(namespace) = &self.namespace {
-            if let Some(ref namespaces_map) = namespace_alias_map {
-                namespaces_map.get(namespace).copied()
+        let alias = 'alias: {
+            if let Some(namespace) = &self.namespace {
+                let Some(ref namespaces_map) = namespace_declaration_map else {
+                    break 'alias AliasStatus::NamespaceDeclarationMapMissing;
+                };
+
+                match namespaces_map.get(namespace) {
+                    Some(Some(alias)) => AliasStatus::NamespaceFoundWithAlias(alias.to_string()),
+                    /*
+                    For cases where the namespace is found but no alias is provided. right now this is only used for
+                       <creationXml
+                           xmlns="http://schemas.microsoft.com/powershell/Microsoft.PowerShell">
+                       > ....
+
+                    Notice that it declares a namespace without an alias
+                    */
+                    Some(None) => AliasStatus::NamespaceFoundWithoutAlias,
+                    None => AliasStatus::NamespaceNotFoundInDeclaration,
+                }
             } else {
-                eprintln!("No namespace alias map provided for element: {}", self.name);
-                return Err(std::fmt::Error);
+                AliasStatus::ElementHasNoNamespace
             }
-        } else {
-            None
         };
 
-        let name = if let Some(alias) = alias {
-            format!("{}:{}", alias, self.name)
-        } else {
-            self.name.to_string()
+        let name = match alias {
+            AliasStatus::ElementHasNoNamespace => self.name.to_string(),
+            AliasStatus::NamespaceFoundWithAlias(alias) => {
+                format!("{}:{}", alias, self.name)
+            }
+            AliasStatus::NamespaceFoundWithoutAlias
+            | AliasStatus::NamespaceNotFoundInDeclaration
+            | AliasStatus::NamespaceDeclarationMapMissing => {
+                error!(alias_status = ?alias, tag_name = self.name, missing_namespace =?self.namespace, namespace_declaration_map = ?namespace_declaration_map, "Namespace alias not found for element");
+                return Err(std::fmt::Error);
+            }
         };
 
         write!(f, "<{name}")?;
 
-        if let Some(this_namespaces) = &self.namespaces {
+        if let Some(this_namespaces) = &self.namespaces_declaration {
             for (url, alias) in this_namespaces {
-                write!(f, " xmlns:{alias}=\"{url}\"")?;
+                if let Some(alias) = alias {
+                    write!(f, " xmlns:{alias}=\"{url}\"")?;
+                } else {
+                    write!(f, " xmlns=\"{url}\"")?;
+                }
             }
         }
 
         for attribute in &self.attributes {
-            attribute.ns_fmt(f, namespace_alias_map.as_deref())?;
+            attribute.ns_fmt(f, namespace_declaration_map.as_deref())?;
         }
 
         match &self.content {
@@ -253,7 +294,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             Content::Elements(children) => {
                 write!(f, ">")?;
                 for child in children {
-                    child.ns_fmt(f, namespace_alias_map.as_deref())?;
+                    child.ns_fmt(f, namespace_declaration_map.as_deref())?;
                 }
                 write!(f, "</{name}>")?;
             }

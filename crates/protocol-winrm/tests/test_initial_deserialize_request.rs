@@ -1,4 +1,4 @@
-use protocol::{cores::Attribute, soap::header::SoapHeaders};
+use protocol_winrm::{cores::Attribute, soap::header::SoapHeaders};
 use xml::parser::XmlDeserialize;
 
 const SOAP_HEADER_XML: &'static str = r#"
