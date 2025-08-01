@@ -1,3 +1,4 @@
+
 #[macro_export]
 macro_rules! define_custom_tagname {
     ($name:ident, $tagName:expr, $namespace:expr) => {
@@ -222,4 +223,81 @@ macro_rules! impl_xml_deserialize {
             }
         }
     };
+}
+
+
+#[macro_export]
+macro_rules! impl_tag_from {
+    ($src:ty => $taggen:ty) => {
+        impl<'a, N> From<$src> for $taggen
+        where
+            N: TagName,
+        {
+            fn from(value: $src) -> Self {
+                Tag::new(value)
+            }
+        }
+    };
+}
+
+
+#[macro_export]
+macro_rules! xml_num_value {
+    ($name:ident, $inner:ty) => {
+        paste::paste! {
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            pub struct $name(pub $inner);
+
+            // ------------ TagValue ---------------
+            impl<'a> TagValue<'a> for $name {
+                fn append_to_element(self, e: Element<'a>) -> Element<'a> { e.set_text(self.0.to_string()) }
+            }
+
+            // ------------ Visitor -----------------
+            pub struct [<$name Visitor>] { value: Option<$name> }
+
+            impl<'a> XmlVisitor<'a> for [<$name Visitor>] {
+                type Value = $name;
+
+                fn visit_node(&mut self, _n: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> { Ok(()) }
+
+                fn visit_children(
+                    &mut self,
+                    children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+                ) -> Result<(), xml::XmlError> {
+                    let nodes: Vec<_> = children.collect();
+                    if nodes.len() != 1 {
+                        return Err(xml::XmlError::InvalidXml(
+                            format!("{} expects exactly one text child", stringify!($name))
+                        ));
+                    }
+                    if let Some(t) = nodes[0].text() {
+                        self.value = Some($name(t.trim().parse::<$inner>().map_err(|_| {
+                            xml::XmlError::InvalidXml(format!("invalid {} value: {}", stringify!($name), t))
+                        })?));
+                    }
+                    Ok(())
+                }
+
+                fn finish(self) -> Result<Self::Value, xml::XmlError> {
+                    self.value.ok_or(xml::XmlError::InvalidXml(
+                        format!("no {} value found", stringify!($name))
+                    ))
+                }
+            }
+
+            // ------------ Deserialize -------------
+            impl<'a> XmlDeserialize<'a> for $name {
+                type Visitor = [<$name Visitor>];
+                fn visitor() -> Self::Visitor { [<$name Visitor>] { value: None } }
+                fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
+                    xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+                }
+            }
+
+            // ------------ Conversions -------------
+            impl From<$inner> for $name        { fn from(v: $inner) -> Self { Self(v) } }
+            impl From<$name>  for $inner       { fn from(v: $name)  -> Self { v.0 } }
+        }
+    }
 }

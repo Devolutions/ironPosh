@@ -1,11 +1,20 @@
 pub mod deserialize;
-pub mod init_runspace_pool;
 pub mod serialize;
 mod session_capability;
+mod init_runspace_pool;
+mod pipeline_input;
+
 use std::{collections::HashMap, hash::Hash};
 
-pub use init_runspace_pool::InitRunspacePool;
-pub use session_capability::SessionCapability;
+pub use init_runspace_pool::*;
+pub use session_capability::*;
+
+use crate::MessageType;
+
+
+pub trait PSMessage: Into<PsObject> {
+    fn message_type(&self) -> MessageType;
+}
 
 /// One PS “primitive” or nested object.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +74,7 @@ mod test {
     use super::*;
     use crate::{
         Destination, Fragmenter, MessageType, PowerShellRemotingMessage,
-        init_runspace_pool::{ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions},
+        messages::init_runspace_pool::{ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions},
     };
     use std::collections::HashMap;
     use uuid::Uuid;
@@ -89,7 +98,7 @@ mod test {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::MTA,
-            host_info: HostInfo::default(),
+            host_info: None,
             application_arguments: HashMap::new(),
         };
 
@@ -102,7 +111,7 @@ mod test {
             Destination::Server,
             MessageType::SessionCapability,
             rpid,
-            pid,
+            Some(pid),
             &session_capability.into(),
         );
 
@@ -110,20 +119,22 @@ mod test {
             Destination::Server,
             MessageType::InitRunspacepool,
             rpid,
-            pid,
+            Some(pid),
             &init_runspace_pool.into(),
         );
 
         // Create fragmenter and fragment the messages (like Python fragmenter.fragment_multiple)
         let mut fragmenter = Fragmenter::new(32768); // 32KB default fragment size
         let messages = vec![session_capability_msg, init_runspace_pool_msg];
-        let fragments = fragmenter.fragment_multiple(&messages);
+        let request_groups = fragmenter.fragment_multiple(&messages);
 
-        println!("Generated {} fragments", fragments.len());
+        // Flatten all fragments for this demo
+        let all_fragments: Vec<&crate::fragmenter::Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
+        println!("Generated {} fragments in {} request groups", all_fragments.len(), request_groups.len());
 
         // Pack fragments into wire format
         let mut packed_fragments = Vec::new();
-        for fragment in &fragments {
+        for fragment in &all_fragments {
             packed_fragments.push(fragment.pack());
         }
 
@@ -186,7 +197,7 @@ mod test {
             max_runspaces: 5,
             thread_options: PSThreadOptions::UseNewThread,
             apartment_state: ApartmentState::STA,
-            host_info: HostInfo::default(),
+            host_info: None,
             application_arguments: app_args,
         };
 
@@ -205,7 +216,6 @@ mod test {
         assert!(xml_string.contains(r#"N="MaxRunspaces""#));
         assert!(xml_string.contains(r#"N="PSThreadOptions""#));
         assert!(xml_string.contains(r#"N="ApartmentState""#));
-        assert!(xml_string.contains(r#"N="HostInfo""#));
         assert!(xml_string.contains(r#"N="ApplicationArguments""#));
         assert!(
             xml_string.contains("<DCT>"),
@@ -224,7 +234,7 @@ mod test {
             Destination::Server,
             MessageType::InitRunspacepool,
             rpid,
-            pid,
+            Some(pid),
             &init_runspace_pool.into(),
         );
 

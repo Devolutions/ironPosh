@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use tracing::warn;
 use xml::{
@@ -6,87 +6,175 @@ use xml::{
     parser::{XmlDeserialize, XmlVisitor},
 };
 
-use crate::cores::{Attribute, OptionTagName, Tag, TagName, TagValue, tag_value::Text};
+use crate::cores::{OptionTagName, SelectorTagName, TagName, TagValue};
 
 #[derive(Debug, Clone)]
-pub struct SelectorSetValue<'a> {
-    selectors: HashSet<Text<'a>>,
+pub struct SelectorSetValue {
+    pub selectors: HashMap<String, String>,
 }
 
-impl<'a> SelectorSetValue<'a> {
-    pub fn new(selectors: HashSet<Text<'a>>) -> Self {
-        Self { selectors }
-    }
-}
-
-impl<'a> TagValue<'a> for SelectorSetValue<'a> {
-    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
-        let mut element = element;
-
-        for selector in self.selectors {
-            element = element.add_child(
-                Element::new("Selector")
-                    // .set_namespace(wsman_ns!())
-                    .set_text(selector),
-            );
+impl SelectorSetValue {
+    pub fn new() -> Self {
+        Self {
+            selectors: HashMap::new(),
         }
+    }
 
-        element
+    /// Add a selector as a key-value pair
+    /// Example:
+    /// selector_set.add_selector("ShellId", "12345-67890")
+    /// Generates: <w:Selector Name="ShellId">12345-67890</w:Selector>
+    pub fn add_selector(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.selectors.insert(name.into(), value.into());
+        self
+    }
+
+    /// Add a selector using a mutable reference for chaining
+    pub fn insert_selector(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.selectors.insert(name.into(), value.into());
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct OptionSetValue<'a> {
-    pub options: Vec<Tag<'a, Text<'a>, OptionTagName>>,
-}
-
-impl<'a> Default for OptionSetValue<'a> {
+impl Default for SelectorSetValue {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> OptionSetValue<'a> {
-    pub fn new() -> Self {
-        Self {
-            options: Vec::new(),
-        }
-    }
-
-    /// Name as attribute Name
-    /// Example:
-    /// <wsman:Option Name="WINRS_CONSOLEMODE_STDIN">TRUE</wsman:Option>
-    /// in which value is the text of 'True'
-    pub fn add_option(mut self, name: &'a str, value: &'a str, must_comply: Option<bool>) -> Self {
-        let mut tag: Tag<'a, Text<'a>, OptionTagName> =
-            Tag::new(Text::from(value)).with_attribute(Attribute::Name(name.into()));
-
-        if let Some(must_comply) = must_comply {
-            tag = tag.with_attribute(Attribute::MustComply(must_comply));
-        }
-
-        self.options.push(tag);
-        self
-    }
-}
-
-impl<'a> TagValue<'a> for OptionSetValue<'a> {
+impl<'a> TagValue<'a> for SelectorSetValue {
     fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
-        for tag in self.options {
-            let child_element = tag.into_element();
-            element = element.add_child(child_element);
+        for (name, value) in self.selectors {
+            let selector_element = Element::new("Selector")
+                .set_text(value)
+                .add_attribute(xml::builder::Attribute::new("Name", name));
+            element = element.add_child(selector_element);
         }
 
         element
     }
 }
 
-pub struct OptionSetVisitor<'a> {
-    options: Vec<Tag<'a, Text<'a>, OptionTagName>>,
+pub struct SelectorSetVisitor {
+    selectors: HashMap<String, String>,
 }
 
-impl<'a> XmlVisitor<'a> for OptionSetVisitor<'a> {
-    type Value = OptionSetValue<'a>;
+impl<'a> XmlVisitor<'a> for SelectorSetVisitor {
+    type Value = SelectorSetValue;
+
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), xml::XmlError> {
+        for child in children {
+            if !child.is_element() {
+                continue;
+            }
+
+            match (child.tag_name().name(), child.tag_name().namespace()) {
+                (SelectorTagName::TAG_NAME, SelectorTagName::NAMESPACE) => {
+                    // Extract Name attribute and text content
+                    let mut name = None;
+                    for attr in child.attributes() {
+                        if attr.name() == "Name" {
+                            name = Some(attr.value().to_string());
+                            break;
+                        }
+                    }
+                    
+                    if let Some(name) = name {
+                        let value = child.text().unwrap_or_default().to_string();
+                        self.selectors.insert(name, value);
+                    } else {
+                        warn!("Selector element missing Name attribute");
+                    }
+                }
+                _ => {
+                    warn!(
+                        "Unexpected child element in SelectorSetValue: {} (namespace: {:?})",
+                        child.tag_name().name(),
+                        child.tag_name().namespace()
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
+        // SelectorSetValue doesn't need to process individual nodes, only children
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Value, xml::XmlError> {
+        Ok(SelectorSetValue {
+            selectors: self.selectors,
+        })
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for SelectorSetValue {
+    type Visitor = SelectorSetVisitor;
+
+    fn visitor() -> Self::Visitor {
+        SelectorSetVisitor {
+            selectors: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OptionSetValue {
+    pub options: HashMap<String, String>,
+}
+
+impl Default for OptionSetValue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OptionSetValue {
+    pub fn new() -> Self {
+        Self {
+            options: HashMap::new(),
+        }
+    }
+
+    /// Add an option as a key-value pair
+    /// Example:
+    /// option_set.add_option("WINRS_CONSOLEMODE_STDIN", "TRUE")
+    /// Generates: <w:Option Name="WINRS_CONSOLEMODE_STDIN">TRUE</w:Option>
+    pub fn add_option(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.options.insert(name.into(), value.into());
+        self
+    }
+
+    /// Add an option using a mutable reference for chaining
+    pub fn insert_option(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.options.insert(name.into(), value.into());
+    }
+}
+
+impl<'a> TagValue<'a> for OptionSetValue {
+    fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
+        for (name, value) in self.options {
+            let option_element = Element::new("Option")
+                .set_text(value)
+                .add_attribute(xml::builder::Attribute::new("Name", name));
+            element = element.add_child(option_element);
+        }
+
+        element
+    }
+}
+
+pub struct OptionSetVisitor {
+    options: HashMap<String, String>,
+}
+
+impl<'a> XmlVisitor<'a> for OptionSetVisitor {
+    type Value = OptionSetValue;
 
     fn visit_children(
         &mut self,
@@ -99,9 +187,21 @@ impl<'a> XmlVisitor<'a> for OptionSetVisitor<'a> {
 
             match (child.tag_name().name(), child.tag_name().namespace()) {
                 (OptionTagName::TAG_NAME, OptionTagName::NAMESPACE) => {
-                    // Parse this Option element as a Tag
-                    let option_tag = Tag::<Text<'a>, OptionTagName>::from_node(child)?;
-                    self.options.push(option_tag);
+                    // Extract Name attribute and text content
+                    let mut name = None;
+                    for attr in child.attributes() {
+                        if attr.name() == "Name" {
+                            name = Some(attr.value().to_string());
+                            break;
+                        }
+                    }
+                    
+                    if let Some(name) = name {
+                        let value = child.text().unwrap_or_default().to_string();
+                        self.options.insert(name, value);
+                    } else {
+                        warn!("Option element missing Name attribute");
+                    }
                 }
                 _ => {
                     warn!(
@@ -128,12 +228,12 @@ impl<'a> XmlVisitor<'a> for OptionSetVisitor<'a> {
     }
 }
 
-impl<'a> XmlDeserialize<'a> for OptionSetValue<'a> {
-    type Visitor = OptionSetVisitor<'a>;
+impl<'a> XmlDeserialize<'a> for OptionSetValue {
+    type Visitor = OptionSetVisitor;
 
     fn visitor() -> Self::Visitor {
         OptionSetVisitor {
-            options: Vec::new(),
+            options: HashMap::new(),
         }
     }
 }

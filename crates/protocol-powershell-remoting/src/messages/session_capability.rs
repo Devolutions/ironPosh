@@ -1,4 +1,4 @@
-use crate::{PsObject, PsProperty, PsValue};
+use crate::{MessageType, PSMessage, PsObject, PsProperty, PsValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
@@ -6,6 +6,12 @@ pub struct SessionCapability {
     pub ps_version: String,
     pub serialization_version: String,
     pub time_zone: String,
+}
+
+impl PSMessage for SessionCapability {
+    fn message_type(&self) -> MessageType {
+        MessageType::SessionCapability
+    }
 }
 
 // <Obj RefId="0">

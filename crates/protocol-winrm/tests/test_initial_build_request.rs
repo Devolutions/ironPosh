@@ -34,8 +34,8 @@ mod tests {
 
         // Build the OptionSet with protocolversion
         let option_set_tag = OptionSetValue::new()
-            .add_option("WINRS_CONSOLEMODE_STDIN", "TRUE", None)
-            .add_option("protocolversion", "2.3", Some(true));
+            .add_option("WINRS_CONSOLEMODE_STDIN", "TRUE")
+            .add_option("protocolversion", "2.3");
 
         // Build ReplyTo with Address
         let reply_to_address = Tag::new(AddressValue {
@@ -185,59 +185,20 @@ mod tests {
     #[test]
     fn test_option_set_creation() {
         let option_set = OptionSetValue::new()
-            .add_option("WINRS_CONSOLEMODE_STDIN", "TRUE", None)
-            .add_option("protocolversion", "2.3", Some(true));
+            .add_option("WINRS_CONSOLEMODE_STDIN", "TRUE")
+            .add_option("protocolversion", "2.3");
 
         // Verify options were added correctly
         assert_eq!(option_set.options.len(), 2);
 
         // Find and verify the console mode option
-        let console_option = option_set
-            .options
-            .iter()
-            .find(|opt| {
-                opt.attributes.iter().any(|attr| {
-                    if let Attribute::Name(name) = attr {
-                        name == "WINRS_CONSOLEMODE_STDIN"
-                    } else {
-                        false
-                    }
-                })
-            })
+        let console_value = option_set.options.get("WINRS_CONSOLEMODE_STDIN")
             .expect("Console mode option should exist");
-        assert_eq!(console_option.value, Text::from("TRUE"));
-
-        // Verify it doesn't have MustComply attribute
-        let has_must_comply = console_option
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, Attribute::MustComply(_)));
-        assert!(!has_must_comply);
+        assert_eq!(console_value, "TRUE");
 
         // Find and verify the protocol version option
-        let protocol_option = option_set
-            .options
-            .iter()
-            .find(|opt| {
-                opt.attributes.iter().any(|attr| {
-                    if let Attribute::Name(name) = attr {
-                        name == "protocolversion"
-                    } else {
-                        false
-                    }
-                })
-            })
+        let protocol_value = option_set.options.get("protocolversion")
             .expect("Protocol version option should exist");
-        assert_eq!(protocol_option.value, Text::from("2.3"));
-
-        // Verify it has MustComply attribute set to true
-        let must_comply_value = protocol_option.attributes.iter().find_map(|attr| {
-            if let Attribute::MustComply(value) = attr {
-                Some(*value)
-            } else {
-                None
-            }
-        });
-        assert_eq!(must_comply_value, Some(true));
+        assert_eq!(protocol_value, "2.3");
     }
 }

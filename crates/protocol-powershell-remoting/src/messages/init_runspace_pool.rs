@@ -1,14 +1,20 @@
-
-use crate::{PsObject, PsProperty, PsValue};
+use crate::{MessageType, PSMessage, PsObject, PsProperty, PsValue};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PSThreadOptions {
     Default = 0,
     UseNewThread = 1,
     ReuseThread = 2,
     UseCurrentThread = 3,
 }
+
+impl PSMessage for InitRunspacePool {
+    fn message_type(&self) -> MessageType {
+        MessageType::InitRunspacepool
+    }
+}
+
 
 impl From<PSThreadOptions> for PsObject {
     fn from(option: PSThreadOptions) -> Self {
@@ -41,7 +47,7 @@ impl From<PSThreadOptions> for PsObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApartmentState {
     STA = 0,
     MTA = 1,
@@ -134,7 +140,11 @@ impl From<HostInfo> for PsObject {
                             "System.Collections.Hashtable".to_string(),
                             "System.Object".to_string(),
                         ]),
-                        dct: host_info.host_default_data.into_iter().map(|(k, v)| (PsValue::I32(k), v)).collect(),
+                        dct: host_info
+                            .host_default_data
+                            .into_iter()
+                            .map(|(k, v)| (PsValue::I32(k), v))
+                            .collect(),
                         ..Default::default()
                     }),
                 }],
@@ -161,7 +171,7 @@ pub struct InitRunspacePool {
     pub max_runspaces: i32,
     pub thread_options: PSThreadOptions,
     pub apartment_state: ApartmentState,
-    pub host_info: HostInfo,
+    pub host_info: Option<HostInfo>,
     pub application_arguments: HashMap<PsValue, PsValue>,
 }
 
@@ -172,7 +182,7 @@ impl Default for InitRunspacePool {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::MTA,
-            host_info: HostInfo::default(),
+            host_info: None,
             application_arguments: HashMap::new(),
         }
     }
@@ -206,10 +216,12 @@ impl From<InitRunspacePool> for PsObject {
             value: PsValue::Object(init.apartment_state.into()),
         });
 
-        ms.push(PsProperty {
-            name: Some("HostInfo".to_string()),
-            ref_id: None,
-            value: PsValue::Object(init.host_info.into()),
+        init.host_info.as_ref().map(|host_info| {
+            ms.push(PsProperty {
+                name: Some("HostInfo".to_string()),
+                ref_id: None,
+                value: PsValue::Object(host_info.clone().into()),
+            });
         });
 
         if init.application_arguments.is_empty() {
@@ -241,3 +253,5 @@ impl From<InitRunspacePool> for PsObject {
         }
     }
 }
+
+

@@ -159,7 +159,7 @@ pub struct PowerShellRemotingMessage {
     /// Runspace Pool ID (RPID)
     pub rpid: Uuid,
     /// PowerShell Process ID (PID)
-    pub pid: Uuid,
+    pub pid: Option<Uuid>,
     pub data: Vec<u8>, // This will hold the serialized PsObject data
 }
 
@@ -190,16 +190,30 @@ impl PowerShellRemotingMessage {
             })?,
             message_type,
             rpid: Uuid::from_bytes(rpid_bytes),
-            pid: Uuid::from_bytes(pid_bytes),
+            pid: pid_bytes
+                .iter()
+                .all(|&b| b == 0)
+                .then_some(Uuid::from_bytes(pid_bytes)),
             data: rest,
         })
+    }
+
+    pub fn from_ps_message(
+        message: impl crate::messages::PSMessage,
+        rpid: Uuid,
+        pid: Option<Uuid>,
+    ) -> Self {
+        let message_type = message.message_type();
+        let data: PsObject = message.into();
+
+        Self::new(Destination::Client, message_type, rpid, pid, &data)
     }
 
     pub fn new(
         destination: Destination,
         message_type: MessageType,
         rpid: Uuid,
-        pid: Uuid,
+        pid: Option<Uuid>,
         data: &PsObject,
     ) -> Self {
         Self {
@@ -220,7 +234,7 @@ impl PowerShellRemotingMessage {
             .write_u32::<LittleEndian>(self.message_type.value())
             .unwrap();
         buffer.extend_from_slice(self.rpid.as_bytes());
-        buffer.extend_from_slice(self.pid.as_bytes());
+        buffer.extend_from_slice(self.pid.unwrap_or_default().as_bytes());
         buffer.extend_from_slice(&self.data);
         buffer
     }

@@ -131,27 +131,29 @@ impl Fragmenter {
         self.fragment_data(data)
     }
 
-    /// Fragment multiple messages, optimizing for space efficiency
-    pub fn fragment_multiple(&mut self, messages: &[PowerShellRemotingMessage]) -> Vec<Fragment> {
-        let mut all_fragments: Vec<Fragment> = Vec::new();
+    /// Fragment multiple messages, grouping them by WSMAN request boundaries
+    /// Returns a Vec where each inner Vec contains fragments that should be sent in one WSMAN request
+    pub fn fragment_multiple(&mut self, messages: &[PowerShellRemotingMessage]) -> Vec<Vec<Fragment>> {
+        let mut request_groups: Vec<Vec<Fragment>> = Vec::new();
+        let mut current_request: Vec<Fragment> = Vec::new();
         let mut remaining_space = self.max_fragment_size;
         
         for message in messages {
             let message_data = message.clone().into_vec();
             let fragments = self.fragment_data_with_remaining_space(message_data, remaining_space);
             
-            // If we can fit the first fragment with previous data, merge them
-            if !all_fragments.is_empty() && remaining_space < self.max_fragment_size && remaining_space > 0
+            // If we can fit the first fragment with previous data in current request, merge them
+            if !current_request.is_empty() && remaining_space < self.max_fragment_size && remaining_space > 0
                 && let Some(first_fragment) = fragments.first()
                     && first_fragment.data.len() <= remaining_space {
-                        // Merge with the last fragment
-                        if let Some(last_fragment) = all_fragments.last_mut() {
+                        // Merge with the last fragment in current request
+                        if let Some(last_fragment) = current_request.last_mut() {
                             last_fragment.data.extend_from_slice(&first_fragment.data);
-                            // Add remaining fragments (if any)  
-                            all_fragments.extend(fragments.into_iter().skip(1));
+                            // Add remaining fragments (if any) to current request
+                            current_request.extend(fragments.into_iter().skip(1));
                         }
                         // Calculate remaining space more accurately
-                        if let Some(last_fragment) = all_fragments.last() {
+                        if let Some(last_fragment) = current_request.last() {
                             remaining_space = self.max_fragment_size - (last_fragment.data.len() % self.max_fragment_size);
                             if remaining_space == self.max_fragment_size {
                                 remaining_space = 0;
@@ -160,10 +162,16 @@ impl Fragmenter {
                         continue;
                     }
             
-            all_fragments.extend(fragments);
+            // If current request would exceed reasonable size, start a new request
+            if !current_request.is_empty() && (current_request.len() + fragments.len() > 10 || remaining_space == 0) {
+                request_groups.push(std::mem::take(&mut current_request));
+                remaining_space = self.max_fragment_size;
+            }
+            
+            current_request.extend(fragments);
             
             // Calculate remaining space in the last fragment
-            if let Some(last_fragment) = all_fragments.last() {
+            if let Some(last_fragment) = current_request.last() {
                 remaining_space = self.max_fragment_size - (last_fragment.data.len() % self.max_fragment_size);
                 if remaining_space == self.max_fragment_size {
                     remaining_space = 0; // Fragment is full
@@ -171,7 +179,12 @@ impl Fragmenter {
             }
         }
         
-        all_fragments
+        // Add the final request group if it has any fragments
+        if !current_request.is_empty() {
+            request_groups.push(current_request);
+        }
+        
+        request_groups
     }
 
     /// Fragment raw data into fragments
@@ -306,7 +319,12 @@ mod tests {
     use crate::messages::PsObject;
 
     fn create_test_message(data_size: usize) -> PowerShellRemotingMessage {
-        let data = vec![b'A'; data_size];
+        let large_data = vec![b'A'; data_size];
+        let large_string = String::from_utf8(large_data).unwrap();
+        
+        let mut props = std::collections::HashMap::new();
+        props.insert(crate::PsValue::Str("TestData".to_string()), crate::PsValue::Str(large_string));
+        
         let ps_object = PsObject {
             ref_id: None,
             type_names: None,
@@ -314,14 +332,14 @@ mod tests {
             props: vec![],
             ms: vec![],
             lst: vec![],
-            dct: std::collections::HashMap::new(),
+            dct: props,
         };
         
         PowerShellRemotingMessage::new(
             Destination::Server,
             MessageType::SessionCapability,
             Uuid::new_v4(),
-            Uuid::new_v4(),
+            Some(Uuid::new_v4()),
             &ps_object,
         )
     }
@@ -362,13 +380,24 @@ mod tests {
             create_test_message(100),
         ];
         
-        let fragments = fragmenter.fragment_multiple(&messages);
+        let request_groups = fragmenter.fragment_multiple(&messages);
         
-        assert!(!fragments.is_empty());
+        assert!(!request_groups.is_empty());
+        assert!(!request_groups[0].is_empty());
+        
+        // Flatten all fragments to check overall structure
+        let all_fragments: Vec<&Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
+        
         // First fragment should start
-        assert!(fragments[0].start);
+        assert!(all_fragments[0].start);
         // Last fragment should end
-        assert!(fragments.last().unwrap().end);
+        assert!(all_fragments.last().unwrap().end);
+        
+        // Each request group should have reasonable boundaries
+        for group in &request_groups {
+            assert!(!group.is_empty());
+            assert!(group.len() <= 10); // Our heuristic limit
+        }
     }
 
     #[test]

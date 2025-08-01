@@ -2,9 +2,10 @@ use tracing::debug;
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::cores::Namespace;
 use crate::cores::namespace::NamespaceDeclaration;
-use crate::cores::tag_value::Text;
+use crate::cores::tag_value::{Text, U32};
+use crate::cores::{Namespace, WsUuid};
+use crate::impl_tag_from;
 
 use super::attribute::Attribute;
 use super::tag_name::TagName;
@@ -315,15 +316,6 @@ where
     }
 }
 
-impl<'a, N> From<&'a str> for Tag<'a, Text<'a>, N>
-where
-    N: TagName,
-{
-    fn from(value: &'a str) -> Self {
-        Tag::new(value)
-    }
-}
-
 impl<'a, V, N> TagValue<'a> for Tag<'a, V, N>
 where
     V: TagValue<'a>,
@@ -334,3 +326,8 @@ where
         element.add_child(inner_element)
     }
 }
+
+impl_tag_from!(&'a str => Tag<'a, Text<'a>, N>);
+impl_tag_from!(String => Tag<'a, Text<'a>, N>);
+impl_tag_from!(u32 => Tag<'a, U32, N>);
+impl_tag_from!(uuid::Uuid => Tag<'a, WsUuid, N>);

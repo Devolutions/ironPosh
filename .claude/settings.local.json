@@ -6,7 +6,9 @@
       "Bash(cargo run:*)",
       "Bash(cargo test:*)",
       "Bash(cargo build:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "WebFetch(domain:www.dmtf.org)",
+      "WebFetch(domain:learn.microsoft.com)"
     ],
     "deny": []
   }

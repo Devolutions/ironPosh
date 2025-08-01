@@ -4,7 +4,7 @@ use crate::{
         InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
         ResourceUri, ShellId, ShellInactivity, ShellRunTime, State, TagName,
     },
-    cores::{Tag, Text},
+    cores::{Tag, Text, U32},
 };
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
@@ -27,8 +27,8 @@ pub struct ShellValue<'a> {
     pub client_ip: Option<Tag<'a, Text<'a>, ClientIP>>,
     #[builder(default, setter(strip_option, into))]
     pub process_id: Option<Tag<'a, Text<'a>, ProcessId>>,
-    #[builder(default, setter(strip_option, into))]
-    pub idle_time_out: Option<Tag<'a, Text<'a>, IdleTimeOut>>,
+    #[builder(default, setter(strip_option(fallback_suffix = "_opt"), into))]
+    pub idle_time_out: Option<Tag<'a, U32, IdleTimeOut>>,
     #[builder(default, setter(strip_option, into))]
     pub input_streams: Option<Tag<'a, Text<'a>, InputStreams>>,
     #[builder(default, setter(strip_option, into))]

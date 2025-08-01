@@ -84,6 +84,7 @@ define_tagname!(SelectorSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_tagname!(OptionSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_tagname!(Locale, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_custom_tagname!(OptionTagName, "Option", Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_custom_tagname!(SelectorTagName, "Selector", Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 
 // ===================================
 // WS-Transfer (x namespace) 

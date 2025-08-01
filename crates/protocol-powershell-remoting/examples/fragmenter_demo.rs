@@ -1,5 +1,5 @@
 use protocol_powershell_remoting::{
-    Fragmenter, PowerShellRemotingMessage, Destination, MessageType, PsObject,
+    Fragmenter, Fragment, PowerShellRemotingMessage, Destination, MessageType, PsObject,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -20,7 +20,7 @@ fn create_sample_message(content: &str, size_multiplier: usize) -> PowerShellRem
         Destination::Server,
         MessageType::SessionCapability,
         Uuid::new_v4(),
-        Uuid::new_v4(),
+        Some(Uuid::new_v4()),
         &ps_object,
     )
 }
@@ -61,12 +61,16 @@ fn main() {
         create_sample_message("Message 3", 1),
     ];
     
-    let fragments = fragmenter.fragment_multiple(&messages);
-    println!("   {} messages produced {} fragments total", messages.len(), fragments.len());
+    let request_groups = fragmenter.fragment_multiple(&messages);
+    let all_fragments: Vec<&Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
+    println!("   {} messages produced {} fragments in {} request groups", messages.len(), all_fragments.len(), request_groups.len());
     
-    for (i, fragment) in fragments.iter().enumerate() {
-        println!("   Fragment {}: object_id={}, fragment_id={}, start={}, end={}, size={}", 
-                 i, fragment.object_id, fragment.fragment_id, fragment.start, fragment.end, fragment.data.len());
+    for (group_idx, group) in request_groups.iter().enumerate() {
+        println!("   Request group {}: {} fragments", group_idx, group.len());
+        for (i, fragment) in group.iter().enumerate() {
+            println!("     Fragment {}: object_id={}, fragment_id={}, start={}, end={}, size={}", 
+                     i, fragment.object_id, fragment.fragment_id, fragment.start, fragment.end, fragment.data.len());
+        }
     }
 
     // Test 4: Defragmentation roundtrip
@@ -78,12 +82,13 @@ fn main() {
     ];
     
     // Fragment the messages
-    let fragments = fragmenter.fragment_multiple(&original_messages);
-    println!("   Original {} messages -> {} fragments", original_messages.len(), fragments.len());
+    let request_groups = fragmenter.fragment_multiple(&original_messages);
+    let all_fragments: Vec<&Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
+    println!("   Original {} messages -> {} fragments in {} request groups", original_messages.len(), all_fragments.len(), request_groups.len());
     
     // Pack fragments into wire format
     let mut wire_data = Vec::new();
-    for fragment in fragments {
+    for fragment in &all_fragments {
         wire_data.extend_from_slice(&fragment.pack());
     }
     println!("   Total wire data size: {} bytes", wire_data.len());

@@ -566,6 +566,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typed-builder",
+ "uuid",
  "xml",
 ]
 

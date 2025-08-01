@@ -1,6 +1,6 @@
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text};
+use crate::{cores::{tag_name::*, tag_value::Text, Tag, TagList, TagName}, rsp::rsp::ShellValue};
 
 #[macro_export]
 macro_rules! define_any_tag {
@@ -120,6 +120,7 @@ define_any_tag!(
     (Address, Address, Tag<'a, Text<'a>, Address>),
     // PowerShell remoting shell elements
     (ShellId, ShellId, Tag<'a, Text<'a>, ShellId>),
+    (Shell, Shell, Tag<'a, ShellValue<'a>, Shell>),
     (Name, Name, Tag<'a, Text<'a>, Name>),
     (ResourceUri, ResourceUri, Tag<'a, Text<'a>, ResourceUri>),
     (Owner, Owner, Tag<'a, Text<'a>, Owner>),

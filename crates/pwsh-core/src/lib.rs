@@ -1,4 +1,4 @@
-pub mod connector;
+pub mod powershell;
 pub mod runspace;
 
 #[derive(Debug, thiserror::Error)]
@@ -14,4 +14,7 @@ pub enum PwshCoreError {
 
     #[error("Hyper error: {0}")]
     HyperError(#[from] hyper::http::Error),
+
+    #[error("Invalid state: {0}")]
+    InvalidState(&'static str),
 }
