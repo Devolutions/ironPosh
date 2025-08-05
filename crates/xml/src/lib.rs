@@ -6,7 +6,7 @@ pub mod parser;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum XmlError {
     #[error("Invalid XML: {0}")]
-    ParserError(#[from] roxmltree::Error),
+    ParserError(#[from] crate::parser::Error),
 
     #[error("Invalid namespace: expected '{expected}', found '{found:?}'")]
     XmlInvalidNamespace {
@@ -32,4 +32,3 @@ pub enum XmlError {
     #[error("Invalid node type: expected '{expected:?}', found {found:?}")]
     InvalidNodeType { expected: NodeType, found: NodeType },
 }
-

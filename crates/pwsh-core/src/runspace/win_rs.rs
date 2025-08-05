@@ -1,12 +1,14 @@
+use std::sync::Arc;
+
 use protocol_winrm::{
-    cores::{Shell, Tag, U32, anytag::AnyTag},
+    cores::{Shell, Tag, Time, anytag::AnyTag},
     rsp::rsp::ShellValue,
-    ws_management::{self, OptionSetValue},
+    ws_management::{self, OptionSetValue, WsMan},
 };
 use xml::builder::Element;
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
-pub struct WinRunspace<'wsman> {
+pub struct WinRunspace {
     #[builder(default = "stdin pr".to_string())]
     input_streams: String,
     #[builder(default = "stdout".to_string())]
@@ -14,7 +16,7 @@ pub struct WinRunspace<'wsman> {
     #[builder(default, setter(strip_option))]
     environment: Option<std::collections::HashMap<String, String>>,
     #[builder(default, setter(strip_option))]
-    idle_time_out: Option<u32>,
+    idle_time_out: Option<f64>,
     #[builder(default, setter(strip_option))]
     name: Option<String>,
 
@@ -30,18 +32,15 @@ pub struct WinRunspace<'wsman> {
     #[builder(default)]
     codepage: Option<u32>,
 
-    ws_man: &'wsman protocol_winrm::ws_management::WsMan,
+    ws_man: Arc<WsMan>,
 }
 
-impl<'wsman> WinRunspace<'wsman> {
+impl WinRunspace {
     pub fn open<'a>(
-        &'wsman self,
+        &'a self,
         option_set: Option<OptionSetValue>,
         open_content: &'a str,
-    ) -> impl Into<Element<'a>>
-    where
-        'wsman: 'a,
-    {
+    ) -> impl Into<Element<'a>> {
         let shell = Tag::from_name(Shell)
             .with_attribute(protocol_winrm::cores::Attribute::ShellId(
                 self.id.to_string().into(),
@@ -51,7 +50,7 @@ impl<'wsman> WinRunspace<'wsman> {
         let shell_value = ShellValue::builder()
             .input_streams(self.input_streams.as_ref())
             .output_streams(self.output_streams.as_ref())
-            .idle_time_out_opt(self.idle_time_out.map(Tag::from))
+            .idle_time_out_opt(self.idle_time_out.map(Time).map(Tag::new))
             .creation_xml(open_content)
             .build();
 

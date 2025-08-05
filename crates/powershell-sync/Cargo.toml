@@ -1,0 +1,10 @@
+[package]
+name = "powershell-sync"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pwsh-core = { version = "0.1.0", path = "../pwsh-core" }
+reqwest = { version = "0.12", features = ["blocking"] }
+thiserror = "2.0.12"
+tracing = "0.1.41"

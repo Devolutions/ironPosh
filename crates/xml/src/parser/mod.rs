@@ -26,8 +26,8 @@ impl<'a> TryFrom<crate::parser::Node<'a, 'a>> for crate::builder::Element<'a> {
     }
 }
 
-pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, crate::parser::Error> {
-    roxmltree::Document::parse(xml)
+pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, crate::XmlError> {
+    roxmltree::Document::parse(xml).map_err(crate::XmlError::ParserError)
 }
 
 /// =========== 1.  The Visitor every type supplies  ===========

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use tracing::{error, warn};
+use tracing::error;
 
 use crate::builder::{Attribute, Namespace, NamespaceFmt};
 

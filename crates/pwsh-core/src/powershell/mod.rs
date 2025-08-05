@@ -1,18 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use base64::Engine;
 use protocol_powershell_remoting::{
     ApartmentState, Fragment, HostInfo, InitRunspacePool, PSThreadOptions,
     PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
 };
-use protocol_winrm::ws_management::{OptionSetValue, WsMan};
+use protocol_winrm::{
+    rsp::rsp::ShellValue,
+    soap::SoapEnvelope,
+    ws_management::{OptionSetValue, WsMan},
+};
+use tracing::{debug, error, instrument};
+use xml::parser::XmlDeserialize;
 
 use crate::runspace::win_rs::WinRunspace;
 
-const PROTOCOL_VERSION: &'static str = "2.3";
-const PS_VERSION: &'static str = "2.0";
-const SERIALIZATION_VERSION: &'static str = "1.1.0.1";
-const DEFAULT_CONFIGURATION_NAME: &'static str = "Microsoft.PowerShell";
+const PROTOCOL_VERSION: &str = "2.3";
+const PS_VERSION: &str = "2.0";
+const SERIALIZATION_VERSION: &str = "1.1.0.1";
+const DEFAULT_CONFIGURATION_NAME: &str = "Microsoft.PowerShell";
 
 /// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/b05495bc-a9b2-4794-9f43-4bf1f3633900
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +42,7 @@ pub struct Runspace {
 }
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
-pub struct RunspacePool<'a> {
+pub struct RunspacePool {
     #[builder(default = uuid::Uuid::new_v4())]
     id: uuid::Uuid,
     #[builder(default = RunspacePoolState::BeforeOpen)]
@@ -60,13 +65,15 @@ pub struct RunspacePool<'a> {
     #[builder(default = HashMap::new())]
     application_arguments: HashMap<PsValue, PsValue>,
 
-    connection: WsMan,
+    connection: Arc<WsMan>,
 
-    shell: Option<WinRunspace<'a>>,
+    #[builder(default, setter(strip_option))]
+    shell: Option<WinRunspace>,
 }
 
-impl<'a> RunspacePool<'a> {
-    pub fn open(&'a mut self) -> Result<String, crate::PwshCoreError> {
+impl RunspacePool {
+    #[instrument(skip(self), name = "RunspacePool::open")]
+    pub fn open(mut self) -> Result<(String, ExpectShellCreated), crate::PwshCoreError> {
         if self.state != RunspacePoolState::BeforeOpen {
             return Err(crate::PwshCoreError::InvalidState(
                 "RunspacePool must be in BeforeOpen state to open",
@@ -75,7 +82,7 @@ impl<'a> RunspacePool<'a> {
 
         self.shell = Some(
             WinRunspace::builder()
-                .ws_man(&self.connection)
+                .ws_man(Arc::clone(&self.connection))
                 .id(self.id)
                 .build(),
         );
@@ -96,6 +103,9 @@ impl<'a> RunspacePool<'a> {
             application_arguments: self.application_arguments.clone(),
         };
 
+        debug!(session_capability = ?session_capability);
+        debug!(init_runspace_pool = ?init_runspace_pool);
+
         let mut fragmenter =
             fragment::Fragmenter::new(self.connection.max_envelope_size() as usize);
 
@@ -112,18 +122,20 @@ impl<'a> RunspacePool<'a> {
             ),
         ]);
 
+        debug!(request_groups = ?request_groups, "Fragmented negotiation requests");
+
         self.state = RunspacePoolState::NegotiationSent;
 
-        if request_groups.len() > 1 {
-            // we should definately handle this case better! use panic here for simplicity
-            panic!("Multiple request groups generated, expected single group for negotiation");
-        }
+        debug_assert!(
+            request_groups.len() > 1,
+            "Expected at least one request group for negotiation"
+        );
 
         let request =
             request_groups
                 .into_iter()
                 .next()
-                .ok_or(crate::PwshCoreError::InvalidState(
+                .ok_or(crate::PwshCoreError::UnlikelyToHappen(
                     "No request group generated for negotiation",
                 ))?;
 
@@ -137,6 +149,31 @@ impl<'a> RunspacePool<'a> {
             .expect("Shell must be initialized")
             .open(Some(option_set), &open_content);
 
-        Ok(result.into().to_string())
+        Ok((
+            result.into().to_string(),
+            ExpectShellCreated {
+                runspace_pool: self,
+            },
+        ))
+    }
+}
+
+pub struct ExpectShellCreated {
+    runspace_pool: RunspacePool,
+}
+
+impl ExpectShellCreated {
+    pub fn receive_shell_created(
+        self,
+        response: String,
+    ) -> Result<RunspacePool, crate::PwshCoreError> {
+        let ExpectShellCreated { mut runspace_pool } = self;
+
+        let parsed = xml::parser::parse(response.as_str())?;
+
+        let soap_response = SoapEnvelope::from_node(parsed.root_element())
+            .map_err(crate::PwshCoreError::XmlParsingError)?;
+
+        todo!()
     }
 }

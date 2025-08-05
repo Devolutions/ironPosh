@@ -1,11 +1,8 @@
-use crate::{
-    cores::tag_name::{
+use crate::cores::{tag_name::{
         BufferMode, ClientIP, CompressionMode, CreationXml, DataLocale, Encoding, IdleTimeOut,
         InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
         ResourceUri, ShellId, ShellInactivity, ShellRunTime, State, TagName,
-    },
-    cores::{Tag, Text, U32},
-};
+    }, Tag, Text, Time, U32};
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
 // The XmlTagContainer derive macro generates:
@@ -28,7 +25,7 @@ pub struct ShellValue<'a> {
     #[builder(default, setter(strip_option, into))]
     pub process_id: Option<Tag<'a, Text<'a>, ProcessId>>,
     #[builder(default, setter(strip_option(fallback_suffix = "_opt"), into))]
-    pub idle_time_out: Option<Tag<'a, U32, IdleTimeOut>>,
+    pub idle_time_out: Option<Tag<'a, Time, IdleTimeOut>>,
     #[builder(default, setter(strip_option, into))]
     pub input_streams: Option<Tag<'a, Text<'a>, InputStreams>>,
     #[builder(default, setter(strip_option, into))]

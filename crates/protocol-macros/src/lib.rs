@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote, ToTokens};
+use proc_macro2::{Ident, TokenStream as TokenStream2};
+use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, Attribute, Data, DeriveInput, Field, Fields, Generics, Path, Type, TypePath,
+    parse_macro_input, Data, DeriveInput, Fields, Generics, Type, TypePath,
 };
 
 /// Derives TagValue implementation for structs where all fields are `Option<Tag<'a, ValueType, TagName>>`
@@ -97,13 +97,13 @@ fn impl_simple_xml_deserialize(input: &DeriveInput) -> TokenStream2 {
     }).collect();
 
     // Generate Visitor struct
-    let visitor_struct = generate_simple_visitor_struct(&visitor_name, &generics, &field_entries);
+    let visitor_struct = generate_simple_visitor_struct(&visitor_name, generics, &field_entries);
 
     // Generate XmlVisitor implementation
-    let xml_visitor_impl = generate_simple_xml_visitor_impl(&visitor_name, name, &generics, &field_entries);
+    let xml_visitor_impl = generate_simple_xml_visitor_impl(&visitor_name, name, generics, &field_entries);
 
     // Generate XmlDeserialize implementation
-    let xml_deserialize_impl = generate_xml_deserialize_impl(name, &visitor_name, &generics);
+    let xml_deserialize_impl = generate_xml_deserialize_impl(name, &visitor_name, generics);
 
     quote! {
         #visitor_struct

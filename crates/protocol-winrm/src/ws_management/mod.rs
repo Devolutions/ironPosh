@@ -109,13 +109,12 @@ impl WsMan {
         let envelope = SoapEnvelope::builder().header(header).body(body).build();
 
         // Convert to XML using Tag wrapper with proper namespaces
-        let envelope_tag = Tag::<SoapEnvelope, Envelope>::new(envelope)
+
+        Tag::<SoapEnvelope, Envelope>::new(envelope)
             .with_declaration(Namespace::SoapEnvelope2003)
             .with_declaration(Namespace::WsAddressing2004)
             .with_declaration(Namespace::DmtfWsmanSchema)
             .with_declaration(Namespace::MsWsmanSchema)
-            .with_declaration(Namespace::WsmanShell);
-
-        envelope_tag
+            .with_declaration(Namespace::WsmanShell)
     }
 }

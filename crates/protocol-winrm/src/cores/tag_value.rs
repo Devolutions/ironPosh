@@ -32,9 +32,9 @@ impl<'a> AsRef<str> for Text<'a> {
     }
 }
 
-impl<'a> Into<Cow<'a, str>> for Text<'a> {
-    fn into(self) -> Cow<'a, str> {
-        self.0
+impl<'a> From<Text<'a>> for Cow<'a, str> {
+    fn from(val: Text<'a>) -> Self {
+        val.0
     }
 }
 
@@ -168,8 +168,8 @@ impl<'a> TagValue<'a> for Empty {
     }
 }
 
-impl Into<Empty> for () {
-    fn into(self) -> Empty {
+impl From<()> for Empty {
+    fn from(val: ()) -> Self {
         Empty
     }
 }
@@ -236,8 +236,7 @@ impl<'a> XmlVisitor<'a> for WsUuidVisitor {
                 Ok(uuid) => self.value = Some(WsUuid(uuid)),
                 Err(_) => {
                     return Err(xml::XmlError::InvalidXml(format!(
-                        "Invalid UUID format: {}",
-                        uuid_str
+                        "Invalid UUID format: {uuid_str}"
                     )));
                 }
             }
@@ -337,21 +336,18 @@ impl<'a> XmlVisitor<'a> for TimeVisitor {
                         Ok(seconds) => self.value = Some(Time(seconds)),
                         Err(_) => {
                             return Err(xml::XmlError::InvalidXml(format!(
-                                "Invalid time format: {}",
-                                time_str
+                                "Invalid time format: {time_str}"
                             )));
                         }
                     }
                 } else {
                     return Err(xml::XmlError::InvalidXml(format!(
-                        "Invalid time format, missing 'S' suffix: {}",
-                        time_str
+                        "Invalid time format, missing 'S' suffix: {time_str}"
                     )));
                 }
             } else {
                 return Err(xml::XmlError::InvalidXml(format!(
-                    "Invalid time format, missing 'PT' prefix: {}",
-                    time_str
+                    "Invalid time format, missing 'PT' prefix: {time_str}"
                 )));
             }
         }

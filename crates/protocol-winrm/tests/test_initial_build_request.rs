@@ -8,7 +8,9 @@ use protocol_winrm::{
 
 #[cfg(test)]
 mod tests {
-    use protocol_winrm::cores::{Empty, EmptyVisitor};
+    use std::str::FromStr;
+
+    use protocol_winrm::cores::{Empty, EmptyVisitor, Time};
 
     use super::*;
 
@@ -62,7 +64,10 @@ mod tests {
                         .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .reply_to(reply_to_address)
-                    .message_id("uuid:D1D65143-B634-4725-BBF6-869CC4D3062F")
+                    .message_id(
+                        uuid::Uuid::from_str("D1D65143-B634-4725-BBF6-869CC4D3062F")
+                            .expect("Failed to parse UUID"),
+                    )
                     // WS-Management headers
                     .resource_uri(
                         Tag::new(Text::from(
@@ -72,7 +77,7 @@ mod tests {
                         .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .max_envelope_size(
-                        Tag::new(Text::from("512000"))
+                        Tag::new(512000)
                             .with_name(MaxEnvelopeSize)
                             .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
@@ -87,18 +92,20 @@ mod tests {
                         ),
                     )
                     .session_id(
-                        Tag::new(Text::from("uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C"))
-                            .with_name(SessionId)
-                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(
-                                false,
-                            )),
+                        Tag::new(
+                            uuid::Uuid::from_str("9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C")
+                                .expect("Failed to parse UUID"),
+                        )
+                        .with_name(SessionId)
+                        .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(false)),
                     )
                     .operation_id(
-                        Tag::new(Text::from("uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649"))
-                            .with_name(OperationID)
-                            .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(
-                                false,
-                            )),
+                        Tag::new(
+                            uuid::Uuid::from_str("73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649")
+                                .expect("Failed to parse UUID"),
+                        )
+                        .with_name(OperationID)
+                        .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(false)),
                     )
                     .sequence_id(
                         Tag::new(Text::from("1"))
@@ -112,7 +119,7 @@ mod tests {
                             .with_name(OptionSet)
                             .with_attribute(protocol_winrm::cores::Attribute::MustUnderstand(true)),
                     )
-                    .operation_timeout("PT180.000S")
+                    .operation_timeout(Time::from(60000))
                     .compression_type(
                         Tag::new(Text::from("xpress"))
                             .with_name(CompressionType)
@@ -192,12 +199,16 @@ mod tests {
         assert_eq!(option_set.options.len(), 2);
 
         // Find and verify the console mode option
-        let console_value = option_set.options.get("WINRS_CONSOLEMODE_STDIN")
+        let console_value = option_set
+            .options
+            .get("WINRS_CONSOLEMODE_STDIN")
             .expect("Console mode option should exist");
         assert_eq!(console_value, "TRUE");
 
         // Find and verify the protocol version option
-        let protocol_value = option_set.options.get("protocolversion")
+        let protocol_value = option_set
+            .options
+            .get("protocolversion")
             .expect("Protocol version option should exist");
         assert_eq!(protocol_value, "2.3");
     }

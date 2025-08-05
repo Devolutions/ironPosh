@@ -55,6 +55,7 @@ define_tagname!(ReplyTo, Some(WS_ADDRESSING_NAMESPACE_URI));
 define_tagname!(FaultTo, Some(WS_ADDRESSING_NAMESPACE_URI));
 define_tagname!(From, Some(WS_ADDRESSING_NAMESPACE_URI));
 define_tagname!(Address, Some(WS_ADDRESSING_NAMESPACE_URI));
+define_tagname!(ReferenceParameters, Some(WS_ADDRESSING_NAMESPACE_URI));
 
 // =============
 // SOAP (s namespace)
@@ -90,6 +91,8 @@ define_custom_tagname!(SelectorTagName, "Selector", Some(DMTF_WSMAN_SCHEMA_NAMES
 // WS-Transfer (x namespace) 
 // ===================================
 define_tagname!(Create, Some(WS_TRANSFER_NAMESPACE_URI));
+
+define_tagname!(ResourceCreated, Some(WS_TRANSFER_NAMESPACE_URI));
 
 // ====================================
 // Microsoft WS-Management (p namespace)

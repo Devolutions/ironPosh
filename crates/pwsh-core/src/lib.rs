@@ -1,3 +1,4 @@
+pub mod connector;
 pub mod powershell;
 pub mod runspace;
 
@@ -18,6 +19,12 @@ pub enum PwshCoreError {
     #[error("Invalid state: {0}")]
     InvalidState(&'static str),
 
+    #[error("Something unlikely happened: {0}")]
+    UnlikelyToHappen(&'static str),
+
     #[error("Protocol error: {0}")]
     PowerShellRemotingError(#[from] protocol_powershell_remoting::PowerShellRemotingError),
+
+    #[error("XML parsing error: {0}")]
+    XmlParsingError(#[from] xml::XmlError),
 }

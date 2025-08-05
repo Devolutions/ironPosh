@@ -72,13 +72,11 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
                 .as_ref()
                 .and_then(|ns| alias_map.get(ns))
                 .copied()
+        } else if let Some(ns) = &self.namespace {
+            eprintln!("No namespace alias map provided for attribute: {ns}");
+            return Err(std::fmt::Error);
         } else {
-            if let Some(ns) = &self.namespace {
-                eprintln!("No namespace alias map provided for attribute: {}", ns);
-                return Err(std::fmt::Error);
-            } else {
-                None
-            }
+            None
         };
 
         let name = if let Some(Some(alias)) = namespace_alias {

@@ -1,4 +1,4 @@
-use crate::{PsObject, PsValue};
+use crate::PsValue;
 
 pub struct PipelineInput {
     pub data: PsValue,
