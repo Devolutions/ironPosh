@@ -17,4 +17,7 @@ pub enum PwshCoreError {
 
     #[error("Invalid state: {0}")]
     InvalidState(&'static str),
+
+    #[error("Protocol error: {0}")]
+    PowerShellRemotingError(#[from] protocol_powershell_remoting::PowerShellRemotingError),
 }

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PowerShellRemotingMessage,
-    PsValue, SessionCapability, fragmenter,
+    ApartmentState, Fragment, HostInfo, InitRunspacePool, PSThreadOptions,
+    PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
 };
-use protocol_winrm::ws_management::WsMan;
+use protocol_winrm::ws_management::{OptionSetValue, WsMan};
 
 use crate::runspace::win_rs::WinRunspace;
 
@@ -65,7 +66,7 @@ pub struct RunspacePool<'a> {
 }
 
 impl<'a> RunspacePool<'a> {
-    pub fn open(&mut self) -> Result<(), crate::PwshCoreError> {
+    pub fn open(&'a mut self) -> Result<String, crate::PwshCoreError> {
         if self.state != RunspacePoolState::BeforeOpen {
             return Err(crate::PwshCoreError::InvalidState(
                 "RunspacePool must be in BeforeOpen state to open",
@@ -96,7 +97,7 @@ impl<'a> RunspacePool<'a> {
         };
 
         let mut fragmenter =
-            fragmenter::Fragmenter::new(self.connection.max_envelope_size() as usize);
+            fragment::Fragmenter::new(self.connection.max_envelope_size() as usize);
 
         let request_groups = fragmenter.fragment_multiple(&[
             PowerShellRemotingMessage::from_ps_message(
@@ -113,12 +114,29 @@ impl<'a> RunspacePool<'a> {
 
         self.state = RunspacePoolState::NegotiationSent;
 
-        // Send the first request group (assuming single group for negotiation)
-        let message = &request_groups[0];
-        self.shell
-            .expect("Shell must be initialized")
-            .open(None, message)?;
+        if request_groups.len() > 1 {
+            // we should definately handle this case better! use panic here for simplicity
+            panic!("Multiple request groups generated, expected single group for negotiation");
+        }
 
-        self.Ok(())
+        let request =
+            request_groups
+                .into_iter()
+                .next()
+                .ok_or(crate::PwshCoreError::InvalidState(
+                    "No request group generated for negotiation",
+                ))?;
+
+        let open_content = Fragment::encode_multiple(&request)?;
+
+        let option_set = OptionSetValue::new().add_option("protocol_version", PROTOCOL_VERSION);
+
+        let result = self
+            .shell
+            .as_ref()
+            .expect("Shell must be initialized")
+            .open(Some(option_set), &open_content);
+
+        Ok(result.into().to_string())
     }
 }

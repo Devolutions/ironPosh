@@ -1,28 +1,53 @@
 use base64::Engine;
-use protocol_powershell_remoting::{PowerShellFragment, PsObject, PsValue};
+use protocol_powershell_remoting::{
+    DefragmentResult, Defragmenter, PsObject, PsValue,
+};
 use std::env;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use xml::parser::XmlDeserialize;
 
 fn print_usage() {
     eprintln!("PowerShell Remoting Protocol Analyzer");
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  {} <base64_encoded_message>", env::args().next().unwrap_or_else(|| "analyze".to_string()));
-    eprintln!("  echo '<base64_encoded_message>' | {}", env::args().next().unwrap_or_else(|| "analyze".to_string()));
+    eprintln!(
+        "  {} <base64_encoded_message>",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
+        "  {} --multi <fragment1> <fragment2> ...",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
+        "  echo '<base64_encoded_message>' | {}",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
     eprintln!();
     eprintln!("Description:");
-    eprintln!("  Parses and displays PowerShell remoting protocol messages in a human-readable format.");
-    eprintln!("  Input should be a base64-encoded PowerShell remoting message.");
+    eprintln!(
+        "  Parses and displays PowerShell remoting protocol messages in a human-readable format."
+    );
+    eprintln!("  Input should be a base64-encoded PowerShell remoting message or fragment.");
+    eprintln!("  Use --multi flag to defragment multiple fragments into complete messages.");
     eprintln!();
     eprintln!("Examples:");
-    eprintln!("  {} 'AAAAAAAAAAEAAAAAAAAAAAMAAADKAgAAAAIAAQDQ...'", env::args().next().unwrap_or_else(|| "analyze".to_string()));
-    eprintln!("  cat message.txt | {}", env::args().next().unwrap_or_else(|| "analyze".to_string()));
+    eprintln!(
+        "  {} 'AAAAAAAAAAEAAAAAAAAAAAMAAADKAgAAAAIAAQDQ...'",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
+        "  {} --multi 'fragment1_base64' 'fragment2_base64' 'fragment3_base64'",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
+        "  cat message.txt | {}",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
 }
 
 fn get_input() -> Result<String, Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() > 1 {
         if args[1] == "--help" || args[1] == "-h" {
             print_usage();
@@ -40,20 +65,20 @@ fn get_input() -> Result<String, Box<dyn std::error::Error>> {
         println!();
         print!("> ");
         io::stdout().flush()?;
-        
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         let input = input.trim().to_string();
-        
+
         if input.is_empty() {
             return Err("No input provided".into());
         }
-        
+
         if input.to_lowercase() == "exit" {
             println!("Goodbye!");
             std::process::exit(0);
         }
-        
+
         Ok(input)
     }
 }
@@ -73,58 +98,71 @@ fn print_section(title: &str) {
 fn format_ps_object(ps_object: &PsObject, indent: usize) -> String {
     let indent_str = " ".repeat(indent);
     let mut result = format!("{}PsObject {{\n", indent_str);
-    
+
     if let Some(ref_id) = ps_object.ref_id {
         result.push_str(&format!("{}  RefId: {},\n", indent_str, ref_id));
     }
-    
+
     if let Some(ref type_names) = ps_object.type_names {
         result.push_str(&format!("{}  TypeNames: {:?},\n", indent_str, type_names));
     }
-    
+
     if let Some(tn_ref) = ps_object.tn_ref {
         result.push_str(&format!("{}  TNRef: {},\n", indent_str, tn_ref));
     }
-    
+
     if !ps_object.props.is_empty() {
         result.push_str(&format!("{}  Properties: [\n", indent_str));
         for prop in &ps_object.props {
-            result.push_str(&format!("{}    {}: {},\n", indent_str, 
-                prop.name.as_deref().unwrap_or("(unnamed)"), 
-                format_ps_value(&prop.value, indent + 4)));
+            result.push_str(&format!(
+                "{}    {}: {},\n",
+                indent_str,
+                prop.name.as_deref().unwrap_or("(unnamed)"),
+                format_ps_value(&prop.value, indent + 4)
+            ));
         }
         result.push_str(&format!("{}  ],\n", indent_str));
     }
-    
+
     if !ps_object.ms.is_empty() {
         result.push_str(&format!("{}  MemberSet: [\n", indent_str));
         for prop in &ps_object.ms {
-            result.push_str(&format!("{}    {}: {},\n", indent_str, 
-                prop.name.as_deref().unwrap_or("(unnamed)"), 
-                format_ps_value(&prop.value, indent + 4)));
+            result.push_str(&format!(
+                "{}    {}: {},\n",
+                indent_str,
+                prop.name.as_deref().unwrap_or("(unnamed)"),
+                format_ps_value(&prop.value, indent + 4)
+            ));
         }
         result.push_str(&format!("{}  ],\n", indent_str));
     }
-    
+
     if !ps_object.lst.is_empty() {
         result.push_str(&format!("{}  List: [\n", indent_str));
         for (i, prop) in ps_object.lst.iter().enumerate() {
-            result.push_str(&format!("{}    [{}]: {},\n", indent_str, i, 
-                format_ps_value(&prop.value, indent + 4)));
+            result.push_str(&format!(
+                "{}    [{}]: {},\n",
+                indent_str,
+                i,
+                format_ps_value(&prop.value, indent + 4)
+            ));
         }
         result.push_str(&format!("{}  ],\n", indent_str));
     }
-    
+
     if !ps_object.dct.is_empty() {
         result.push_str(&format!("{}  Dictionary: {{\n", indent_str));
         for (key, value) in &ps_object.dct {
-            result.push_str(&format!("{}    {}: {},\n", indent_str, 
-                format_ps_value(key, indent + 4), 
-                format_ps_value(value, indent + 4)));
+            result.push_str(&format!(
+                "{}    {}: {},\n",
+                indent_str,
+                format_ps_value(key, indent + 4),
+                format_ps_value(value, indent + 4)
+            ));
         }
         result.push_str(&format!("{}  }},\n", indent_str));
     }
-    
+
     result.push_str(&format!("{}}}", indent_str));
     result
 }
@@ -144,173 +182,360 @@ fn format_ps_value(ps_value: &PsValue, indent: usize) -> String {
     }
 }
 
+fn try_defragment_multiple_messages(
+    messages: &[&str],
+) -> Result<Vec<protocol_powershell_remoting::PowerShellRemotingMessage>, Box<dyn std::error::Error>>
+{
+    print_section("Multi-Fragment Defragmentation");
+    println!("📦 Processing {} fragment(s) for reassembly...", messages.len());
+
+    let mut defragmenter = Defragmenter::new();
+    let mut completed_messages = Vec::new();
+    let engine = base64::engine::general_purpose::STANDARD;
+
+    for (i, msg) in messages.iter().enumerate() {
+        let fragment_data = engine.decode(msg.trim())?;
+        println!("🔍 Fragment {}: Decoded {} bytes from base64", i + 1, fragment_data.len());
+
+        match defragmenter.defragment(&fragment_data) {
+            Ok(DefragmentResult::Complete(mut msgs)) => {
+                if msgs.is_empty() {
+                    println!("⏳ Fragment {} processed, no complete messages yet", i + 1);
+                } else {
+                    println!("✅ Fragment {} completed {} message(s)!", i + 1, msgs.len());
+                }
+                completed_messages.append(&mut msgs);
+            }
+            Ok(DefragmentResult::Incomplete) => {
+                println!("⏳ Fragment {} processed, waiting for more fragments to complete message(s)", i + 1);
+            }
+            Err(e) => {
+                println!("❌ Error processing fragment {}: {}", i + 1, e);
+                return Err(e.into());
+            }
+        }
+    }
+
+    if defragmenter.pending_count() > 0 {
+        println!(
+            "⚠️  Warning: {} incomplete message(s) still in buffer (may need more fragments)",
+            defragmenter.pending_count()
+        );
+    }
+
+    if completed_messages.is_empty() {
+        println!("ℹ️  No complete messages assembled - fragments may be incomplete or out of order");
+    } else {
+        println!(
+            "🎉 Defragmentation successful! Assembled {} complete PowerShell remoting message(s)",
+            completed_messages.len()
+        );
+    }
+    Ok(completed_messages)
+}
+
 fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error>> {
     print_separator("POWERSHELL REMOTING PROTOCOL ANALYZER");
-    
+
     // Decode base64
-    print_section("1. Decoding Base64 Message");
+    print_section("1. Base64 Decoding");
     let engine = base64::engine::general_purpose::STANDARD;
     let message = engine.decode(base64_message.trim())?;
-    println!("✓ Successfully decoded {} bytes from base64", message.len());
-    
+    println!("✅ Successfully decoded {} bytes from base64 input", message.len());
+
     // Parse PowerShell Fragment
-    print_section("2. Parsing PowerShell Fragment");
+    print_section("2. PowerShell Remoting Message Parsing");
     let message_slice = message.as_slice();
-    let cursor = &mut std::io::Cursor::new(message_slice);
-    let fragmented = PowerShellFragment::parse(cursor)?;
-    
-    println!("✓ Object ID: {}", fragmented.object_id);
-    println!("✓ Fragment ID: {}", fragmented.fragment_id);
-    println!("✓ Start of fragment: {}", fragmented.start_of_fragment);
-    println!("✓ End of fragment: {}", fragmented.end_of_fragment);
-    println!("✓ Blob size: {} bytes", fragmented.blob.len());
-    
-    // Parse PowerShell Remoting Message
-    print_section("3. Parsing PowerShell Remoting Message");
-    let mut cursor = std::io::Cursor::new(fragmented.blob);
-    let pwsh_remoting_message = protocol_powershell_remoting::PowerShellRemotingMessage::parse(&mut cursor)?;
-    
-    println!("✓ Message Type: {:?}", pwsh_remoting_message.message_type);
-    println!("✓ Destination: {:?}", pwsh_remoting_message.destination);
-    println!("✓ Runspace Pool ID: {:02x?}", pwsh_remoting_message.rpid);
-    println!("✓ Pipeline ID: {:02x?}", pwsh_remoting_message.pid);
-    println!("✓ Data size: {} bytes", pwsh_remoting_message.data.len());
-    
-    // Parse XML Data
-    print_section("4. Parsing XML Data");
-    let parsed_string_data = match str::from_utf8(&pwsh_remoting_message.data) {
-        Ok(s) => s,
-        Err(e) => {
-            println!("⚠ Warning: Data is not valid UTF-8: {}", e);
-            println!("Raw data (first 100 bytes): {:?}", 
-                &pwsh_remoting_message.data[..std::cmp::min(100, pwsh_remoting_message.data.len())]);
-            return Ok(());
+    let mut defragmenter = Defragmenter::new();
+    let messages = match defragmenter.defragment(message_slice)? {
+        DefragmentResult::Incomplete => {
+            println!("⚠️  This appears to be a fragment that requires additional fragments to complete");
+            println!("💡 Try using the --multi flag with all fragments to reassemble the complete message");
+            return Err("Incomplete message, waiting for more fragments".into());
         }
+        DefragmentResult::Complete(power_shell_remoting_messages) => power_shell_remoting_messages,
     };
+
+    println!(
+        "🎉 Successfully parsed {} complete PowerShell remoting message(s)",
+        messages.len()
+    );
     
-    println!("✓ Successfully decoded UTF-8 string ({} characters)", parsed_string_data.len());
-    
-    if parsed_string_data.len() < 1000 {
-        println!("Raw XML Data:");
-        println!("{}", parsed_string_data);
-    } else {
-        println!("Raw XML Data (first 500 characters):");
-        println!("{}", &parsed_string_data[..500]);
-        println!("... (truncated, {} total characters)", parsed_string_data.len());
+    print_section("3. Message Summary");
+    for (i, msg) in messages.iter().enumerate() {
+        println!("📨 Message {} Details:", i + 1);
+        println!("   📋 Type: {:?}", msg.message_type);
+        println!("   🎯 Destination: {:?}", msg.destination);
+        println!("   🆔 Runspace Pool ID: {}", msg.rpid);
+        if let Some(pid) = msg.pid {
+            println!("   🔗 Pipeline ID: {}", pid);
+        }
+        println!("   📏 Data Size: {} bytes", msg.data.len());
+        println!();
     }
-    
-    // Parse XML
-    print_section("5. Parsing XML Structure");
-    let xml_representation = match xml::parser::parse(parsed_string_data) {
-        Ok(xml) => xml,
-        Err(e) => {
-            println!("✗ Failed to parse XML: {}", e);
-            return Ok(());
+
+    for (msg_idx, pwsh_remoting_message) in messages.iter().enumerate() {
+        if messages.len() > 1 {
+            print_separator(&format!("ANALYZING MESSAGE {}", msg_idx + 1));
         }
-    };
-    
-    println!("✓ Successfully parsed XML structure");
-    let root_element = xml_representation.root_element();
-    println!("✓ Root element: <{}>", root_element.tag_name().name());
-    
-    // Parse PowerShell Object
-    print_section("6. Converting to PowerShell Object");
-    let ps_object = match PsObject::from_node(root_element) {
-        Ok(obj) => obj,
-        Err(e) => {
-            println!("✗ Failed to convert to PowerShell object: {}", e);
-            println!("Raw XML root element attributes:");
-            for attr in root_element.attributes() {
-                println!("  {}: {}", attr.name(), attr.value());
+        print_section("4. Data Extraction & UTF-8 Decoding");
+        let parsed_string_data = match str::from_utf8(&pwsh_remoting_message.data) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("⚠️  Warning: Message data is not valid UTF-8: {}", e);
+                println!("🔍 Raw binary data (first 100 bytes): {:?}",
+                    &pwsh_remoting_message.data[..std::cmp::min(100, pwsh_remoting_message.data.len())]);
+                println!("💡 This might be binary data or use a different encoding");
+                continue;
             }
-            return Ok(());
+        };
+
+        println!("✅ Successfully decoded UTF-8 string ({} characters)", parsed_string_data.len());
+
+        if parsed_string_data.len() < 1000 {
+            println!("📄 Complete XML Data:");
+            println!("{}", parsed_string_data);
+        } else {
+            println!("📄 XML Data (first 500 characters, truncated for readability):");
+            println!("{}", &parsed_string_data[..500]);
+            println!("... (showing 500 of {} total characters)", parsed_string_data.len());
         }
-    };
-    
-    println!("✓ Successfully converted to PowerShell object");
-    
-    // Display formatted PowerShell Object
-    print_section("7. Formatted PowerShell Object");
-    println!("{}", format_ps_object(&ps_object, 0));
-    
+
+        // Parse XML
+        print_section("5. XML Structure Analysis");
+        let xml_representation = match xml::parser::parse(parsed_string_data) {
+            Ok(xml) => xml,
+            Err(e) => {
+                println!("❌ Failed to parse XML structure: {}", e);
+                println!("💡 The data may not be valid XML or may be corrupted");
+                continue;
+            }
+        };
+
+        println!("✅ Successfully parsed XML structure");
+        let root_element = xml_representation.root_element();
+        println!("🏷️  Root XML element: <{}>", root_element.tag_name().name());
+
+        // Parse PowerShell Object
+        print_section("6. PowerShell Object Conversion");
+        let ps_object = match PsObject::from_node(root_element) {
+            Ok(obj) => obj,
+            Err(e) => {
+                println!("❌ Failed to convert XML to PowerShell object: {}", e);
+                println!("🔍 Available XML attributes:");
+                for attr in root_element.attributes() {
+                    println!("   • {}: {}", attr.name(), attr.value());
+                }
+                println!("💡 The XML structure may not match expected PowerShell object format");
+                continue;
+            }
+        };
+
+        println!("✅ Successfully converted to PowerShell object representation");
+
+        // Display formatted PowerShell Object
+        print_section("7. PowerShell Object Details");
+        println!("{}", format_ps_object(&ps_object, 0));
+    }
+
     print_separator("ANALYSIS COMPLETE");
-    println!("✓ Successfully analyzed PowerShell remoting message");
-    
+    println!("🎉 Successfully analyzed all PowerShell remoting messages!");
+
     Ok(())
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    
+
+    // Check for --multi flag for defragmentation
+    if args.len() > 2 && args[1] == "--multi" {
+        print_separator("MULTI-FRAGMENT DEFRAGMENTATION MODE");
+        let fragments: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+
+        match try_defragment_multiple_messages(&fragments) {
+            Ok(messages) => {
+                if messages.is_empty() {
+                    println!("ℹ️  No complete messages could be assembled from the provided fragments");
+                    println!("💡 This may indicate fragments are missing, out of order, or corrupted");
+                    std::process::exit(1);
+                }
+                
+                for (i, message) in messages.iter().enumerate() {
+                    print_separator(&format!("DEFRAGMENTED MESSAGE {} SUMMARY", i + 1));
+                    println!("📨 Message Type: {:?}", message.message_type);
+                    println!("🎯 Destination: {:?}", message.destination);
+                    println!("🆔 Runspace Pool ID: {}", message.rpid);
+                    if let Some(pid) = message.pid {
+                        println!("🔗 Pipeline ID: {}", pid);
+                    }
+                    println!("📏 Data Size: {} bytes", message.data.len());
+                    println!("✅ Message successfully reconstructed from fragments!");
+                }
+                
+                println!("\n💡 Use single message mode to perform detailed analysis of each message");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("\n❌ Error during defragmentation: {}", e);
+                eprintln!("💡 Tips for troubleshooting:");
+                eprintln!("   • Ensure all fragments are valid base64-encoded data");
+                eprintln!("   • Check that fragments are provided in the correct order");
+                eprintln!("   • Verify that no fragments are missing from the sequence");
+                eprintln!("   • Make sure fragments belong to the same original message");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // If command line argument provided, analyze once and exit
     if args.len() > 1 {
         match get_input() {
-            Ok(input) => {
-                match analyze_message(&input) {
-                    Ok(()) => std::process::exit(0),
-                    Err(e) => {
-                        eprintln!("\n✗ Error analyzing message: {}", e);
-                        eprintln!("\nTip: Make sure the input is a valid base64-encoded PowerShell remoting message.");
-                        std::process::exit(1);
-                    }
+            Ok(input) => match analyze_message(&input) {
+                Ok(()) => std::process::exit(0),
+                Err(e) => {
+                    eprintln!("\n❌ Analysis failed: {}", e);
+                    eprintln!("💡 Troubleshooting suggestions:");
+                    eprintln!("   • Verify the input is valid base64-encoded data");
+                    eprintln!("   • Check if this is a fragment that needs other fragments (try --multi)");
+                    eprintln!("   • Ensure the data represents a PowerShell remoting message");
+                    std::process::exit(1);
                 }
-            }
+            },
             Err(e) => {
-                eprintln!("✗ Error reading input: {}", e);
+                eprintln!("❌ Input error: {}", e);
+                eprintln!("💡 Use --help for usage information");
                 std::process::exit(1);
             }
         }
     } else {
         // Interactive mode - continuous loop
-        println!("PowerShell Remoting Protocol Analyzer - Interactive Mode");
-        println!("========================================================");
+        println!("🔍 PowerShell Remoting Protocol Analyzer - Interactive Mode");
+        println!("============================================================");
         println!();
-        println!("Enter base64-encoded PowerShell remoting messages to analyze.");
-        println!("Type 'exit' or 'quit' to end the session.");
+        println!("📝 Commands:");
+        println!("   • Enter base64-encoded PowerShell remoting messages to analyze");
+        println!("   • Type 'multi' to enter multi-fragment defragmentation mode");
+        println!("   • Type 'help' for usage information");
+        println!("   • Type 'exit' or 'quit' to end the session");
         println!();
-        
+
         loop {
             print!("> ");
             io::stdout().flush()?;
-            
+
             let mut input = String::new();
             match io::stdin().read_line(&mut input) {
                 Ok(_) => {
                     let input = input.trim().to_string();
-                    
+
                     if input.is_empty() {
                         continue;
                     }
-                    
+
                     if input.to_lowercase() == "exit" || input.to_lowercase() == "quit" {
                         println!("Goodbye!");
                         break;
                     }
-                    
+
                     if input == "help" || input == "--help" || input == "-h" {
                         print_usage();
                         continue;
                     }
-                    
+
+                    if input == "multi" {
+                        println!("🔧 Entering multi-fragment defragmentation mode");
+                        println!("📝 Instructions:");
+                        println!("   • Enter each fragment as base64-encoded data");
+                        println!("   • Type 'done' when all fragments are entered");
+                        println!("   • Type 'cancel' to abort and return to main mode");
+                        println!();
+                        
+                        let mut fragments = Vec::new();
+
+                        loop {
+                            print!("fragment {}> ", fragments.len() + 1);
+                            io::stdout().flush()?;
+
+                            let mut fragment_input = String::new();
+                            io::stdin().read_line(&mut fragment_input)?;
+                            let fragment_input = fragment_input.trim();
+
+                            if fragment_input.is_empty() {
+                                continue;
+                            }
+
+                            if fragment_input == "done" {
+                                if fragments.is_empty() {
+                                    println!("⚠️  No fragments entered. Please add at least one fragment or type 'cancel'.");
+                                    continue;
+                                }
+                                break;
+                            }
+
+                            if fragment_input == "cancel" {
+                                println!("❌ Multi-fragment mode cancelled");
+                                fragments.clear();
+                                break;
+                            }
+
+                            fragments.push(fragment_input.to_string());
+                            println!("✅ Added fragment {} (base64 length: {} characters)", fragments.len(), fragment_input.len());
+                        }
+
+                        if !fragments.is_empty() {
+                            let fragment_refs: Vec<&str> = fragments.iter().map(|s| s.as_str()).collect();
+                            match try_defragment_multiple_messages(&fragment_refs) {
+                                Ok(messages) => {
+                                    if messages.is_empty() {
+                                        println!("ℹ️  No complete messages assembled from fragments");
+                                    } else {
+                                        for (i, message) in messages.iter().enumerate() {
+                                            print_separator(&format!("DEFRAGMENTED MESSAGE {}", i + 1));
+                                            println!("📨 Message Type: {:?}", message.message_type);
+                                            println!("🎯 Destination: {:?}", message.destination);
+                                            println!("🆔 Runspace Pool ID: {}", message.rpid);
+                                            if let Some(pid) = message.pid {
+                                                println!("🔗 Pipeline ID: {}", pid);
+                                            }
+                                            println!("📏 Data Size: {} bytes", message.data.len());
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Defragmentation error: {}", e);
+                                    eprintln!("💡 Check that fragments are valid and in correct order");
+                                }
+                            }
+                        }
+
+                        println!("\n{}", "=".repeat(80));
+                        println!("🔄 Ready for next message or command...");
+                        continue;
+                    }
+
                     match analyze_message(&input) {
                         Ok(()) => {
                             println!("\n{}", "=".repeat(80));
-                            println!("Ready for next message...");
-                        },
+                            println!("🔄 Ready for next message or command...");
+                        }
                         Err(e) => {
-                            eprintln!("\n✗ Error analyzing message: {}", e);
-                            eprintln!("Tip: Make sure the input is a valid base64-encoded PowerShell remoting message.");
-                            println!("\nTry again or type 'exit' to quit.");
+                            eprintln!("\n❌ Analysis failed: {}", e);
+                            eprintln!("💡 Troubleshooting tips:");
+                            eprintln!("   • Ensure input is valid base64-encoded data");
+                            eprintln!("   • Try 'multi' mode if this is a fragment needing reassembly");
+                            eprintln!("   • Type 'help' for more information");
+                            println!("\n🔄 Try again or type 'exit' to quit.");
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("✗ Error reading input: {}", e);
+                    eprintln!("❌ Input error: {}", e);
+                    eprintln!("💡 Please try again or restart the application");
                     break;
                 }
             }
         }
-        
+
         Ok(())
     }
 }

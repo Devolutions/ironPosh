@@ -1,5 +1,5 @@
 use protocol_powershell_remoting::{
-    Fragmenter, Fragment, PowerShellRemotingMessage, Destination, MessageType, PsObject,
+    Fragmenter, Fragment, Defragmenter, DefragmentResult, PowerShellRemotingMessage, Destination, MessageType, PsObject,
 };
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -93,11 +93,12 @@ fn main() {
     }
     println!("   Total wire data size: {} bytes", wire_data.len());
     
-    // Defragment back to messages
-    match fragmenter.defragment(wire_data, None) {
-        Ok((recovered_messages, buffer)) => {
+    // Defragment back to messages using new API
+    let mut defragmenter = Defragmenter::new();
+    match defragmenter.defragment(&wire_data) {
+        Ok(DefragmentResult::Complete(recovered_messages)) => {
             println!("   Successfully recovered {} messages", recovered_messages.len());
-            println!("   Remaining buffer entries: {}", buffer.len());
+            println!("   Remaining buffer entries: {}", defragmenter.pending_count());
             
             // Verify messages match
             for (i, (original, recovered)) in original_messages.iter().zip(recovered_messages.iter()).enumerate() {
@@ -107,6 +108,9 @@ fn main() {
                              original.pid == recovered.pid;
                 println!("   Message {} match: {}", i + 1, matches);
             }
+        }
+        Ok(DefragmentResult::Incomplete) => {
+            println!("   Defragmentation incomplete - waiting for more fragments");
         }
         Err(e) => {
             println!("   Defragmentation failed: {}", e);
@@ -120,22 +124,25 @@ fn main() {
     let fragments = fragmenter.fragment(&test_message);
     println!("   Message fragmented into {} parts", fragments.len());
     
-    let mut buffer: Option<HashMap<u64, protocol_powershell_remoting::fragmenter::FragmentBuffer>> = None;
+    let mut partial_defragmenter = Defragmenter::new();
     
     // Send fragments one by one (simulating network packets)
     for (i, fragment) in fragments.iter().enumerate() {
         let wire_data = fragment.pack();
         
-        match fragmenter.defragment(wire_data, buffer.take()) {
-            Ok((messages, new_buffer)) => {
-                buffer = Some(new_buffer);
+        match partial_defragmenter.defragment(&wire_data) {
+            Ok(DefragmentResult::Complete(messages)) => {
                 println!("   After fragment {}: {} complete messages, {} buffered objects", 
-                         i + 1, messages.len(), buffer.as_ref().unwrap().len());
+                         i + 1, messages.len(), partial_defragmenter.pending_count());
                 
                 if !messages.is_empty() {
                     println!("   ✓ Message reconstruction complete!");
                     break;
                 }
+            }
+            Ok(DefragmentResult::Incomplete) => {
+                println!("   After fragment {}: 0 complete messages, {} buffered objects", 
+                         i + 1, partial_defragmenter.pending_count());
             }
             Err(e) => {
                 println!("   Error processing fragment {}: {}", i + 1, e);

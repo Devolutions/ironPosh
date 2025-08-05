@@ -129,7 +129,7 @@ mod test {
         let request_groups = fragmenter.fragment_multiple(&messages);
 
         // Flatten all fragments for this demo
-        let all_fragments: Vec<&crate::fragmenter::Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
+        let all_fragments: Vec<&crate::fragment::Fragment> = request_groups.iter().flat_map(|group| group.iter()).collect();
         println!("Generated {} fragments in {} request groups", all_fragments.len(), request_groups.len());
 
         // Pack fragments into wire format
