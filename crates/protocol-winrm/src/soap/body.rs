@@ -1,6 +1,6 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
-use crate::{cores::*, rsp::rsp::ShellValue};
+use crate::{cores::*, rsp::rsp::ShellValue, ws_management::body::ResourceCreatedValue};
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct SoapBody<'a> {
@@ -23,6 +23,10 @@ pub struct SoapBody<'a> {
     pub release: Option<Tag<'a, TagList<'a>, Release>>,
     #[builder(default, setter(into, strip_option))]
     pub get_status: Option<Tag<'a, TagList<'a>, GetStatus>>,
+
+    /// WS-Transfer operations
+    #[builder(default, setter(into, strip_option))]
+    pub resource_created: Option<Tag<'a, ResourceCreatedValue<'a>, ResourceCreated>>,
 
     /// PowerShell Remoting operations
     #[builder(default, setter(into, strip_option))]

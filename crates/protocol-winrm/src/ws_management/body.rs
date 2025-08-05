@@ -1,6 +1,13 @@
-use xml::builder::Element;
+use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
+use xml::{
+    builder::Element,
+    parser::{XmlDeserialize, XmlVisitor},
+};
 
-use crate::cores::{TagValue, tag_value::Text};
+use crate::{
+    cores::{ResourceURI, SelectorSet, Tag, TagValue, tag_name::*, tag_value::Text},
+    ws_management::SelectorSetValue,
+};
 
 // Enumeration operations
 #[derive(Debug, Clone)]
@@ -129,4 +136,16 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
 
         element.add_child(context_elem)
     }
+}
+
+#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+pub struct ReferenceParametersValue<'a> {
+    pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
+    pub selector_set: Option<Tag<'a, SelectorSetValue, SelectorSet>>,
+}
+
+#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+pub struct ResourceCreatedValue<'a> {
+    pub address: Option<Tag<'a, Text<'a>, Address>>,
+    pub reference_parameters: Option<Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>>,
 }

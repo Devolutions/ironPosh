@@ -49,11 +49,8 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
     }
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
-        if !node.is_root() {
-            return Err(xml::XmlError::InvalidXml(
-                "SoapEnvelope must be a root element".to_string(),
-            ));
-        };
+        // Remove the is_root() check as it prevents parsing document root elements
+        // The node should be an Envelope element regardless of its root status
 
         let header: Option<Tag<'_, SoapHeaders<'a>, Header>> = node
             .children()
@@ -80,6 +77,8 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
             ));
         }
 
+        self.body = body;
+
         Ok(())
     }
 
@@ -90,5 +89,16 @@ impl<'a> XmlVisitor<'a> for SoapEnvelopeVisitor<'a> {
                 .body
                 .ok_or_else(|| xml::XmlError::InvalidXml("Missing Soap Body".to_string()))?,
         })
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for SoapEnvelope<'a> {
+    type Visitor = SoapEnvelopeVisitor<'a>;
+
+    fn visitor() -> Self::Visitor {
+        SoapEnvelopeVisitor {
+            header: None,
+            body: None,
+        }
     }
 }
