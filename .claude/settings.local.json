@@ -11,7 +11,8 @@
       "WebFetch(domain:www.dmtf.org)",
       "WebFetch(domain:learn.microsoft.com)",
       "Bash(git commit:*)",
-      "Bash(cargo expand:*)"
+      "Bash(cargo expand:*)",
+      "Bash(cargo clippy:*)"
     ],
     "deny": []
   }

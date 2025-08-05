@@ -158,9 +158,7 @@ mod tests {
         assert!(xml_string.contains("rsp:Shell"));
         assert!(xml_string.contains("Runspace1"));
         assert!(xml_string.contains("2D6534D0-6B12-40E3-B773-CBA26459CFA8"));
-        assert!(
-            xml_string.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create")
-        );
+        assert!(xml_string.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"));
 
         // Print the XML for debugging purposes
         println!("Generated SOAP Envelope:\n{}", xml_string);

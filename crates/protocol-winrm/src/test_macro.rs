@@ -32,7 +32,7 @@ mod tests {
         let _serialized_element = original.append_to_element(element);
 
         // The TagValue implementation worked if we got here without panicking
-        
+
         // Test deserialization with a simple XML string
         let test_xml = r#"<test>
             <Action>test-action</Action>

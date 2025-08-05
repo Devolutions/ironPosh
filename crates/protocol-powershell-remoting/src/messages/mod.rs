@@ -40,7 +40,7 @@ impl Hash for PsValue {
             PsValue::U32(u) => u.hash(state),
             PsValue::I64(i) => i.hash(state),
             PsValue::Guid(g) => g.hash(state),
-            PsValue::Nil => ().hash(state),
+            PsValue::Nil => 0_u8.hash(state),
             PsValue::Bytes(b) => b.hash(state),
             PsValue::Version(v) => v.hash(state),
             PsValue::Object(o) => o.to_element().to_string().hash(state), // recursive
