@@ -56,29 +56,17 @@ mod tests {
             "Body should have ResourceCreated"
         );
         let resource_created = body.resource_created.as_ref().unwrap().as_ref();
-        assert!(
-            resource_created.address.is_some(),
-            "ResourceCreated should have Address"
-        );
-        assert!(
-            resource_created.reference_parameters.is_some(),
-            "ResourceCreated should have ReferenceParameters"
-        );
+        
+        // ResourceCreated now has required fields (Tag<..> not Option<Tag<..>>)
+        // So we can access them directly without checking is_some()
+        let _address = &resource_created.address;  // This is a Tag<'a, Text<'a>, Address>
+        let _reference_parameters = &resource_created.reference_parameters;  // This is a Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>
 
         // Validate ReferenceParameters content
-        let ref_params = resource_created
-            .reference_parameters
-            .as_ref()
-            .unwrap()
-            .as_ref();
-        assert!(
-            ref_params.resource_uri.is_some(),
-            "ReferenceParameters should have ResourceURI"
-        );
-        assert!(
-            ref_params.selector_set.is_some(),
-            "ReferenceParameters should have SelectorSet"
-        );
+        // ReferenceParametersValue also has required fields now
+        let ref_params = &resource_created.reference_parameters.value;
+        let _resource_uri = &ref_params.resource_uri;  // This is a Tag<'a, Text<'a>, ResourceURI>
+        let _selector_set = &ref_params.selector_set;  // This is a Tag<'a, SelectorSetValue, SelectorSet>
 
         // Validate that Shell element is also present (it should be ignored by ResourceCreated parser)
         assert!(body.shell.is_some(), "Body should also have Shell element");
