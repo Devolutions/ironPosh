@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use tracing::{debug, error, warn};
+use tracing::error;
 
 use crate::builder::{Attribute, Namespace, NamespaceFmt};
 
@@ -211,7 +211,6 @@ impl crate::builder::NamespaceFmt for Element<'_> {
         f: &mut std::fmt::Formatter<'_>,
         parent_declaration_map: Option<&HashMap<Namespace<'_>, Option<&str>>>,
     ) -> std::fmt::Result {
-        debug!("Formatting element '{}' with namespace support", self.name);
         let namespace_declaration_map = match (parent_declaration_map, &self.namespaces_declaration)
         {
             // The case where no declarations are present, and the current element has no namespace declarations.

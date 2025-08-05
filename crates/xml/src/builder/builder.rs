@@ -1,5 +1,5 @@
 use crate::builder::{Declaration, Element, NamespaceFmt};
-use tracing::{debug, error, info};
+use tracing::error;
 
 /// Represents a builder for constructing an XML document.
 pub struct Builder<'a> {
@@ -37,22 +37,12 @@ impl<'a> Builder<'a> {
 impl<'a> std::fmt::Display for Builder<'a> {
     /// Formats the builder and its content as an XML document string.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        debug!("Starting XML Builder formatting");
-        
         if let Some(declaration) = &self.declaration {
-            debug!("Writing XML declaration");
             writeln!(f, "{declaration} ")?;
-            debug!("XML declaration written successfully");
-        } else {
-            debug!("No XML declaration to write");
         }
 
-        debug!("Formatting root element with namespaces");
         match self.element.ns_fmt(f, None) {
-            Ok(()) => {
-                debug!("Root element formatting completed successfully");
-                Ok(())
-            },
+            Ok(()) => Ok(()),
             Err(e) => {
                 error!("Error formatting root element: {:?}", e);
                 Err(e)

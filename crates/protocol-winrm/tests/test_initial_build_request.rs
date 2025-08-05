@@ -9,32 +9,25 @@ use protocol_winrm::{
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-    use tracing::{info, debug, error, warn};
 
-    use protocol_winrm::cores::{Empty, EmptyVisitor, Time};
+    use protocol_winrm::cores::Time;
 
     use super::*;
 
     #[test]
-    #[tracing_test::traced_test]
     fn test_build_soap_envelope_for_shell_creation() {
-        info!("Starting SOAP envelope creation test");
-        
         // Create an empty TagList for creation_xml (simplified for now)
         let _creation_xml_content = TagList::new();
-        debug!("Created empty TagList");
 
         // Build the Shell content for the body
-        info!("Building ShellValue");
         let shell = ShellValue::builder()
             .name("Runspace1")
             .input_streams("stdin pr")
             .output_streams("stdout")
             .creation_xml("Mimic-the-base64-encoded XML content here")
             .build();
-        debug!("ShellValue built successfully");
 
-        info!("Creating shell tag with attributes");
+        // Create shell tag with attributes
         let shell_tag = Tag::new(shell)
             .with_name(Shell)
             .with_attribute(protocol_winrm::cores::Attribute::ShellId(
@@ -137,54 +130,40 @@ mod tests {
             )
             .body(SoapBody::builder().shell(shell_tag).build())
             .build();
-        info!("SOAP envelope built successfully");
 
         // Convert envelope to Tag and add namespace declarations
-        debug!("Converting envelope to Tag");
         let envelope: Tag<'_, _, Envelope> = envelope.into();
-        debug!("Adding namespace declarations");
         let envelope = envelope
             .with_declaration(protocol_winrm::cores::namespace::Namespace::SoapEnvelope2003)
             .with_declaration(protocol_winrm::cores::namespace::Namespace::WsAddressing2004)
             .with_declaration(protocol_winrm::cores::namespace::Namespace::MsWsmanSchema)
             .with_declaration(protocol_winrm::cores::namespace::Namespace::WsTransfer2004)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::WsmanShell)
+            .with_declaration(protocol_winrm::cores::namespace::Namespace::DmtfWsmanSchema)
             .with_declaration(protocol_winrm::cores::namespace::Namespace::PowerShellRemoting);
-        info!("Namespace declarations added");
 
         // Convert Tag to Element
-        info!("Converting Tag to Element");
         let element = envelope.into_element();
-        debug!("Element conversion completed");
 
         // Create XML builder and convert to string
-        info!("Creating XML builder");
         let xml_builder = xml::builder::Builder::new(None, element);
-        debug!("XML builder created, attempting to convert to string");
-        
-        match std::panic::catch_unwind(|| xml_builder.to_string()) {
-            Ok(xml_string) => {
-                info!("XML string conversion successful");
-                debug!("XML length: {}", xml_string.len());
-                
-                // Assertions to verify the generated XML structure
-                assert!(xml_string.contains("s:Envelope"));
-                assert!(xml_string.contains("s:Header"));
-                assert!(xml_string.contains("s:Body"));
-                assert!(xml_string.contains("a:Action"));
-                assert!(xml_string.contains("a:MessageID"));
-                assert!(xml_string.contains("rsp:Shell"));
-                assert!(xml_string.contains("Runspace1"));
-                assert!(xml_string.contains("2D6534D0-6B12-40E3-B773-CBA26459CFA8"));
-                assert!(xml_string.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"));
+        let xml_string = xml_builder.to_string();
 
-                // Print the XML for debugging purposes (can be removed or made conditional)
-                println!("Generated SOAP Envelope:\n{}", xml_string);
-            },
-            Err(panic_info) => {
-                error!("XML string conversion panicked: {:?}", panic_info);
-                panic!("XML formatting failed - see trace logs for details");
-            }
-        }
+        // Assertions to verify the generated XML structure
+        assert!(xml_string.contains("s:Envelope"));
+        assert!(xml_string.contains("s:Header"));
+        assert!(xml_string.contains("s:Body"));
+        assert!(xml_string.contains("a:Action"));
+        assert!(xml_string.contains("a:MessageID"));
+        assert!(xml_string.contains("rsp:Shell"));
+        assert!(xml_string.contains("Runspace1"));
+        assert!(xml_string.contains("2D6534D0-6B12-40E3-B773-CBA26459CFA8"));
+        assert!(
+            xml_string.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create")
+        );
+
+        // Print the XML for debugging purposes
+        println!("Generated SOAP Envelope:\n{}", xml_string);
     }
 
     #[test]
