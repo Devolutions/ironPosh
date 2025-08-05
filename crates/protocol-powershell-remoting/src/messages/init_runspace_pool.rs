@@ -15,7 +15,6 @@ impl PSMessage for InitRunspacePool {
     }
 }
 
-
 impl From<PSThreadOptions> for PsObject {
     fn from(option: PSThreadOptions) -> Self {
         PsObject {
@@ -84,8 +83,7 @@ impl From<ApartmentState> for PsObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HostInfo {
     pub is_host_null: bool,
     pub is_host_ui_null: bool,
@@ -93,7 +91,6 @@ pub struct HostInfo {
     pub use_runspace_host: bool,
     pub host_default_data: HashMap<i32, PsValue>,
 }
-
 
 impl From<HostInfo> for PsObject {
     fn from(host_info: HostInfo) -> Self {
@@ -206,11 +203,13 @@ impl From<InitRunspacePool> for PsObject {
             value: PsValue::Object(init.apartment_state.into()),
         });
 
-        if let Some(host_info) = init.host_info.as_ref() { ms.push(PsProperty {
+        if let Some(host_info) = init.host_info.as_ref() {
+            ms.push(PsProperty {
                 name: Some("HostInfo".to_string()),
                 ref_id: None,
                 value: PsValue::Object(host_info.clone().into()),
-            }); }
+            });
+        }
 
         if init.application_arguments.is_empty() {
             ms.push(PsProperty {
@@ -241,5 +240,3 @@ impl From<InitRunspacePool> for PsObject {
         }
     }
 }
-
-

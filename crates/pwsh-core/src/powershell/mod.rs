@@ -5,11 +5,10 @@ use protocol_powershell_remoting::{
     PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
 };
 use protocol_winrm::{
-    rsp::rsp::ShellValue,
     soap::SoapEnvelope,
     ws_management::{OptionSetValue, WsMan},
 };
-use tracing::{debug, error, instrument};
+use tracing::{debug, instrument};
 use xml::parser::XmlDeserialize;
 
 use crate::runspace::win_rs::WinRunspace;
@@ -167,7 +166,7 @@ impl ExpectShellCreated {
         self,
         response: String,
     ) -> Result<RunspacePool, crate::PwshCoreError> {
-        let ExpectShellCreated { mut runspace_pool } = self;
+        let ExpectShellCreated { runspace_pool } = self;
 
         let parsed = xml::parser::parse(response.as_str())?;
 

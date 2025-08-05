@@ -231,7 +231,7 @@ impl<'a> XmlVisitor<'a> for WsUuidVisitor {
             } else {
                 uuid_str
             };
-            
+
             match uuid::Uuid::parse_str(uuid_part) {
                 Ok(uuid) => self.value = Some(WsUuid(uuid)),
                 Err(_) => {

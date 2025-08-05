@@ -1,6 +1,6 @@
-use std::{net::IpAddr, sync::Arc};
+use std::sync::Arc;
 
-use protocol_winrm::{cores::S, ws_management::WsMan};
+use protocol_winrm::ws_management::WsMan;
 
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, ServerAddress},

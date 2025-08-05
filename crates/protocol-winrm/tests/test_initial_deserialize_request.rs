@@ -170,7 +170,10 @@ mod tests {
             .filter(|a| matches!(a, Attribute::MustUnderstand(_)))
             .count();
 
-        assert_eq!(must_understand_count, 1, "OperationID should have exactly one MustUnderstand attribute");
+        assert_eq!(
+            must_understand_count, 1,
+            "OperationID should have exactly one MustUnderstand attribute"
+        );
     }
 
     #[test]
@@ -214,10 +217,10 @@ mod tests {
 
         let node = parse_result.unwrap();
         let envelope = node.root_element();
-        
+
         // Test basic structure
         assert_eq!(envelope.tag_name().name(), "Envelope");
-        
+
         let header_count = envelope
             .children()
             .filter(|n| n.tag_name().name() == "Header")
@@ -231,7 +234,7 @@ mod tests {
         assert_eq!(body_count, 1, "Should have exactly one Body element");
     }
 
-    #[test] 
+    #[test]
     fn test_deserialize_with_minimal_header() {
         const MINIMAL_HEADER: &str = r#"
         <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
@@ -257,7 +260,7 @@ mod tests {
         // Only action and message_id should be present
         assert!(headers.action.is_some());
         assert!(headers.message_id.is_some());
-        
+
         // All other fields should be None
         assert!(headers.to.is_none());
         assert!(headers.relates_to.is_none());

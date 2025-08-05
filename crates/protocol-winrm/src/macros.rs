@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! define_custom_tagname {
     ($name:ident, $tagName:expr, $namespace:expr) => {
@@ -57,7 +56,7 @@ macro_rules! impl_tag_value {
                 $(
                     element = element.add_child(self.$req_field.into_element());
                 )*
-                
+
                 // Append optional fields conditionally
                 $(
                     element = match self.$opt_field {
@@ -65,7 +64,7 @@ macro_rules! impl_tag_value {
                         None => element,
                     };
                 )*
-                
+
                 element
             }
         }
@@ -93,7 +92,7 @@ macro_rules! impl_xml_deserialize {
                     $req_field: Option<$req_field_type>,
                 )*
                 $(
-                    $opt_field: Option<$opt_field_type>,  // This will be Option<Tag<...>> 
+                    $opt_field: Option<$opt_field_type>,  // This will be Option<Tag<...>>
                 )*
             }
 
@@ -135,7 +134,7 @@ macro_rules! impl_xml_deserialize {
                                 if let Ok(tag) = <$req_field_type as xml::parser::XmlDeserialize>::from_node(child) {
                                     if self.$req_field.is_some() {
                                         return Err(xml::XmlError::InvalidXml(format!(
-                                            "Duplicate {} tag in {}", 
+                                            "Duplicate {} tag in {}",
                                             tag_name,
                                             stringify!($struct_name)
                                         )));
@@ -152,7 +151,7 @@ macro_rules! impl_xml_deserialize {
                                 if let Ok(tag) = <$opt_field_type as xml::parser::XmlDeserialize>::from_node(child) {
                                     if self.$opt_field.is_some() {
                                         return Err(xml::XmlError::InvalidXml(format!(
-                                            "Duplicate {} tag in {}", 
+                                            "Duplicate {} tag in {}",
                                             tag_name,
                                             stringify!($struct_name)
                                         )));
@@ -165,8 +164,8 @@ macro_rules! impl_xml_deserialize {
 
                         if !matched {
                             return Err(xml::XmlError::InvalidXml(format!(
-                                "Unknown tag in {}: {} (namespace: {:?})", 
-                                stringify!($struct_name), 
+                                "Unknown tag in {}: {} (namespace: {:?})",
+                                stringify!($struct_name),
                                 tag_name,
                                 namespace
                             )));
@@ -187,8 +186,8 @@ macro_rules! impl_xml_deserialize {
                     $(
                         let $req_field = self.$req_field.ok_or_else(|| {
                             xml::XmlError::InvalidXml(format!(
-                                "Missing {} in {}", 
-                                stringify!($req_field), 
+                                "Missing {} in {}",
+                                stringify!($req_field),
                                 stringify!($struct_name)
                             ))
                         })?;
@@ -225,7 +224,6 @@ macro_rules! impl_xml_deserialize {
     };
 }
 
-
 #[macro_export]
 macro_rules! impl_tag_from {
     ($src:ty => $taggen:ty) => {
@@ -239,7 +237,6 @@ macro_rules! impl_tag_from {
         }
     };
 }
-
 
 #[macro_export]
 macro_rules! xml_num_value {

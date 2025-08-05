@@ -1,14 +1,14 @@
 use crate::cores::tag_name::*;
 use crate::cores::{Tag, Text};
-use crate::{impl_xml_deserialize, impl_tag_value};
+use crate::{impl_tag_value, impl_xml_deserialize};
 
 // Example struct with mixed required and optional fields
 #[derive(Debug, Clone)]
 pub struct TestStruct<'a> {
-    pub action: Tag<'a, Text<'a>, Action>,                    // Required
-    pub message_id: Tag<'a, Text<'a>, MessageID>,            // Required  
-    pub to: Option<Tag<'a, Text<'a>, To>>,                   // Optional
-    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,    // Optional
+    pub action: Tag<'a, Text<'a>, Action>,        // Required
+    pub message_id: Tag<'a, Text<'a>, MessageID>, // Required
+    pub to: Option<Tag<'a, Text<'a>, To>>,        // Optional
+    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>, // Optional
 }
 
 // Clean serialization implementation
@@ -40,8 +40,8 @@ impl_xml_deserialize! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xml::parser::XmlDeserialize;
     use crate::cores::TagValue;
+    use xml::parser::XmlDeserialize;
 
     #[test]
     fn test_serialization_and_deserialization_roundtrip() {
@@ -57,9 +57,9 @@ mod tests {
         let element = xml::builder::Element::new("test");
         let serialized_element = original.append_to_element(element);
         let xml_string = format!("{}", serialized_element);
-        
+
         println!("Serialized XML:\n{}", xml_string);
-        
+
         // Verify serialization includes required fields and present optional fields
         assert!(xml_string.contains("test-action"));
         assert!(xml_string.contains("msg-123"));
@@ -72,9 +72,9 @@ mod tests {
 
         // Deserialize back to struct
         let deserialized = TestStruct::from_node(root).expect("Failed to deserialize");
-        
+
         println!("Deserialized struct: {:#?}", deserialized);
-        
+
         // Verify deserialization matches original
         assert_eq!(deserialized.action.value.as_ref(), "test-action");
         assert_eq!(deserialized.message_id.value.as_ref(), "msg-123");
@@ -99,11 +99,11 @@ mod tests {
 
         let result = TestStruct::from_node(root).expect("Failed to deserialize");
         println!("Deserialized with all fields: {:#?}", result);
-        
+
         // Verify required fields
         assert_eq!(result.action.value.as_ref(), "test-action");
         assert_eq!(result.message_id.value.as_ref(), "msg-123");
-        
+
         // Verify optional fields
         assert!(result.to.is_some());
         assert_eq!(result.to.unwrap().value.as_ref(), "destination");
@@ -125,11 +125,11 @@ mod tests {
 
         let result = TestStruct::from_node(root).expect("Failed to deserialize");
         println!("Deserialized with required fields only: {:#?}", result);
-        
+
         // Verify required fields
         assert_eq!(result.action.value.as_ref(), "test-action");
         assert_eq!(result.message_id.value.as_ref(), "msg-123");
-        
+
         // Verify optional fields are None
         assert!(result.to.is_none());
         assert!(result.relates_to.is_none());
@@ -149,6 +149,9 @@ mod tests {
 
         let result = TestStruct::from_node(root);
         assert!(result.is_err());
-        println!("Expected error for missing required field: {:?}", result.err());
+        println!(
+            "Expected error for missing required field: {:?}",
+            result.err()
+        );
     }
 }

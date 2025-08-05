@@ -1,11 +1,10 @@
 pub mod cores;
-pub mod messages;
 pub mod fragment;
+pub mod messages;
 
 pub use cores::*;
-pub use messages::*;
 pub use fragment::*;
-
+pub use messages::*;
 
 #[cfg(test)]
 mod tests;

@@ -140,12 +140,63 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
 
 #[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct ReferenceParametersValue<'a> {
-    pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
-    pub selector_set: Option<Tag<'a, SelectorSetValue, SelectorSet>>,
+    pub resource_uri: Tag<'a, Text<'a>, ResourceURI>,
+    pub selector_set: Tag<'a, SelectorSetValue, SelectorSet>,
 }
 
 #[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct ResourceCreatedValue<'a> {
-    pub address: Option<Tag<'a, Text<'a>, Address>>,
-    pub reference_parameters: Option<Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>>,
+    pub address: Tag<'a, Text<'a>, Address>,
+    pub reference_parameters: Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xml::parser::XmlDeserialize;
+
+    #[test]
+    fn test_resource_created_value_deserialize() {
+        let xml = r#"
+            <x:ResourceCreated 
+                xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer"
+                xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+                xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+            >
+    <a:Address>
+        http://10.10.0.3:5985/wsman?PSVersion=7.4.10
+        </a:Address>
+    <a:ReferenceParameters>
+        <w:ResourceURI>
+            http://schemas.microsoft.com/powershell/Microsoft.PowerShell
+            </w:ResourceURI>
+        <w:SelectorSet>
+            <w:Selector
+                Name="ShellId">
+                2D6534D0-6B12-40E3-B773-CBA26459CFA8
+                </w:Selector>
+            </w:SelectorSet>
+        </a:ReferenceParameters>
+    </x:ResourceCreated>
+        "#;
+
+        let element = xml::parser::parse(xml).unwrap();
+        let root = element.root_element();
+        let tag: Tag<'_, ResourceCreatedValue, ResourceCreated> = Tag::from_node(root).unwrap();
+        let value = tag.value;
+
+        assert_eq!(
+            value.address.value,
+            "http://10.10.0.3:5985/wsman?PSVersion=7.4.10".into()
+        );
+        assert_eq!(
+            value
+                .reference_parameters
+                .as_ref()
+                .resource_uri
+                .as_ref()
+                .as_ref(),
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell"
+        );
+    }
 }

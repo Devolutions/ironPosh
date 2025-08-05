@@ -77,9 +77,9 @@ impl HttpBuilder {
     fn build_auth_header(&self) -> String {
         match &self.authentication {
             crate::connector::Authentication::Basic { username, password } => {
-                let credentials = format!("{}:{}", username, password);
+                let credentials = format!("{username}:{password}");
                 let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
-                format!("Basic {}", encoded)
+                format!("Basic {encoded}")
             }
         }
     }

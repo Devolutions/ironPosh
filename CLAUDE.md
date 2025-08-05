@@ -29,6 +29,60 @@ The project follows a layered architecture with clear separation of concerns:
 - **Message Serialization**: PowerShell remoting message format handling
 - **Connection Management**: HTTP-based WinRM endpoint communication
 
+## Core XML Processing Traits
+
+### TagValue Trait (`crates/protocol-winrm/src/cores/tag_value.rs:10`)
+
+The `TagValue` trait is the core abstraction for XML element content generation during serialization:
+
+```rust
+pub trait TagValue<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a>;
+}
+```
+
+**Key Implementations:**
+- `Text<'a>`: Text content with `Cow<'a, str>` for efficient string handling
+- `Empty`: Empty XML elements (self-closing tags)
+- `WsUuid`: WS-Management UUID format (`uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C`)
+- `Time`: WS-Management timeout format (`PT180.000S`)
+- Numeric types: `U8`, `U32`, `U64` (generated via `xml_num_value!` macro)
+- `Tag<'a, V, N>`: Nested XML tags with attributes and namespace support
+
+### XmlDeserialize Trait (`crates/xml/src/parser/mod.rs:74`)
+
+The `XmlDeserialize` trait enables XML-to-Rust deserialization using the visitor pattern:
+
+```rust
+pub trait XmlDeserialize<'a>: Sized {
+    type Visitor: XmlVisitor<'a, Value = Self>;
+    fn visitor() -> Self::Visitor;
+    fn from_node(node: roxmltree::Node<'a, 'a>) -> Result<Self, XmlError>;
+    fn from_children(children: impl Iterator<Item = Node<'a, 'a>>) -> Result<Self, XmlError>;
+}
+```
+
+**Visitor Pattern Architecture:**
+- `XmlVisitor`: Traverses XML nodes and builds Rust values
+- `NodeDeserializer`: Drives visitors over XML subtrees
+- Each type implements both `visit_node` and `visit_children` methods
+- Supports complex validation (e.g., UUID format parsing, timeout format validation)
+
+### Bidirectional XML Processing
+
+The architecture enables seamless round-trip XML processing:
+- **Serialization**: `TagValue` converts Rust → XML
+- **Deserialization**: `XmlDeserialize` converts XML → Rust
+- **Type Safety**: Many types implement both traits for consistency
+- **Namespace Support**: Full WS-Management, SOAP, and PowerShell namespace handling
+
+### Supporting Infrastructure
+
+- **TagName Trait**: Defines XML tag names and namespace URIs
+- **Tag<'a, V, N>**: Generic container combining values with XML metadata (attributes, namespaces)
+- **Macros**: `xml_num_value!` and `impl_xml_deserialize!` generate boilerplate implementations
+- **Error Handling**: Comprehensive XML validation with descriptive error messages
+
 ## Common Development Commands
 
 ### Building

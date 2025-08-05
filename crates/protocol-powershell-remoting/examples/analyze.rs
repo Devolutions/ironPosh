@@ -1,7 +1,5 @@
 use base64::Engine;
-use protocol_powershell_remoting::{
-    DefragmentResult, Defragmenter, PsObject, PsValue,
-};
+use protocol_powershell_remoting::{DefragmentResult, Defragmenter, PsObject, PsValue};
 use std::env;
 use std::io::{self, Write};
 use xml::parser::XmlDeserialize;
@@ -187,7 +185,10 @@ fn try_defragment_multiple_messages(
 ) -> Result<Vec<protocol_powershell_remoting::PowerShellRemotingMessage>, Box<dyn std::error::Error>>
 {
     print_section("Multi-Fragment Defragmentation");
-    println!("📦 Processing {} fragment(s) for reassembly...", messages.len());
+    println!(
+        "📦 Processing {} fragment(s) for reassembly...",
+        messages.len()
+    );
 
     let mut defragmenter = Defragmenter::new();
     let mut completed_messages = Vec::new();
@@ -195,7 +196,11 @@ fn try_defragment_multiple_messages(
 
     for (i, msg) in messages.iter().enumerate() {
         let fragment_data = engine.decode(msg.trim())?;
-        println!("🔍 Fragment {}: Decoded {} bytes from base64", i + 1, fragment_data.len());
+        println!(
+            "🔍 Fragment {}: Decoded {} bytes from base64",
+            i + 1,
+            fragment_data.len()
+        );
 
         match defragmenter.defragment(&fragment_data) {
             Ok(DefragmentResult::Complete(mut msgs)) => {
@@ -207,7 +212,10 @@ fn try_defragment_multiple_messages(
                 completed_messages.append(&mut msgs);
             }
             Ok(DefragmentResult::Incomplete) => {
-                println!("⏳ Fragment {} processed, waiting for more fragments to complete message(s)", i + 1);
+                println!(
+                    "⏳ Fragment {} processed, waiting for more fragments to complete message(s)",
+                    i + 1
+                );
             }
             Err(e) => {
                 println!("❌ Error processing fragment {}: {}", i + 1, e);
@@ -224,7 +232,9 @@ fn try_defragment_multiple_messages(
     }
 
     if completed_messages.is_empty() {
-        println!("ℹ️  No complete messages assembled - fragments may be incomplete or out of order");
+        println!(
+            "ℹ️  No complete messages assembled - fragments may be incomplete or out of order"
+        );
     } else {
         println!(
             "🎉 Defragmentation successful! Assembled {} complete PowerShell remoting message(s)",
@@ -241,7 +251,10 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
     print_section("1. Base64 Decoding");
     let engine = base64::engine::general_purpose::STANDARD;
     let message = engine.decode(base64_message.trim())?;
-    println!("✅ Successfully decoded {} bytes from base64 input", message.len());
+    println!(
+        "✅ Successfully decoded {} bytes from base64 input",
+        message.len()
+    );
 
     // Parse PowerShell Fragment
     print_section("2. PowerShell Remoting Message Parsing");
@@ -249,8 +262,12 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
     let mut defragmenter = Defragmenter::new();
     let messages = match defragmenter.defragment(message_slice)? {
         DefragmentResult::Incomplete => {
-            println!("⚠️  This appears to be a fragment that requires additional fragments to complete");
-            println!("💡 Try using the --multi flag with all fragments to reassemble the complete message");
+            println!(
+                "⚠️  This appears to be a fragment that requires additional fragments to complete"
+            );
+            println!(
+                "💡 Try using the --multi flag with all fragments to reassemble the complete message"
+            );
             return Err("Incomplete message, waiting for more fragments".into());
         }
         DefragmentResult::Complete(power_shell_remoting_messages) => power_shell_remoting_messages,
@@ -260,7 +277,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         "🎉 Successfully parsed {} complete PowerShell remoting message(s)",
         messages.len()
     );
-    
+
     print_section("3. Message Summary");
     for (i, msg) in messages.iter().enumerate() {
         println!("📨 Message {} Details:", i + 1);
@@ -283,14 +300,20 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
             Ok(s) => s,
             Err(e) => {
                 println!("⚠️  Warning: Message data is not valid UTF-8: {}", e);
-                println!("🔍 Raw binary data (first 100 bytes): {:?}",
-                    &pwsh_remoting_message.data[..std::cmp::min(100, pwsh_remoting_message.data.len())]);
+                println!(
+                    "🔍 Raw binary data (first 100 bytes): {:?}",
+                    &pwsh_remoting_message.data
+                        [..std::cmp::min(100, pwsh_remoting_message.data.len())]
+                );
                 println!("💡 This might be binary data or use a different encoding");
                 continue;
             }
         };
 
-        println!("✅ Successfully decoded UTF-8 string ({} characters)", parsed_string_data.len());
+        println!(
+            "✅ Successfully decoded UTF-8 string ({} characters)",
+            parsed_string_data.len()
+        );
 
         if parsed_string_data.len() < 1000 {
             println!("📄 Complete XML Data:");
@@ -298,7 +321,10 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         } else {
             println!("📄 XML Data (first 500 characters, truncated for readability):");
             println!("{}", &parsed_string_data[..500]);
-            println!("... (showing 500 of {} total characters)", parsed_string_data.len());
+            println!(
+                "... (showing 500 of {} total characters)",
+                parsed_string_data.len()
+            );
         }
 
         // Parse XML
@@ -355,11 +381,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         match try_defragment_multiple_messages(&fragments) {
             Ok(messages) => {
                 if messages.is_empty() {
-                    println!("ℹ️  No complete messages could be assembled from the provided fragments");
-                    println!("💡 This may indicate fragments are missing, out of order, or corrupted");
+                    println!(
+                        "ℹ️  No complete messages could be assembled from the provided fragments"
+                    );
+                    println!(
+                        "💡 This may indicate fragments are missing, out of order, or corrupted"
+                    );
                     std::process::exit(1);
                 }
-                
+
                 for (i, message) in messages.iter().enumerate() {
                     print_separator(&format!("DEFRAGMENTED MESSAGE {} SUMMARY", i + 1));
                     println!("📨 Message Type: {:?}", message.message_type);
@@ -371,8 +401,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("📏 Data Size: {} bytes", message.data.len());
                     println!("✅ Message successfully reconstructed from fragments!");
                 }
-                
-                println!("\n💡 Use single message mode to perform detailed analysis of each message");
+
+                println!(
+                    "\n💡 Use single message mode to perform detailed analysis of each message"
+                );
                 std::process::exit(0);
             }
             Err(e) => {
@@ -396,7 +428,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("\n❌ Analysis failed: {}", e);
                     eprintln!("💡 Troubleshooting suggestions:");
                     eprintln!("   • Verify the input is valid base64-encoded data");
-                    eprintln!("   • Check if this is a fragment that needs other fragments (try --multi)");
+                    eprintln!(
+                        "   • Check if this is a fragment that needs other fragments (try --multi)"
+                    );
                     eprintln!("   • Ensure the data represents a PowerShell remoting message");
                     std::process::exit(1);
                 }
@@ -449,7 +483,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("   • Type 'done' when all fragments are entered");
                         println!("   • Type 'cancel' to abort and return to main mode");
                         println!();
-                        
+
                         let mut fragments = Vec::new();
 
                         loop {
@@ -466,7 +500,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             if fragment_input == "done" {
                                 if fragments.is_empty() {
-                                    println!("⚠️  No fragments entered. Please add at least one fragment or type 'cancel'.");
+                                    println!(
+                                        "⚠️  No fragments entered. Please add at least one fragment or type 'cancel'."
+                                    );
                                     continue;
                                 }
                                 break;
@@ -479,18 +515,28 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
 
                             fragments.push(fragment_input.to_string());
-                            println!("✅ Added fragment {} (base64 length: {} characters)", fragments.len(), fragment_input.len());
+                            println!(
+                                "✅ Added fragment {} (base64 length: {} characters)",
+                                fragments.len(),
+                                fragment_input.len()
+                            );
                         }
 
                         if !fragments.is_empty() {
-                            let fragment_refs: Vec<&str> = fragments.iter().map(|s| s.as_str()).collect();
+                            let fragment_refs: Vec<&str> =
+                                fragments.iter().map(|s| s.as_str()).collect();
                             match try_defragment_multiple_messages(&fragment_refs) {
                                 Ok(messages) => {
                                     if messages.is_empty() {
-                                        println!("ℹ️  No complete messages assembled from fragments");
+                                        println!(
+                                            "ℹ️  No complete messages assembled from fragments"
+                                        );
                                     } else {
                                         for (i, message) in messages.iter().enumerate() {
-                                            print_separator(&format!("DEFRAGMENTED MESSAGE {}", i + 1));
+                                            print_separator(&format!(
+                                                "DEFRAGMENTED MESSAGE {}",
+                                                i + 1
+                                            ));
                                             println!("📨 Message Type: {:?}", message.message_type);
                                             println!("🎯 Destination: {:?}", message.destination);
                                             println!("🆔 Runspace Pool ID: {}", message.rpid);
@@ -503,7 +549,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 Err(e) => {
                                     eprintln!("❌ Defragmentation error: {}", e);
-                                    eprintln!("💡 Check that fragments are valid and in correct order");
+                                    eprintln!(
+                                        "💡 Check that fragments are valid and in correct order"
+                                    );
                                 }
                             }
                         }
@@ -522,7 +570,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("\n❌ Analysis failed: {}", e);
                             eprintln!("💡 Troubleshooting tips:");
                             eprintln!("   • Ensure input is valid base64-encoded data");
-                            eprintln!("   • Try 'multi' mode if this is a fragment needing reassembly");
+                            eprintln!(
+                                "   • Try 'multi' mode if this is a fragment needing reassembly"
+                            );
                             eprintln!("   • Type 'help' for more information");
                             println!("\n🔄 Try again or type 'exit' to quit.");
                         }

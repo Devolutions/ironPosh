@@ -80,7 +80,7 @@ impl<'a> XmlVisitor<'a> for SelectorSetVisitor {
                             break;
                         }
                     }
-                    
+
                     if let Some(name) = name {
                         let value = child.text().unwrap_or_default().to_string();
                         self.selectors.insert(name, value);
@@ -195,7 +195,7 @@ impl<'a> XmlVisitor<'a> for OptionSetVisitor {
                             break;
                         }
                     }
-                    
+
                     if let Some(name) = name {
                         let value = child.text().unwrap_or_default().to_string();
                         self.options.insert(name, value);

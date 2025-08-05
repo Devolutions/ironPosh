@@ -1,8 +1,11 @@
-use crate::cores::{tag_name::{
+use crate::cores::{
+    Tag, Text, Time,
+    tag_name::{
         BufferMode, ClientIP, CompressionMode, CreationXml, DataLocale, Encoding, IdleTimeOut,
         InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
         ResourceUri, ShellId, ShellInactivity, ShellRunTime, State, TagName,
-    }, Tag, Text, Time, U32};
+    },
+};
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
 // The XmlTagContainer derive macro generates:

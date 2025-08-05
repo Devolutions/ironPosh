@@ -1,13 +1,13 @@
+pub mod defragmenter;
 pub mod fragment;
 pub mod fragmenter;
-pub mod defragmenter;
 
 #[cfg(test)]
 mod tests;
 
+pub use defragmenter::*;
 pub use fragment::*;
 pub use fragmenter::*;
-pub use defragmenter::*;
 
 /// Result of defragmentation operation
 #[derive(Debug)]

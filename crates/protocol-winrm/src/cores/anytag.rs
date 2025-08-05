@@ -1,6 +1,9 @@
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
-use crate::{cores::{tag_name::*, tag_value::Text, Tag, TagList, TagName}, rsp::rsp::ShellValue};
+use crate::{
+    cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text},
+    rsp::rsp::ShellValue,
+};
 
 #[macro_export]
 macro_rules! define_any_tag {

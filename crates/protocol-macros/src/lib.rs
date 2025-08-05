@@ -1,12 +1,10 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
-use syn::{
-    parse_macro_input, Data, DeriveInput, Fields, Generics, Type, TypePath,
-};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Generics, Type, TypePath};
 
 /// Derives TagValue implementation for structs where all fields are `Option<Tag<'a, ValueType, TagName>>`
-/// 
+///
 /// This macro assumes that all fields in the struct are optional Tag fields and generates
 /// a TagValue implementation that converts each Some(tag) to an element and adds it to the
 /// XML element's children.
@@ -18,7 +16,7 @@ pub fn derive_simple_tag_value(input: TokenStream) -> TokenStream {
 }
 
 /// Derives XmlDeserialize implementation for structs where all fields are `Option<Tag<'a, ValueType, TagName>>`
-/// 
+///
 /// This macro assumes that all fields in the struct are optional Tag fields and generates
 /// a complete XmlDeserialize implementation with visitor pattern that can parse XML nodes
 /// into the struct by matching tag names to field names.
@@ -37,32 +35,57 @@ fn impl_simple_tag_value(input: &DeriveInput) -> TokenStream2 {
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => &fields.named,
-            _ => panic!("RegularTagValue can only be derived for structs with named fields"),
+            _ => panic!("SimpleTagValue can only be derived for structs with named fields"),
         },
-        _ => panic!("RegularTagValue can only be derived for structs"),
+        _ => panic!("SimpleTagValue can only be derived for structs"),
     };
 
-    // Extract field names - assume all are Option<Tag<...>>
-    let field_names: Vec<&Ident> = fields.iter()
-        .map(|field| field.ident.as_ref().unwrap())
+    // Classify fields as required (Tag<..>) or optional (Option<Tag<..>>)
+    let field_info: Vec<FieldInfo> = fields
+        .iter()
+        .map(|field| {
+            let field_name = field.ident.as_ref().unwrap();
+            let is_optional = is_option_type(&field.ty);
+            FieldInfo {
+                name: field_name,
+                is_optional,
+            }
+        })
         .collect();
 
-    let field_list = quote! { #(#field_names),* };
+    let field_list = {
+        let field_names: Vec<&Ident> = field_info.iter().map(|f| f.name).collect();
+        quote! { #(#field_names),* }
+    };
+
+    // Generate code for each field based on whether it's optional or required
+    let field_additions: Vec<TokenStream2> = field_info
+        .iter()
+        .map(|field| {
+            let field_name = field.name;
+            if field.is_optional {
+                quote! {
+                    if let Some(tag) = #field_name {
+                        array.push(tag.into_element());
+                    }
+                }
+            } else {
+                quote! {
+                    array.push(#field_name.into_element());
+                }
+            }
+        })
+        .collect();
 
     quote! {
         impl #impl_generics crate::cores::TagValue<'a> for #name #ty_generics #where_clause {
             fn append_to_element(self, element: xml::builder::Element<'a>) -> xml::builder::Element<'a> {
                 let Self { #field_list } = self;
-                
+
                 let mut array = Vec::new();
-                
-                // Add optional elements, converting each Tag to Element
-                #(
-                    if let Some(tag) = #field_names {
-                        array.push(tag.into_element());
-                    }
-                )*
-                
+
+                #(#field_additions)*
+
                 element.add_children(array)
             }
         }
@@ -83,24 +106,30 @@ fn impl_simple_xml_deserialize(input: &DeriveInput) -> TokenStream2 {
 
     let visitor_name = format_ident!("{}Visitor", name);
 
-    // Extract field information - assume all are Option<Tag<...>>
-    let field_entries: Vec<SimpleFieldEntry> = fields.iter().map(|field| {
-        let field_name = field.ident.as_ref().unwrap().clone();
-        let field_type = field.ty.clone();
-        let tag_name_type = extract_tag_name_type(&field_type);
-        
-        SimpleFieldEntry {
-            field_name,
-            field_type,
-            tag_name_type,
-        }
-    }).collect();
+    // Extract field information - handle both Tag<..> and Option<Tag<..>>
+    let field_entries: Vec<SimpleFieldEntry> = fields
+        .iter()
+        .map(|field| {
+            let field_name = field.ident.as_ref().unwrap().clone();
+            let field_type = field.ty.clone();
+            let is_optional = is_option_type(&field_type);
+            let tag_name_type = extract_tag_name_type(&field_type);
+
+            SimpleFieldEntry {
+                field_name,
+                field_type,
+                tag_name_type,
+                is_optional,
+            }
+        })
+        .collect();
 
     // Generate Visitor struct
     let visitor_struct = generate_simple_visitor_struct(&visitor_name, generics, &field_entries);
 
     // Generate XmlVisitor implementation
-    let xml_visitor_impl = generate_simple_xml_visitor_impl(&visitor_name, name, generics, &field_entries);
+    let xml_visitor_impl =
+        generate_simple_xml_visitor_impl(&visitor_name, name, generics, &field_entries);
 
     // Generate XmlDeserialize implementation
     let xml_deserialize_impl = generate_xml_deserialize_impl(name, &visitor_name, generics);
@@ -116,16 +145,35 @@ struct SimpleFieldEntry {
     field_name: Ident,
     field_type: Type,
     tag_name_type: Option<Ident>,
+    is_optional: bool,
 }
 
-fn generate_simple_visitor_struct(visitor_name: &Ident, generics: &Generics, field_entries: &[SimpleFieldEntry]) -> TokenStream2 {
+struct FieldInfo<'a> {
+    name: &'a Ident,
+    is_optional: bool,
+}
+
+fn generate_simple_visitor_struct(
+    visitor_name: &Ident,
+    generics: &Generics,
+    field_entries: &[SimpleFieldEntry],
+) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    
-    let visitor_fields: Vec<TokenStream2> = field_entries.iter().map(|entry| {
-        let field_name = &entry.field_name;
-        let field_type = &entry.field_type;
-        quote! { pub #field_name: #field_type }
-    }).collect();
+
+    let visitor_fields: Vec<TokenStream2> = field_entries
+        .iter()
+        .map(|entry| {
+            let field_name = &entry.field_name;
+            let field_type = &entry.field_type;
+            if entry.is_optional {
+                // Optional fields stay as Option<Tag<..>> in visitor
+                quote! { pub #field_name: #field_type }
+            } else {
+                // Required fields are stored as Option<Tag<..>> during parsing, then validated
+                quote! { pub #field_name: Option<#field_type> }
+            }
+        })
+        .collect();
 
     quote! {
         #[derive(Debug, Clone, Default)]
@@ -142,24 +190,70 @@ fn generate_simple_xml_visitor_impl(
     field_entries: &[SimpleFieldEntry],
 ) -> TokenStream2 {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    
+
     // Generate match arms for each field
-    let match_arms: Vec<TokenStream2> = field_entries.iter().filter_map(|entry| {
-        if let Some(tag_name_type) = &entry.tag_name_type {
-            let field_name = &entry.field_name;
-            Some(quote! {
-                crate::cores::tag_name::#tag_name_type::TAG_NAME => {
-                    self.#field_name = Some(xml::parser::XmlDeserialize::from_node(child)?);
-                }
-            })
-        } else {
-            None
-        }
-    }).collect();
+    let match_arms: Vec<TokenStream2> = field_entries
+        .iter()
+        .filter_map(|entry| {
+            if let Some(tag_name_type) = &entry.tag_name_type {
+                let field_name = &entry.field_name;
+                Some(quote! {
+                    crate::cores::#tag_name_type::TAG_NAME => {
+                        self.#field_name = Some(xml::parser::XmlDeserialize::from_node(child)?);
+                    }
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
 
     // Generate field list for finish method
     let field_names: Vec<&Ident> = field_entries.iter().map(|f| &f.field_name).collect();
     let field_list = quote! { #(#field_names),* };
+
+    // Separate required and optional fields for finish method
+    let required_fields: Vec<&SimpleFieldEntry> =
+        field_entries.iter().filter(|f| !f.is_optional).collect();
+    let optional_fields: Vec<&SimpleFieldEntry> =
+        field_entries.iter().filter(|f| f.is_optional).collect();
+
+    // Generate required field checks - use different variable names to avoid conflicts
+    let required_field_checks: Vec<TokenStream2> = required_fields
+        .iter()
+        .map(|entry| {
+            let field_name = &entry.field_name;
+            let checked_field_name = format_ident!("{}_checked", field_name);
+            quote! {
+                let #checked_field_name = #field_name.ok_or_else(|| {
+                    xml::XmlError::InvalidXml(format!(
+                        "Missing {} in {}",
+                        stringify!(#field_name),
+                        stringify!(#struct_name)
+                    ))
+                })?;
+            }
+        })
+        .collect();
+
+    // Generate field assignments for struct construction
+    let field_assignments: Vec<TokenStream2> = field_entries
+        .iter()
+        .map(|entry| {
+            let field_name = &entry.field_name;
+            if entry.is_optional {
+                // Optional fields pass through as-is
+                quote! { #field_name }
+            } else {
+                // Required fields use the checked version
+                let checked_field_name = format_ident!("{}_checked", field_name);
+                quote! { #field_name: #checked_field_name }
+            }
+        })
+        .collect();
+
+    // Generate final field list for struct construction
+    let final_field_list: Vec<&Ident> = field_entries.iter().map(|f| &f.field_name).collect();
 
     quote! {
         impl #impl_generics xml::parser::XmlVisitor<'a> for #visitor_name #ty_generics #where_clause {
@@ -201,12 +295,24 @@ fn generate_simple_xml_visitor_impl(
             fn finish(self) -> Result<Self::Value, xml::XmlError> {
                 let Self { #field_list } = self;
 
+                // Check required fields and extract values
+                #(#required_field_checks)*
+
                 Ok(#struct_name {
-                    #field_list
+                    #(#field_assignments),*
                 })
             }
         }
     }
+}
+
+fn is_option_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.first() {
+            return segment.ident == "Option";
+        }
+    }
+    false
 }
 
 fn extract_tag_name_type(ty: &Type) -> Option<Ident> {
@@ -223,10 +329,12 @@ fn extract_tag_name_type(ty: &Type) -> Option<Ident> {
                             }
                         }
                     }
-                    
+
                     // For Tag<'a, ValueType, TagName>, the third argument is TagName
                     if segment.ident == "Tag" && args.args.len() >= 3 {
-                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) = &args.args[2] {
+                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) =
+                            &args.args[2]
+                        {
                             if let Some(segment) = path.segments.last() {
                                 return Some(segment.ident.clone());
                             }
@@ -245,7 +353,9 @@ fn extract_tag_name_from_tag_type(ty: &Type) -> Option<Ident> {
             if segment.ident == "Tag" {
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                     if args.args.len() >= 3 {
-                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) = &args.args[2] {
+                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) =
+                            &args.args[2]
+                        {
                             if let Some(segment) = path.segments.last() {
                                 return Some(segment.ident.clone());
                             }

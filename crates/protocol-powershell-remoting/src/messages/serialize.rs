@@ -1,6 +1,6 @@
+use super::{PsObject, PsProperty, PsValue};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
-use super::{PsObject, PsProperty, PsValue};
 
 use xml::builder::{Attribute, Element};
 

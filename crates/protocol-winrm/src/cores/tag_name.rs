@@ -84,11 +84,19 @@ define_tagname!(FragmentTransfer, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_tagname!(SelectorSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_tagname!(OptionSet, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
 define_tagname!(Locale, Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
-define_custom_tagname!(OptionTagName, "Option", Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
-define_custom_tagname!(SelectorTagName, "Selector", Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI));
+define_custom_tagname!(
+    OptionTagName,
+    "Option",
+    Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI)
+);
+define_custom_tagname!(
+    SelectorTagName,
+    "Selector",
+    Some(DMTF_WSMAN_SCHEMA_NAMESPACE_URI)
+);
 
 // ===================================
-// WS-Transfer (x namespace) 
+// WS-Transfer (x namespace)
 // ===================================
 define_tagname!(Create, Some(WS_TRANSFER_NAMESPACE_URI));
 
@@ -109,22 +117,22 @@ define_tagname!(Version, None);
 define_tagname!(BA, None);
 
 // PowerShell Serialization Format
-define_tagname!(I32, None);  // 32-bit integer
-define_tagname!(TN, None);   // Type Name
-define_tagname!(T, None);    // Type
+define_tagname!(I32, None); // 32-bit integer
+define_tagname!(TN, None); // Type Name
+define_tagname!(T, None); // Type
 define_custom_tagname!(ToString, "ToString", None); // ToString representation
-define_tagname!(DCT, None);  // Dictionary
-define_tagname!(En, None);   // Dictionary Entry
-define_tagname!(Key, None);  // Dictionary Key
+define_tagname!(DCT, None); // Dictionary
+define_tagname!(En, None); // Dictionary Entry
+define_tagname!(Key, None); // Dictionary Key
 define_tagname!(Value, None); // Dictionary Value
-define_tagname!(Nil, None);  // Null Value
-define_tagname!(B, None);    // Boolean
-define_tagname!(S, None);    // String
+define_tagname!(Nil, None); // Null Value
+define_tagname!(B, None); // Boolean
+define_tagname!(S, None); // String
 
 // PowerShell InitRunspacepool Message Tags
-define_tagname!(MinRunspaces, None);   // Minimum number of runspaces
-define_tagname!(MaxRunspaces, None);   // Maximum number of runspaces
+define_tagname!(MinRunspaces, None); // Minimum number of runspaces
+define_tagname!(MaxRunspaces, None); // Maximum number of runspaces
 define_tagname!(PSThreadOptions, None); // PowerShell thread options
 define_tagname!(ApartmentState, None); // Apartment state for runspace
-define_tagname!(HostInfo, None);       // Host information
+define_tagname!(HostInfo, None); // Host information
 define_tagname!(ApplicationArguments, None); // Application arguments

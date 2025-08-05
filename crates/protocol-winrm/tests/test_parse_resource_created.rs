@@ -64,9 +64,13 @@ mod tests {
             resource_created.reference_parameters.is_some(),
             "ResourceCreated should have ReferenceParameters"
         );
-        
+
         // Validate ReferenceParameters content
-        let ref_params = resource_created.reference_parameters.as_ref().unwrap().as_ref();
+        let ref_params = resource_created
+            .reference_parameters
+            .as_ref()
+            .unwrap()
+            .as_ref();
         assert!(
             ref_params.resource_uri.is_some(),
             "ReferenceParameters should have ResourceURI"
@@ -75,11 +79,8 @@ mod tests {
             ref_params.selector_set.is_some(),
             "ReferenceParameters should have SelectorSet"
         );
-        
+
         // Validate that Shell element is also present (it should be ignored by ResourceCreated parser)
-        assert!(
-            body.shell.is_some(),
-            "Body should also have Shell element"
-        );
+        assert!(body.shell.is_some(), "Body should also have Shell element");
     }
 }
