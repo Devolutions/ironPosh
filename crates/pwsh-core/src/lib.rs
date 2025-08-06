@@ -27,4 +27,7 @@ pub enum PwshCoreError {
 
     #[error("XML parsing error: {0}")]
     XmlParsingError(#[from] xml::XmlError),
+
+    #[error("Invalid response: {0}")]
+    InvalidResponse(&'static str),
 }

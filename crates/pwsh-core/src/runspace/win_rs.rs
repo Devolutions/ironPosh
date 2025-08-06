@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use protocol_winrm::{
-    cores::{Shell, Tag, Time, anytag::AnyTag},
-    rsp::rsp::ShellValue,
-    ws_management::{self, OptionSetValue, WsMan},
+    cores::{DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag},
+    rsp::{receive::ReceiveValue, rsp::ShellValue},
+    soap::SoapEnvelope,
+    ws_management::{self, OptionSetValue, SelectorSetValue, WsMan, body::ResourceCreatedValue},
 };
 use xml::builder::Element;
 
@@ -20,7 +21,7 @@ pub struct WinRunspace {
     #[builder(default, setter(strip_option))]
     name: Option<String>,
 
-    #[builder(default = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd".to_string())]
+    #[builder(default = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell".to_string())]
     resource_uri: String,
 
     #[builder(default = uuid::Uuid::new_v4())]
@@ -33,6 +34,23 @@ pub struct WinRunspace {
     codepage: Option<u32>,
 
     ws_man: Arc<WsMan>,
+
+    #[builder(default)]
+    shell_id: Option<String>,
+    #[builder(default)]
+    owner: Option<String>,
+    #[builder(default)]
+    client_ip: Option<String>,
+    #[builder(default)]
+    shell_run_time: Option<String>,
+    #[builder(default)]
+    shell_inactivity: Option<String>,
+
+    #[builder(default)]
+    selector_set: SelectorSetValue,
+
+    #[builder(default)]
+    opened: bool,
 }
 
 impl WinRunspace {
@@ -73,5 +91,101 @@ impl WinRunspace {
             Some(option_set),
             None,
         )
+    }
+
+    pub fn fire_receive<'a>(
+        &'a self,
+        stream: Option<&'a str>,
+        command_id: Option<&'a str>,
+    ) -> impl Into<Element<'a>> {
+        let stream = stream.unwrap_or("stdout");
+
+        let desired_stream = Tag::new(stream).with_name(DesiredStream);
+
+        let desired_stream = if let Some(command_id) = command_id {
+            desired_stream.with_attribute(protocol_winrm::cores::Attribute::CommandId(
+                command_id.into(),
+            ))
+        } else {
+            desired_stream
+        };
+
+        let receive = ReceiveValue::builder()
+            .desired_stream(desired_stream)
+            .build();
+
+        let receive_tag = Tag::from_name(Receive)
+            .with_value(receive)
+            .with_declaration(protocol_winrm::cores::Namespace::PowerShellRemoting);
+
+        let option_set = OptionSetValue::default()
+            .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string());
+
+        self.ws_man.invoke(
+            ws_management::WsAction::Receive,
+            Some(&self.resource_uri),
+            Some(receive_tag.into()),
+            Some(option_set),
+            None,
+        )
+    }
+
+    pub fn accept_receive_response<'a>(
+        &mut self,
+        soap_envelope: SoapEnvelope<'a>,
+    ) -> Result<ReceiveValue<'a>, crate::PwshCoreError> {
+        todo!()
+    }
+
+    pub fn parse_create_response<'a>(
+        &mut self,
+        soap_envelop: SoapEnvelope<'a>,
+    ) -> Result<(), crate::PwshCoreError> {
+        let shell = &soap_envelop.body.as_ref().shell.as_ref().ok_or(
+            crate::PwshCoreError::InvalidResponse("No shell found in response"),
+        )?;
+        let shell_id = shell.as_ref().shell_id.as_ref().map(|id| id.clone_value());
+        let resource_uri = &shell.as_ref().resource_uri;
+        let owner = &shell.as_ref().owner;
+        let client_ip = &shell.as_ref().client_ip;
+        let idle_time_out = &shell.as_ref().idle_time_out;
+        let output_stream = &shell.as_ref().output_streams;
+        let shell_run_time = &shell.as_ref().shell_run_time;
+        let shell_inactivity = &shell.as_ref().shell_inactivity;
+
+        self.shell_id = shell_id.map(|s| s.as_ref().to_string());
+        self.owner = owner.as_ref().map(|o| o.value.as_ref().to_string());
+        self.client_ip = client_ip.as_ref().map(|c| c.value.as_ref().to_string());
+        self.idle_time_out = idle_time_out.as_ref().map(|t| t.value.0);
+        self.output_streams = output_stream
+            .as_ref()
+            .map(|o| o.value.as_ref().to_string())
+            .unwrap_or_else(|| "stdout".to_string());
+
+        self.resource_uri = resource_uri
+            .as_ref()
+            .map(|r| r.value.as_ref().to_string())
+            .unwrap_or_else(|| self.resource_uri.clone());
+
+        self.shell_run_time = shell_run_time
+            .as_ref()
+            .map(|t| t.value.as_ref().to_string());
+        self.shell_inactivity = shell_inactivity
+            .as_ref()
+            .map(|t| t.value.as_ref().to_string());
+
+        let resource_created = soap_envelop.body.as_ref().resource_created.as_ref().ok_or(
+            crate::PwshCoreError::InvalidResponse("No ResourceCreated found in response"),
+        )?;
+
+        let reference_parameters = resource_created.as_ref().reference_parameters.as_ref();
+
+        let selector_set = &reference_parameters.selector_set;
+
+        self.selector_set = selector_set.value.clone();
+
+        self.opened = true;
+
+        Ok(())
     }
 }

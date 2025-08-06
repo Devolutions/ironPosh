@@ -21,9 +21,9 @@ pub enum Scheme {
 }
 
 pub struct ConnectorConfig {
-    pub(crate) server: (ServerAddress, u16),
-    pub(crate) scheme: Scheme,
-    pub(crate) authentication: Authentication,
+    pub server: (ServerAddress, u16),
+    pub scheme: Scheme,
+    pub authentication: Authentication,
 }
 
 #[derive(Debug)]
@@ -38,11 +38,22 @@ pub enum StepResult {
 }
 
 pub enum ConnectorState {
-    Idel,
+    Idle,
+    Taken,
     Connecting {
         expect_shell_created: ExpectShellCreated,
         http_builder: HttpBuilder,
     },
+    ConnectReceiveCycle {
+        runspace_pool: RunspacePool,
+        http_builder: HttpBuilder,
+    },
+}
+
+impl Default for ConnectorState {
+    fn default() -> Self {
+        ConnectorState::Taken
+    }
 }
 
 pub struct Connector {
@@ -53,18 +64,29 @@ pub struct Connector {
 impl Connector {
     pub fn new(config: ConnectorConfig) -> Self {
         Self {
-            state: ConnectorState::Idel,
+            state: ConnectorState::Idle,
             config,
         }
+    }
+
+    pub fn set_state(&mut self, state: ConnectorState) {
+        self.state = state;
     }
 
     pub fn step(
         &mut self,
         request: Option<HttpRequest<String>>,
     ) -> Result<StepResult, crate::PwshCoreError> {
-        let response = match &self.state {
-            ConnectorState::Idel => {
-                debug_assert!(request.is_none(), "Request should be None in Idel state");
+        let state = std::mem::take(&mut self.state);
+
+        let response = match state {
+            ConnectorState::Taken => {
+                return Err(crate::PwshCoreError::UnlikelyToHappen(
+                    "Connector should not be in Taken state when stepping",
+                ));
+            }
+            ConnectorState::Idle => {
+                debug_assert!(request.is_none(), "Request should be None in Idle state");
                 let runspace_pool = RunspacePool::builder()
                     .connection(Arc::new(WsMan::builder().build()))
                     .build();
@@ -80,10 +102,10 @@ impl Connector {
 
                 let response = http_builder.post("/wsman", xml_body);
 
-                self.state = ConnectorState::Connecting {
+                self.set_state(ConnectorState::Connecting {
                     expect_shell_created,
                     http_builder,
-                };
+                });
 
                 // Now we expect the shell create response
                 StepResult::SendBack(response)
@@ -92,7 +114,55 @@ impl Connector {
                 expect_shell_created,
                 http_builder,
             } => {
+                let request = request.ok_or_else(|| {
+                    crate::PwshCoreError::InvalidState("Expected a request in Connecting state")
+                })?;
+
+                let body = request.body.ok_or_else(|| {
+                    crate::PwshCoreError::InvalidState("Expected a body in Connecting state")
+                })?;
+
+                let runspace_pool = expect_shell_created.accept(body)?;
+
+                let receive_request = runspace_pool.fire_receive();
+
+                let response = http_builder.post("/wsman", receive_request);
+
+                self.set_state(ConnectorState::ConnectReceiveCycle {
+                    runspace_pool,
+                    http_builder,
+                });
+
+                StepResult::SendBack(response)
+            }
+            ConnectorState::ConnectReceiveCycle {
+                mut runspace_pool,
+                http_builder,
+            } => {
+                let request = request.ok_or_else(|| {
+                    crate::PwshCoreError::InvalidState(
+                        "Expected a request in ConnectReceiveCycle state",
+                    )
+                })?;
+
+                let body = request.body.ok_or_else(|| {
+                    crate::PwshCoreError::InvalidState(
+                        "Expected a body in ConnectReceiveCycle state",
+                    )
+                })?;
+
+                // Ok, we definately need to change control flow here
+                runspace_pool.accept_receive_response(body)?;
+
                 todo!()
+
+                // let receive_response = runspace_pool.fire_receive();
+
+                // let response = http_builder.post("/wsman", receive_response);
+
+                // self.set_state(ConnectorState::Taken);
+
+                // StepResult::SendBack(response)
             }
         };
 

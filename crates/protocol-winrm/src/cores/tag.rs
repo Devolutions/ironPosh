@@ -141,6 +141,13 @@ where
     pub fn name(&self) -> &'static str {
         N::TAG_NAME
     }
+
+    pub fn clone_value(&self) -> V
+    where
+        V: Clone,
+    {
+        self.value.clone()
+    }
 }
 
 impl<'a, V, N> From<V> for Tag<'a, V, N>

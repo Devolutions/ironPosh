@@ -1,8 +1,8 @@
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{
-    cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text},
-    rsp::rsp::ShellValue,
+    cores::{tag_name::*, tag_value::Text, Tag, TagList, TagName},
+    rsp::{receive::ReceiveValue, rsp::ShellValue},
 };
 
 #[macro_export]
@@ -124,6 +124,7 @@ define_any_tag!(
     // PowerShell remoting shell elements
     (ShellId, ShellId, Tag<'a, Text<'a>, ShellId>),
     (Shell, Shell, Tag<'a, ShellValue<'a>, Shell>),
+    (Receive, Receive, Tag<'a, ReceiveValue<'a>, Receive>),
     (Name, Name, Tag<'a, Text<'a>, Name>),
     (ResourceUri, ResourceUri, Tag<'a, Text<'a>, ResourceUri>),
     (Owner, Owner, Tag<'a, Text<'a>, Owner>),

@@ -33,6 +33,10 @@ impl SelectorSetValue {
     pub fn insert_selector(&mut self, name: impl Into<String>, value: impl Into<String>) {
         self.selectors.insert(name.into(), value.into());
     }
+
+    pub fn get(&self, name: &str) -> Option<&String> {
+        self.selectors.get(name)
+    }
 }
 
 impl Default for SelectorSetValue {
@@ -160,6 +164,9 @@ impl<'a> TagValue<'a> for OptionSetValue {
     fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
         for (name, value) in self.options {
             let option_element = Element::new("Option")
+                .set_namespace(xml::builder::Namespace::from(
+                    OptionTagName::NAMESPACE.expect("OptionTagName definately has a namespace"),
+                ))
                 .set_text(value)
                 .add_attribute(xml::builder::Attribute::new("Name", name));
             element = element.add_child(option_element);

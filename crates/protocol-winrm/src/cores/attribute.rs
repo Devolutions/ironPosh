@@ -87,6 +87,7 @@ define_attributes!(
     RefId(Cow<'a, str>) => (None, "RefId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     N(Cow<'a, str>) => (None, "N"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     XmlLang(Cow<'a, str>) => (None, "xml:lang"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    CommandId(Cow<'a, str>) => (None, "CommandId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     // Add new attributes here and they automatically get handled everywhere!
 );
 

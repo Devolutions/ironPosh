@@ -18,6 +18,22 @@ const PS_VERSION: &str = "2.0";
 const SERIALIZATION_VERSION: &str = "1.1.0.1";
 const DEFAULT_CONFIGURATION_NAME: &str = "Microsoft.PowerShell";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PsInvocationState {
+    NotStarted = 0,
+    Running = 1,
+    Stopping = 2,
+    Stopped = 3,
+    Completed = 4,
+    Failed = 5,
+    Disconnected = 6,
+}
+
+#[derive(Debug, Clone)]
+pub struct PowerShell {
+    // Ok, think about it
+}
+
 /// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/b05495bc-a9b2-4794-9f43-4bf1f3633900
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -68,6 +84,9 @@ pub struct RunspacePool {
 
     #[builder(default, setter(strip_option))]
     shell: Option<WinRunspace>,
+
+    #[builder(default)]
+    pipeline: HashMap<String, PowerShell>,
 }
 
 impl RunspacePool {
@@ -126,7 +145,7 @@ impl RunspacePool {
         self.state = RunspacePoolState::NegotiationSent;
 
         debug_assert!(
-            request_groups.len() > 1,
+            request_groups.len() >= 1,
             "Expected at least one request group for negotiation"
         );
 
@@ -155,6 +174,37 @@ impl RunspacePool {
             },
         ))
     }
+
+    // We should accept the pipeline id here, but for now let's ignore it
+    pub(crate) fn fire_receive(&self) -> String {
+        self.shell
+            .as_ref()
+            .expect("Shell must be initialized")
+            .fire_receive(
+                None, // No specific stream
+                None, // No command ID
+            )
+            .into()
+            .to_string()
+    }
+
+    pub(crate) fn accept_receive_response<'a>(
+        &mut self,
+        soap_envelope: String,
+    ) -> Result<(), crate::PwshCoreError> {
+        let parsed = xml::parser::parse(soap_envelope.as_str())?;
+        let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
+            .map_err(crate::PwshCoreError::XmlParsingError)?;
+
+        let _receive_result = self.shell
+            .as_mut()
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidState("Shell must be initialized to accept response")
+            })?
+            .accept_receive_response(soap_envelope)?;
+
+        todo!()
+    }
 }
 
 pub struct ExpectShellCreated {
@@ -162,17 +212,22 @@ pub struct ExpectShellCreated {
 }
 
 impl ExpectShellCreated {
-    pub fn receive_shell_created(
-        self,
-        response: String,
-    ) -> Result<RunspacePool, crate::PwshCoreError> {
-        let ExpectShellCreated { runspace_pool } = self;
+    pub fn accept(self, response: String) -> Result<RunspacePool, crate::PwshCoreError> {
+        let ExpectShellCreated { mut runspace_pool } = self;
 
         let parsed = xml::parser::parse(response.as_str())?;
 
         let soap_response = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
-        todo!()
+        runspace_pool
+            .shell
+            .as_mut()
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidState("Shell must be initialized to parse response")
+            })?
+            .parse_create_response(soap_response)?;
+
+        Ok(runspace_pool)
     }
 }

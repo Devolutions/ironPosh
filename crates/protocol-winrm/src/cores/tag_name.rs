@@ -35,6 +35,8 @@ define_tagname!(State, Some(WSMAN_SHELL_NAMESPACE_URI));
 define_tagname!(ShellRunTime, Some(WSMAN_SHELL_NAMESPACE_URI));
 define_tagname!(ShellInactivity, Some(WSMAN_SHELL_NAMESPACE_URI));
 define_tagname!(CompressionType, Some(WSMAN_SHELL_NAMESPACE_URI));
+define_tagname!(DesiredStream, Some(WSMAN_SHELL_NAMESPACE_URI));
+
 define_custom_tagname!(CreationXml, "creationXml", None);
 
 // PowerShell Remoting Operations (rsp namespace)

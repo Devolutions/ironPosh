@@ -38,6 +38,7 @@ pub enum WsAction {
     Delete,
     Get,
     Put,
+    Receive,
 }
 
 impl WsAction {
@@ -47,6 +48,7 @@ impl WsAction {
             WsAction::Delete => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Delete",
             WsAction::Get => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Get",
             WsAction::Put => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Put",
+            WsAction::Receive => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Receive",
         }
     }
 }
@@ -102,6 +104,7 @@ impl WsMan {
         // TODO: Handle the case where resource is something else
         let body = match resource {
             Some(AnyTag::Shell(shell)) => SoapBody::builder().shell(shell).build(),
+            Some(AnyTag::Receive(receive)) => SoapBody::builder().receive(receive).build(),
             _ => SoapBody::builder().build(),
         };
 
