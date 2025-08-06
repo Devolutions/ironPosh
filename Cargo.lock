@@ -859,6 +859,8 @@ dependencies = [
  "quick-xml",
  "serde",
  "thiserror",
+ "tracing",
+ "tracing-test",
  "typed-builder",
  "uuid",
  "xml",

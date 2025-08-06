@@ -2,7 +2,7 @@ pub mod body;
 pub mod header;
 pub mod parsing;
 
-use xml::parser::{Document, XmlDeserialize, XmlVisitor};
+use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{
     cores::{Tag, TagValue, tag_name::*},

@@ -1,7 +1,9 @@
 use base64::Engine;
 use protocol_powershell_remoting::{DefragmentResult, Defragmenter, PsObject, PsValue};
 use std::env;
+use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 use xml::parser::XmlDeserialize;
 
 fn print_usage() {
@@ -10,6 +12,10 @@ fn print_usage() {
     eprintln!("Usage:");
     eprintln!(
         "  {} <base64_encoded_message>",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
+        "  {} --file <file_path>",
         env::args().next().unwrap_or_else(|| "analyze".to_string())
     );
     eprintln!(
@@ -34,6 +40,10 @@ fn print_usage() {
         env::args().next().unwrap_or_else(|| "analyze".to_string())
     );
     eprintln!(
+        "  {} --file message.txt",
+        env::args().next().unwrap_or_else(|| "analyze".to_string())
+    );
+    eprintln!(
         "  {} --multi 'fragment1_base64' 'fragment2_base64' 'fragment3_base64'",
         env::args().next().unwrap_or_else(|| "analyze".to_string())
     );
@@ -51,7 +61,31 @@ fn get_input() -> Result<String, Box<dyn std::error::Error>> {
             print_usage();
             std::process::exit(0);
         }
-        // Use command line argument
+
+        // Handle --file flag
+        if args[1] == "--file" && args.len() > 2 {
+            let file_path = &args[2];
+            println!("📁 Reading from file: {}", file_path);
+
+            if !Path::new(file_path).exists() {
+                return Err(format!("File not found: {}", file_path).into());
+            }
+
+            let file_content = fs::read_to_string(file_path)?;
+            let content = file_content.trim().to_string();
+
+            if content.is_empty() {
+                return Err("File is empty".into());
+            }
+
+            println!(
+                "✅ Successfully read {} characters from file",
+                content.len()
+            );
+            return Ok(content);
+        }
+
+        // Use command line argument as base64 message
         Ok(args[1].clone())
     } else {
         // Interactive mode - prompt user for input

@@ -4,7 +4,7 @@ use protocol_winrm::{
     cores::{DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag},
     rsp::{receive::ReceiveValue, rsp::ShellValue},
     soap::SoapEnvelope,
-    ws_management::{self, OptionSetValue, SelectorSetValue, WsMan, body::ResourceCreatedValue},
+    ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };
 use xml::builder::Element;
 
@@ -85,7 +85,7 @@ impl WinRunspace {
         }
 
         self.ws_man.invoke(
-            ws_management::WsAction::Create,
+            ws_management::WsAction::ShellCreate,
             None,
             Some(AnyTag::Shell(shell)),
             Some(option_set),
@@ -122,7 +122,7 @@ impl WinRunspace {
             .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string());
 
         self.ws_man.invoke(
-            ws_management::WsAction::Receive,
+            ws_management::WsAction::ShellReceive,
             Some(&self.resource_uri),
             Some(receive_tag.into()),
             Some(option_set),

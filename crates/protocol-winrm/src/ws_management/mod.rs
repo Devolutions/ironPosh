@@ -22,7 +22,7 @@ pub struct WsMan {
     #[builder(default = "en-US".to_string())]
     locale: String,
 
-    #[builder(default = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd".to_string())]
+    #[builder(default = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell".to_string())]
     resource_uri: String,
 }
 
@@ -39,6 +39,8 @@ pub enum WsAction {
     Get,
     Put,
     Receive,
+    ShellCreate,
+    ShellReceive,
 }
 
 impl WsAction {
@@ -49,6 +51,12 @@ impl WsAction {
             WsAction::Get => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Get",
             WsAction::Put => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Put",
             WsAction::Receive => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Receive",
+            WsAction::ShellCreate => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create"
+            }
+            WsAction::ShellReceive => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/receive"
+            }
         }
     }
 }

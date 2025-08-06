@@ -1,8 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
+use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, Fragment, HostInfo, InitRunspacePool, PSThreadOptions,
-    PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
+    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsValue, SessionCapability,
+    fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -106,6 +107,7 @@ impl RunspacePool {
         );
 
         let session_capability = SessionCapability {
+            ref_id: Some(0),
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
             serialization_version: SERIALIZATION_VERSION.to_string(),
@@ -113,6 +115,7 @@ impl RunspacePool {
         };
 
         let init_runspace_pool = InitRunspacePool {
+            ref_id: Some(1),
             min_runspaces: self.min_runspaces as i32,
             max_runspaces: self.max_runspaces as i32,
             thread_options: self.thread_options,
@@ -127,37 +130,28 @@ impl RunspacePool {
         let mut fragmenter =
             fragment::Fragmenter::new(self.connection.max_envelope_size() as usize);
 
-        let request_groups = fragmenter.fragment_multiple(&[
-            PowerShellRemotingMessage::from_ps_message(
-                session_capability,
-                self.id,
-                None, // No PID for this message
-            ),
-            PowerShellRemotingMessage::from_ps_message(
-                init_runspace_pool,
-                self.id,
-                None, // No PID for this message
-            ),
-        ]);
+        let request_groups = fragmenter.fragment_multiple(
+            &[&session_capability, &init_runspace_pool],
+            self.id,
+            None,
+        );
 
         debug!(request_groups = ?request_groups, "Fragmented negotiation requests");
 
         self.state = RunspacePoolState::NegotiationSent;
 
         debug_assert!(
-            request_groups.len() >= 1,
-            "Expected at least one request group for negotiation"
+            request_groups.len() == 1,
+            "We should have only one request group for the opening negotiation"
         );
 
-        let request =
-            request_groups
-                .into_iter()
-                .next()
-                .ok_or(crate::PwshCoreError::UnlikelyToHappen(
-                    "No request group generated for negotiation",
-                ))?;
-
-        let open_content = Fragment::encode_multiple(&request)?;
+        let request = request_groups
+            .into_iter()
+            .next()
+            .ok_or(crate::PwshCoreError::UnlikelyToHappen(
+                "No request group generated for negotiation",
+            ))
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))?;
 
         let option_set = OptionSetValue::new().add_option("protocol_version", PROTOCOL_VERSION);
 
@@ -165,7 +159,7 @@ impl RunspacePool {
             .shell
             .as_ref()
             .expect("Shell must be initialized")
-            .open(Some(option_set), &open_content);
+            .open(Some(option_set), &request);
 
         Ok((
             result.into().to_string(),
@@ -196,9 +190,10 @@ impl RunspacePool {
         let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
-        let _receive_result = self.shell
+        let _receive_result = self
+            .shell
             .as_mut()
-            .ok_or_else(|| {
+            .ok_or({
                 crate::PwshCoreError::InvalidState("Shell must be initialized to accept response")
             })?
             .accept_receive_response(soap_envelope)?;
@@ -223,7 +218,7 @@ impl ExpectShellCreated {
         runspace_pool
             .shell
             .as_mut()
-            .ok_or_else(|| {
+            .ok_or({
                 crate::PwshCoreError::InvalidState("Shell must be initialized to parse response")
             })?
             .parse_create_response(soap_response)?;

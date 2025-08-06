@@ -3,7 +3,7 @@ use std::io::Read;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use uuid::Uuid;
 
-use crate::PsObject;
+use crate::{PsObject, PsObjectWithType};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Destination {
@@ -198,13 +198,9 @@ impl PowerShellRemotingMessage {
         })
     }
 
-    pub fn from_ps_message(
-        message: impl crate::messages::PSMessage,
-        rpid: Uuid,
-        pid: Option<Uuid>,
-    ) -> Self {
+    pub fn from_ps_message(message: &dyn PsObjectWithType, rpid: Uuid, pid: Option<Uuid>) -> Self {
         let message_type = message.message_type();
-        let data: PsObject = message.into();
+        let data: PsObject = message.to_ps_object();
 
         Self::new(Destination::Client, message_type, rpid, pid, &data)
     }
@@ -225,7 +221,7 @@ impl PowerShellRemotingMessage {
         }
     }
 
-    pub fn into_vec(self) -> Vec<u8> {
+    pub fn pack(self) -> Vec<u8> {
         let mut buffer = Vec::new();
         buffer
             .write_u32::<LittleEndian>(self.destination as u32)
@@ -301,7 +297,7 @@ impl PowerShellFragment {
             end_of_fragment,
             start_of_fragment,
             blob_length,
-            blob: blob.into_vec(),
+            blob: blob.pack(),
         }
     }
 

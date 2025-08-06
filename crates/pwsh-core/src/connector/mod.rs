@@ -37,8 +37,10 @@ pub enum StepResult {
     ReadyForOperation,
 }
 
+#[derive(Default)]
 pub enum ConnectorState {
     Idle,
+    #[default]
     Taken,
     Connecting {
         expect_shell_created: ExpectShellCreated,
@@ -48,12 +50,6 @@ pub enum ConnectorState {
         runspace_pool: RunspacePool,
         http_builder: HttpBuilder,
     },
-}
-
-impl Default for ConnectorState {
-    fn default() -> Self {
-        ConnectorState::Taken
-    }
 }
 
 pub struct Connector {
@@ -114,11 +110,11 @@ impl Connector {
                 expect_shell_created,
                 http_builder,
             } => {
-                let request = request.ok_or_else(|| {
+                let request = request.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a request in Connecting state")
                 })?;
 
-                let body = request.body.ok_or_else(|| {
+                let body = request.body.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a body in Connecting state")
                 })?;
 
@@ -139,13 +135,13 @@ impl Connector {
                 mut runspace_pool,
                 http_builder,
             } => {
-                let request = request.ok_or_else(|| {
+                let request = request.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a request in ConnectReceiveCycle state",
                     )
                 })?;
 
-                let body = request.body.ok_or_else(|| {
+                let body = request.body.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a body in ConnectReceiveCycle state",
                     )

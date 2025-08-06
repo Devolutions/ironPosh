@@ -1,6 +1,6 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
-use crate::cores::{tag_name::TagName, DesiredStream, Tag, Text};
+use crate::cores::{DesiredStream, Tag, Text, tag_name::TagName};
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct ReceiveValue<'a> {

@@ -1,4 +1,4 @@
-use crate::{MessageType, PSMessage, PsObject, PsProperty, PsValue};
+use crate::{MessageType, PsObject, PsObjectWithType, PsProperty, PsValue};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,9 +9,13 @@ pub enum PSThreadOptions {
     UseCurrentThread = 3,
 }
 
-impl PSMessage for InitRunspacePool {
+impl PsObjectWithType for InitRunspacePool {
     fn message_type(&self) -> MessageType {
         MessageType::InitRunspacepool
+    }
+
+    fn to_ps_object(&self) -> PsObject {
+        PsObject::from(self.clone())
     }
 }
 
@@ -154,6 +158,7 @@ impl From<HostInfo> for PsObject {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitRunspacePool {
+    pub ref_id: Option<u32>,
     pub min_runspaces: i32,
     pub max_runspaces: i32,
     pub thread_options: PSThreadOptions,
@@ -165,6 +170,7 @@ pub struct InitRunspacePool {
 impl Default for InitRunspacePool {
     fn default() -> Self {
         Self {
+            ref_id: None,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
@@ -236,6 +242,7 @@ impl From<InitRunspacePool> for PsObject {
 
         PsObject {
             ms,
+            ref_id: init.ref_id,
             ..Default::default()
         }
     }

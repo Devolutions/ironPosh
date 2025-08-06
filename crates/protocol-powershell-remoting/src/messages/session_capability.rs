@@ -1,16 +1,21 @@
-use crate::{MessageType, PSMessage, PsObject, PsProperty, PsValue};
+use crate::{MessageType, PsObject, PsObjectWithType, PsProperty, PsValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
+    pub ref_id: Option<u32>,
     pub protocol_version: String,
     pub ps_version: String,
     pub serialization_version: String,
     pub time_zone: String,
 }
 
-impl PSMessage for SessionCapability {
+impl PsObjectWithType for SessionCapability {
     fn message_type(&self) -> MessageType {
         MessageType::SessionCapability
+    }
+
+    fn to_ps_object(&self) -> PsObject {
+        PsObject::from(self.clone())
     }
 }
 
@@ -26,6 +31,7 @@ impl PSMessage for SessionCapability {
 impl From<SessionCapability> for PsObject {
     fn from(cap: SessionCapability) -> Self {
         PsObject {
+            ref_id: cap.ref_id,
             ms: vec![
                 PsProperty {
                     name: Some("protocolversion".to_string()),
