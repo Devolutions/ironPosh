@@ -1,10 +1,21 @@
+use tracing::debug;
+use uuid::Uuid;
+
 use super::fragment::Fragment;
-use crate::PowerShellRemotingMessage;
+use crate::{PowerShellRemotingMessage, PsObjectWithType};
 
 /// Fragmenter handles fragmentation of outgoing PowerShell remoting messages
 pub struct Fragmenter {
     max_fragment_size: usize,
     outgoing_counter: u64,
+}
+
+fn safe_split_at<'a>(data: &'a [u8], size: usize) -> (&'a [u8], &'a [u8]) {
+    if data.len() <= size {
+        (data, &[])
+    } else {
+        data.split_at(size)
+    }
 }
 
 impl Fragmenter {
@@ -19,131 +30,105 @@ impl Fragmenter {
     }
 
     /// Fragment a single message into multiple fragments
-    pub fn fragment(&mut self, message: &PowerShellRemotingMessage) -> Vec<Fragment> {
-        let data = message.clone().into_vec();
-        self.fragment_data(data)
+    pub fn fragment(
+        &mut self,
+        ps_object: &dyn PsObjectWithType,
+        rpid: Uuid,
+        pid: Option<Uuid>,
+        remaining_size: Option<usize>,
+    ) -> Vec<Vec<u8>> {
+        let message = PowerShellRemotingMessage::from_ps_message(ps_object, rpid, pid);
+        let message_bytes_source = message.pack();
+        let mut remaining_bytes = message_bytes_source.as_slice();
+        let max_size = self.max_fragment_size;
+        let mut start = true;
+        let mut fragment_id = 0;
+        let mut fragments = Vec::new();
+
+        if let Some(remaining_size) = remaining_size {
+            let (fragment1, remaining) = safe_split_at(remaining_bytes, remaining_size);
+            let end = remaining.is_empty();
+
+            remaining_bytes = remaining;
+
+            let fragment = Fragment::new(
+                self.outgoing_counter,
+                fragment_id,
+                fragment1.to_vec(),
+                start,
+                end,
+            );
+
+            fragments.push(fragment.pack());
+            fragment_id += 1;
+            start = false;
+        }
+
+        for chunk in remaining_bytes.chunks(max_size) {
+            let end = chunk.len() < max_size;
+            let fragment = Fragment::new(
+                self.outgoing_counter,
+                fragment_id,
+                chunk.to_vec(),
+                start,
+                end,
+            );
+
+            fragments.push(fragment.pack());
+            fragment_id += 1;
+            start = false;
+
+            if end {
+                break;
+            }
+        }
+
+        self.outgoing_counter += 1;
+
+        fragments
     }
 
     /// Fragment multiple messages, grouping them by WSMAN request boundaries
     /// Returns a Vec where each inner Vec contains fragments that should be sent in one WSMAN request
     pub fn fragment_multiple(
         &mut self,
-        messages: &[PowerShellRemotingMessage],
-    ) -> Vec<Vec<Fragment>> {
-        let mut request_groups: Vec<Vec<Fragment>> = Vec::new();
-        let mut current_request: Vec<Fragment> = Vec::new();
-        let mut remaining_space = self.max_fragment_size;
+        messages: &[&dyn PsObjectWithType],
+        rpid: Uuid,
+        pid: Option<Uuid>,
+    ) -> Vec<Vec<u8>> {
+        let mut remaing_size = self.max_fragment_size;
+        // Here we perhaps should not call it fragments anymore
+        // Because we are grouping multiple fragments together into one Vec<u8>
+        let mut fragements = Vec::new();
 
         for message in messages {
-            let message_data = message.clone().into_vec();
-            let fragments = self.fragment_data_with_remaining_space(message_data, remaining_space);
+            let mut message_fragments = self.fragment(*message, rpid, pid, Some(remaing_size));
+            debug!(
+                "Fragmented message {:?} into {} fragments",
+                message.message_type(),
+                message_fragments.len()
+            );
 
-            // If we can fit the first fragment with previous data in current request, merge them
-            if !current_request.is_empty()
-                && remaining_space < self.max_fragment_size
-                && remaining_space > 0
-                && let Some(first_fragment) = fragments.first()
-                && first_fragment.data.len() <= remaining_space
-            {
-                // Merge with the last fragment in current request
-                if let Some(last_fragment) = current_request.last_mut() {
-                    last_fragment.data.extend_from_slice(&first_fragment.data);
-                    // Add remaining fragments (if any) to current request
-                    current_request.extend(fragments.into_iter().skip(1));
-                }
-                // Calculate remaining space more accurately
-                if let Some(last_fragment) = current_request.last() {
-                    remaining_space = self.max_fragment_size
-                        - (last_fragment.data.len() % self.max_fragment_size);
-                    if remaining_space == self.max_fragment_size {
-                        remaining_space = 0;
-                    }
-                }
-                continue;
+            // If we have remaining space, append the next message to the last fragment
+            // This can save some space if the last fragment is not full
+            if remaing_size != self.max_fragment_size && fragements.len() > 0 {
+                debug!(
+                    "Appending to last fragment, remaining size: {}",
+                    remaing_size
+                );
+                fragements.last_mut().map(|last: &mut Vec<u8>| {
+                    last.extend(message_fragments.remove(0));
+                });
             }
 
-            // If current request would exceed reasonable size, start a new request
-            if !current_request.is_empty()
-                && (current_request.len() + fragments.len() > 10 || remaining_space == 0)
-            {
-                request_groups.push(std::mem::take(&mut current_request));
-                remaining_space = self.max_fragment_size;
-            }
+            fragements.extend(message_fragments);
 
-            current_request.extend(fragments);
-
-            // Calculate remaining space in the last fragment
-            if let Some(last_fragment) = current_request.last() {
-                remaining_space =
-                    self.max_fragment_size - (last_fragment.data.len() % self.max_fragment_size);
-                if remaining_space == self.max_fragment_size {
-                    remaining_space = 0; // Fragment is full
-                }
+            remaing_size = self.max_fragment_size - fragements.last().map_or(0, |last| last.len());
+            if remaing_size <= 0 {
+                remaing_size = self.max_fragment_size; // Reset for next message
             }
         }
 
-        // Add the final request group if it has any fragments
-        if !current_request.is_empty() {
-            request_groups.push(current_request);
-        }
-
-        request_groups
-    }
-
-    /// Fragment raw data into fragments
-    fn fragment_data(&mut self, data: Vec<u8>) -> Vec<Fragment> {
-        self.fragment_data_with_remaining_space(data, self.max_fragment_size)
-    }
-
-    /// Fragment raw data with consideration for remaining space in previous fragment
-    fn fragment_data_with_remaining_space(
-        &mut self,
-        data: Vec<u8>,
-        remaining_space: usize,
-    ) -> Vec<Fragment> {
-        let mut fragments = Vec::new();
-        let object_id = self.outgoing_counter;
-        self.outgoing_counter += 1;
-
-        if data.is_empty() {
-            // Empty data still needs a fragment
-            return vec![Fragment::new(object_id, 0, Vec::new(), true, true)];
-        }
-
-        let mut fragment_id = 0u64;
-        let mut start = true;
-        let mut remaining_data = data.as_slice();
-
-        // Handle first fragment with remaining space consideration
-        if remaining_space < self.max_fragment_size && !remaining_data.is_empty() {
-            let chunk_size = remaining_space.min(remaining_data.len());
-            let chunk = remaining_data[..chunk_size].to_vec();
-            let end = chunk_size >= remaining_data.len();
-
-            fragments.push(Fragment::new(object_id, fragment_id, chunk, start, end));
-
-            if end {
-                return fragments;
-            }
-
-            remaining_data = &remaining_data[chunk_size..];
-            fragment_id += 1;
-            start = false;
-        }
-
-        // Handle remaining data in full-sized chunks
-        while !remaining_data.is_empty() {
-            let chunk_size = self.max_fragment_size.min(remaining_data.len());
-            let chunk = remaining_data[..chunk_size].to_vec();
-            let end = chunk_size >= remaining_data.len();
-
-            fragments.push(Fragment::new(object_id, fragment_id, chunk, start, end));
-
-            remaining_data = &remaining_data[chunk_size..];
-            fragment_id += 1;
-            start = false;
-        }
-
-        fragments
+        fragements
     }
 }

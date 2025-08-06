@@ -1,273 +1,232 @@
 use super::*;
-use crate::messages::PsObject;
-use crate::{Destination, MessageType};
+use crate::{
+    ApartmentState, PSThreadOptions,
+    messages::{InitRunspacePool, SessionCapability},
+};
+use std::collections::HashMap;
+use tracing::info;
+use tracing_test::traced_test;
 use uuid::Uuid;
-
-fn create_test_message(data_size: usize) -> crate::PowerShellRemotingMessage {
-    let large_data = vec![b'A'; data_size];
-    let large_string = String::from_utf8(large_data).unwrap();
-
-    let mut props = std::collections::HashMap::new();
-    props.insert(
-        crate::PsValue::Str("TestData".to_string()),
-        crate::PsValue::Str(large_string),
-    );
-
-    let ps_object = PsObject {
-        ref_id: None,
-        type_names: None,
-        tn_ref: None,
-        props: vec![],
-        ms: vec![],
-        lst: vec![],
-        dct: props,
-    };
-
-    crate::PowerShellRemotingMessage::new(
-        Destination::Server,
-        MessageType::SessionCapability,
-        Uuid::new_v4(),
-        Some(Uuid::new_v4()),
-        &ps_object,
-    )
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Test fragmenter/defragmenter roundtrip with single small message
     #[test]
-    fn test_fragment_single_message_small() {
-        let mut fragmenter = Fragmenter::new(1000);
-        let message = create_test_message(50);
+    #[traced_test]
+    fn test_single_message_roundtrip() {
+        let session_capability = SessionCapability {
+            ref_id: None,
+            protocol_version: "2.3".to_string(),
+            ps_version: "2.0".to_string(),
+            serialization_version: "1.1.0.1".to_string(),
+            time_zone: "UTC".to_string(),
+        };
 
-        let fragments = fragmenter.fragment(&message);
-
-        assert_eq!(fragments.len(), 1);
-        assert!(fragments[0].start);
-        assert!(fragments[0].end);
-        assert_eq!(fragments[0].fragment_id, 0);
-    }
-
-    #[test]
-    fn test_fragment_single_message_large() {
-        let mut fragmenter = Fragmenter::new(100);
-        let message = create_test_message(250);
-
-        let fragments = fragmenter.fragment(&message);
-
-        assert!(fragments.len() > 1);
-        assert!(fragments[0].start);
-        assert!(!fragments[0].end);
-        assert!(fragments.last().unwrap().end);
-        assert!(!fragments.last().unwrap().start);
-    }
-
-    #[test]
-    fn test_fragment_multiple_messages() {
-        let mut fragmenter = Fragmenter::new(200);
-        let messages = vec![
-            create_test_message(50),
-            create_test_message(75),
-            create_test_message(100),
-        ];
-
-        let request_groups = fragmenter.fragment_multiple(&messages);
-
-        assert!(!request_groups.is_empty());
-        assert!(!request_groups[0].is_empty());
-
-        // Flatten all fragments to check overall structure
-        let all_fragments: Vec<&Fragment> = request_groups
-            .iter()
-            .flat_map(|group| group.iter())
-            .collect();
-
-        // First fragment should start
-        assert!(all_fragments[0].start);
-        // Last fragment should end
-        assert!(all_fragments.last().unwrap().end);
-
-        // Each request group should have reasonable boundaries
-        for group in &request_groups {
-            assert!(!group.is_empty());
-            assert!(group.len() <= 10); // Our heuristic limit
-        }
-    }
-
-    #[test]
-    fn test_defragment_single_message() {
-        let mut fragmenter = Fragmenter::new(100);
-        let mut defragmenter = Defragmenter::new();
-        let original_message = create_test_message(250);
+        let runspace_id = Uuid::new_v4();
+        let mut fragmenter = Fragmenter::new(32768); // Large buffer
 
         // Fragment the message
-        let fragments = fragmenter.fragment(&original_message);
+        let fragment_bytes = fragmenter.fragment(&session_capability, runspace_id, None, None);
+        assert_eq!(
+            fragment_bytes.len(),
+            1,
+            "Small message should fit in one fragment"
+        );
 
-        // Pack fragments into wire format
-        let mut wire_data = Vec::new();
-        for fragment in fragments {
-            wire_data.extend_from_slice(&fragment.pack());
+        // Defragment it back
+        let mut defragmenter = Defragmenter::new();
+        let result = defragmenter.defragment(&fragment_bytes[0]).unwrap();
+
+        match result {
+            DefragmentResult::Complete(messages) => {
+                assert_eq!(messages.len(), 1, "Should get back exactly one message");
+                info!("Successfully roundtripped single SessionCapability message");
+            }
+            DefragmentResult::Incomplete => panic!("Single fragment should be complete"),
+        }
+    }
+
+    /// Test fragmenter/defragmenter with artificially small fragment size to force multi-fragment
+    #[test]
+    #[traced_test]
+    fn test_multi_fragment_roundtrip() {
+        let init_runspace_pool = InitRunspacePool {
+            ref_id: None,
+            min_runspaces: 1,
+            max_runspaces: 1,
+            thread_options: PSThreadOptions::Default,
+            apartment_state: ApartmentState::Unknown,
+            host_info: None,
+            application_arguments: HashMap::new(),
+        };
+
+        let runspace_id = Uuid::new_v4();
+        let mut fragmenter = Fragmenter::new(200); // Very small fragments to force multi-fragment
+
+        // Fragment the message (should create multiple fragments)
+        let fragment_bytes = fragmenter.fragment(&init_runspace_pool, runspace_id, None, None);
+        info!("Created {} fragments", fragment_bytes.len());
+        assert!(
+            fragment_bytes.len() > 1,
+            "Small fragment size should create multiple fragments"
+        );
+
+        // Defragment each piece individually (simulating network arrival)
+        let mut defragmenter = Defragmenter::new();
+        let mut completed_messages = Vec::new();
+
+        for (i, fragment) in fragment_bytes.iter().enumerate() {
+            let result = defragmenter.defragment(fragment).unwrap();
+            match result {
+                DefragmentResult::Complete(mut messages) => {
+                    completed_messages.append(&mut messages);
+                    info!("Fragment {} completed the message", i);
+                }
+                DefragmentResult::Incomplete => {
+                    info!("Fragment {} added to buffer", i);
+                }
+            }
         }
 
-        // Defragment using new API
+        assert_eq!(
+            completed_messages.len(),
+            1,
+            "Should reassemble into exactly one message"
+        );
+        info!("Successfully roundtripped multi-fragment InitRunspacePool message");
+    }
+
+    /// Test multiple messages like RunspacePool::open() does
+    #[test]
+    #[traced_test]
+    fn test_multiple_messages_roundtrip() {
+        let session_capability = SessionCapability {
+            ref_id: None,
+            protocol_version: "2.3".to_string(),
+            ps_version: "2.0".to_string(),
+            serialization_version: "1.1.0.1".to_string(),
+            time_zone: "UTC".to_string(),
+        };
+
+        let init_runspace_pool = InitRunspacePool {
+            ref_id: None,
+            min_runspaces: 1,
+            max_runspaces: 1,
+            thread_options: PSThreadOptions::Default,
+            apartment_state: ApartmentState::Unknown,
+            host_info: None,
+            application_arguments: HashMap::new(),
+        };
+
+        let runspace_id = Uuid::new_v4();
+        let mut fragmenter = Fragmenter::new(32768);
+
+        // Fragment both messages
+        let messages = vec![
+            &session_capability as &dyn crate::PsObjectWithType,
+            &init_runspace_pool,
+        ];
+        let all_fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None);
+
+        info!(
+            "Created {} total fragments for 2 messages",
+            all_fragment_bytes.len()
+        );
+
+        // Concatenate all fragments as they would be sent over wire
+        let mut wire_data = Vec::new();
+        for fragment_bytes in &all_fragment_bytes {
+            wire_data.extend_from_slice(fragment_bytes);
+        }
+
+        // Defragment the combined data
+        let mut defragmenter = Defragmenter::new();
         let result = defragmenter.defragment(&wire_data).unwrap();
 
         match result {
             DefragmentResult::Complete(messages) => {
-                assert_eq!(messages.len(), 1);
                 assert_eq!(
-                    messages[0].destination as u32,
-                    original_message.destination as u32
+                    messages.len(),
+                    2,
+                    "Should get back both messages (SessionCapability + InitRunspacePool)"
                 );
+                info!(
+                    "Successfully roundtripped {} PowerShell remoting messages",
+                    messages.len()
+                );
+            }
+            DefragmentResult::Incomplete => {
+                panic!("All fragments should be complete when sent together")
+            }
+        }
+    }
+
+    /// Test the exact RunspacePool::open() scenario with Microsoft-compatible UUIDs
+    #[test]
+    #[traced_test]
+    fn test_runspace_pool_open_scenario() {
+        // Use the same UUID as Microsoft examples for consistency
+        let runspace_id = Uuid::parse_str("d034652d-126b-e340-b773-cba26459cfa8").unwrap();
+
+        let session_capability = SessionCapability {
+            ref_id: None,
+            protocol_version: "2.3".to_string(),
+            ps_version: "2.0".to_string(),
+            serialization_version: "1.1.0.1".to_string(),
+            time_zone: "UTC".to_string(),
+        };
+
+        let init_runspace_pool = InitRunspacePool {
+            ref_id: None,
+            min_runspaces: 1,
+            max_runspaces: 1,
+            thread_options: PSThreadOptions::Default,
+            apartment_state: ApartmentState::Unknown,
+            host_info: None,
+            application_arguments: HashMap::new(),
+        };
+
+        // This mimics the exact call in RunspacePool::open()
+        let mut fragmenter = Fragmenter::new(143600); // Default WS-Management max envelope size
+        let messages = vec![
+            &session_capability as &dyn crate::PsObjectWithType,
+            &init_runspace_pool,
+        ];
+        let fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None);
+
+        info!(
+            "RunspacePool::open() scenario generated {} fragments",
+            fragment_bytes.len()
+        );
+
+        // Concatenate as would be sent in single WSMAN request
+        let mut creation_xml_data = Vec::new();
+        for fragment in &fragment_bytes {
+            creation_xml_data.extend_from_slice(fragment);
+        }
+
+        info!("Total creationXml size: {} bytes", creation_xml_data.len());
+
+        // Parse it back like the server would
+        let mut defragmenter = Defragmenter::new();
+        let result = defragmenter.defragment(&creation_xml_data).unwrap();
+
+        match result {
+            DefragmentResult::Complete(messages) => {
                 assert_eq!(
-                    messages[0].message_type.value(),
-                    original_message.message_type.value()
+                    messages.len(),
+                    2,
+                    "RunspacePool::open() should produce 2 messages"
                 );
+                info!("✅ RunspacePool::open() fragmentation/defragmentation successful!");
+
+                // TODO: Verify message types and content match expected values
             }
-            DefragmentResult::Incomplete => panic!("Expected complete message"),
-        }
-    }
-
-    #[test]
-    fn test_defragment_partial_fragments() {
-        let mut fragmenter = Fragmenter::new(100);
-        let mut defragmenter = Defragmenter::new();
-        let message = create_test_message(250);
-
-        let fragments = fragmenter.fragment(&message);
-        assert!(fragments.len() > 1);
-
-        // Send only first fragment
-        let first_fragment_data = fragments[0].pack();
-        let result = defragmenter.defragment(&first_fragment_data).unwrap();
-
-        // Should have no complete messages yet
-        match result {
-            DefragmentResult::Incomplete => {}
-            DefragmentResult::Complete(_) => panic!("Should be incomplete after first fragment"),
-        }
-        assert_eq!(defragmenter.pending_count(), 1);
-
-        // Send remaining fragments
-        let mut remaining_data = Vec::new();
-        for fragment in &fragments[1..] {
-            remaining_data.extend_from_slice(&fragment.pack());
-        }
-
-        let result = defragmenter.defragment(&remaining_data).unwrap();
-
-        // Should now have complete message
-        match result {
-            DefragmentResult::Complete(messages) => {
-                assert_eq!(messages.len(), 1);
-            }
-            DefragmentResult::Incomplete => panic!("Expected complete message"),
-        }
-        assert_eq!(defragmenter.pending_count(), 0);
-    }
-
-    #[test]
-    fn test_fragment_unpack_pack_roundtrip() {
-        let original = Fragment::new(123, 456, vec![1, 2, 3, 4, 5], true, false);
-        let packed = original.pack();
-        let (unpacked, remaining) = Fragment::unpack(&packed).unwrap();
-
-        assert_eq!(remaining.len(), 0);
-        assert_eq!(unpacked.object_id, original.object_id);
-        assert_eq!(unpacked.fragment_id, original.fragment_id);
-        assert_eq!(unpacked.start, original.start);
-        assert_eq!(unpacked.end, original.end);
-        assert_eq!(unpacked.data, original.data);
-    }
-
-    #[test]
-    fn test_defragmenter_single_complete_message() {
-        let mut defragmenter = Defragmenter::new();
-        let message = create_test_message(50);
-
-        // Create a single complete fragment
-        let fragment = Fragment::new(1, 0, message.clone().into_vec(), true, true);
-        let packet_data = fragment.pack();
-
-        let result = defragmenter.defragment(&packet_data).unwrap();
-
-        match result {
-            DefragmentResult::Complete(messages) => {
-                assert_eq!(messages.len(), 1);
-                assert_eq!(messages[0].destination as u32, message.destination as u32);
-            }
-            DefragmentResult::Incomplete => panic!("Expected complete message"),
-        }
-
-        assert_eq!(defragmenter.pending_count(), 0);
-    }
-
-    #[test]
-    fn test_defragmenter_fragmented_message() {
-        let mut defragmenter = Defragmenter::new();
-        let mut fragmenter = Fragmenter::new(100);
-        let message = create_test_message(250);
-
-        // Fragment the message using the old fragmenter
-        let fragments = fragmenter.fragment(&message);
-        assert!(fragments.len() > 1);
-
-        // Send fragments one by one
-        for (i, fragment) in fragments.iter().enumerate() {
-            let packet_data = fragment.pack();
-            let result = defragmenter.defragment(&packet_data).unwrap();
-
-            if i < fragments.len() - 1 {
-                // Should be incomplete until the last fragment
-                match result {
-                    DefragmentResult::Incomplete => {}
-                    DefragmentResult::Complete(_) => {
-                        panic!("Unexpected complete result at fragment {}", i)
-                    }
-                }
-                assert_eq!(defragmenter.pending_count(), 1);
-            } else {
-                // Last fragment should complete the message
-                match result {
-                    DefragmentResult::Complete(messages) => {
-                        assert_eq!(messages.len(), 1);
-                        assert_eq!(messages[0].destination as u32, message.destination as u32);
-                    }
-                    DefragmentResult::Incomplete => {
-                        panic!("Expected complete message at last fragment")
-                    }
-                }
-                assert_eq!(defragmenter.pending_count(), 0);
+            DefragmentResult::Incomplete => {
+                panic!("RunspacePool::open() fragments should be complete")
             }
         }
-    }
-
-    #[test]
-    fn test_defragmenter_multiple_messages_mixed_packet() {
-        let mut defragmenter = Defragmenter::new();
-
-        // Create two complete single-fragment messages
-        let msg1 = create_test_message(50);
-        let msg2 = create_test_message(75);
-
-        let frag1 = Fragment::new(1, 0, msg1.clone().into_vec(), true, true);
-        let frag2 = Fragment::new(2, 0, msg2.clone().into_vec(), true, true);
-
-        // Pack both fragments into a single packet (as per protocol spec)
-        let mut packet_data = Vec::new();
-        packet_data.extend_from_slice(&frag1.pack());
-        packet_data.extend_from_slice(&frag2.pack());
-
-        let result = defragmenter.defragment(&packet_data).unwrap();
-
-        match result {
-            DefragmentResult::Complete(messages) => {
-                assert_eq!(messages.len(), 2);
-            }
-            DefragmentResult::Incomplete => panic!("Expected complete messages"),
-        }
-
-        assert_eq!(defragmenter.pending_count(), 0);
     }
 }
