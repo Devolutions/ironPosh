@@ -109,11 +109,11 @@ impl WsMan {
             .max_envelope_size(
                 Tag::new(self.max_envelope_size).with_attribute(Attribute::MustUnderstand(true)),
             )
-            .resource_uri(resource_uri)
+            .resource_uri(Tag::new(resource_uri).with_attribute(Attribute::MustUnderstand(true)))
             .operation_timeout(Time::from(self.operation_timeout))
             .message_id(message_id)
             .to(self.to.as_ref())
-            .reply_to(reply_to_addr)
+            .reply_to(Tag::new(reply_to_addr).with_attribute(Attribute::MustUnderstand(true)))
             .session_id(
                 Tag::new(WsUuid(self.session_id)).with_attribute(Attribute::MustUnderstand(false)),
             )
@@ -126,7 +126,10 @@ impl WsMan {
                     .with_attribute(Attribute::MustUnderstand(true))
                     .with_declaration(Namespace::WsmanShell),
             )
-            .option_set_opt(option_set.map(Tag::from))
+            .option_set_opt(option_set.map(Tag::from).map(|t| {
+                t.with_declaration(Namespace::XmlSchemaInstance)
+                    .with_attribute(Attribute::MustUnderstand(true))
+            }))
             .selector_set_opt(selector_set.map(Tag::from))
             .build();
 

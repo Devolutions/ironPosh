@@ -6,7 +6,7 @@ use xml::{
     parser::{XmlDeserialize, XmlVisitor},
 };
 
-use crate::cores::{OptionTagName, SelectorTagName, TagName, TagValue};
+use crate::cores::{self, OptionTagName, SelectorTagName, TagName, TagValue};
 
 #[derive(Debug, Clone)]
 pub struct SelectorSetValue {
@@ -168,7 +168,8 @@ impl<'a> TagValue<'a> for OptionSetValue {
                     OptionTagName::NAMESPACE.expect("OptionTagName definately has a namespace"),
                 ))
                 .set_text(value)
-                .add_attribute(xml::builder::Attribute::new("Name", name));
+                .add_attribute(cores::Attribute::Name(name.into()).into())
+                .add_attribute(cores::Attribute::MustComply(true).into());
             element = element.add_child(option_element);
         }
 

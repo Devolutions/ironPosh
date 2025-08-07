@@ -153,7 +153,7 @@ impl RunspacePool {
             ))
             .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))?;
 
-        let option_set = OptionSetValue::new().add_option("protocol_version", PROTOCOL_VERSION);
+        let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
 
         let result = self
             .shell

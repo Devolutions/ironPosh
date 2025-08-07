@@ -63,18 +63,22 @@ impl WinRunspace {
             .with_attribute(protocol_winrm::cores::Attribute::ShellId(
                 self.id.to_string().into(),
             ))
-            .with_declaration(protocol_winrm::cores::Namespace::PowerShellRemoting);
+            .with_attribute(protocol_winrm::cores::Attribute::Name(
+                self.name.as_deref().unwrap_or("Runspace1").into(),
+            ))
+            .with_declaration(protocol_winrm::cores::Namespace::WsmanShell);
 
         let shell_value = ShellValue::builder()
             .input_streams(self.input_streams.as_ref())
             .output_streams(self.output_streams.as_ref())
             .idle_time_out_opt(self.idle_time_out.map(Time).map(Tag::new))
-            .creation_xml(open_content)
+            .creation_xml(
+                Tag::new(open_content)
+                    .with_declaration(protocol_winrm::cores::Namespace::PowerShellRemoting),
+            )
             .build();
 
-        let shell = shell
-            .with_value(shell_value)
-            .with_declaration(protocol_winrm::cores::Namespace::WsmanShell);
+        let shell = shell.with_value(shell_value);
 
         let mut option_set = option_set.unwrap_or_default();
 
@@ -87,7 +91,7 @@ impl WinRunspace {
         }
 
         self.ws_man.invoke(
-            ws_management::WsAction::ShellCreate,
+            ws_management::WsAction::Create,
             None,
             Some(AnyTag::Shell(shell)),
             Some(option_set),
