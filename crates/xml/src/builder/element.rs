@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap};
 
 use tracing::error;
 
-use crate::builder::{Attribute, Namespace, NamespaceFmt};
+use crate::builder::{declaration, Attribute, Namespace, NamespaceFmt};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -260,9 +260,15 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             AliasStatus::NamespaceFoundWithAlias(alias) => {
                 format!("{}:{}", alias, self.name)
             }
-            AliasStatus::NamespaceFoundWithoutAlias
-            | AliasStatus::NamespaceNotFoundInDeclaration
-            | AliasStatus::NamespaceDeclarationMapMissing => {
+            AliasStatus::NamespaceFoundWithoutAlias => {
+                error!(alias_status = ?alias, tag_name = self.name, "Element has no alias but namespace is present");
+                return Err(std::fmt::Error);
+            }
+            AliasStatus::NamespaceNotFoundInDeclaration => {
+                error!(alias_status = ?alias, tag_name = self.name, expected_namespace = ?self.namespace, ?namespace_declaration_map, self_namespaces_declaration = ?self.namespaces_declaration , "Namespace not found in declaration map for element");
+                return Err(std::fmt::Error);
+            }
+            AliasStatus::NamespaceDeclarationMapMissing => {
                 error!(alias_status = ?alias, tag_name = self.name, missing_namespace =?self.namespace, namespace_declaration_map = ?namespace_declaration_map, "Namespace alias not found for element");
                 return Err(std::fmt::Error);
             }

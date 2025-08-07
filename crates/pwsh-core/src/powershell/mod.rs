@@ -111,7 +111,7 @@ impl RunspacePool {
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
             serialization_version: SERIALIZATION_VERSION.to_string(),
-            time_zone: "UTC".to_string(), // Default to UTC, can be customized
+            time_zone: None,
         };
 
         let init_runspace_pool = InitRunspacePool {

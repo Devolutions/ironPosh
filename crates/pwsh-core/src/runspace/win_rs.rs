@@ -72,7 +72,9 @@ impl WinRunspace {
             .creation_xml(open_content)
             .build();
 
-        let shell = shell.with_value(shell_value);
+        let shell = shell
+            .with_value(shell_value)
+            .with_declaration(protocol_winrm::cores::Namespace::WsmanShell);
 
         let mut option_set = option_set.unwrap_or_default();
 

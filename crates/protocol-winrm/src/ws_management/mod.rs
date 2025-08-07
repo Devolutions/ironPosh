@@ -3,20 +3,23 @@ pub mod header;
 pub use header::*;
 
 use crate::{
-    cores::{Attribute, Tag, Time, anytag::AnyTag, namespace::Namespace, tag_name::*},
+    cores::{
+        Attribute, Tag, Time, WsUuid, anytag::AnyTag, namespace::Namespace, tag_name::*,
+        tag_value::Text,
+    },
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
 };
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct WsMan {
-    #[builder(default = 143600)]
+    #[builder(default = 512000)]
     max_envelope_size: u32,
 
-    #[builder(default = 20)]
+    #[builder(default = 180)]
     operation_timeout: u32,
 
-    #[builder(default = "eb-CA".to_string())]
+    #[builder(default = "en-CA".to_string())]
     data_locale: String,
 
     #[builder(default = "en-US".to_string())]
@@ -24,6 +27,11 @@ pub struct WsMan {
 
     #[builder(default = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell".to_string())]
     resource_uri: String,
+
+    #[builder(default = uuid::Uuid::new_v4())]
+    session_id: uuid::Uuid,
+
+    to: String,
 }
 
 impl WsMan {
@@ -70,8 +78,9 @@ impl WsMan {
         option_set: Option<header::OptionSetValue>,
         selector_set: Option<header::SelectorSetValue>,
     ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
-        // Generate a unique message ID
+        // Generate a unique message ID and operation ID for this request
         let message_id = uuid::Uuid::new_v4();
+        let operation_id = uuid::Uuid::new_v4();
 
         let resource_uri = resource_uri.unwrap_or(self.resource_uri.as_str());
 
@@ -90,7 +99,7 @@ impl WsMan {
             .data_locale(
                 Tag::new(())
                     .with_attribute(Attribute::MustUnderstand(false))
-                    .with_attribute(Attribute::XmlLang(self.data_locale.clone().into())), //
+                    .with_attribute(Attribute::XmlLang(self.data_locale.clone().into())),
             )
             .locale(
                 Tag::new(())
@@ -103,8 +112,20 @@ impl WsMan {
             .resource_uri(resource_uri)
             .operation_timeout(Time::from(self.operation_timeout))
             .message_id(message_id)
-            .to("http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous")
+            .to(self.to.as_ref())
             .reply_to(reply_to_addr)
+            .session_id(
+                Tag::new(WsUuid(self.session_id)).with_attribute(Attribute::MustUnderstand(false)),
+            )
+            .operation_id(
+                Tag::new(WsUuid(operation_id)).with_attribute(Attribute::MustUnderstand(false)),
+            )
+            .sequence_id(Tag::new(Text::from("1")).with_attribute(Attribute::MustUnderstand(false)))
+            .compression_type(
+                Tag::new(Text::from("xpress"))
+                    .with_attribute(Attribute::MustUnderstand(true))
+                    .with_declaration(Namespace::WsmanShell),
+            )
             .option_set_opt(option_set.map(Tag::from))
             .selector_set_opt(selector_set.map(Tag::from))
             .build();
@@ -126,6 +147,5 @@ impl WsMan {
             .with_declaration(Namespace::WsAddressing2004)
             .with_declaration(Namespace::DmtfWsmanSchema)
             .with_declaration(Namespace::MsWsmanSchema)
-            .with_declaration(Namespace::WsmanShell)
     }
 }

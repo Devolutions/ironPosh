@@ -1,10 +1,19 @@
 use base64::Engine;
-use std::net::IpAddr;
+use std::{fmt::Display, net::IpAddr};
 
 #[derive(Debug, Clone)]
 pub enum ServerAddress {
     Ip(IpAddr),
     Domain(String),
+}
+
+impl Display for ServerAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServerAddress::Ip(ip) => write!(f, "{}", ip),
+            ServerAddress::Domain(domain) => write!(f, "{}", domain),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -26,6 +26,18 @@ pub struct ConnectorConfig {
     pub authentication: Authentication,
 }
 
+impl ConnectorConfig {
+    pub fn wsman_to(&self, query: &str) -> String {
+        match &self.scheme {
+            Scheme::Http => format!("http://{}:{}/wsman?{}", self.server.0, self.server.1, query),
+            Scheme::Https => format!(
+                "https://{}:{}/wsman?{}",
+                self.server.0, self.server.1, query
+            ),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UserEvent {}
 
@@ -84,7 +96,11 @@ impl Connector {
             ConnectorState::Idle => {
                 debug_assert!(request.is_none(), "Request should be None in Idle state");
                 let runspace_pool = RunspacePool::builder()
-                    .connection(Arc::new(WsMan::builder().build()))
+                    .connection(Arc::new(
+                        WsMan::builder()
+                            .to(self.config.wsman_to("PSVersion=7.4.10"))
+                            .build(),
+                    ))
                     .build();
 
                 let http_builder = HttpBuilder::new(

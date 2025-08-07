@@ -202,7 +202,7 @@ impl PowerShellRemotingMessage {
         let message_type = message.message_type();
         let data: PsObject = message.to_ps_object();
 
-        Self::new(Destination::Client, message_type, rpid, pid, &data)
+        Self::new(Destination::Server, message_type, rpid, pid, &data)
     }
 
     pub fn new(

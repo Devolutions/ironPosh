@@ -6,7 +6,7 @@ pub struct SessionCapability {
     pub protocol_version: String,
     pub ps_version: String,
     pub serialization_version: String,
-    pub time_zone: String,
+    pub time_zone: Option<String>,
 }
 
 impl PsObjectWithType for SessionCapability {
@@ -30,30 +30,35 @@ impl PsObjectWithType for SessionCapability {
 
 impl From<SessionCapability> for PsObject {
     fn from(cap: SessionCapability) -> Self {
+        let mut ms = vec![
+            PsProperty {
+                name: Some("protocolversion".to_string()),
+                ref_id: None,
+                value: PsValue::Version(cap.protocol_version),
+            },
+            PsProperty {
+                name: Some("PSVersion".to_string()),
+                ref_id: None,
+                value: PsValue::Version(cap.ps_version),
+            },
+            PsProperty {
+                name: Some("SerializationVersion".to_string()),
+                ref_id: None,
+                value: PsValue::Version(cap.serialization_version),
+            },
+        ];
+
+        if let Some(time_zone) = cap.time_zone {
+            ms.push(PsProperty {
+                name: Some("TimeZone".to_string()),
+                ref_id: None,
+                value: PsValue::Bytes(time_zone.into_bytes()),
+            });
+        }
+
         PsObject {
             ref_id: cap.ref_id,
-            ms: vec![
-                PsProperty {
-                    name: Some("protocolversion".to_string()),
-                    ref_id: None,
-                    value: PsValue::Version(cap.protocol_version),
-                },
-                PsProperty {
-                    name: Some("PSVersion".to_string()),
-                    ref_id: None,
-                    value: PsValue::Version(cap.ps_version),
-                },
-                PsProperty {
-                    name: Some("SerializationVersion".to_string()),
-                    ref_id: None,
-                    value: PsValue::Version(cap.serialization_version),
-                },
-                PsProperty {
-                    name: Some("TimeZone".to_string()),
-                    ref_id: None,
-                    value: PsValue::Bytes(cap.time_zone.into_bytes()),
-                },
-            ],
+            ms,
             ..Default::default()
         }
     }

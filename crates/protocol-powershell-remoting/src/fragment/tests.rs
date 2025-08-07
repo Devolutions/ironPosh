@@ -21,7 +21,7 @@ mod tests {
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
-            time_zone: "UTC".to_string(),
+            time_zone: None,
         };
 
         let runspace_id = Uuid::new_v4();
@@ -107,7 +107,7 @@ mod tests {
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
-            time_zone: "UTC".to_string(),
+            time_zone: None,
         };
 
         let init_runspace_pool = InitRunspacePool {
@@ -175,7 +175,7 @@ mod tests {
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
-            time_zone: "UTC".to_string(),
+            time_zone: None,
         };
 
         let init_runspace_pool = InitRunspacePool {
