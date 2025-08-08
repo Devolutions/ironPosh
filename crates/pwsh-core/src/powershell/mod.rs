@@ -2,8 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, SessionCapability,
-    PsValue, fragment,
+    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsValue, SessionCapability,
+    fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,

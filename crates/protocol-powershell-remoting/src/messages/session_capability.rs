@@ -1,5 +1,8 @@
+use super::{
+    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
+    PsValue,
+};
 use crate::MessageType;
-use super::{PsObjectWithType, PsValue, PsProperty, ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue};
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +36,7 @@ impl PsObjectWithType for SessionCapability {
 impl From<SessionCapability> for ComplexObject {
     fn from(cap: SessionCapability) -> Self {
         let mut extended_properties = BTreeMap::new();
-        
+
         extended_properties.insert(
             "protocolversion".to_string(),
             PsProperty {
@@ -41,7 +44,7 @@ impl From<SessionCapability> for ComplexObject {
                 value: PsValue::Primitive(PsPrimitiveValue::Version(cap.protocol_version)),
             },
         );
-        
+
         extended_properties.insert(
             "PSVersion".to_string(),
             PsProperty {
@@ -49,7 +52,7 @@ impl From<SessionCapability> for ComplexObject {
                 value: PsValue::Primitive(PsPrimitiveValue::Version(cap.ps_version)),
             },
         );
-        
+
         extended_properties.insert(
             "SerializationVersion".to_string(),
             PsProperty {

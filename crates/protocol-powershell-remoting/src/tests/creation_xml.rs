@@ -1,6 +1,6 @@
 use crate::{
     fragment::{DefragmentResult, Defragmenter, Fragmenter},
-    messages::{InitRunspacePool, SessionCapability, ApartmentState, PSThreadOptions},
+    messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
 };
 use std::collections::BTreeMap;
 use tracing::info;
@@ -37,7 +37,9 @@ fn test_combined_messages_like_runspace_open() {
         &session_capability as &dyn crate::PsObjectWithType,
         &init_runspace_pool,
     ];
-    let fragmented_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
+    let fragmented_bytes = fragmenter
+        .fragment_multiple(&messages, runspace_id, None)
+        .unwrap();
 
     info!(
         "Combined messages fragmented bytes len: {}",

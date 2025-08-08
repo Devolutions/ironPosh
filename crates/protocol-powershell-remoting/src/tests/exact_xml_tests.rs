@@ -1,6 +1,7 @@
 use crate::messages::{
     ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
-    PsValue, deserialize::{DeserializationContext, PsXmlDeserialize},
+    PsValue,
+    deserialize::{DeserializationContext, PsXmlDeserialize},
 };
 use base64::Engine;
 use std::borrow::Cow;
@@ -565,7 +566,8 @@ fn test_round_trip_session_capability() {
     let doc = parse(&xml).expect("Failed to parse XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized = ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
+    let deserialized =
+        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
 
     // Step 3: Compare key properties
     assert_eq!(
@@ -621,7 +623,8 @@ fn test_round_trip_enum_object() {
     let doc = parse(&xml).expect("Failed to parse XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized = ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
+    let deserialized =
+        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
 
     // Verify
     assert!(deserialized.type_def.is_some());
@@ -677,7 +680,8 @@ fn test_round_trip_dictionary_container() {
     let doc = parse(&xml).expect("Failed to parse XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized = ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
+    let deserialized =
+        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
 
     // Verify structure
     if let ComplexObjectContent::Container(Container::Dictionary(deserialized_dict)) =
@@ -730,8 +734,8 @@ fn test_deserialize_predefined_session_capability_xml() {
     let doc = parse(xml).expect("Failed to parse predefined XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized =
-        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize predefined XML");
+    let deserialized = ComplexObject::from_node_with_context(root, &mut context)
+        .expect("Failed to deserialize predefined XML");
 
     // Verify structure
     assert_eq!(deserialized.content, ComplexObjectContent::Standard);
@@ -782,7 +786,8 @@ fn test_deserialize_simple_enum_xml() {
     let doc = parse(xml).expect("Failed to parse enum XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized = ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize enum XML");
+    let deserialized = ComplexObject::from_node_with_context(root, &mut context)
+        .expect("Failed to deserialize enum XML");
 
     // Verify enum structure
     assert!(deserialized.type_def.is_some());
@@ -826,8 +831,8 @@ fn test_deserialize_dictionary_xml() {
     let doc = parse(xml).expect("Failed to parse dictionary XML");
     let root = doc.root_element();
     let mut context = DeserializationContext::new();
-    let deserialized =
-        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize dictionary XML");
+    let deserialized = ComplexObject::from_node_with_context(root, &mut context)
+        .expect("Failed to deserialize dictionary XML");
 
     // Verify dictionary structure
     if let ComplexObjectContent::Container(Container::Dictionary(dict)) = &deserialized.content {
@@ -904,7 +909,8 @@ fn test_primitive_values_round_trip() {
         let doc = parse(&xml).expect("Failed to parse XML");
         let root = doc.root_element();
         let mut context = DeserializationContext::new();
-        let deserialized = ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
+        let deserialized = ComplexObject::from_node_with_context(root, &mut context)
+            .expect("Failed to deserialize");
 
         // Verify
         if let ComplexObjectContent::ExtendedPrimitive(deserialized_primitive) =

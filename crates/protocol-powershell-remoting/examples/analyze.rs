@@ -129,7 +129,6 @@ fn print_section(title: &str) {
     println!("{}", "-".repeat(60));
 }
 
-
 fn try_defragment_multiple_messages(
     messages: &[&str],
 ) -> Result<Vec<protocol_powershell_remoting::PowerShellRemotingMessage>, Box<dyn std::error::Error>>

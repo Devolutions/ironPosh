@@ -1,4 +1,4 @@
-use super::super::{ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, PsEnums};
+use super::super::{ComplexObject, ComplexObjectContent, PsEnums, PsPrimitiveValue, PsType};
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,18 +19,20 @@ impl From<PSThreadOptions> for ComplexObject {
                 Cow::Borrowed("System.Object"),
             ],
         };
-        
+
         let to_string = match option {
             PSThreadOptions::Default => "Default".to_string(),
             PSThreadOptions::UseNewThread => "UseNewThread".to_string(),
             PSThreadOptions::ReuseThread => "ReuseThread".to_string(),
             PSThreadOptions::UseCurrentThread => "UseCurrentThread".to_string(),
         };
-        
+
         ComplexObject {
             type_def: Some(type_def),
             to_string: Some(to_string),
-            content: ComplexObjectContent::PsEnums(PsEnums { value: option as i32 }),
+            content: ComplexObjectContent::PsEnums(PsEnums {
+                value: option as i32,
+            }),
             adapted_properties: BTreeMap::new(),
             extended_properties: BTreeMap::new(),
         }

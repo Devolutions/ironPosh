@@ -10,8 +10,8 @@ pub enum ServerAddress {
 impl Display for ServerAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ServerAddress::Ip(ip) => write!(f, "{}", ip),
-            ServerAddress::Domain(domain) => write!(f, "{}", domain),
+            ServerAddress::Ip(ip) => write!(f, "{ip}"),
+            ServerAddress::Domain(domain) => write!(f, "{domain}"),
         }
     }
 }

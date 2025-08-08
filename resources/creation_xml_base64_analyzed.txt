@@ -58,13 +58,37 @@
 ------------------------------------------------------------
 7. PowerShell Object Details
 ------------------------------------------------------------
-PsObject {
-  RefId: 0,
-  MemberSet: [
-    protocolversion: Version(2.3),
-    PSVersion: Version(2.0),
-    SerializationVersion: Version(1.1.0.1),
-  ],
+ComplexObject {
+    type_def: None,
+    to_string: None,
+    content: Standard,
+    adapted_properties: {},
+    extended_properties: {
+        "PSVersion": PsProperty {
+            name: "PSVersion",
+            value: Primitive(
+                Version(
+                    "2.0",
+                ),
+            ),
+        },
+        "SerializationVersion": PsProperty {
+            name: "SerializationVersion",
+            value: Primitive(
+                Version(
+                    "1.1.0.1",
+                ),
+            ),
+        },
+        "protocolversion": PsProperty {
+            name: "protocolversion",
+            value: Primitive(
+                Version(
+                    "2.3",
+                ),
+            ),
+        },
+    },
 }
 
 ================================================================================
@@ -92,181 +116,789 @@ PsObject {
 ------------------------------------------------------------
 7. PowerShell Object Details
 ------------------------------------------------------------
-PsObject {
-  RefId: 0,
-  MemberSet: [
-    MinRunspaces: 1,
-    MaxRunspaces: 1,
-    PSThreadOptions:     PsObject {
-      RefId: 1,
-      TypeNames: ["System.Management.Automation.Runspaces.PSThreadOptions", "System.Enum", "System.ValueType", "System.Object"],
-    },
-    ApartmentState:     PsObject {
-      RefId: 2,
-      TypeNames: ["System.Threading.ApartmentState", "System.Enum", "System.ValueType", "System.Object"],
-    },
-    ApplicationArguments:     PsObject {
-      RefId: 3,
-      TypeNames: ["System.Management.Automation.PSPrimitiveDictionary", "System.Collections.Hashtable", "System.Object"],
-      Dictionary: {
-        "PSVersionTable":         PsObject {
-          RefId: 4,
-          TNRef: 2,
-          Dictionary: {
-            "Platform": "Win32NT",
-            "PSVersion": Version(7.4.10),
-            "WSManStackVersion": Version(3.0),
-            "PSSemanticVersion": "7.4.10",
-            "GitCommitId": "7.4.10",
-            "OS": "Microsoft Windows 10.0.22631",
-            "PSCompatibleVersions":             PsObject {
-              RefId: 5,
-              TypeNames: ["System.Version[]", "System.Array", "System.Object"],
-              List: [
-                [0]: Version(1.0),
-                [1]: Version(2.0),
-                [2]: Version(3.0),
-                [3]: Version(4.0),
-                [4]: Version(5.0),
-                [5]: Version(5.1),
-                [6]: Version(6.0),
-                [7]: Version(7.0),
-              ],
-            },
-            "SerializationVersion": Version(1.1.0.1),
-            "PSRemotingProtocolVersion": Version(2.3),
-            "PSEdition": "Core",
-          },
+ComplexObject {
+    type_def: None,
+    to_string: None,
+    content: Standard,
+    adapted_properties: {},
+    extended_properties: {
+        "ApartmentState": PsProperty {
+            name: "ApartmentState",
+            value: Object(
+                ComplexObject {
+                    type_def: Some(
+                        PsType {
+                            type_names: [
+                                "System.Threading.ApartmentState",
+                                "System.Enum",
+                                "System.ValueType",
+                                "System.Object",
+                            ],
+                        },
+                    ),
+                    to_string: Some(
+                        "Unknown",
+                    ),
+                    content: PsEnums(
+                        PsEnums {
+                            value: 2,
+                        },
+                    ),
+                    adapted_properties: {},
+                    extended_properties: {},
+                },
+            ),
         },
-      },
-    },
-    HostInfo:     PsObject {
-      RefId: 6,
-      MemberSet: [
-        _isHostUINull: false,
-        _isHostRawUINull: false,
-        _isHostNull: false,
-        _hostDefaultData:         PsObject {
-          RefId: 7,
-          MemberSet: [
-            data:             PsObject {
-              RefId: 8,
-              TypeNames: ["System.Collections.Hashtable", "System.Object"],
-              Dictionary: {
-                4:                 PsObject {
-                  RefId: 18,
-                  MemberSet: [
-                    T: "System.Int32",
-                    V: 25,
-                  ],
+        "ApplicationArguments": PsProperty {
+            name: "ApplicationArguments",
+            value: Object(
+                ComplexObject {
+                    type_def: Some(
+                        PsType {
+                            type_names: [
+                                "System.Management.Automation.PSPrimitiveDictionary",
+                                "System.Collections.Hashtable",
+                                "System.Object",
+                            ],
+                        },
+                    ),
+                    to_string: None,
+                    content: Container(
+                        Dictionary(
+                            {
+                                Primitive(
+                                    Str(
+                                        "PSVersionTable",
+                                    ),
+                                ): Object(
+                                    ComplexObject {
+                                        type_def: Some(
+                                            PsType {
+                                                type_names: [
+                                                    "System.Management.Automation.PSPrimitiveDictionary",
+                                                    "System.Collections.Hashtable",
+                                                    "System.Object",
+                                                ],
+                                            },
+                                        ),
+                                        to_string: None,
+                                        content: Container(
+                                            Dictionary(
+                                                {
+                                                    Primitive(
+                                                        Str(
+                                                            "GitCommitId",
+                                                        ),
+                                                    ): Primitive(
+                                                        Str(
+                                                            "7.4.10",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "OS",
+                                                        ),
+                                                    ): Primitive(
+                                                        Str(
+                                                            "Microsoft Windows 10.0.22631",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "PSCompatibleVersions",
+                                                        ),
+                                                    ): Object(
+                                                        ComplexObject {
+                                                            type_def: Some(
+                                                                PsType {
+                                                                    type_names: [
+                                                                        "System.Version[]",
+                                                                        "System.Array",
+                                                                        "System.Object",
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            to_string: None,
+                                                            content: Container(
+                                                                List(
+                                                                    [
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "1.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "2.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "3.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "4.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "5.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "5.1",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "6.0",
+                                                                            ),
+                                                                        ),
+                                                                        Primitive(
+                                                                            Version(
+                                                                                "7.0",
+                                                                            ),
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            ),
+                                                            adapted_properties: {},
+                                                            extended_properties: {},
+                                                        },
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "PSEdition",
+                                                        ),
+                                                    ): Primitive(
+                                                        Str(
+                                                            "Core",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "PSRemotingProtocolVersion",
+                                                        ),
+                                                    ): Primitive(
+                                                        Version(
+                                                            "2.3",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "PSSemanticVersion",
+                                                        ),
+                                                    ): Primitive(
+                                                        Str(
+                                                            "7.4.10",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "PSVersion",
+                                                        ),
+                                                    ): Primitive(
+                                                        Version(
+                                                            "7.4.10",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "Platform",
+                                                        ),
+                                                    ): Primitive(
+                                                        Str(
+                                                            "Win32NT",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "SerializationVersion",
+                                                        ),
+                                                    ): Primitive(
+                                                        Version(
+                                                            "1.1.0.1",
+                                                        ),
+                                                    ),
+                                                    Primitive(
+                                                        Str(
+                                                            "WSManStackVersion",
+                                                        ),
+                                                    ): Primitive(
+                                                        Version(
+                                                            "3.0",
+                                                        ),
+                                                    ),
+                                                },
+                                            ),
+                                        ),
+                                        adapted_properties: {},
+                                        extended_properties: {},
+                                    },
+                                ),
+                            },
+                        ),
+                    ),
+                    adapted_properties: {},
+                    extended_properties: {},
                 },
-                2:                 PsObject {
-                  RefId: 21,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Coordinates",
-                    V:                     PsObject {
-                      RefId: 22,
-                      MemberSet: [
-                        x: 0,
-                        y: 27,
-                      ],
-                    },
-                  ],
-                },
-                0:                 PsObject {
-                  RefId: 24,
-                  MemberSet: [
-                    T: "System.ConsoleColor",
-                    V: 7,
-                  ],
-                },
-                1:                 PsObject {
-                  RefId: 23,
-                  MemberSet: [
-                    T: "System.ConsoleColor",
-                    V: 0,
-                  ],
-                },
-                6:                 PsObject {
-                  RefId: 14,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      RefId: 15,
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-                9:                 PsObject {
-                  RefId: 9,
-                  MemberSet: [
-                    T: "System.String",
-                    V: "PowerShell",
-                  ],
-                },
-                7:                 PsObject {
-                  RefId: 12,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      RefId: 13,
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-                5:                 PsObject {
-                  RefId: 16,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      RefId: 17,
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-                8:                 PsObject {
-                  RefId: 10,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      RefId: 11,
-                      MemberSet: [
-                        width: 3824,
-                        height: 2121,
-                      ],
-                    },
-                  ],
-                },
-                3:                 PsObject {
-                  RefId: 19,
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Coordinates",
-                    V:                     PsObject {
-                      RefId: 20,
-                      MemberSet: [
-                        x: 0,
-                        y: 0,
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          ],
+            ),
         },
-        _useRunspaceHost: false,
-      ],
+        "HostInfo": PsProperty {
+            name: "HostInfo",
+            value: Object(
+                ComplexObject {
+                    type_def: None,
+                    to_string: None,
+                    content: Standard,
+                    adapted_properties: {},
+                    extended_properties: {
+                        "_hostDefaultData": PsProperty {
+                            name: "_hostDefaultData",
+                            value: Object(
+                                ComplexObject {
+                                    type_def: None,
+                                    to_string: None,
+                                    content: Standard,
+                                    adapted_properties: {},
+                                    extended_properties: {
+                                        "data": PsProperty {
+                                            name: "data",
+                                            value: Object(
+                                                ComplexObject {
+                                                    type_def: Some(
+                                                        PsType {
+                                                            type_names: [
+                                                                "System.Collections.Hashtable",
+                                                                "System.Object",
+                                                            ],
+                                                        },
+                                                    ),
+                                                    to_string: None,
+                                                    content: Container(
+                                                        Dictionary(
+                                                            {
+                                                                Primitive(
+                                                                    I32(
+                                                                        0,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.ConsoleColor",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Primitive(
+                                                                                    I32(
+                                                                                        7,
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        1,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.ConsoleColor",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Primitive(
+                                                                                    I32(
+                                                                                        0,
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        2,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Coordinates",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "x": PsProperty {
+                                                                                                name: "x",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        0,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "y": PsProperty {
+                                                                                                name: "y",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        27,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        3,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Coordinates",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "x": PsProperty {
+                                                                                                name: "x",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        0,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "y": PsProperty {
+                                                                                                name: "y",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        0,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        4,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Int32",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Primitive(
+                                                                                    I32(
+                                                                                        25,
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        5,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Size",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "height": PsProperty {
+                                                                                                name: "height",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        30,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "width": PsProperty {
+                                                                                                name: "width",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        120,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        6,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Size",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "height": PsProperty {
+                                                                                                name: "height",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        30,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "width": PsProperty {
+                                                                                                name: "width",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        120,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        7,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Size",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "height": PsProperty {
+                                                                                                name: "height",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        30,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "width": PsProperty {
+                                                                                                name: "width",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        120,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        8,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.Management.Automation.Host.Size",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Object(
+                                                                                    ComplexObject {
+                                                                                        type_def: None,
+                                                                                        to_string: None,
+                                                                                        content: Standard,
+                                                                                        adapted_properties: {},
+                                                                                        extended_properties: {
+                                                                                            "height": PsProperty {
+                                                                                                name: "height",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        2121,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                            "width": PsProperty {
+                                                                                                name: "width",
+                                                                                                value: Primitive(
+                                                                                                    I32(
+                                                                                                        3824,
+                                                                                                    ),
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                                Primitive(
+                                                                    I32(
+                                                                        9,
+                                                                    ),
+                                                                ): Object(
+                                                                    ComplexObject {
+                                                                        type_def: None,
+                                                                        to_string: None,
+                                                                        content: Standard,
+                                                                        adapted_properties: {},
+                                                                        extended_properties: {
+                                                                            "T": PsProperty {
+                                                                                name: "T",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "System.String",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                            "V": PsProperty {
+                                                                                name: "V",
+                                                                                value: Primitive(
+                                                                                    Str(
+                                                                                        "PowerShell",
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ),
+                                                    adapted_properties: {},
+                                                    extended_properties: {},
+                                                },
+                                            ),
+                                        },
+                                    },
+                                },
+                            ),
+                        },
+                        "_isHostNull": PsProperty {
+                            name: "_isHostNull",
+                            value: Primitive(
+                                Bool(
+                                    false,
+                                ),
+                            ),
+                        },
+                        "_isHostRawUINull": PsProperty {
+                            name: "_isHostRawUINull",
+                            value: Primitive(
+                                Bool(
+                                    false,
+                                ),
+                            ),
+                        },
+                        "_isHostUINull": PsProperty {
+                            name: "_isHostUINull",
+                            value: Primitive(
+                                Bool(
+                                    false,
+                                ),
+                            ),
+                        },
+                        "_useRunspaceHost": PsProperty {
+                            name: "_useRunspaceHost",
+                            value: Primitive(
+                                Bool(
+                                    false,
+                                ),
+                            ),
+                        },
+                    },
+                },
+            ),
+        },
+        "MaxRunspaces": PsProperty {
+            name: "MaxRunspaces",
+            value: Primitive(
+                I32(
+                    1,
+                ),
+            ),
+        },
+        "MinRunspaces": PsProperty {
+            name: "MinRunspaces",
+            value: Primitive(
+                I32(
+                    1,
+                ),
+            ),
+        },
+        "PSThreadOptions": PsProperty {
+            name: "PSThreadOptions",
+            value: Object(
+                ComplexObject {
+                    type_def: Some(
+                        PsType {
+                            type_names: [
+                                "System.Management.Automation.Runspaces.PSThreadOptions",
+                                "System.Enum",
+                                "System.ValueType",
+                                "System.Object",
+                            ],
+                        },
+                    ),
+                    to_string: Some(
+                        "Default",
+                    ),
+                    content: PsEnums(
+                        PsEnums {
+                            value: 0,
+                        },
+                    ),
+                    adapted_properties: {},
+                    extended_properties: {},
+                },
+            ),
+        },
     },
-  ],
 }
 
 ================================================================================

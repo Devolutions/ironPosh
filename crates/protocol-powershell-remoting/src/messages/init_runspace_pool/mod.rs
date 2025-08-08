@@ -8,9 +8,15 @@ pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
 pub use ps_thread_options::PSThreadOptions;
 
+use super::{
+    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    PsType, PsValue,
+};
 use crate::MessageType;
-use super::{PsObjectWithType, PsValue, PsProperty, ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, Container};
-use std::{borrow::Cow, collections::{HashMap, BTreeMap}};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitRunspacePool {
@@ -99,15 +105,17 @@ impl From<InitRunspacePool> for ComplexObject {
                     Cow::Borrowed("System.Object"),
                 ],
             };
-            
+
             let app_args_obj = ComplexObject {
                 type_def: Some(app_args_type),
                 to_string: None,
-                content: ComplexObjectContent::Container(Container::Dictionary(init.application_arguments)),
+                content: ComplexObjectContent::Container(Container::Dictionary(
+                    init.application_arguments,
+                )),
                 adapted_properties: BTreeMap::new(),
                 extended_properties: BTreeMap::new(),
             };
-            
+
             extended_properties.insert(
                 "ApplicationArguments".to_string(),
                 PsProperty {

@@ -1,4 +1,6 @@
-use super::super::{ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, PsValue, PsProperty, Container};
+use super::super::{
+    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
+};
 use super::HostDefaultData;
 use std::{borrow::Cow, collections::BTreeMap};
 
@@ -60,7 +62,9 @@ impl From<HostInfo> for ComplexObject {
                             ],
                         }),
                         to_string: None,
-                        content: ComplexObjectContent::Container(Container::Dictionary(host_default_data.to_dictionary())),
+                        content: ComplexObjectContent::Container(Container::Dictionary(
+                            host_default_data.to_dictionary(),
+                        )),
                         adapted_properties: BTreeMap::new(),
                         extended_properties: BTreeMap::new(),
                     }),

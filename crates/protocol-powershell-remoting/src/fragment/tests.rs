@@ -1,7 +1,5 @@
 use super::*;
-use crate::{
-    messages::{InitRunspacePool, SessionCapability, ApartmentState, PSThreadOptions},
-};
+use crate::messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability};
 use std::collections::BTreeMap;
 use tracing::info;
 use tracing_test::traced_test;
@@ -27,7 +25,9 @@ mod tests {
         let mut fragmenter = Fragmenter::new(32768); // Large buffer
 
         // Fragment the message
-        let fragment_bytes = fragmenter.fragment(&session_capability, runspace_id, None, None).unwrap();
+        let fragment_bytes = fragmenter
+            .fragment(&session_capability, runspace_id, None, None)
+            .unwrap();
         assert_eq!(
             fragment_bytes.len(),
             1,
@@ -65,7 +65,9 @@ mod tests {
         let mut fragmenter = Fragmenter::new(200); // Very small fragments to force multi-fragment
 
         // Fragment the message (should create multiple fragments)
-        let fragment_bytes = fragmenter.fragment(&init_runspace_pool, runspace_id, None, None).unwrap();
+        let fragment_bytes = fragmenter
+            .fragment(&init_runspace_pool, runspace_id, None, None)
+            .unwrap();
         info!("Created {} fragments", fragment_bytes.len());
         assert!(
             fragment_bytes.len() > 1,
@@ -127,7 +129,9 @@ mod tests {
             &session_capability as &dyn crate::PsObjectWithType,
             &init_runspace_pool,
         ];
-        let all_fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
+        let all_fragment_bytes = fragmenter
+            .fragment_multiple(&messages, runspace_id, None)
+            .unwrap();
 
         info!(
             "Created {} total fragments for 2 messages",
@@ -193,7 +197,9 @@ mod tests {
             &session_capability as &dyn crate::PsObjectWithType,
             &init_runspace_pool,
         ];
-        let fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
+        let fragment_bytes = fragmenter
+            .fragment_multiple(&messages, runspace_id, None)
+            .unwrap();
 
         info!(
             "RunspacePool::open() scenario generated {} fragments",

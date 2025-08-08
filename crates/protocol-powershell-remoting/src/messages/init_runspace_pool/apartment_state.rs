@@ -1,4 +1,4 @@
-use super::super::{ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, PsEnums};
+use super::super::{ComplexObject, ComplexObjectContent, PsEnums, PsPrimitiveValue, PsType};
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,17 +18,19 @@ impl From<ApartmentState> for ComplexObject {
                 Cow::Borrowed("System.Object"),
             ],
         };
-        
+
         let to_string = match state {
             ApartmentState::STA => "STA".to_string(),
             ApartmentState::MTA => "MTA".to_string(),
             ApartmentState::Unknown => "Unknown".to_string(),
         };
-        
+
         ComplexObject {
             type_def: Some(type_def),
             to_string: Some(to_string),
-            content: ComplexObjectContent::PsEnums(PsEnums { value: state as i32 }),
+            content: ComplexObjectContent::PsEnums(PsEnums {
+                value: state as i32,
+            }),
             adapted_properties: BTreeMap::new(),
             extended_properties: BTreeMap::new(),
         }

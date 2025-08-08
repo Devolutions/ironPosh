@@ -6,8 +6,8 @@ use super::{PsPrimitiveValue, PsProperty};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 
-use xml::builder::{Attribute, Element};
 use tracing::{debug, trace};
+use xml::builder::{Attribute, Element};
 
 type Result<T> = std::result::Result<T, crate::PowerShellRemotingError>;
 
@@ -106,14 +106,17 @@ impl<'a> PsType {
             // If this type has already been serialized, return a reference element.
             let ref_id = type_maps.map.get(self).unwrap();
             debug!("Creating TNRef for existing type with RefId={}", ref_id);
-            return Ok(Element::new("TNRef").add_attribute(Attribute::new(
-                "RefId",
-                ref_id.to_string(),
-            )));
+            return Ok(
+                Element::new("TNRef").add_attribute(Attribute::new("RefId", ref_id.to_string()))
+            );
         }
 
         let ref_id = type_maps.insert_new(self)?;
-        debug!("Creating TN with new RefId={} and {} type names", ref_id, self.type_names.len());
+        debug!(
+            "Creating TN with new RefId={} and {} type names",
+            ref_id,
+            self.type_names.len()
+        );
         trace!(?self.type_names, "Type names for RefId={}", ref_id);
         let mut element =
             Element::new("TN").add_attribute(Attribute::new("RefId", ref_id.to_string()));

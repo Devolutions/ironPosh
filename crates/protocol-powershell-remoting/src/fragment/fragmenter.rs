@@ -2,7 +2,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::fragment::Fragment;
-use crate::{PowerShellRemotingMessage, PsObjectWithType, PowerShellRemotingError};
+use crate::{PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
 
 /// Fragmenter handles fragmentation of outgoing PowerShell remoting messages
 pub struct Fragmenter {

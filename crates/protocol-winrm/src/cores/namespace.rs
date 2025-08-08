@@ -143,11 +143,10 @@ impl<'a> xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         for ns in node.namespaces() {
-            self.namespaces.push(
-                Namespace::try_from(ns).map_err(|_| {
-                    xml::XmlError::InvalidXml(format!("Unknown namespace: {:?}", ns))
-                })?,
-            );
+            self.namespaces
+                .push(Namespace::try_from(ns).map_err(|_| {
+                    xml::XmlError::InvalidXml(format!("Unknown namespace: {ns:?}"))
+                })?);
         }
         Ok(())
     }

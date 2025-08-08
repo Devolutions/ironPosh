@@ -1,13 +1,13 @@
 use super::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsProperty, PsPrimitiveValue,
-    PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
+    PsValue,
 };
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use xml::parser::{XmlDeserialize, XmlVisitor};
 use tracing::{debug, trace};
+use xml::parser::{XmlDeserialize, XmlVisitor};
 
 type Result<T> = std::result::Result<T, xml::XmlError>;
 
@@ -126,11 +126,6 @@ impl<'a> XmlDeserialize<'a> for PsPrimitiveValue {
     }
 }
 
-
-
-
-
-
 /// ================================================================================================
 /// Context-Aware Deserialization System for Type and Object References
 /// ================================================================================================
@@ -153,14 +148,22 @@ impl DeserializationContext {
     }
 
     pub fn register_type(&mut self, ref_id: String, ps_type: PsType) {
-        debug!("Registering type reference RefId={} with {} type names", ref_id, ps_type.type_names.len());
+        debug!(
+            "Registering type reference RefId={} with {} type names",
+            ref_id,
+            ps_type.type_names.len()
+        );
         trace!(?ps_type, "Type details for RefId={}", ref_id);
         self.type_refs.insert(ref_id, ps_type);
     }
 
     pub fn get_type(&self, ref_id: &str) -> Option<&PsType> {
         let result = self.type_refs.get(ref_id);
-        debug!("Looking up type reference RefId={}, found={}", ref_id, result.is_some());
+        debug!(
+            "Looking up type reference RefId={}, found={}",
+            ref_id,
+            result.is_some()
+        );
         result
     }
 
@@ -172,9 +175,16 @@ impl DeserializationContext {
 
     pub fn get_object(&self, ref_id: &str) -> Option<&ComplexObject> {
         let result = self.object_refs.get(ref_id);
-        debug!("Looking up object reference RefId={}, found={}", ref_id, result.is_some());
+        debug!(
+            "Looking up object reference RefId={}, found={}",
+            ref_id,
+            result.is_some()
+        );
         if result.is_none() {
-            debug!("Available object RefIds: {:?}", self.object_refs.keys().collect::<Vec<_>>());
+            debug!(
+                "Available object RefIds: {:?}",
+                self.object_refs.keys().collect::<Vec<_>>()
+            );
         }
         result
     }
@@ -184,8 +194,16 @@ impl DeserializationContext {
 pub trait PsXmlVisitor<'a> {
     type Value;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()>;
-    fn visit_children(&mut self, children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, context: &mut DeserializationContext) -> Result<()>;
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()>;
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        context: &mut DeserializationContext,
+    ) -> Result<()>;
     fn finish(self) -> Result<Self::Value>;
 }
 
@@ -195,13 +213,19 @@ pub trait PsXmlDeserialize<'a>: Sized {
 
     fn visitor_with_context() -> Self::Visitor;
 
-    fn from_node_with_context(node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<Self> {
+    fn from_node_with_context(
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<Self> {
         let mut visitor = Self::visitor_with_context();
         visitor.visit_node(node, context)?;
         visitor.finish()
     }
 
-    fn from_children_with_context(children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, context: &mut DeserializationContext) -> Result<Self> {
+    fn from_children_with_context(
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        context: &mut DeserializationContext,
+    ) -> Result<Self> {
         let mut visitor = Self::visitor_with_context();
         visitor.visit_children(children, context)?;
         visitor.finish()
@@ -228,7 +252,11 @@ impl<'a> PsTypeContextVisitor<'a> {
 impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
     type Value = PsType;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         if !node.is_element() {
             return Ok(());
         }
@@ -242,11 +270,11 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
                     debug!("Processing TN with RefId={}", ref_id);
                     // Process children to get <T> elements
                     self.visit_children(node.children(), context)?;
-                    
+
                     let ps_type = PsType {
                         type_names: self.type_names.clone(),
                     };
-                    
+
                     // Register this type in the context
                     context.register_type(ref_id.to_string(), ps_type.clone());
                     self.resolved_type = Some(ps_type);
@@ -268,20 +296,22 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
                         self.resolved_type = Some(ps_type.clone());
                     } else {
                         debug!("Failed to resolve TNRef RefId={}", ref_id);
-                        return Err(xml::XmlError::GenericError(
-                            format!("Type reference {} not found", ref_id)
-                        ));
+                        return Err(xml::XmlError::GenericError(format!(
+                            "Type reference {} not found",
+                            ref_id
+                        )));
                     }
                 } else {
                     debug!("TNRef missing RefId attribute");
                     return Err(xml::XmlError::GenericError(
-                        "TNRef missing RefId attribute".to_string()
+                        "TNRef missing RefId attribute".to_string(),
                     ));
                 }
             }
             _ => {
                 return Err(xml::XmlError::UnexpectedTag(format!(
-                    "Unexpected tag in PsType: {}", tag_name
+                    "Unexpected tag in PsType: {}",
+                    tag_name
                 )));
             }
         }
@@ -289,7 +319,11 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
         Ok(())
     }
 
-    fn visit_children(&mut self, children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, _context: &mut DeserializationContext) -> Result<()> {
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        _context: &mut DeserializationContext,
+    ) -> Result<()> {
         for child in children {
             if child.is_element() && child.tag_name().name() == "T" {
                 if let Some(text) = child.text() {
@@ -301,9 +335,8 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
     }
 
     fn finish(self) -> Result<Self::Value> {
-        self.resolved_type.ok_or_else(|| {
-            xml::XmlError::GenericError("No PsType resolved".to_string())
-        })
+        self.resolved_type
+            .ok_or_else(|| xml::XmlError::GenericError("No PsType resolved".to_string()))
     }
 }
 
@@ -341,7 +374,11 @@ impl<'a> ComplexObjectContextVisitor<'a> {
 impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
     type Value = ComplexObject;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         if !node.is_element() {
             return Ok(());
         }
@@ -353,7 +390,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
             debug!("Processing Obj with RefId={:?}", ref_id);
             // Process children of the Obj element
             self.visit_children(node.children(), context)?;
-            
+
             // If this object has a RefId, register it in the context
             if let Some(ref_id) = ref_id {
                 let obj = ComplexObject {
@@ -370,7 +407,11 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
         Ok(())
     }
 
-    fn visit_children(&mut self, children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         for child in children {
             if !child.is_element() {
                 continue;
@@ -427,7 +468,9 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
         // Post-process to detect enum content
         if let Some(type_def) = &self.type_def {
             if type_def.type_names.iter().any(|name| name.contains("Enum")) {
-                if let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) = &self.content {
+                if let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) =
+                    &self.content
+                {
                     self.content = ComplexObjectContent::PsEnums(PsEnums { value: *value });
                 }
             }
@@ -473,7 +516,11 @@ impl<'a> PsValueContextVisitor<'a> {
 impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
     type Value = PsValue;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         if !node.is_element() {
             return Ok(());
         }
@@ -500,14 +547,15 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
                         self.value = Some(PsValue::Object(complex_obj.clone()));
                     } else {
                         debug!("Failed to resolve object reference RefId={}", ref_id);
-                        return Err(xml::XmlError::GenericError(
-                            format!("Object reference {} not found", ref_id)
-                        ));
+                        return Err(xml::XmlError::GenericError(format!(
+                            "Object reference {} not found",
+                            ref_id
+                        )));
                     }
                 } else {
                     debug!("Ref missing RefId attribute");
                     return Err(xml::XmlError::GenericError(
-                        "Ref missing RefId attribute".to_string()
+                        "Ref missing RefId attribute".to_string(),
                     ));
                 }
             }
@@ -522,12 +570,17 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
         Ok(())
     }
 
-    fn visit_children(&mut self, _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, _context: &mut DeserializationContext) -> Result<()> {
+    fn visit_children(
+        &mut self,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        _context: &mut DeserializationContext,
+    ) -> Result<()> {
         Ok(())
     }
 
     fn finish(self) -> Result<Self::Value> {
-        self.value.ok_or_else(|| xml::XmlError::GenericError("No PsValue found".to_string()))
+        self.value
+            .ok_or_else(|| xml::XmlError::GenericError("No PsValue found".to_string()))
     }
 }
 
@@ -538,7 +591,6 @@ impl<'a> PsXmlDeserialize<'a> for PsValue {
         PsValueContextVisitor::new()
     }
 }
-
 
 /// Context-aware Container visitor
 pub struct ContainerContextVisitor<'a> {
@@ -558,7 +610,11 @@ impl<'a> ContainerContextVisitor<'a> {
 impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
     type Value = Container;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         if !node.is_element() {
             return Ok(());
         }
@@ -608,10 +664,16 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
                                 if let Some(n_attr) = entry_child.attribute("N") {
                                     match n_attr {
                                         "Key" => {
-                                            key = Some(PsValue::from_node_with_context(entry_child, context)?);
+                                            key = Some(PsValue::from_node_with_context(
+                                                entry_child,
+                                                context,
+                                            )?);
                                         }
                                         "Value" => {
-                                            value = Some(PsValue::from_node_with_context(entry_child, context)?);
+                                            value = Some(PsValue::from_node_with_context(
+                                                entry_child,
+                                                context,
+                                            )?);
                                         }
                                         _ => {}
                                     }
@@ -637,12 +699,17 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
         Ok(())
     }
 
-    fn visit_children(&mut self, _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, _context: &mut DeserializationContext) -> Result<()> {
+    fn visit_children(
+        &mut self,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        _context: &mut DeserializationContext,
+    ) -> Result<()> {
         Ok(())
     }
 
     fn finish(self) -> Result<Self::Value> {
-        self.container.ok_or_else(|| xml::XmlError::GenericError("No Container found".to_string()))
+        self.container
+            .ok_or_else(|| xml::XmlError::GenericError("No Container found".to_string()))
     }
 }
 
@@ -653,7 +720,6 @@ impl<'a> PsXmlDeserialize<'a> for Container {
         ContainerContextVisitor::new()
     }
 }
-
 
 /// Context-aware PsProperty visitor
 pub struct PsPropertyContextVisitor<'a> {
@@ -675,7 +741,11 @@ impl<'a> PsPropertyContextVisitor<'a> {
 impl<'a> PsXmlVisitor<'a> for PsPropertyContextVisitor<'a> {
     type Value = PsProperty;
 
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>, context: &mut DeserializationContext) -> Result<()> {
+    fn visit_node(
+        &mut self,
+        node: xml::parser::Node<'a, 'a>,
+        context: &mut DeserializationContext,
+    ) -> Result<()> {
         if !node.is_element() {
             return Ok(());
         }
@@ -692,7 +762,11 @@ impl<'a> PsXmlVisitor<'a> for PsPropertyContextVisitor<'a> {
         Ok(())
     }
 
-    fn visit_children(&mut self, _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>, _context: &mut DeserializationContext) -> Result<()> {
+    fn visit_children(
+        &mut self,
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        _context: &mut DeserializationContext,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -714,4 +788,3 @@ impl<'a> PsXmlDeserialize<'a> for PsProperty {
         PsPropertyContextVisitor::new()
     }
 }
-
