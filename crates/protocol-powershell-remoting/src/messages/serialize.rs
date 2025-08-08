@@ -52,9 +52,7 @@ impl<'a> PsObject {
     pub fn to_element(&'a self) -> Element<'a> {
         // ---------- <Obj> ---------- //
         let mut obj_el = Element::new("Obj");
-        if let Some(id) = self.ref_id {
-            obj_el = obj_el.add_attribute(Attribute::new("RefId", id.to_string()));
-        }
+        obj_el = obj_el.add_attribute(Attribute::new("RefId", self.ref_id.to_string()));
 
         // ---------- <TN> or <TNRef> ---------- //
         if let Some(tn_ref) = self.tn_ref {
@@ -68,6 +66,16 @@ impl<'a> PsObject {
                 |acc, t| acc.add_child(Element::new("T").set_text_owned(t.clone())),
             );
             obj_el = obj_el.add_child(tn);
+        }
+
+        // ---------- <ToString> for enums ---------- //
+        if let Some(to_string) = &self.to_string {
+            obj_el = obj_el.add_child(Element::new("ToString").set_text_owned(to_string.clone()));
+        }
+
+        // ---------- Direct enum value ---------- //
+        if let Some(enum_value) = self.enum_value {
+            obj_el = obj_el.add_child(Element::new("I32").set_text_owned(enum_value.to_string()));
         }
 
         // ---------- containers ---------- //

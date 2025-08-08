@@ -12,7 +12,11 @@
       "WebFetch(domain:learn.microsoft.com)",
       "Bash(git commit:*)",
       "Bash(cargo expand:*)",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)",
+      "Bash(mkdir:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

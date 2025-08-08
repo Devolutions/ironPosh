@@ -349,17 +349,8 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
             parsed_string_data.len()
         );
 
-        if parsed_string_data.len() < 1000 {
-            println!("📄 Complete XML Data:");
-            println!("{}", parsed_string_data);
-        } else {
-            println!("📄 XML Data (first 500 characters, truncated for readability):");
-            println!("{}", &parsed_string_data[..500]);
-            println!(
-                "... (showing 500 of {} total characters)",
-                parsed_string_data.len()
-            );
-        }
+        println!("📄 Complete XML Data:");
+        println!("{}", parsed_string_data);
 
         // Parse XML
         print_section("5. XML Structure Analysis");

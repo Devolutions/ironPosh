@@ -1,0 +1,275 @@
+📁 Reading from file: resources\creation_xml_base64.txt
+✅ Successfully read 5420 characters from file
+
+================================================================================
+                     POWERSHELL REMOTING PROTOCOL ANALYZER                      
+================================================================================
+
+------------------------------------------------------------
+1. Base64 Decoding
+------------------------------------------------------------
+✅ Successfully decoded 4065 bytes from base64 input
+
+------------------------------------------------------------
+2. PowerShell Remoting Message Parsing
+------------------------------------------------------------
+🎉 Successfully parsed 2 complete PowerShell remoting message(s)
+
+------------------------------------------------------------
+3. Message Summary
+------------------------------------------------------------
+📨 Message 1 Details:
+   📋 Type: SessionCapability
+   🎯 Destination: Server
+   🆔 Runspace Pool ID: d034652d-126b-e340-b773-cba26459cfa8
+   🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
+   📏 Data Size: 162 bytes
+
+📨 Message 2 Details:
+   📋 Type: InitRunspacepool
+   🎯 Destination: Server
+   🆔 Runspace Pool ID: d034652d-126b-e340-b773-cba26459cfa8
+   🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
+   📏 Data Size: 3781 bytes
+
+
+================================================================================
+                              ANALYZING MESSAGE 1                               
+================================================================================
+
+------------------------------------------------------------
+4. Data Extraction & UTF-8 Decoding
+------------------------------------------------------------
+✅ Successfully decoded UTF-8 string (162 characters)
+📄 Complete XML Data:
+﻿<Obj RefId="0"><MS><Version N="protocolversion">2.3</Version><Version N="PSVersion">2.0</Version><Version N="SerializationVersion">1.1.0.1</Version></MS></Obj>
+
+------------------------------------------------------------
+5. XML Structure Analysis
+------------------------------------------------------------
+✅ Successfully parsed XML structure
+🏷️  Root XML element: <Obj>
+
+------------------------------------------------------------
+6. PowerShell Object Conversion
+------------------------------------------------------------
+✅ Successfully converted to PowerShell object representation
+
+------------------------------------------------------------
+7. PowerShell Object Details
+------------------------------------------------------------
+PsObject {
+  RefId: 0,
+  MemberSet: [
+    protocolversion: Version(2.3),
+    PSVersion: Version(2.0),
+    SerializationVersion: Version(1.1.0.1),
+  ],
+}
+
+================================================================================
+                              ANALYZING MESSAGE 2                               
+================================================================================
+
+------------------------------------------------------------
+4. Data Extraction & UTF-8 Decoding
+------------------------------------------------------------
+✅ Successfully decoded UTF-8 string (3781 characters)
+📄 Complete XML Data:
+﻿<Obj RefId="0"><MS><I32 N="MinRunspaces">1</I32><I32 N="MaxRunspaces">1</I32><Obj N="PSThreadOptions" RefId="1"><TN RefId="0"><T>System.Management.Automation.Runspaces.PSThreadOptions</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Default</ToString><I32>0</I32></Obj><Obj N="ApartmentState" RefId="2"><TN RefId="1"><T>System.Threading.ApartmentState</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Unknown</ToString><I32>2</I32></Obj><Obj N="ApplicationArguments" RefId="3"><TN RefId="2"><T>System.Management.Automation.PSPrimitiveDictionary</T><T>System.Collections.Hashtable</T><T>System.Object</T></TN><DCT><En><S N="Key">PSVersionTable</S><Obj N="Value" RefId="4"><TNRef RefId="2" /><DCT><En><S N="Key">Platform</S><S N="Value">Win32NT</S></En><En><S N="Key">SerializationVersion</S><Version N="Value">1.1.0.1</Version></En><En><S N="Key">PSVersion</S><Version N="Value">7.4.10</Version></En><En><S N="Key">PSCompatibleVersions</S><Obj N="Value" RefId="5"><TN RefId="3"><T>System.Version[]</T><T>System.Array</T><T>System.Object</T></TN><LST><Version>1.0</Version><Version>2.0</Version><Version>3.0</Version><Version>4.0</Version><Version>5.0</Version><Version>5.1</Version><Version>6.0</Version><Version>7.0</Version></LST></Obj></En><En><S N="Key">WSManStackVersion</S><Version N="Value">3.0</Version></En><En><S N="Key">PSSemanticVersion</S><S N="Value">7.4.10</S></En><En><S N="Key">PSRemotingProtocolVersion</S><Version N="Value">2.3</Version></En><En><S N="Key">GitCommitId</S><S N="Value">7.4.10</S></En><En><S N="Key">PSEdition</S><S N="Value">Core</S></En><En><S N="Key">OS</S><S N="Value">Microsoft Windows 10.0.22631</S></En></DCT></Obj></En></DCT></Obj><Obj N="HostInfo" RefId="6"><MS><B N="_isHostUINull">false</B><B N="_isHostRawUINull">false</B><B N="_isHostNull">false</B><Obj N="_hostDefaultData" RefId="7"><MS><Obj N="data" RefId="8"><TN RefId="4"><T>System.Collections.Hashtable</T><T>System.Object</T></TN><DCT><En><I32 N="Key">9</I32><Obj N="Value" RefId="9"><MS><S N="T">System.String</S><S N="V">PowerShell</S></MS></Obj></En><En><I32 N="Key">8</I32><Obj N="Value" RefId="10"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V" RefId="11"><MS><I32 N="width">3824</I32><I32 N="height">2121</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">7</I32><Obj N="Value" RefId="12"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V" RefId="13"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">6</I32><Obj N="Value" RefId="14"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V" RefId="15"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">5</I32><Obj N="Value" RefId="16"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V" RefId="17"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">4</I32><Obj N="Value" RefId="18"><MS><S N="T">System.Int32</S><I32 N="V">25</I32></MS></Obj></En><En><I32 N="Key">3</I32><Obj N="Value" RefId="19"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V" RefId="20"><MS><I32 N="x">0</I32><I32 N="y">0</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">2</I32><Obj N="Value" RefId="21"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V" RefId="22"><MS><I32 N="x">0</I32><I32 N="y">27</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">1</I32><Obj N="Value" RefId="23"><MS><S N="T">System.ConsoleColor</S><I32 N="V">0</I32></MS></Obj></En><En><I32 N="Key">0</I32><Obj N="Value" RefId="24"><MS><S N="T">System.ConsoleColor</S><I32 N="V">7</I32></MS></Obj></En></DCT></Obj></MS></Obj><B N="_useRunspaceHost">false</B></MS></Obj></MS></Obj>
+
+------------------------------------------------------------
+5. XML Structure Analysis
+------------------------------------------------------------
+✅ Successfully parsed XML structure
+🏷️  Root XML element: <Obj>
+
+------------------------------------------------------------
+6. PowerShell Object Conversion
+------------------------------------------------------------
+✅ Successfully converted to PowerShell object representation
+
+------------------------------------------------------------
+7. PowerShell Object Details
+------------------------------------------------------------
+PsObject {
+  RefId: 0,
+  MemberSet: [
+    MinRunspaces: 1,
+    MaxRunspaces: 1,
+    PSThreadOptions:     PsObject {
+      RefId: 1,
+      TypeNames: ["System.Management.Automation.Runspaces.PSThreadOptions", "System.Enum", "System.ValueType", "System.Object"],
+    },
+    ApartmentState:     PsObject {
+      RefId: 2,
+      TypeNames: ["System.Threading.ApartmentState", "System.Enum", "System.ValueType", "System.Object"],
+    },
+    ApplicationArguments:     PsObject {
+      RefId: 3,
+      TypeNames: ["System.Management.Automation.PSPrimitiveDictionary", "System.Collections.Hashtable", "System.Object"],
+      Dictionary: {
+        "PSVersionTable":         PsObject {
+          RefId: 4,
+          TNRef: 2,
+          Dictionary: {
+            "Platform": "Win32NT",
+            "PSVersion": Version(7.4.10),
+            "WSManStackVersion": Version(3.0),
+            "PSSemanticVersion": "7.4.10",
+            "GitCommitId": "7.4.10",
+            "OS": "Microsoft Windows 10.0.22631",
+            "PSCompatibleVersions":             PsObject {
+              RefId: 5,
+              TypeNames: ["System.Version[]", "System.Array", "System.Object"],
+              List: [
+                [0]: Version(1.0),
+                [1]: Version(2.0),
+                [2]: Version(3.0),
+                [3]: Version(4.0),
+                [4]: Version(5.0),
+                [5]: Version(5.1),
+                [6]: Version(6.0),
+                [7]: Version(7.0),
+              ],
+            },
+            "SerializationVersion": Version(1.1.0.1),
+            "PSRemotingProtocolVersion": Version(2.3),
+            "PSEdition": "Core",
+          },
+        },
+      },
+    },
+    HostInfo:     PsObject {
+      RefId: 6,
+      MemberSet: [
+        _isHostUINull: false,
+        _isHostRawUINull: false,
+        _isHostNull: false,
+        _hostDefaultData:         PsObject {
+          RefId: 7,
+          MemberSet: [
+            data:             PsObject {
+              RefId: 8,
+              TypeNames: ["System.Collections.Hashtable", "System.Object"],
+              Dictionary: {
+                4:                 PsObject {
+                  RefId: 18,
+                  MemberSet: [
+                    T: "System.Int32",
+                    V: 25,
+                  ],
+                },
+                2:                 PsObject {
+                  RefId: 21,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Coordinates",
+                    V:                     PsObject {
+                      RefId: 22,
+                      MemberSet: [
+                        x: 0,
+                        y: 27,
+                      ],
+                    },
+                  ],
+                },
+                0:                 PsObject {
+                  RefId: 24,
+                  MemberSet: [
+                    T: "System.ConsoleColor",
+                    V: 7,
+                  ],
+                },
+                1:                 PsObject {
+                  RefId: 23,
+                  MemberSet: [
+                    T: "System.ConsoleColor",
+                    V: 0,
+                  ],
+                },
+                6:                 PsObject {
+                  RefId: 14,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Size",
+                    V:                     PsObject {
+                      RefId: 15,
+                      MemberSet: [
+                        width: 120,
+                        height: 30,
+                      ],
+                    },
+                  ],
+                },
+                9:                 PsObject {
+                  RefId: 9,
+                  MemberSet: [
+                    T: "System.String",
+                    V: "PowerShell",
+                  ],
+                },
+                7:                 PsObject {
+                  RefId: 12,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Size",
+                    V:                     PsObject {
+                      RefId: 13,
+                      MemberSet: [
+                        width: 120,
+                        height: 30,
+                      ],
+                    },
+                  ],
+                },
+                5:                 PsObject {
+                  RefId: 16,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Size",
+                    V:                     PsObject {
+                      RefId: 17,
+                      MemberSet: [
+                        width: 120,
+                        height: 30,
+                      ],
+                    },
+                  ],
+                },
+                8:                 PsObject {
+                  RefId: 10,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Size",
+                    V:                     PsObject {
+                      RefId: 11,
+                      MemberSet: [
+                        width: 3824,
+                        height: 2121,
+                      ],
+                    },
+                  ],
+                },
+                3:                 PsObject {
+                  RefId: 19,
+                  MemberSet: [
+                    T: "System.Management.Automation.Host.Coordinates",
+                    V:                     PsObject {
+                      RefId: 20,
+                      MemberSet: [
+                        x: 0,
+                        y: 0,
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+        _useRunspaceHost: false,
+      ],
+    },
+  ],
+}
+
+================================================================================
+                               ANALYSIS COMPLETE                                
+================================================================================
+🎉 Successfully analyzed all PowerShell remoting messages!

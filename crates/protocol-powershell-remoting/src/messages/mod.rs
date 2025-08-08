@@ -1,5 +1,5 @@
 pub mod deserialize;
-mod init_runspace_pool;
+pub mod init_runspace_pool;
 mod pipeline_input;
 pub mod serialize;
 mod session_capability;
@@ -60,11 +60,31 @@ pub struct PsProperty {
 /// A full <Obj>.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PsObject {
-    pub ref_id: Option<u32>,             // <Obj RefId="...">
+    pub ref_id: u32,                     // <Obj RefId="...">
     pub type_names: Option<Vec<String>>, // <TN><T>...</T></TN>
     pub tn_ref: Option<u32>,             // <TNRef RefId="..."/>
     pub props: Vec<PsProperty>,          // <Props>  🔸 optional helper bag
-    pub ms: Vec<PsProperty>,             // <MS>     🔸 “member set”
+    pub ms: Vec<PsProperty>,             // <MS>     🔸 "member set"
     pub lst: Vec<PsProperty>,            // <LST>    🔸 list / array
     pub dct: HashMap<PsValue, PsValue>,  // <DCT>    🔸 dictionary
+    pub to_string: Option<String>,       // <ToString>value</ToString> for enums
+    pub enum_value: Option<i32>,         // Direct <I32> value for enums
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PsType {
+    Defination { name: String, ref_id: u32 },
+    Reference { ref_id: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PsEnum {
+    Defination {
+        ref_id: u32,
+        name: String,
+        ps_type: PsType,
+    },
+    Reference {
+        ref_id: u32,
+    },
 }

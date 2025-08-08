@@ -1,0 +1,62 @@
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+        xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+        xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+        xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+        <s:Header>
+                <a:To> http://10.10.0.3:5985/wsman?PSVersion=7.4.10
+                </a:To>
+                <w:ResourceURI s:mustUnderstand="true">
+                http://schemas.microsoft.com/powershell/Microsoft.PowerShell
+                </w:ResourceURI>
+                <a:ReplyTo>
+                        <a:Address s:mustUnderstand="true">
+                    http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous
+                        </a:Address>
+                </a:ReplyTo>
+                <a:Action s:mustUnderstand="true">
+                http://schemas.xmlsoap.org/ws/2004/09/transfer/Create
+                </a:Action>
+                <w:MaxEnvelopeSize s:mustUnderstand="true">
+                512000
+                </w:MaxEnvelopeSize>
+                <a:MessageID>
+                uuid:D1D65143-B634-4725-BBF6-869CC4D3062F
+                </a:MessageID>
+                <w:Locale xml:lang="en-US" s:mustUnderstand="false"/>
+                <p:DataLocale xml:lang="en-CA" s:mustUnderstand="false"/>
+                <p:SessionId s:mustUnderstand="false">
+                uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C
+                </p:SessionId>
+                <p:OperationID s:mustUnderstand="false">
+                uuid:73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649
+                </p:OperationID>
+                <p:SequenceId s:mustUnderstand="false">
+                1
+                </p:SequenceId>
+                <w:OptionSet xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" s:mustUnderstand="true">
+                        <w:Option Name="protocolversion" MustComply="true">
+                    2.3
+                        </w:Option>
+                </w:OptionSet>
+                <w:OperationTimeout>
+                PT180.000S
+                </w:OperationTimeout>
+                <rsp:CompressionType s:mustUnderstand="true"
+                        xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
+                xpress
+                </rsp:CompressionType>
+        </s:Header>
+        <s:Body>
+                <rsp:Shell xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell" Name="Runspace1" ShellId="2D6534D0-6B12-40E3-B773-CBA26459CFA8">
+                        <rsp:InputStreams>
+                    stdin pr
+                        </rsp:InputStreams>
+                        <rsp:OutputStreams>
+                    stdout
+                        </rsp:OutputStreams>
+                        <creationXml xmlns="http://schemas.microsoft.com/powershell">
+                     […]AAAAAAAAAAEAAAAAAAAAAAMAAADKAgAAAAIAAQDQNGUtEmvjQLdzy6JkWc+oAAAAAAAAAAAAAAAAAAAAAO+7vzxPYmogUmVmSWQ9IjAiPjxNUz48VmVyc2lvbiBOPSJwcm90b2NvbHZlcnNpb24iPjIuMzwvVmVyc2lvbj48VmVyc2lvbiBOPSJQU1ZlcnNpb24iPjIuMDwvVmVyc2lvbj48VmVyc2lvbiBOPSJTZ
+                        </creationXml>
+                </rsp:Shell>
+        </s:Body>
+</s:Envelope>

@@ -373,13 +373,17 @@ impl<'a> XmlVisitor<'a> for PsObjectVisitor<'a> {
 
     fn finish(self) -> Result<Self::Value, xml::XmlError> {
         Ok(PsObject {
-            ref_id: self.ref_id,
+            ref_id: self.ref_id.ok_or(xml::XmlError::GenericError(
+                "No RefId found for PsObject".to_string(),
+            ))?,
             type_names: self.type_names,
             tn_ref: self.tn_ref,
             props: self.props,
             ms: self.ms,
             lst: self.lst,
             dct: self.dct,
+            to_string: None, // TODO: Parse <ToString> elements during deserialization
+            enum_value: None, // TODO: Parse direct <I32> elements during deserialization
         })
     }
 }

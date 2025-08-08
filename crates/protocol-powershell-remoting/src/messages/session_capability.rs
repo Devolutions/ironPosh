@@ -2,7 +2,7 @@ use crate::{MessageType, PsObject, PsObjectWithType, PsProperty, PsValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
-    pub ref_id: Option<u32>,
+    pub ref_id: u32,
     pub protocol_version: String,
     pub ps_version: String,
     pub serialization_version: String,
