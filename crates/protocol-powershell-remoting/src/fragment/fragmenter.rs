@@ -2,7 +2,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use super::fragment::Fragment;
-use crate::{PowerShellRemotingMessage, PsObjectWithType};
+use crate::{PowerShellRemotingMessage, PsObjectWithType, PowerShellRemotingError};
 
 /// Fragmenter handles fragmentation of outgoing PowerShell remoting messages
 pub struct Fragmenter {
@@ -36,8 +36,8 @@ impl Fragmenter {
         rpid: Uuid,
         pid: Option<Uuid>,
         remaining_size: Option<usize>,
-    ) -> Vec<Vec<u8>> {
-        let message = PowerShellRemotingMessage::from_ps_message(ps_object, rpid, pid);
+    ) -> Result<Vec<Vec<u8>>, PowerShellRemotingError> {
+        let message = PowerShellRemotingMessage::from_ps_message(ps_object, rpid, pid)?;
         let message_bytes_source = message.pack();
         let mut remaining_bytes = message_bytes_source.as_slice();
         let max_size = self.max_fragment_size;
@@ -85,7 +85,7 @@ impl Fragmenter {
 
         self.outgoing_counter += 1;
 
-        fragments
+        Ok(fragments)
     }
 
     /// Fragment multiple messages, grouping them by WSMAN request boundaries
@@ -95,14 +95,14 @@ impl Fragmenter {
         messages: &[&dyn PsObjectWithType],
         rpid: Uuid,
         pid: Option<Uuid>,
-    ) -> Vec<Vec<u8>> {
+    ) -> Result<Vec<Vec<u8>>, PowerShellRemotingError> {
         let mut remaing_size = self.max_fragment_size;
         // Here we perhaps should not call it fragments anymore
         // Because we are grouping multiple fragments together into one Vec<u8>
         let mut fragements = Vec::new();
 
         for message in messages {
-            let mut message_fragments = self.fragment(*message, rpid, pid, Some(remaing_size));
+            let mut message_fragments = self.fragment(*message, rpid, pid, Some(remaing_size))?;
             debug!(
                 "Fragmented message {:?} into {} fragments",
                 message.message_type(),
@@ -129,6 +129,6 @@ impl Fragmenter {
             }
         }
 
-        fragements
+        Ok(fragements)
     }
 }

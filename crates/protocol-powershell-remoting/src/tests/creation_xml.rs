@@ -1,9 +1,8 @@
 use crate::{
-    ApartmentState, PSThreadOptions,
     fragment::{DefragmentResult, Defragmenter, Fragmenter},
-    messages::{InitRunspacePool, SessionCapability},
+    messages::{InitRunspacePool, SessionCapability, ApartmentState, PSThreadOptions},
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tracing::info;
 use tracing_test::traced_test;
 use uuid::Uuid;
@@ -13,7 +12,7 @@ use uuid::Uuid;
 fn test_combined_messages_like_runspace_open() {
     // Test the exact scenario from RunspacePool::open()
     let session_capability = SessionCapability {
-        ref_id: None,
+        ref_id: 0,
         protocol_version: "2.3".to_string(),
         ps_version: "2.0".to_string(),
         serialization_version: "1.1.0.1".to_string(),
@@ -21,13 +20,13 @@ fn test_combined_messages_like_runspace_open() {
     };
 
     let init_runspace_pool = InitRunspacePool {
-        ref_id: None,
+        ref_id: 0,
         min_runspaces: 1,
         max_runspaces: 1,
         thread_options: PSThreadOptions::Default,
         apartment_state: ApartmentState::Unknown,
         host_info: None,
-        application_arguments: HashMap::new(),
+        application_arguments: BTreeMap::new(),
     };
 
     let runspace_id = Uuid::parse_str("d034652d-126b-e340-b773-cba26459cfa8").unwrap();
@@ -38,7 +37,7 @@ fn test_combined_messages_like_runspace_open() {
         &session_capability as &dyn crate::PsObjectWithType,
         &init_runspace_pool,
     ];
-    let fragmented_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None);
+    let fragmented_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
 
     info!(
         "Combined messages fragmented bytes len: {}",

@@ -1,9 +1,8 @@
 use super::*;
 use crate::{
-    ApartmentState, PSThreadOptions,
-    messages::{InitRunspacePool, SessionCapability},
+    messages::{InitRunspacePool, SessionCapability, ApartmentState, PSThreadOptions},
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tracing::info;
 use tracing_test::traced_test;
 use uuid::Uuid;
@@ -17,7 +16,7 @@ mod tests {
     #[traced_test]
     fn test_single_message_roundtrip() {
         let session_capability = SessionCapability {
-            ref_id: None,
+            ref_id: 0,
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
@@ -28,7 +27,7 @@ mod tests {
         let mut fragmenter = Fragmenter::new(32768); // Large buffer
 
         // Fragment the message
-        let fragment_bytes = fragmenter.fragment(&session_capability, runspace_id, None, None);
+        let fragment_bytes = fragmenter.fragment(&session_capability, runspace_id, None, None).unwrap();
         assert_eq!(
             fragment_bytes.len(),
             1,
@@ -53,20 +52,20 @@ mod tests {
     #[traced_test]
     fn test_multi_fragment_roundtrip() {
         let init_runspace_pool = InitRunspacePool {
-            ref_id: None,
+            ref_id: 0,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
             host_info: None,
-            application_arguments: HashMap::new(),
+            application_arguments: BTreeMap::new(),
         };
 
         let runspace_id = Uuid::new_v4();
         let mut fragmenter = Fragmenter::new(200); // Very small fragments to force multi-fragment
 
         // Fragment the message (should create multiple fragments)
-        let fragment_bytes = fragmenter.fragment(&init_runspace_pool, runspace_id, None, None);
+        let fragment_bytes = fragmenter.fragment(&init_runspace_pool, runspace_id, None, None).unwrap();
         info!("Created {} fragments", fragment_bytes.len());
         assert!(
             fragment_bytes.len() > 1,
@@ -103,7 +102,7 @@ mod tests {
     #[traced_test]
     fn test_multiple_messages_roundtrip() {
         let session_capability = SessionCapability {
-            ref_id: None,
+            ref_id: 0,
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
@@ -111,13 +110,13 @@ mod tests {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: None,
+            ref_id: 0,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
             host_info: None,
-            application_arguments: HashMap::new(),
+            application_arguments: BTreeMap::new(),
         };
 
         let runspace_id = Uuid::new_v4();
@@ -128,7 +127,7 @@ mod tests {
             &session_capability as &dyn crate::PsObjectWithType,
             &init_runspace_pool,
         ];
-        let all_fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None);
+        let all_fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
 
         info!(
             "Created {} total fragments for 2 messages",
@@ -171,7 +170,7 @@ mod tests {
         let runspace_id = Uuid::parse_str("d034652d-126b-e340-b773-cba26459cfa8").unwrap();
 
         let session_capability = SessionCapability {
-            ref_id: None,
+            ref_id: 0,
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
@@ -179,13 +178,13 @@ mod tests {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: None,
+            ref_id: 0,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
             host_info: None,
-            application_arguments: HashMap::new(),
+            application_arguments: BTreeMap::new(),
         };
 
         // This mimics the exact call in RunspacePool::open()
@@ -194,7 +193,7 @@ mod tests {
             &session_capability as &dyn crate::PsObjectWithType,
             &init_runspace_pool,
         ];
-        let fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None);
+        let fragment_bytes = fragmenter.fragment_multiple(&messages, runspace_id, None).unwrap();
 
         info!(
             "RunspacePool::open() scenario generated {} fragments",

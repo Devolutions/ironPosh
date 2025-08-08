@@ -3,7 +3,7 @@ use std::io::Read;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use uuid::Uuid;
 
-use crate::{PsObject, PsObjectWithType};
+use crate::{PsObjectWithType, PsValue};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Destination {
@@ -198,9 +198,13 @@ impl PowerShellRemotingMessage {
         })
     }
 
-    pub fn from_ps_message(message: &dyn PsObjectWithType, rpid: Uuid, pid: Option<Uuid>) -> Self {
+    pub fn from_ps_message(
+        message: &dyn PsObjectWithType,
+        rpid: Uuid,
+        pid: Option<Uuid>,
+    ) -> Result<PowerShellRemotingMessage, crate::PowerShellRemotingError> {
         let message_type = message.message_type();
-        let data: PsObject = message.to_ps_object();
+        let data = message.to_ps_object();
 
         Self::new(Destination::Server, message_type, rpid, pid, &data)
     }
@@ -210,15 +214,15 @@ impl PowerShellRemotingMessage {
         message_type: MessageType,
         rpid: Uuid,
         pid: Option<Uuid>,
-        data: &PsObject,
-    ) -> Self {
-        Self {
+        data: &PsValue,
+    ) -> Result<Self, crate::PowerShellRemotingError> {
+        Ok(Self {
             destination,
             message_type,
             rpid,
             pid,
-            data: data.to_element().to_string().into_bytes(),
-        }
+            data: data.to_element_as_root()?.to_string().into_bytes(),
+        })
     }
 
     pub fn pack(self) -> Vec<u8> {

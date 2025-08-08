@@ -1,5 +1,5 @@
 use base64::Engine;
-use protocol_powershell_remoting::{DefragmentResult, Defragmenter, PsObject, PsValue};
+use protocol_powershell_remoting::{DefragmentResult, Defragmenter, PsObject, PsPrimitiveValue, messages::deserialize::DeserializationContext};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -199,18 +199,17 @@ fn format_ps_object(ps_object: &PsObject, indent: usize) -> String {
     result
 }
 
-fn format_ps_value(ps_value: &PsValue, indent: usize) -> String {
+fn format_ps_value(ps_value: &PsPrimitiveValue, indent: usize) -> String {
     match ps_value {
-        PsValue::Str(s) => format!("\"{}\"", s),
-        PsValue::Bool(b) => b.to_string(),
-        PsValue::I32(i) => i.to_string(),
-        PsValue::U32(u) => u.to_string(),
-        PsValue::I64(i) => i.to_string(),
-        PsValue::Guid(g) => format!("Guid({})", g),
-        PsValue::Nil => "Nil".to_string(),
-        PsValue::Bytes(b) => format!("Bytes({:?})", b),
-        PsValue::Version(v) => format!("Version({})", v),
-        PsValue::Object(obj) => format_ps_object(obj, indent),
+        PsPrimitiveValue::Str(s) => format!("\"{}\"", s),
+        PsPrimitiveValue::Bool(b) => b.to_string(),
+        PsPrimitiveValue::I32(i) => i.to_string(),
+        PsPrimitiveValue::U32(u) => u.to_string(),
+        PsPrimitiveValue::I64(i) => i.to_string(),
+        PsPrimitiveValue::Guid(g) => format!("Guid({})", g),
+        PsPrimitiveValue::Nil => "Nil".to_string(),
+        PsPrimitiveValue::Bytes(b) => format!("Bytes({:?})", b),
+        PsPrimitiveValue::Version(v) => format!("Version({})", v),
     }
 }
 
@@ -369,7 +368,8 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
 
         // Parse PowerShell Object
         print_section("6. PowerShell Object Conversion");
-        let ps_object = match PsObject::from_node(root_element) {
+        let mut context = DeserializationContext::new();
+        let ps_object = match PsObject::from_node_with_context(root_element, &mut context) {
             Ok(obj) => obj,
             Err(e) => {
                 println!("❌ Failed to convert XML to PowerShell object: {}", e);

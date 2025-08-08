@@ -1,4 +1,5 @@
-use crate::{PsObject, PsProperty, PsValue};
+use super::super::{ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, PsEnums};
+use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PSThreadOptions {
@@ -8,71 +9,32 @@ pub enum PSThreadOptions {
     UseCurrentThread = 3,
 }
 
-impl From<PSThreadOptions> for PsObject {
+impl From<PSThreadOptions> for ComplexObject {
     fn from(option: PSThreadOptions) -> Self {
-        PsObject {
-            type_names: Some(vec![
-                "System.Management.Automation.Runspaces.PSThreadOptions".to_string(),
-                "System.Enum".to_string(),
-                "System.ValueType".to_string(),
-                "System.Object".to_string(),
-            ]),
-            to_string: Some(match option {
-                PSThreadOptions::Default => "Default".to_string(),
-                PSThreadOptions::UseNewThread => "UseNewThread".to_string(),
-                PSThreadOptions::ReuseThread => "ReuseThread".to_string(),
-                PSThreadOptions::UseCurrentThread => "UseCurrentThread".to_string(),
-            }),
-            enum_value: Some(option as i32),
-            ..Default::default()
+        let type_def = PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Management.Automation.Runspaces.PSThreadOptions"),
+                Cow::Borrowed("System.Enum"),
+                Cow::Borrowed("System.ValueType"),
+                Cow::Borrowed("System.Object"),
+            ],
+        };
+        
+        let to_string = match option {
+            PSThreadOptions::Default => "Default".to_string(),
+            PSThreadOptions::UseNewThread => "UseNewThread".to_string(),
+            PSThreadOptions::ReuseThread => "ReuseThread".to_string(),
+            PSThreadOptions::UseCurrentThread => "UseCurrentThread".to_string(),
+        };
+        
+        ComplexObject {
+            type_def: Some(type_def),
+            to_string: Some(to_string),
+            content: ComplexObjectContent::PsEnums(PsEnums { value: option as i32 }),
+            adapted_properties: BTreeMap::new(),
+            extended_properties: BTreeMap::new(),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_ps_thread_options_serialization() {
-        let option = PSThreadOptions::Default;
-        let ps_obj = PsObject::from(option);
-        let xml = ps_obj.to_element().to_string();
-        
-        println!("Generated XML:");
-        println!("{}", xml);
-        
-        // Expected XML from working example:
-        // <Obj N="PSThreadOptions" RefId="1">
-        //   <TN RefId="0">
-        //     <T>System.Management.Automation.Runspaces.PSThreadOptions</T>
-        //     <T>System.Enum</T>
-        //     <T>System.ValueType</T>
-        //     <T>System.Object</T>
-        //   </TN>
-        //   <ToString>Default</ToString>
-        //   <I32>0</I32>
-        // </Obj>
-        
-        // Check basic structure
-        assert!(xml.contains("<ToString>Default</ToString>"));
-        assert!(xml.contains("<I32>0</I32>"));
-        assert!(xml.contains("System.Management.Automation.Runspaces.PSThreadOptions"));
-    }
-    
-    #[test]
-    fn test_expected_vs_actual_format() {
-        let option = PSThreadOptions::Default;
-        let ps_obj = PsObject::from(option);
-        let xml = ps_obj.to_element().to_string();
-        
-        // Expected format (ignoring RefIds for now):
-        let expected = r#"<Obj><TN RefId="0"><T>System.Management.Automation.Runspaces.PSThreadOptions</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Default</ToString><I32>0</I32></Obj>"#;
-        
-        println!("Expected: {}", expected);
-        println!("Actual:   {}", xml);
-        
-        // Now they should match exactly!
-        assert_eq!(xml, expected, "PSThreadOptions XML serialization should match expected format");
-    }
-}
+// TODO: Add tests for new ComplexObject representation

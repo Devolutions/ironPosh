@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsValue, SessionCapability,
+    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsPrimitiveValue, SessionCapability,
     PsObject, PsProperty, fragment,
 };
 use protocol_winrm::{
@@ -79,7 +79,7 @@ pub struct RunspacePool {
     host_info: Option<HostInfo>,
 
     #[builder(default = HashMap::new())]
-    application_arguments: HashMap<PsValue, PsValue>,
+    application_arguments: HashMap<PsPrimitiveValue, PsPrimitiveValue>,
 
     connection: Arc<WsMan>,
 

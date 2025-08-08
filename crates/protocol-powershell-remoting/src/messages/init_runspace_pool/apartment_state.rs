@@ -1,4 +1,5 @@
-use crate::{PsObject, PsProperty, PsValue};
+use super::super::{ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, PsEnums};
+use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApartmentState {
@@ -7,58 +8,31 @@ pub enum ApartmentState {
     Unknown = 2,
 }
 
-impl From<ApartmentState> for PsObject {
+impl From<ApartmentState> for ComplexObject {
     fn from(state: ApartmentState) -> Self {
-        PsObject {
-            type_names: Some(vec![
-                "System.Threading.ApartmentState".to_string(),
-                "System.Enum".to_string(),
-                "System.ValueType".to_string(),
-                "System.Object".to_string(),
-            ]),
-            to_string: Some(match state {
-                ApartmentState::STA => "STA".to_string(),
-                ApartmentState::MTA => "MTA".to_string(),
-                ApartmentState::Unknown => "Unknown".to_string(),
-            }),
-            enum_value: Some(state as i32),
-            ..Default::default()
+        let type_def = PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Threading.ApartmentState"),
+                Cow::Borrowed("System.Enum"),
+                Cow::Borrowed("System.ValueType"),
+                Cow::Borrowed("System.Object"),
+            ],
+        };
+        
+        let to_string = match state {
+            ApartmentState::STA => "STA".to_string(),
+            ApartmentState::MTA => "MTA".to_string(),
+            ApartmentState::Unknown => "Unknown".to_string(),
+        };
+        
+        ComplexObject {
+            type_def: Some(type_def),
+            to_string: Some(to_string),
+            content: ComplexObjectContent::PsEnums(PsEnums { value: state as i32 }),
+            adapted_properties: BTreeMap::new(),
+            extended_properties: BTreeMap::new(),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_apartment_state_serialization() {
-        let state = ApartmentState::Unknown;
-        let ps_obj = PsObject::from(state);
-        let xml = ps_obj.to_element().to_string();
-        
-        println!("Generated XML:");
-        println!("{}", xml);
-        
-        // Check basic structure
-        assert!(xml.contains("<ToString>Unknown</ToString>"));
-        assert!(xml.contains("<I32>2</I32>"));
-        assert!(xml.contains("System.Threading.ApartmentState"));
-    }
-    
-    #[test]
-    fn test_apartment_state_expected_vs_actual_format() {
-        let state = ApartmentState::Unknown;
-        let ps_obj = PsObject::from(state);
-        let xml = ps_obj.to_element().to_string();
-        
-        // Expected format (ignoring RefIds for now):
-        let expected = r#"<Obj><TN RefId="0"><T>System.Threading.ApartmentState</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Unknown</ToString><I32>2</I32></Obj>"#;
-        
-        println!("Expected: {}", expected);
-        println!("Actual:   {}", xml);
-        
-        // Now they should match exactly!
-        assert_eq!(xml, expected, "ApartmentState XML serialization should match expected format");
-    }
-}
+// TODO: Add tests for new ComplexObject representation

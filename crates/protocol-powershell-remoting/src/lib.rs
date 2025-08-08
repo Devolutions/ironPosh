@@ -19,6 +19,9 @@ pub enum PowerShellRemotingError {
 
     #[error("IO Error: {0}")]
     IoError(String),
+
+    #[error("Serialization Error: {0}")]
+    SerializationError(&'static str),
 }
 
 impl From<std::io::Error> for PowerShellRemotingError {

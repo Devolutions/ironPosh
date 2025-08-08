@@ -1,4 +1,6 @@
-use crate::{MessageType, PsObject, PsObjectWithType, PsProperty, PsValue};
+use crate::MessageType;
+use super::{PsObjectWithType, PsValue, PsProperty, ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue};
+use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
@@ -14,8 +16,8 @@ impl PsObjectWithType for SessionCapability {
         MessageType::SessionCapability
     }
 
-    fn to_ps_object(&self) -> PsObject {
-        PsObject::from(self.clone())
+    fn to_ps_object(&self) -> PsValue {
+        PsValue::Object(ComplexObject::from(self.clone()))
     }
 }
 
@@ -28,38 +30,50 @@ impl PsObjectWithType for SessionCapability {
 //    </MS>
 //  </Obj>
 
-impl From<SessionCapability> for PsObject {
+impl From<SessionCapability> for ComplexObject {
     fn from(cap: SessionCapability) -> Self {
-        let mut ms = vec![
+        let mut extended_properties = BTreeMap::new();
+        
+        extended_properties.insert(
+            "protocolversion".to_string(),
             PsProperty {
-                name: Some("protocolversion".to_string()),
-                ref_id: None,
-                value: PsValue::Version(cap.protocol_version),
+                name: "protocolversion".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.protocol_version)),
             },
+        );
+        
+        extended_properties.insert(
+            "PSVersion".to_string(),
             PsProperty {
-                name: Some("PSVersion".to_string()),
-                ref_id: None,
-                value: PsValue::Version(cap.ps_version),
+                name: "PSVersion".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.ps_version)),
             },
+        );
+        
+        extended_properties.insert(
+            "SerializationVersion".to_string(),
             PsProperty {
-                name: Some("SerializationVersion".to_string()),
-                ref_id: None,
-                value: PsValue::Version(cap.serialization_version),
+                name: "SerializationVersion".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.serialization_version)),
             },
-        ];
+        );
 
         if let Some(time_zone) = cap.time_zone {
-            ms.push(PsProperty {
-                name: Some("TimeZone".to_string()),
-                ref_id: None,
-                value: PsValue::Bytes(time_zone.into_bytes()),
-            });
+            extended_properties.insert(
+                "TimeZone".to_string(),
+                PsProperty {
+                    name: "TimeZone".to_string(),
+                    value: PsValue::Primitive(PsPrimitiveValue::Bytes(time_zone.into_bytes())),
+                },
+            );
         }
 
-        PsObject {
-            ref_id: cap.ref_id,
-            ms,
-            ..Default::default()
+        ComplexObject {
+            type_def: None,
+            to_string: None,
+            content: ComplexObjectContent::Standard,
+            adapted_properties: BTreeMap::new(),
+            extended_properties,
         }
     }
 }

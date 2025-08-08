@@ -8,8 +8,9 @@ pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
 pub use ps_thread_options::PSThreadOptions;
 
-use crate::{MessageType, PsObject, PsObjectWithType, PsProperty, PsValue};
-use std::collections::HashMap;
+use crate::MessageType;
+use super::{PsObjectWithType, PsValue, PsProperty, ComplexObject, ComplexObjectContent, PsType, PsPrimitiveValue, Container};
+use std::{borrow::Cow, collections::{HashMap, BTreeMap}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitRunspacePool {
@@ -19,7 +20,7 @@ pub struct InitRunspacePool {
     pub thread_options: PSThreadOptions,
     pub apartment_state: ApartmentState,
     pub host_info: Option<HostInfo>,
-    pub application_arguments: HashMap<PsValue, PsValue>,
+    pub application_arguments: BTreeMap<PsValue, PsValue>,
 }
 
 impl Default for InitRunspacePool {
@@ -31,74 +32,97 @@ impl Default for InitRunspacePool {
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::MTA,
             host_info: None,
-            application_arguments: HashMap::new(),
+            application_arguments: BTreeMap::new(),
         }
     }
 }
 
-impl From<InitRunspacePool> for PsObject {
+impl From<InitRunspacePool> for ComplexObject {
     fn from(init: InitRunspacePool) -> Self {
-        let mut ms = Vec::new();
+        let mut extended_properties = BTreeMap::new();
 
-        ms.push(PsProperty {
-            name: Some("MinRunspaces".to_string()),
-            ref_id: None,
-            value: PsValue::I32(init.min_runspaces),
-        });
+        extended_properties.insert(
+            "MinRunspaces".to_string(),
+            PsProperty {
+                name: "MinRunspaces".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::I32(init.min_runspaces)),
+            },
+        );
 
-        ms.push(PsProperty {
-            name: Some("MaxRunspaces".to_string()),
-            ref_id: None,
-            value: PsValue::I32(init.max_runspaces),
-        });
+        extended_properties.insert(
+            "MaxRunspaces".to_string(),
+            PsProperty {
+                name: "MaxRunspaces".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::I32(init.max_runspaces)),
+            },
+        );
 
-        ms.push(PsProperty {
-            name: Some("PSThreadOptions".to_string()),
-            ref_id: None,
-            value: PsValue::Object(init.thread_options.into()),
-        });
+        extended_properties.insert(
+            "PSThreadOptions".to_string(),
+            PsProperty {
+                name: "PSThreadOptions".to_string(),
+                value: PsValue::Object(init.thread_options.into()),
+            },
+        );
 
-        ms.push(PsProperty {
-            name: Some("ApartmentState".to_string()),
-            ref_id: None,
-            value: PsValue::Object(init.apartment_state.into()),
-        });
+        extended_properties.insert(
+            "ApartmentState".to_string(),
+            PsProperty {
+                name: "ApartmentState".to_string(),
+                value: PsValue::Object(init.apartment_state.into()),
+            },
+        );
 
         if let Some(host_info) = init.host_info.as_ref() {
-            ms.push(PsProperty {
-                name: Some("HostInfo".to_string()),
-                ref_id: None,
-                value: PsValue::Object(host_info.clone().into()),
-            });
+            extended_properties.insert(
+                "HostInfo".to_string(),
+                PsProperty {
+                    name: "HostInfo".to_string(),
+                    value: PsValue::Object(host_info.clone().into()),
+                },
+            );
         }
 
         if init.application_arguments.is_empty() {
-            ms.push(PsProperty {
-                name: Some("ApplicationArguments".to_string()),
-                ref_id: None,
-                value: PsValue::Nil,
-            });
+            extended_properties.insert(
+                "ApplicationArguments".to_string(),
+                PsProperty {
+                    name: "ApplicationArguments".to_string(),
+                    value: PsValue::Primitive(PsPrimitiveValue::Nil),
+                },
+            );
         } else {
-            let app_args_obj = PsObject {
-                type_names: Some(vec![
-                    "System.Management.Automation.PSPrimitiveDictionary".to_string(),
-                    "System.Collections.Hashtable".to_string(),
-                    "System.Object".to_string(),
-                ]),
-                dct: init.application_arguments,
-                ..Default::default()
+            let app_args_type = PsType {
+                type_names: vec![
+                    Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
+                    Cow::Borrowed("System.Collections.Hashtable"),
+                    Cow::Borrowed("System.Object"),
+                ],
             };
-            ms.push(PsProperty {
-                name: Some("ApplicationArguments".to_string()),
-                ref_id: None,
-                value: PsValue::Object(app_args_obj),
-            });
+            
+            let app_args_obj = ComplexObject {
+                type_def: Some(app_args_type),
+                to_string: None,
+                content: ComplexObjectContent::Container(Container::Dictionary(init.application_arguments)),
+                adapted_properties: BTreeMap::new(),
+                extended_properties: BTreeMap::new(),
+            };
+            
+            extended_properties.insert(
+                "ApplicationArguments".to_string(),
+                PsProperty {
+                    name: "ApplicationArguments".to_string(),
+                    value: PsValue::Object(app_args_obj),
+                },
+            );
         }
 
-        PsObject {
-            ms,
-            ref_id: init.ref_id,
-            ..Default::default()
+        ComplexObject {
+            type_def: None,
+            to_string: None,
+            content: ComplexObjectContent::Standard,
+            adapted_properties: BTreeMap::new(),
+            extended_properties,
         }
     }
 }
@@ -108,7 +132,7 @@ impl PsObjectWithType for InitRunspacePool {
         MessageType::InitRunspacepool
     }
 
-    fn to_ps_object(&self) -> PsObject {
-        PsObject::from(self.clone())
+    fn to_ps_object(&self) -> PsValue {
+        PsValue::Object(ComplexObject::from(self.clone()))
     }
 }
