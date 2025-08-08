@@ -1,6 +1,6 @@
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ComplexObject, DefragmentResult, Defragmenter, PsPrimitiveValue, 
+    ComplexObject, DefragmentResult, Defragmenter,
     messages::deserialize::{DeserializationContext, PsXmlDeserialize},
 };
 use std::env;
@@ -129,138 +129,6 @@ fn print_section(title: &str) {
     println!("{}", "-".repeat(60));
 }
 
-fn format_ps_object(ps_object: &ComplexObject, indent: usize) -> String {
-    let indent_str = " ".repeat(indent);
-    let mut result = format!("{}PsObject {{\n", indent_str);
-
-
-    if let Some(ref type_names) = ps_object.type_def {
-        result.push_str(&format!("{}  TypeNames: {:?},\n", indent_str, type_names));
-    }
-
-
-    if !ps_object.adapted_properties.is_empty() {
-        result.push_str(&format!("{}  Adapted Properties: [\n", indent_str));
-        for prop in ps_object.adapted_properties.values() {
-            result.push_str(&format!(
-                "{}    {}: {},\n",
-                indent_str,
-                &prop.name,
-                format_ps_value_from_property(prop, indent + 4)
-            ));
-        }
-        result.push_str(&format!("{}  ],\n", indent_str));
-    }
-
-    if !ps_object.extended_properties.is_empty() {
-        result.push_str(&format!("{}  Extended Properties: [\n", indent_str));
-        for prop in ps_object.extended_properties.values() {
-            result.push_str(&format!(
-                "{}    {}: {},\n",
-                indent_str,
-                &prop.name,
-                format_ps_value_from_property(prop, indent + 4)
-            ));
-        }
-        result.push_str(&format!("{}  ],\n", indent_str));
-    }
-
-    // Display content based on type
-    match &ps_object.content {
-        protocol_powershell_remoting::ComplexObjectContent::ExtendedPrimitive(value) => {
-            result.push_str(&format!("{}  ExtendedPrimitive: {},\n", indent_str, format_ps_value(value, indent + 4)));
-        }
-        protocol_powershell_remoting::ComplexObjectContent::Container(container) => {
-            result.push_str(&format!("{}  Container: {},\n", indent_str, format_container(container, indent + 4)));
-        }
-        protocol_powershell_remoting::ComplexObjectContent::PsEnums(ps_enum) => {
-            result.push_str(&format!("{}  PsEnums: {{ value: {} }},\n", indent_str, ps_enum.value));
-        }
-        protocol_powershell_remoting::ComplexObjectContent::Standard => {
-            result.push_str(&format!("{}  Standard Object,\n", indent_str));
-        }
-    }
-
-    result.push_str(&format!("{}}}", indent_str));
-    result
-}
-
-fn format_ps_value(ps_value: &PsPrimitiveValue, _indent: usize) -> String {
-    match ps_value {
-        PsPrimitiveValue::Str(s) => format!("\"{}\"", s),
-        PsPrimitiveValue::Bool(b) => b.to_string(),
-        PsPrimitiveValue::I32(i) => i.to_string(),
-        PsPrimitiveValue::U32(u) => u.to_string(),
-        PsPrimitiveValue::I64(i) => i.to_string(),
-        PsPrimitiveValue::Guid(g) => format!("Guid({})", g),
-        PsPrimitiveValue::Nil => "Nil".to_string(),
-        PsPrimitiveValue::Bytes(b) => format!("Bytes({:?})", b),
-        PsPrimitiveValue::Version(v) => format!("Version({})", v),
-    }
-}
-
-fn format_ps_value_from_property(property: &protocol_powershell_remoting::PsProperty, indent: usize) -> String {
-    use protocol_powershell_remoting::PsValue;
-    match &property.value {
-        PsValue::Primitive(prim) => format_ps_value(prim, indent),
-        PsValue::Object(obj) => format_ps_object(obj, indent),
-    }
-}
-
-fn format_container(container: &protocol_powershell_remoting::Container, indent: usize) -> String {
-    use protocol_powershell_remoting::{Container, PsValue};
-    match container {
-        Container::Stack(values) => {
-            let mut result = "Stack([\n".to_string();
-            for value in values {
-                match value {
-                    PsValue::Primitive(prim) => result.push_str(&format!("    {},\n", format_ps_value(prim, indent))),
-                    PsValue::Object(obj) => result.push_str(&format!("    {},\n", format_ps_object(obj, indent))),
-                }
-            }
-            result.push_str("])");
-            result
-        }
-        Container::Queue(values) => {
-            let mut result = "Queue([\n".to_string();
-            for value in values {
-                match value {
-                    PsValue::Primitive(prim) => result.push_str(&format!("    {},\n", format_ps_value(prim, indent))),
-                    PsValue::Object(obj) => result.push_str(&format!("    {},\n", format_ps_object(obj, indent))),
-                }
-            }
-            result.push_str("])");
-            result
-        }
-        Container::List(values) => {
-            let mut result = "List([\n".to_string();
-            for value in values {
-                match value {
-                    PsValue::Primitive(prim) => result.push_str(&format!("    {},\n", format_ps_value(prim, indent))),
-                    PsValue::Object(obj) => result.push_str(&format!("    {},\n", format_ps_object(obj, indent))),
-                }
-            }
-            result.push_str("])");
-            result
-        }
-        Container::Dictionary(map) => {
-            let mut result = "Dictionary({\n".to_string();
-            for (key, value) in map {
-                let key_str = match key {
-                    PsValue::Primitive(prim) => format_ps_value(prim, indent),
-                    PsValue::Object(obj) => format_ps_object(obj, indent),
-                };
-                let value_str = match value {
-                    PsValue::Primitive(prim) => format_ps_value(prim, indent),
-                    PsValue::Object(obj) => format_ps_object(obj, indent),
-                };
-                result.push_str(&format!("    {}: {},\n", key_str, value_str));
-            }
-            result.push_str("})");
-            result
-        }
-    }
-}
 
 fn try_defragment_multiple_messages(
     messages: &[&str],
@@ -435,7 +303,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
 
         // Display formatted PowerShell Object
         print_section("7. PowerShell Object Details");
-        println!("{}", format_ps_object(&ps_object, 0));
+        println!("{:#?}", ps_object);
     }
 
     print_separator("ANALYSIS COMPLETE");
