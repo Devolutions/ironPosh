@@ -2,8 +2,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsPrimitiveValue, SessionCapability,
-    PsObject, PsProperty, fragment,
+    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, SessionCapability,
+    PsValue, fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -78,8 +78,8 @@ pub struct RunspacePool {
     #[builder(default)]
     host_info: Option<HostInfo>,
 
-    #[builder(default = HashMap::new())]
-    application_arguments: HashMap<PsPrimitiveValue, PsPrimitiveValue>,
+    #[builder(default = std::collections::BTreeMap::new())]
+    application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
 
     connection: Arc<WsMan>,
 
@@ -107,7 +107,7 @@ impl RunspacePool {
         );
 
         let session_capability = SessionCapability {
-            ref_id: Some(0),
+            ref_id: 0,
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
             serialization_version: SERIALIZATION_VERSION.to_string(),
@@ -115,7 +115,7 @@ impl RunspacePool {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: Some(1),
+            ref_id: 1,
             min_runspaces: self.min_runspaces as i32,
             max_runspaces: self.max_runspaces as i32,
             thread_options: self.thread_options,
@@ -134,7 +134,7 @@ impl RunspacePool {
             &[&session_capability, &init_runspace_pool],
             self.id,
             None,
-        );
+        )?;
 
         debug!(request_groups = ?request_groups, "Fragmented negotiation requests");
 
@@ -151,7 +151,7 @@ impl RunspacePool {
             .ok_or(crate::PwshCoreError::UnlikelyToHappen(
                 "No request group generated for negotiation",
             ))
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))?;
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))?;
 
         let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
 
