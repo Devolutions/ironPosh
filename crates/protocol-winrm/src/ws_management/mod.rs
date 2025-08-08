@@ -54,11 +54,11 @@ pub enum WsAction {
 impl WsAction {
     pub fn as_str(&self) -> &str {
         match self {
-            WsAction::Create => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Create",
-            WsAction::Delete => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Delete",
-            WsAction::Get => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Get",
-            WsAction::Put => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Put",
-            WsAction::Receive => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Receive",
+            WsAction::Create => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
+            WsAction::Delete => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete",
+            WsAction::Get => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",
+            WsAction::Put => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put",
+            WsAction::Receive => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Receive", // See note below
             WsAction::ShellCreate => {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create"
             }

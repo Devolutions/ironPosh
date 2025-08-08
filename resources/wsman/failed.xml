@@ -1,15 +1,15 @@
 <s:Envelope
-    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
-    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
     xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd"
-    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd">
     <s:Header>
         <a:To>
             http://10.10.0.3:5985/wsman?PSVersion=7.4.10
             </a:To>
         <a:Action
             s:mustUnderstand="true">
-            http://schemas.dmtf.org/wbem/wsman/1/wsman/Create
+            http://schemas.xmlsoap.org/ws/2004/09/transfer/Create
             </a:Action>
         <a:ReplyTo
             s:mustUnderstand="true">
@@ -18,7 +18,7 @@
                 </a:Address>
             </a:ReplyTo>
         <a:MessageID>
-            uuid:1f7d358c-9735-4c5e-9fb4-5eae9aa59faa
+            uuid:622d032a-f9b3-498d-b447-1359c3bb14f3
             </a:MessageID>
         <w:ResourceURI
             s:mustUnderstand="true">
@@ -36,11 +36,11 @@
             xml:lang="en-CA"/>
         <p:SessionId
             s:mustUnderstand="false">
-            uuid:c7602f6d-eab0-4992-a720-0dfb7bd4ebff
+            uuid:ac93b121-bf5e-4486-9e8e-cc336a77efe2
             </p:SessionId>
         <p:OperationID
             s:mustUnderstand="false">
-            uuid:2dac7082-0bc4-4bf5-bd88-3cc7b867ad2b
+            uuid:9178a378-f1b0-4ede-9ee2-52e43056aa28
             </p:OperationID>
         <p:SequenceId
             s:mustUnderstand="false">
@@ -51,7 +51,7 @@
             s:mustUnderstand="true">
             <w:Option
                 Name="protocolversion"
-                w:MustComply="true">
+                MustComply="true">
                 2.3
                 </w:Option>
             </w:OptionSet>
@@ -67,7 +67,7 @@
     <s:Body>
         <rsp:Shell
             xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell"
-            ShellId="95822756-3d07-42f9-8a84-8ca130e0a723"
+            ShellId="07936b27-7752-4325-8b0d-e7a1e9448320"
             Name="Runspace1">
             <rsp:InputStreams>
                 stdin pr
@@ -77,7 +77,7 @@
                 </rsp:OutputStreams>
             <creationXml
                 xmlns="http://schemas.microsoft.com/powershell">
-                 […]AAAAAAAAAAEAAAAAAAAAAAMAAADHAgAAAAIAAQCVgidWPQdC+YqEjKEw4KcjAAAAAAAAAAAAAAAAAAAAADxPYmogUmVmSWQ9IjAiPjxNUz48VmVyc2lvbiBOPSJwcm90b2NvbHZlcnNpb24iPjIuMzwvVmVyc2lvbj48VmVyc2lvbiBOPSJQU1ZlcnNpb24iPjIuMDwvVmVyc2lvbj48VmVyc2lvbiBOPSJTZXJpY
+                 […]AAAAAAAAAAEAAAAAAAAAAAMAAADHAgAAAAIAAQAHk2snd1JDJYsN56HpRIMgAAAAAAAAAAAAAAAAAAAAADxPYmogUmVmSWQ9IjAiPjxNUz48VmVyc2lvbiBOPSJQU1ZlcnNpb24iPjIuMDwvVmVyc2lvbj48VmVyc2lvbiBOPSJTZXJpYWxpemF0aW9uVmVyc2lvbiI+MS4xLjAuMTwvVmVyc2lvbj48VmVyc2lvb
                 </creationXml>
             </rsp:Shell>
         </s:Body>

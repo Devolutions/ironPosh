@@ -1,5 +1,5 @@
 📁 Reading from file: resources\creation_xml_failed.txt
-✅ Successfully read 10644 characters from file
+✅ Successfully read 1096 characters from file
 
 ================================================================================
                      POWERSHELL REMOTING PROTOCOL ANALYZER                      
@@ -8,7 +8,7 @@
 ------------------------------------------------------------
 1. Base64 Decoding
 ------------------------------------------------------------
-✅ Successfully decoded 7981 bytes from base64 input
+✅ Successfully decoded 820 bytes from base64 input
 
 ------------------------------------------------------------
 2. PowerShell Remoting Message Parsing
@@ -21,16 +21,16 @@
 📨 Message 1 Details:
    📋 Type: SessionCapability
    🎯 Destination: Server
-   🆔 Runspace Pool ID: 75ad2717-0cf8-4b2e-9a40-05e4adb4389d
+   🆔 Runspace Pool ID: 6b608969-3843-4b18-abde-73d42af051fc
    🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
    📏 Data Size: 159 bytes
 
 📨 Message 2 Details:
    📋 Type: InitRunspacepool
    🎯 Destination: Server
-   🆔 Runspace Pool ID: 75ad2717-0cf8-4b2e-9a40-05e4adb4389d
+   🆔 Runspace Pool ID: 6b608969-3843-4b18-abde-73d42af051fc
    🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
-   📏 Data Size: 7700 bytes
+   📏 Data Size: 539 bytes
 
 
 ================================================================================
@@ -42,7 +42,7 @@
 ------------------------------------------------------------
 ✅ Successfully decoded UTF-8 string (159 characters)
 📄 Complete XML Data:
-<Obj RefId="0"><MS><Version N="protocolversion">2.3</Version><Version N="PSVersion">2.0</Version><Version N="SerializationVersion">1.1.0.1</Version></MS></Obj>
+<Obj RefId="0"><MS><Version N="PSVersion">2.0</Version><Version N="SerializationVersion">1.1.0.1</Version><Version N="protocolversion">2.3</Version></MS></Obj>
 
 ------------------------------------------------------------
 5. XML Structure Analysis
@@ -58,13 +58,37 @@
 ------------------------------------------------------------
 7. PowerShell Object Details
 ------------------------------------------------------------
-PsObject {
-  RefId: 0,
-  MemberSet: [
-    protocolversion: Version(2.3),
-    PSVersion: Version(2.0),
-    SerializationVersion: Version(1.1.0.1),
-  ],
+ComplexObject {
+    type_def: None,
+    to_string: None,
+    content: Standard,
+    adapted_properties: {},
+    extended_properties: {
+        "PSVersion": PsProperty {
+            name: "PSVersion",
+            value: Primitive(
+                Version(
+                    "2.0",
+                ),
+            ),
+        },
+        "SerializationVersion": PsProperty {
+            name: "SerializationVersion",
+            value: Primitive(
+                Version(
+                    "1.1.0.1",
+                ),
+            ),
+        },
+        "protocolversion": PsProperty {
+            name: "protocolversion",
+            value: Primitive(
+                Version(
+                    "2.3",
+                ),
+            ),
+        },
+    },
 }
 
 ================================================================================
@@ -74,9 +98,9 @@ PsObject {
 ------------------------------------------------------------
 4. Data Extraction & UTF-8 Decoding
 ------------------------------------------------------------
-✅ Successfully decoded UTF-8 string (7700 characters)
+✅ Successfully decoded UTF-8 string (539 characters)
 📄 Complete XML Data:
-<Obj RefId="1"><MS><I32 N="MinRunspaces">1</I32><I32 N="MaxRunspaces">1</I32><Obj N="PSThreadOptions"><TN RefId="0"><T>System.Management.Automation.Runspaces.PSThreadOptions</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Default</ToString><MS><I32>0</I32></MS></Obj><Obj N="ApartmentState"><TN RefId="0"><T>System.Threading.ApartmentState</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Unknown</ToString><MS><I32>2</I32></MS></Obj><Obj N="HostInfo"><MS><B N="_isHostNull">false</B><B N="_isHostUINull">false</B><B N="_isHostRawUINull">false</B><B N="_useRunspaceHost">false</B><Obj N="_hostDefaultData"><MS><Obj N="data"><TN RefId="0"><T>System.Collections.Hashtable</T><T>System.Object</T></TN><DCT><En><I32 N="Key">4</I32><Obj N="Value"><MS><S N="T">System.Int32</S><I32 N="V">25</I32></MS></Obj></En><En><I32 N="Key">3</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V"><MS><I32 N="x">0</I32><I32 N="y">0</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">5</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">1</I32><Obj N="Value"><MS><S N="T">System.ConsoleColor</S><I32 N="V">0</I32></MS></Obj></En><En><I32 N="Key">2</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V"><MS><I32 N="x">0</I32><I32 N="y">27</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">7</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">0</I32><Obj N="Value"><MS><S N="T">System.ConsoleColor</S><I32 N="V">7</I32></MS></Obj></En><En><I32 N="Key">8</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">3824</I32><I32 N="height">2121</I32></MS></Obj></MS></Obj></En><En><I32 N="Key">9</I32><Obj N="Value"><MS><S N="T">System.String</S><S N="V">PowerShell</S></MS></Obj></En><En><I32 N="Key">6</I32><Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">30</I32></MS></Obj></MS></Obj></En></DCT></Obj></MS></Obj></MS></Obj><Obj N="ApplicationArguments"><TN RefId="0"><T>System.Management.Automation.PSPrimitiveDictionary</T><T>System.Collections.Hashtable</T><T>System.Object</T></TN><DCT><En><S N="Key">PSVersionTable</S><Obj N="Value"><TN RefId="0"><T>System.Management.Automation.PSPrimitiveDictionary</T><T>System.Collections.Hashtable</T><T>System.Object</T></TN><DCT><En><S N="Key">PSVersion</S><Obj N="Value"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">7</I32><I32 N="Minor">4</I32><I32 N="Build">10</I32></MS></Obj></En><En><S N="Key">OS</S><S N="Value">Microsoft Windows 10.0.22631</S></En><En><S N="Key">PSEdition</S><S N="Value">Core</S></En><En><S N="Key">PSRemotingProtocolVersion</S><Obj N="Value"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">2</I32><I32 N="Minor">3</I32></MS></Obj></En><En><S N="Key">WSManStackVersion</S><Obj N="Value"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">3</I32><I32 N="Minor">0</I32></MS></Obj></En><En><S N="Key">SerializationVersion</S><Obj N="Value"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">1</I32><I32 N="Minor">1</I32><I32 N="Build">0</I32><I32 N="Revision">1</I32></MS></Obj></En><En><S N="Key">PSCompatibleVersions</S><Obj N="Value"><TN RefId="0"><T>System.Version[]</T><T>System.Array</T><T>System.Object</T></TN><MS><Obj N="0"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">1</I32><I32 N="Minor">0</I32></MS></Obj><Obj N="1"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">2</I32><I32 N="Minor">0</I32></MS></Obj><Obj N="2"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">3</I32><I32 N="Minor">0</I32></MS></Obj><Obj N="3"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">4</I32><I32 N="Minor">0</I32></MS></Obj><Obj N="4"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">5</I32><I32 N="Minor">0</I32></MS></Obj><Obj N="5"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">5</I32><I32 N="Minor">1</I32><I32 N="Build">10032</I32><I32 N="Revision">0</I32></MS></Obj><Obj N="6"><TN RefId="0"><T>System.Version</T><T>System.IComparable</T><T>System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><MS><I32 N="Major">7</I32><I32 N="Minor">4</I32><I32 N="Build">10</I32></MS></Obj></MS></Obj></En></DCT></Obj></En></DCT></Obj></MS></Obj>
+<Obj RefId="0"><MS><Obj RefId="1" N="ApartmentState"><TN RefId="0"><T>System.Threading.ApartmentState</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Unknown</ToString><I32>2</I32></Obj><Nil N="ApplicationArguments"/><I32 N="MaxRunspaces">1</I32><I32 N="MinRunspaces">1</I32><Obj RefId="2" N="PSThreadOptions"><TN RefId="1"><T>System.Management.Automation.Runspaces.PSThreadOptions</T><T>System.Enum</T><T>System.ValueType</T><T>System.Object</T></TN><ToString>Default</ToString><I32>0</I32></Obj></MS></Obj>
 
 ------------------------------------------------------------
 5. XML Structure Analysis
@@ -92,231 +116,89 @@ PsObject {
 ------------------------------------------------------------
 7. PowerShell Object Details
 ------------------------------------------------------------
-PsObject {
-  RefId: 1,
-  MemberSet: [
-    MinRunspaces: 1,
-    MaxRunspaces: 1,
-    PSThreadOptions:     PsObject {
-      TypeNames: ["System.Management.Automation.Runspaces.PSThreadOptions", "System.Enum", "System.ValueType", "System.Object"],
-      MemberSet: [
-        (unnamed): 0,
-      ],
-    },
-    ApartmentState:     PsObject {
-      TypeNames: ["System.Threading.ApartmentState", "System.Enum", "System.ValueType", "System.Object"],
-      MemberSet: [
-        (unnamed): 2,
-      ],
-    },
-    HostInfo:     PsObject {
-      MemberSet: [
-        _isHostNull: false,
-        _isHostUINull: false,
-        _isHostRawUINull: false,
-        _useRunspaceHost: false,
-        _hostDefaultData:         PsObject {
-          MemberSet: [
-            data:             PsObject {
-              TypeNames: ["System.Collections.Hashtable", "System.Object"],
-              Dictionary: {
-                2:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Coordinates",
-                    V:                     PsObject {
-                      MemberSet: [
-                        x: 0,
-                        y: 27,
-                      ],
-                    },
-                  ],
+ComplexObject {
+    type_def: None,
+    to_string: None,
+    content: Standard,
+    adapted_properties: {},
+    extended_properties: {
+        "ApartmentState": PsProperty {
+            name: "ApartmentState",
+            value: Object(
+                ComplexObject {
+                    type_def: Some(
+                        PsType {
+                            type_names: [
+                                "System.Threading.ApartmentState",
+                                "System.Enum",
+                                "System.ValueType",
+                                "System.Object",
+                            ],
+                        },
+                    ),
+                    to_string: Some(
+                        "Unknown",
+                    ),
+                    content: PsEnums(
+                        PsEnums {
+                            value: 2,
+                        },
+                    ),
+                    adapted_properties: {},
+                    extended_properties: {},
                 },
-                3:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Coordinates",
-                    V:                     PsObject {
-                      MemberSet: [
-                        x: 0,
-                        y: 0,
-                      ],
-                    },
-                  ],
-                },
-                5:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-                8:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      MemberSet: [
-                        width: 3824,
-                        height: 2121,
-                      ],
-                    },
-                  ],
-                },
-                6:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-                0:                 PsObject {
-                  MemberSet: [
-                    T: "System.ConsoleColor",
-                    V: 7,
-                  ],
-                },
-                1:                 PsObject {
-                  MemberSet: [
-                    T: "System.ConsoleColor",
-                    V: 0,
-                  ],
-                },
-                9:                 PsObject {
-                  MemberSet: [
-                    T: "System.String",
-                    V: "PowerShell",
-                  ],
-                },
-                4:                 PsObject {
-                  MemberSet: [
-                    T: "System.Int32",
-                    V: 25,
-                  ],
-                },
-                7:                 PsObject {
-                  MemberSet: [
-                    T: "System.Management.Automation.Host.Size",
-                    V:                     PsObject {
-                      MemberSet: [
-                        width: 120,
-                        height: 30,
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          ],
+            ),
         },
-      ],
-    },
-    ApplicationArguments:     PsObject {
-      TypeNames: ["System.Management.Automation.PSPrimitiveDictionary", "System.Collections.Hashtable", "System.Object"],
-      Dictionary: {
-        "PSVersionTable":         PsObject {
-          TypeNames: ["System.Management.Automation.PSPrimitiveDictionary", "System.Collections.Hashtable", "System.Object"],
-          Dictionary: {
-            "SerializationVersion":             PsObject {
-              TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-              MemberSet: [
-                Major: 1,
-                Minor: 1,
-                Build: 0,
-                Revision: 1,
-              ],
-            },
-            "PSVersion":             PsObject {
-              TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-              MemberSet: [
-                Major: 7,
-                Minor: 4,
-                Build: 10,
-              ],
-            },
-            "WSManStackVersion":             PsObject {
-              TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-              MemberSet: [
-                Major: 3,
-                Minor: 0,
-              ],
-            },
-            "PSEdition": "Core",
-            "OS": "Microsoft Windows 10.0.22631",
-            "PSRemotingProtocolVersion":             PsObject {
-              TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-              MemberSet: [
-                Major: 2,
-                Minor: 3,
-              ],
-            },
-            "PSCompatibleVersions":             PsObject {
-              TypeNames: ["System.Version[]", "System.Array", "System.Object"],
-              MemberSet: [
-                0:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 1,
-                    Minor: 0,
-                  ],
-                },
-                1:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 2,
-                    Minor: 0,
-                  ],
-                },
-                2:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 3,
-                    Minor: 0,
-                  ],
-                },
-                3:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 4,
-                    Minor: 0,
-                  ],
-                },
-                4:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 5,
-                    Minor: 0,
-                  ],
-                },
-                5:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 5,
-                    Minor: 1,
-                    Build: 10032,
-                    Revision: 0,
-                  ],
-                },
-                6:                 PsObject {
-                  TypeNames: ["System.Version", "System.IComparable", "System.IComparable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.IEquatable`1[[System.Version, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]", "System.Object"],
-                  MemberSet: [
-                    Major: 7,
-                    Minor: 4,
-                    Build: 10,
-                  ],
-                },
-              ],
-            },
-          },
+        "ApplicationArguments": PsProperty {
+            name: "ApplicationArguments",
+            value: Primitive(
+                Nil,
+            ),
         },
-      },
+        "MaxRunspaces": PsProperty {
+            name: "MaxRunspaces",
+            value: Primitive(
+                I32(
+                    1,
+                ),
+            ),
+        },
+        "MinRunspaces": PsProperty {
+            name: "MinRunspaces",
+            value: Primitive(
+                I32(
+                    1,
+                ),
+            ),
+        },
+        "PSThreadOptions": PsProperty {
+            name: "PSThreadOptions",
+            value: Object(
+                ComplexObject {
+                    type_def: Some(
+                        PsType {
+                            type_names: [
+                                "System.Management.Automation.Runspaces.PSThreadOptions",
+                                "System.Enum",
+                                "System.ValueType",
+                                "System.Object",
+                            ],
+                        },
+                    ),
+                    to_string: Some(
+                        "Default",
+                    ),
+                    content: PsEnums(
+                        PsEnums {
+                            value: 0,
+                        },
+                    ),
+                    adapted_properties: {},
+                    extended_properties: {},
+                },
+            ),
+        },
     },
-  ],
 }
 
 ================================================================================
