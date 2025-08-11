@@ -235,13 +235,14 @@ mod tests {
     }
 
     #[test]
+    #[tracing_test::traced_test]
     fn test_deserialize_with_minimal_header() {
         const MINIMAL_HEADER: &str = r#"
         <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
                     xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
             <s:Header>
                 <a:Action>test-action</a:Action>
-                <a:MessageID>test-message-id</a:MessageID>
+                <a:MessageID>uuid:9178a378-f1b0-4ede-9ee2-52e43056aa28</a:MessageID>
             </s:Header>
             <s:Body></s:Body>
         </s:Envelope>

@@ -122,7 +122,7 @@ impl WinRunspace {
 
         let receive_tag = Tag::from_name(Receive)
             .with_value(receive)
-            .with_declaration(protocol_winrm::cores::Namespace::PowerShellRemoting);
+            .with_declaration(protocol_winrm::cores::Namespace::WsmanShell);
 
         let option_set = OptionSetValue::default()
             .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string());

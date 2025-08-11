@@ -46,9 +46,8 @@ pub enum WsAction {
     Delete,
     Get,
     Put,
-    Receive,
-    ShellCreate,
     ShellReceive,
+    ShellCreate,
 }
 
 impl WsAction {
@@ -58,12 +57,11 @@ impl WsAction {
             WsAction::Delete => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete",
             WsAction::Get => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",
             WsAction::Put => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put",
-            WsAction::Receive => "http://schemas.dmtf.org/wbem/wsman/1/wsman/Receive", // See note below
+            WsAction::ShellReceive => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"
+            } // See note below
             WsAction::ShellCreate => {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create"
-            }
-            WsAction::ShellReceive => {
-                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/receive"
             }
         }
     }
