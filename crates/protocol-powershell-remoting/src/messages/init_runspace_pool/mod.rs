@@ -14,8 +14,7 @@ use super::{
 };
 use crate::MessageType;
 use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,22 +81,12 @@ impl From<InitRunspacePool> for ComplexObject {
                 },
             );
         } else {
-            let app_args_type = PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
-                    Cow::Borrowed("System.Collections.Hashtable"),
-                    Cow::Borrowed("System.Object"),
-                ],
-            };
-
             let app_args_obj = ComplexObject {
-                type_def: Some(app_args_type),
-                to_string: None,
+                type_def: Some(PsType::ps_primitive_dictionary()),
                 content: ComplexObjectContent::Container(Container::Dictionary(
                     init.application_arguments,
                 )),
-                adapted_properties: BTreeMap::new(),
-                extended_properties: BTreeMap::new(),
+                ..Default::default()
             };
 
             extended_properties.insert(
@@ -110,11 +99,9 @@ impl From<InitRunspacePool> for ComplexObject {
         }
 
         ComplexObject {
-            type_def: None,
-            to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
             extended_properties,
+            ..Default::default()
         }
     }
 }

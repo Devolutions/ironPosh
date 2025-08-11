@@ -57,6 +57,18 @@ pub struct PsType {
     pub type_names: Vec<Cow<'static, str>>,
 }
 
+impl PsType {
+    pub fn ps_primitive_dictionary() -> Self {
+        PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
+                Cow::Borrowed("System.Collections.Hashtable"),
+                Cow::Borrowed("System.Object"),
+            ],
+        }
+    }
+}
+
 impl PartialEq for PsType {
     fn eq(&self, other: &Self) -> bool {
         for (ty1, ty2) in self.type_names.iter().zip(other.type_names.iter()) {
