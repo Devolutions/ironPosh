@@ -1,4 +1,4 @@
-📁 Reading from file: resources\creation_xml_base64.txt
+📁 Reading from file: C:\dev\ironwinrm\resources\create\creation_xml_success.txt
 ✅ Successfully read 5420 characters from file
 
 ================================================================================

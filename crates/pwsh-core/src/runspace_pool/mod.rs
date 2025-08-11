@@ -75,8 +75,7 @@ pub struct RunspacePool {
     #[builder(default = ApartmentState::Unknown)]
     apartment_state: ApartmentState,
 
-    #[builder(default)]
-    host_info: Option<HostInfo>,
+    host_info: HostInfo,
 
     #[builder(default = std::collections::BTreeMap::new())]
     application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
@@ -221,7 +220,7 @@ impl ExpectShellCreated {
             .ok_or({
                 crate::PwshCoreError::InvalidState("Shell must be initialized to parse response")
             })?
-            .parse_create_response(soap_response)?;
+            .accept_create_response(soap_response)?;
 
         Ok(runspace_pool)
     }

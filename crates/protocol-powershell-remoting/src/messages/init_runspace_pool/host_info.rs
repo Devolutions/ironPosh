@@ -4,13 +4,18 @@ use super::super::{
 use super::HostDefaultData;
 use std::{borrow::Cow, collections::BTreeMap};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, typed_builder::TypedBuilder)]
 pub struct HostInfo {
+    #[builder(default = false)]
     pub is_host_null: bool,
+    #[builder(default = false)]
     pub is_host_ui_null: bool,
+    #[builder(default = false)]
     pub is_host_raw_ui_null: bool,
+    #[builder(default = false)]
     pub use_runspace_host: bool,
-    pub host_default_data: Option<HostDefaultData>,
+    #[builder(default)]
+    pub host_default_data: HostDefaultData,
 }
 
 impl From<HostInfo> for ComplexObject {
@@ -49,44 +54,43 @@ impl From<HostInfo> for ComplexObject {
             },
         );
 
-        if let Some(host_default_data) = host_info.host_default_data {
-            let data_props = BTreeMap::from([(
-                "data".to_string(),
-                PsProperty {
-                    name: "data".to_string(),
-                    value: PsValue::Object(ComplexObject {
-                        type_def: Some(PsType {
-                            type_names: vec![
-                                Cow::Borrowed("System.Collections.Hashtable"),
-                                Cow::Borrowed("System.Object"),
-                            ],
-                        }),
-                        to_string: None,
-                        content: ComplexObjectContent::Container(Container::Dictionary(
-                            host_default_data.to_dictionary(),
-                        )),
-                        adapted_properties: BTreeMap::new(),
-                        extended_properties: BTreeMap::new(),
+        let host_default_data = host_info.host_default_data;
+        let data_props = BTreeMap::from([(
+            "data".to_string(),
+            PsProperty {
+                name: "data".to_string(),
+                value: PsValue::Object(ComplexObject {
+                    type_def: Some(PsType {
+                        type_names: vec![
+                            Cow::Borrowed("System.Collections.Hashtable"),
+                            Cow::Borrowed("System.Object"),
+                        ],
                     }),
-                },
-            )]);
+                    to_string: None,
+                    content: ComplexObjectContent::Container(Container::Dictionary(
+                        host_default_data.to_dictionary(),
+                    )),
+                    adapted_properties: BTreeMap::new(),
+                    extended_properties: BTreeMap::new(),
+                }),
+            },
+        )]);
 
-            let host_data_obj = ComplexObject {
-                type_def: None,
-                to_string: None,
-                content: ComplexObjectContent::Standard,
-                adapted_properties: BTreeMap::new(),
-                extended_properties: data_props,
-            };
+        let host_data_obj = ComplexObject {
+            type_def: None,
+            to_string: None,
+            content: ComplexObjectContent::Standard,
+            adapted_properties: BTreeMap::new(),
+            extended_properties: data_props,
+        };
 
-            extended_properties.insert(
-                "_hostDefaultData".to_string(),
-                PsProperty {
-                    name: "_hostDefaultData".to_string(),
-                    value: PsValue::Object(host_data_obj),
-                },
-            );
-        }
+        extended_properties.insert(
+            "_hostDefaultData".to_string(),
+            PsProperty {
+                name: "_hostDefaultData".to_string(),
+                value: PsValue::Object(host_data_obj),
+            },
+        );
 
         ComplexObject {
             type_def: None,

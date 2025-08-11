@@ -49,7 +49,7 @@ impl<'a> Default for EnumerateValue<'a> {
 }
 
 impl<'a> TagValue<'a> for EnumerateValue<'a> {
-    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
+    fn append_to_element(self, _element: Element<'a>) -> Element<'a> {
         todo!("[EnumerateValue] Implement into_element");
     }
 }

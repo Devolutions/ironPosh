@@ -127,12 +127,17 @@ impl WinRunspace {
         let option_set = OptionSetValue::default()
             .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string());
 
+        let selector_set = self
+            .shell_id
+            .as_ref()
+            .map(|shell_id| SelectorSetValue::new().add_selector("ShellId", shell_id));
+
         self.ws_man.invoke(
             ws_management::WsAction::ShellReceive,
             Some(&self.resource_uri),
             Some(receive_tag.into()),
             Some(option_set),
-            None,
+            selector_set,
         )
     }
 
@@ -143,7 +148,7 @@ impl WinRunspace {
         todo!()
     }
 
-    pub fn parse_create_response<'a>(
+    pub fn accept_create_response<'a>(
         &mut self,
         soap_envelop: SoapEnvelope<'a>,
     ) -> Result<(), crate::PwshCoreError> {
@@ -176,6 +181,7 @@ impl WinRunspace {
         self.shell_run_time = shell_run_time
             .as_ref()
             .map(|t| t.value.as_ref().to_string());
+
         self.shell_inactivity = shell_inactivity
             .as_ref()
             .map(|t| t.value.as_ref().to_string());

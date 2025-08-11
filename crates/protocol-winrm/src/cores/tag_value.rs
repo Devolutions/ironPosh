@@ -169,7 +169,7 @@ impl<'a> TagValue<'a> for Empty {
 }
 
 impl From<()> for Empty {
-    fn from(val: ()) -> Self {
+    fn from(_: ()) -> Self {
         Empty
     }
 }

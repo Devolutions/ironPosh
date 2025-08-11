@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 #[cfg(test)]
 mod tests {
+    use crate::HostInfo;
+
     use super::*;
 
     /// Test fragmenter/defragmenter roundtrip with single small message
@@ -57,7 +59,7 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: None,
+            host_info: HostInfo::builder().build(),
             application_arguments: BTreeMap::new(),
         };
 
@@ -117,7 +119,7 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: None,
+            host_info: HostInfo::builder().build(),
             application_arguments: BTreeMap::new(),
         };
 
@@ -187,7 +189,7 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: None,
+            host_info: HostInfo::builder().build(),
             application_arguments: BTreeMap::new(),
         };
 

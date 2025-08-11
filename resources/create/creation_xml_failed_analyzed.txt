@@ -1,4 +1,4 @@
-📁 Reading from file: resources\creation_xml_failed.txt
+📁 Reading from file: C:\dev\ironwinrm\resources\create\creation_xml_failed.txt
 ✅ Successfully read 1096 characters from file
 
 ================================================================================
@@ -21,14 +21,14 @@
 📨 Message 1 Details:
    📋 Type: SessionCapability
    🎯 Destination: Server
-   🆔 Runspace Pool ID: 6b608969-3843-4b18-abde-73d42af051fc
+   🆔 Runspace Pool ID: 2a92e367-d38b-4bd0-a63f-2ac57f9e1b00
    🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
    📏 Data Size: 159 bytes
 
 📨 Message 2 Details:
    📋 Type: InitRunspacepool
    🎯 Destination: Server
-   🆔 Runspace Pool ID: 6b608969-3843-4b18-abde-73d42af051fc
+   🆔 Runspace Pool ID: 2a92e367-d38b-4bd0-a63f-2ac57f9e1b00
    🔗 Pipeline ID: 00000000-0000-0000-0000-000000000000
    📏 Data Size: 539 bytes
 

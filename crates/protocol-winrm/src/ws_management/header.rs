@@ -6,7 +6,7 @@ use xml::{
     parser::{XmlDeserialize, XmlVisitor},
 };
 
-use crate::cores::{self, OptionTagName, SelectorTagName, TagName, TagValue};
+use crate::cores::{self, OptionTagName, Selector, Tag, TagName, TagValue, Text};
 
 #[derive(Debug, Clone)]
 pub struct SelectorSetValue {
@@ -48,10 +48,13 @@ impl Default for SelectorSetValue {
 impl<'a> TagValue<'a> for SelectorSetValue {
     fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
         for (name, value) in self.selectors {
-            let selector_element = Element::new("Selector")
-                .set_text(value)
-                .add_attribute(xml::builder::Attribute::new("Name", name));
-            element = element.add_child(selector_element);
+            let selector = Tag::from_name(Selector)
+                .with_value(Text::from(value))
+                .with_attribute(crate::cores::Attribute::Name(name.into()));
+
+            let selector = selector.into_element();
+
+            element = element.add_child(selector);
         }
 
         element
@@ -75,7 +78,7 @@ impl<'a> XmlVisitor<'a> for SelectorSetVisitor {
             }
 
             match (child.tag_name().name(), child.tag_name().namespace()) {
-                (SelectorTagName::TAG_NAME, SelectorTagName::NAMESPACE) => {
+                (Selector::TAG_NAME, Selector::NAMESPACE) => {
                     // Extract Name attribute and text content
                     let mut name = None;
                     for attr in child.attributes() {

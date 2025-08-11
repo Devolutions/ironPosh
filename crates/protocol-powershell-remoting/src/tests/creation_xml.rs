@@ -1,4 +1,5 @@
 use crate::{
+    HostInfo,
     fragment::{DefragmentResult, Defragmenter, Fragmenter},
     messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
 };
@@ -25,7 +26,7 @@ fn test_combined_messages_like_runspace_open() {
         max_runspaces: 1,
         thread_options: PSThreadOptions::Default,
         apartment_state: ApartmentState::Unknown,
-        host_info: None,
+        host_info: HostInfo::builder().build(),
         application_arguments: BTreeMap::new(),
     };
 

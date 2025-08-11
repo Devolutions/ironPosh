@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use protocol_powershell_remoting::HostInfo;
 use protocol_winrm::ws_management::WsMan;
 
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, ServerAddress},
-    powershell::{ExpectShellCreated, RunspacePool},
+    runspace_pool::{ExpectShellCreated, RunspacePool},
 };
 pub mod http;
 
@@ -101,6 +102,7 @@ impl Connector {
                             .to(self.config.wsman_to("PSVersion=7.4.10"))
                             .build(),
                     ))
+                    .host_info(HostInfo::builder().build())
                     .build();
 
                 let http_builder = HttpBuilder::new(

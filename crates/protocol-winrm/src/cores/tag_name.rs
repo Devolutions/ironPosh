@@ -86,14 +86,10 @@ define_tagname!(FragmentTransfer, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(SelectorSet, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(OptionSet, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(Locale, Some(Namespace::DmtfWsmanSchema.uri()));
+define_tagname!(Selector, Some(Namespace::DmtfWsmanSchema.uri()));
 define_custom_tagname!(
     OptionTagName,
     "Option",
-    Some(Namespace::DmtfWsmanSchema.uri())
-);
-define_custom_tagname!(
-    SelectorTagName,
-    "Selector",
     Some(Namespace::DmtfWsmanSchema.uri())
 );
 

@@ -25,22 +25,8 @@ pub struct InitRunspacePool {
     pub max_runspaces: i32,
     pub thread_options: PSThreadOptions,
     pub apartment_state: ApartmentState,
-    pub host_info: Option<HostInfo>,
+    pub host_info: HostInfo,
     pub application_arguments: BTreeMap<PsValue, PsValue>,
-}
-
-impl Default for InitRunspacePool {
-    fn default() -> Self {
-        Self {
-            ref_id: 0,
-            min_runspaces: 1,
-            max_runspaces: 1,
-            thread_options: PSThreadOptions::Default,
-            apartment_state: ApartmentState::MTA,
-            host_info: None,
-            application_arguments: BTreeMap::new(),
-        }
-    }
 }
 
 impl From<InitRunspacePool> for ComplexObject {
@@ -79,15 +65,13 @@ impl From<InitRunspacePool> for ComplexObject {
             },
         );
 
-        if let Some(host_info) = init.host_info.as_ref() {
-            extended_properties.insert(
-                "HostInfo".to_string(),
-                PsProperty {
-                    name: "HostInfo".to_string(),
-                    value: PsValue::Object(host_info.clone().into()),
-                },
-            );
-        }
+        extended_properties.insert(
+            "HostInfo".to_string(),
+            PsProperty {
+                name: "HostInfo".to_string(),
+                value: PsValue::Object(init.host_info.clone().into()),
+            },
+        );
 
         if init.application_arguments.is_empty() {
             extended_properties.insert(
