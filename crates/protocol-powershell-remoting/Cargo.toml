@@ -20,3 +20,4 @@ xml = { version = "0.1.0", path = "../xml" }
 
 [dev-dependencies]
 tracing-test = { version = "0.2.4", features = ["no-env-filter"] }
+tracing-subscriber = { version = "0.3.17", features = ["fmt", "env-filter"] }

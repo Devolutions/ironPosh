@@ -1,6 +1,9 @@
+use std::io::Cursor;
+
 use crate::PowerShellRemotingError;
 use base64::Engine;
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use tracing::trace;
 
 /// Fragment represents a single fragment of a PowerShell remoting message
 #[derive(Debug, Clone)]
@@ -75,20 +78,26 @@ impl Fragment {
             ));
         }
 
-        let object_id = u64::from_be_bytes([
-            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-        ]);
+        let mut cursor = Cursor::new(data);
 
-        let fragment_id = u64::from_be_bytes([
-            data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
-        ]);
+        let object_id = cursor.read_u64::<BigEndian>()?;
 
-        let flags = data[16];
+        trace!(object_id, "Unpacking fragment with object ID");
+
+        let fragment_id = cursor.read_u64::<BigEndian>()?;
+
+        trace!(fragment_id, "Unpacking fragment with fragment ID");
+
+        let flags = cursor.read_u8()?;
         let start = (flags & 0x01) != 0;
         let end = (flags & 0x02) != 0;
 
-        let length = u32::from_be_bytes([data[17], data[18], data[19], data[20]]) as usize;
+        trace!(start, end, "Unpacking fragment with start and end flags");
 
+        // let length = u32::from_be_bytes([data[17], data[18], data[19], data[20]]) as usize;
+        let length = cursor.read_u32::<BigEndian>()? as usize;
+
+        trace!(length, "Unpacking fragment with data length");
         if data.len() < 21 + length {
             return Err(PowerShellRemotingError::InvalidMessage(format!(
                 "Fragment data truncated: expected {} bytes, got {}",

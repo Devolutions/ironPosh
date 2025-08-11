@@ -13,9 +13,7 @@ use super::{
     PsType, PsValue,
 };
 use crate::MessageType;
-use std::{
-    collections::{BTreeMap},
-};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitRunspacePool {

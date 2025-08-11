@@ -860,6 +860,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
  "tracing-test",
  "typed-builder",
  "uuid",

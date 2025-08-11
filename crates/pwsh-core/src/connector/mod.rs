@@ -28,13 +28,14 @@ pub struct ConnectorConfig {
 }
 
 impl ConnectorConfig {
-    pub fn wsman_to(&self, query: &str) -> String {
+    pub fn wsman_to(&self, query: Option<&str>) -> String {
+        let query = query
+            .map(|q| format!("?{}", q.trim_start_matches('?')))
+            .unwrap_or_default();
+
         match &self.scheme {
-            Scheme::Http => format!("http://{}:{}/wsman?{}", self.server.0, self.server.1, query),
-            Scheme::Https => format!(
-                "https://{}:{}/wsman?{}",
-                self.server.0, self.server.1, query
-            ),
+            Scheme::Http => format!("http://{}:{}/wsman{}", self.server.0, self.server.1, query),
+            Scheme::Https => format!("https://{}:{}/wsman{}", self.server.0, self.server.1, query),
         }
     }
 }
@@ -98,9 +99,7 @@ impl Connector {
                 debug_assert!(request.is_none(), "Request should be None in Idle state");
                 let runspace_pool = RunspacePool::builder()
                     .connection(Arc::new(
-                        WsMan::builder()
-                            .to(self.config.wsman_to("PSVersion=7.4.10"))
-                            .build(),
+                        WsMan::builder().to(self.config.wsman_to(None)).build(),
                     ))
                     .host_info(HostInfo::builder().build())
                     .build();

@@ -119,11 +119,6 @@ impl WsMan {
                 Tag::new(WsUuid(operation_id)).with_attribute(Attribute::MustUnderstand(false)),
             )
             .sequence_id(Tag::new(Text::from("1")).with_attribute(Attribute::MustUnderstand(false)))
-            .compression_type(
-                Tag::new(Text::from("xpress"))
-                    .with_attribute(Attribute::MustUnderstand(true))
-                    .with_declaration(Namespace::WsmanShell),
-            )
             .option_set_opt(option_set.map(Tag::from).map(|t| {
                 t.with_declaration(Namespace::XmlSchemaInstance)
                     .with_attribute(Attribute::MustUnderstand(true))

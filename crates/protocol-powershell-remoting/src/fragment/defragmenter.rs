@@ -1,3 +1,5 @@
+use tracing::trace;
+
 use super::{DefragmentResult, fragment::Fragment};
 use crate::{PowerShellRemotingError, PowerShellRemotingMessage};
 use std::collections::HashMap;
@@ -68,7 +70,16 @@ impl Defragmenter {
         // Parse all fragments from the packet data
         while !remaining_data.is_empty() {
             let (fragment, rest) = Fragment::unpack(remaining_data)?;
+            trace!(
+                fragment = ?fragment,
+                "Defragmenter unpacked fragment"
+            );
+
             remaining_data = rest;
+            trace!(
+                remaining_data_len = remaining_data.len(),
+                "Remaining data after unpacking fragment"
+            );
 
             let object_id = fragment.object_id;
 
