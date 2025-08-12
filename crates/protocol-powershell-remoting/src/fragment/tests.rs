@@ -106,7 +106,6 @@ mod tests {
     #[traced_test]
     fn test_multiple_messages_roundtrip() {
         let session_capability = SessionCapability {
-            ref_id: 0,
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
@@ -114,7 +113,6 @@ mod tests {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: 0,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
@@ -176,7 +174,6 @@ mod tests {
         let runspace_id = Uuid::parse_str("d034652d-126b-e340-b773-cba26459cfa8").unwrap();
 
         let session_capability = SessionCapability {
-            ref_id: 0,
             protocol_version: "2.3".to_string(),
             ps_version: "2.0".to_string(),
             serialization_version: "1.1.0.1".to_string(),
@@ -184,7 +181,6 @@ mod tests {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: 0,
             min_runspaces: 1,
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,

@@ -7,7 +7,6 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
-    pub ref_id: u32,
     pub protocol_version: String,
     pub ps_version: String,
     pub serialization_version: String,
@@ -78,5 +77,47 @@ impl From<SessionCapability> for ComplexObject {
             adapted_properties: BTreeMap::new(),
             extended_properties,
         }
+    }
+}
+
+impl TryFrom<ComplexObject> for SessionCapability {
+    type Error = crate::PowerShellRemotingError;
+
+    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
+        let get_version_property = |name: &str| -> Result<String, Self::Error> {
+            let property = value.extended_properties.get(name).ok_or_else(|| {
+                Self::Error::InvalidMessage(format!("Missing property: {}", name))
+            })?;
+
+            match &property.value {
+                PsValue::Primitive(PsPrimitiveValue::Version(version)) => Ok(version.clone()),
+                _ => Err(Self::Error::InvalidMessage(format!(
+                    "Property '{}' is not a Version",
+                    name
+                ))),
+            }
+        };
+
+        let protocol_version = get_version_property("protocolversion")?;
+        let ps_version = get_version_property("PSVersion")?;
+        let serialization_version = get_version_property("SerializationVersion")?;
+
+        let time_zone =
+            value
+                .extended_properties
+                .get("TimeZone")
+                .and_then(|prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) => {
+                        Some(String::from_utf8_lossy(bytes).to_string())
+                    }
+                    _ => None,
+                });
+
+        Ok(SessionCapability {
+            protocol_version,
+            ps_version,
+            serialization_version,
+            time_zone,
+        })
     }
 }

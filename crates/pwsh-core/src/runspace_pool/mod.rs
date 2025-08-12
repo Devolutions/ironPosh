@@ -2,17 +2,18 @@ use std::{collections::HashMap, sync::Arc};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, HostInfo, InitRunspacePool, PSThreadOptions, PsValue, SessionCapability,
-    fragment,
+    ApartmentState, ApplicationPrivateData, Defragmenter, HostInfo, InitRunspacePool,
+    PSThreadOptions, PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
+    session_capability,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
     ws_management::{OptionSetValue, WsMan},
 };
-use tracing::{debug, instrument};
+use tracing::{debug, info, instrument};
 use xml::parser::XmlDeserialize;
 
-use crate::runspace::win_rs::WinRunspace;
+use crate::{PwshCoreError, runspace::win_rs::WinRunspace};
 
 const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
@@ -57,12 +58,12 @@ pub struct Runspace {
     pub state: RunspacePoolState,
 }
 
-#[derive(Debug, Clone, typed_builder::TypedBuilder)]
+#[derive(Debug, typed_builder::TypedBuilder)]
 pub struct RunspacePool {
     #[builder(default = uuid::Uuid::new_v4())]
     id: uuid::Uuid,
     #[builder(default = RunspacePoolState::BeforeOpen)]
-    state: RunspacePoolState,
+    pub(crate) state: RunspacePoolState,
 
     #[builder(default = 1)]
     min_runspaces: usize,
@@ -87,6 +88,15 @@ pub struct RunspacePool {
 
     #[builder(default)]
     pipeline: HashMap<String, PowerShell>,
+
+    #[builder(default = Defragmenter::new())]
+    defragmenter: Defragmenter,
+
+    #[builder(default)]
+    application_private_data: Option<ApplicationPrivateData>,
+
+    #[builder(default)]
+    session_capability: Option<SessionCapability>,
 }
 
 impl RunspacePool {
@@ -106,7 +116,6 @@ impl RunspacePool {
         );
 
         let session_capability = SessionCapability {
-            ref_id: 0,
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
             serialization_version: SERIALIZATION_VERSION.to_string(),
@@ -114,7 +123,6 @@ impl RunspacePool {
         };
 
         let init_runspace_pool = InitRunspacePool {
-            ref_id: 1,
             min_runspaces: self.min_runspaces as i32,
             max_runspaces: self.max_runspaces as i32,
             thread_options: self.thread_options,
@@ -168,17 +176,24 @@ impl RunspacePool {
         ))
     }
 
-    // We should accept the pipeline id here, but for now let's ignore it
-    pub(crate) fn fire_receive(&self) -> String {
+    fn safe_shell(&mut self) -> Result<&mut WinRunspace, crate::PwshCoreError> {
         self.shell
-            .as_ref()
-            .expect("Shell must be initialized")
+            .as_mut()
+            .ok_or(crate::PwshCoreError::InvalidState(
+                "Shell must be initialized before using",
+            ))
+    }
+
+    // We should accept the pipeline id here, but for now let's ignore it
+    pub(crate) fn fire_receive(&mut self) -> Result<String, crate::PwshCoreError> {
+        Ok(self
+            .safe_shell()?
             .fire_receive(
                 None, // No specific stream
                 None, // No command ID
             )
             .into()
-            .to_string()
+            .to_string())
     }
 
     pub(crate) fn accept_receive_response<'a>(
@@ -189,15 +204,78 @@ impl RunspacePool {
         let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
-        let receive_result = self
-            .shell
-            .as_mut()
-            .ok_or({
-                crate::PwshCoreError::InvalidState("Shell must be initialized to accept response")
-            })?
-            .accept_receive_response(soap_envelope)?;
+        let streams = self.safe_shell()?.accept_receive_response(&soap_envelope)?;
+
+        self.parse_responses(streams)?;
 
         todo!()
+    }
+
+    pub(crate) fn parse_responses(
+        &mut self,
+        responses: Vec<Vec<u8>>,
+    ) -> Result<(), crate::PwshCoreError> {
+        for response in responses {
+            let messages = match self.defragmenter.defragment(&response)? {
+                fragment::DefragmentResult::Incomplete => continue,
+                fragment::DefragmentResult::Complete(power_shell_remoting_messages) => {
+                    power_shell_remoting_messages
+                }
+            };
+
+            for message in messages {
+                let ps_value = message.parse_ps_message()?;
+                match message.message_type {
+                    protocol_powershell_remoting::MessageType::SessionCapability => {
+                        self.handle_session_capability(ps_value)?;
+                    }
+                    protocol_powershell_remoting::MessageType::ApplicationPrivateData => {
+                        self.handle_application_private_data(ps_value)?;
+                    }
+                    _ => {
+                        info!(
+                            "Received message of type {:?}, but no handler implemented",
+                            message.message_type
+                        );
+                        todo!("Handle other message types as needed");
+                    }
+                }
+            }
+        }
+
+        todo!()
+    }
+
+    fn handle_session_capability(
+        &mut self,
+        session_capability: PsValue,
+    ) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(session_capability) = session_capability else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected SessionCapability as PsValue::Object",
+            ));
+        };
+
+        let session_capability = SessionCapability::try_from(session_capability)?;
+        debug!(?session_capability, "Received SessionCapability");
+        self.session_capability = Some(session_capability);
+        Ok(())
+    }
+
+    fn handle_application_private_data(
+        &mut self,
+        app_data: PsValue,
+    ) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(app_data) = app_data else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected ApplicationPrivateData as PsValue::Object",
+            ));
+        };
+
+        let app_data = ApplicationPrivateData::try_from(app_data)?;
+        debug!(?app_data, "Received ApplicationPrivateData");
+        self.application_private_data = Some(app_data);
+        Ok(())
     }
 }
 

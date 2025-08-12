@@ -13,7 +13,6 @@ use uuid::Uuid;
 fn test_combined_messages_like_runspace_open() {
     // Test the exact scenario from RunspacePool::open()
     let session_capability = SessionCapability {
-        ref_id: 0,
         protocol_version: "2.3".to_string(),
         ps_version: "2.0".to_string(),
         serialization_version: "1.1.0.1".to_string(),
@@ -21,7 +20,6 @@ fn test_combined_messages_like_runspace_open() {
     };
 
     let init_runspace_pool = InitRunspacePool {
-        ref_id: 0,
         min_runspaces: 1,
         max_runspaces: 1,
         thread_options: PSThreadOptions::Default,

@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
+use base64::Engine;
 use protocol_winrm::{
     cores::{DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag},
-    rsp::{receive::ReceiveValue, rsp::ShellValue},
+    rsp::{
+        receive::{ReceiveResponseValue, ReceiveValue},
+        rsp::ShellValue,
+    },
     soap::SoapEnvelope,
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };
@@ -143,11 +147,27 @@ impl WinRunspace {
 
     pub fn accept_receive_response<'a>(
         &mut self,
-        soap_envelope: SoapEnvelope<'a>,
-    ) -> Result<ReceiveValue<'a>, crate::PwshCoreError> {
-        let receive_response = soap_envelope
+        soap_envelope: &SoapEnvelope<'a>,
+    ) -> Result<Vec<Vec<u8>>, crate::PwshCoreError> {
+        let receive_response = &soap_envelope
             .body
-            .as_ref().receive
+            .as_ref()
+            .receive_response
+            .as_ref()
+            .ok_or(crate::PwshCoreError::InvalidResponse(
+                "No ReceiveResponse found in response",
+            ))?;
+
+        let streams = receive_response
+            .value
+            .streams
+            .iter()
+            .map(|stream| stream.value.as_ref())
+            .map(|stream| base64::engine::general_purpose::STANDARD.decode(stream))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| crate::PwshCoreError::InvalidResponse("Failed to decode streams"))?;
+
+        Ok(streams)
     }
 
     pub fn accept_create_response<'a>(

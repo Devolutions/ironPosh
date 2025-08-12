@@ -1,4 +1,4 @@
-use tracing::debug;
+use tracing::{debug, warn};
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
@@ -207,13 +207,16 @@ where
         );
 
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
-            debug!("Tag name matches! Processing children...");
             let value =
                 V::from_children(node.children().filter(|c| c.is_element() || c.is_text()))?;
             self.tag = Some(value);
-            debug!("Successfully created tag value");
+            debug!(tag_name = N::TAG_NAME, "Successfully created tag value");
         } else {
-            debug!("Tag name doesn't match or node is not an element");
+            warn!(
+                actual_tag_name = node.tag_name().name(),
+                expected_tag_name = N::TAG_NAME,
+                "Tag name doesn't match or node is not an element"
+            );
         }
 
         for attr in node.attributes() {
@@ -249,7 +252,7 @@ where
                 debug!("Visiting child node: {}", child.tag_name().name());
                 self.visit_node(child)?;
             } else {
-                debug!(
+                warn!(
                     "Skipping child node: {} (namespace: {:?})",
                     child.tag_name().name(),
                     child.tag_name().namespace()
@@ -275,9 +278,10 @@ where
                 __phantom: std::marker::PhantomData,
                 __phantom_name: std::marker::PhantomData,
             })
-            .ok_or(xml::XmlError::InvalidXml(
-                "TagVisitor did not find a valid tag".to_string(),
-            ))
+            .ok_or(xml::XmlError::InvalidXml(format!(
+                "Tag visitor cannot built for tag: {}",
+                N::TAG_NAME
+            )))
     }
 }
 

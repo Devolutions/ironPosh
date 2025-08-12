@@ -11,6 +11,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::SubscriberBuilder::default()
         .with_target(false)
         .with_line_number(true)
+        .with_file(true)
         .with_max_level(tracing::Level::DEBUG)
         .init();
 

@@ -2,6 +2,9 @@ pub mod cores;
 pub mod fragment;
 pub mod messages;
 
+use core::error;
+use std::str::Utf8Error;
+
 pub use cores::*;
 pub use fragment::*;
 pub use messages::*;
@@ -22,6 +25,12 @@ pub enum PowerShellRemotingError {
 
     #[error("Serialization Error: {0}")]
     SerializationError(&'static str),
+
+    #[error("PsFragment cannot be read as a valid XML message: {0}")]
+    Utf8Error(#[from] Utf8Error),
+
+    #[error("Failed to parse XML: {0}")]
+    XmlParseError(#[from] xml::XmlError),
 }
 
 impl From<std::io::Error> for PowerShellRemotingError {

@@ -41,6 +41,16 @@ pub enum PsValue {
     Object(ComplexObject),
 }
 
+impl PsValue {
+    pub fn as_object(&self) -> Option<&ComplexObject> {
+        if let PsValue::Object(obj) = self {
+            Some(obj)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PsProperty {
     pub name: String,

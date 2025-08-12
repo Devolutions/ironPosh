@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use protocol_powershell_remoting::HostInfo;
 use protocol_winrm::ws_management::WsMan;
+use tracing::info;
 
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, ServerAddress},
-    runspace_pool::{ExpectShellCreated, RunspacePool},
+    runspace_pool::{ExpectShellCreated, RunspacePool, RunspacePoolState},
 };
 pub mod http;
 
@@ -127,6 +128,7 @@ impl Connector {
                 expect_shell_created,
                 http_builder,
             } => {
+                info!("Processing Connecting state");
                 let request = request.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a request in Connecting state")
                 })?;
@@ -135,9 +137,9 @@ impl Connector {
                     crate::PwshCoreError::InvalidState("Expected a body in Connecting state")
                 })?;
 
-                let runspace_pool = expect_shell_created.accept(body)?;
+                let mut runspace_pool = expect_shell_created.accept(body)?;
 
-                let receive_request = runspace_pool.fire_receive();
+                let receive_request = runspace_pool.fire_receive()?;
 
                 let response = http_builder.post("/wsman", receive_request);
 
@@ -152,6 +154,7 @@ impl Connector {
                 mut runspace_pool,
                 http_builder,
             } => {
+                info!("Processing ConnectReceiveCycle state");
                 let request = request.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a request in ConnectReceiveCycle state",
@@ -167,15 +170,13 @@ impl Connector {
                 // Ok, we definately need to change control flow here
                 runspace_pool.accept_receive_response(body)?;
 
-                todo!()
-
-                // let receive_response = runspace_pool.fire_receive();
-
-                // let response = http_builder.post("/wsman", receive_response);
-
-                // self.set_state(ConnectorState::Taken);
-
-                // StepResult::SendBack(response)
+                if let RunspacePoolState::NegotiationSent = runspace_pool.state {
+                    let receive_request = runspace_pool.fire_receive()?;
+                    let response = http_builder.post("/wsman", receive_request);
+                    StepResult::SendBack(response)
+                } else {
+                    todo!()
+                }
             }
         };
 

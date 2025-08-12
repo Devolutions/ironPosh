@@ -1,9 +1,11 @@
 pub mod apartment_state;
+pub mod application_private_data;
 pub mod host_default_data;
 pub mod host_info;
 pub mod ps_thread_options;
 
 pub use apartment_state::ApartmentState;
+pub use application_private_data::ApplicationPrivateData;
 pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
 pub use ps_thread_options::PSThreadOptions;
@@ -17,7 +19,6 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitRunspacePool {
-    pub ref_id: u32,
     pub min_runspaces: i32,
     pub max_runspaces: i32,
     pub thread_options: PSThreadOptions,

@@ -3,7 +3,10 @@ use std::io::Read;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use uuid::Uuid;
 
-use crate::{PsObjectWithType, PsValue};
+use crate::{
+    PsObjectWithType, PsValue,
+    deserialize::{DeserializationContext, PsXmlDeserialize},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Destination {
@@ -237,6 +240,17 @@ impl PowerShellRemotingMessage {
         buffer.extend_from_slice(self.pid.unwrap_or_default().as_bytes());
         buffer.extend_from_slice(&self.data);
         buffer
+    }
+
+    pub fn parse_ps_message(&self) -> Result<PsValue, crate::PowerShellRemotingError> {
+        let xml = str::from_utf8(&self.data)?;
+
+        let parsed = xml::parser::parse(xml)?;
+        let root = parsed.root_element();
+
+        let ps_object =
+            PsValue::from_node_with_context(root, &mut DeserializationContext::default())?;
+        Ok(ps_object)
     }
 }
 

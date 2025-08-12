@@ -46,6 +46,7 @@ impl FragmentBuffer {
 
 /// Defragmenter handles defragmentation of incoming PowerShell remoting message fragments
 /// with internal state management
+#[derive(Debug)]
 pub struct Defragmenter {
     buffers: HashMap<u64, FragmentBuffer>,
 }
