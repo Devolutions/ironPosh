@@ -194,10 +194,6 @@ pub struct WsUuidVisitor {
 impl<'a> XmlVisitor<'a> for WsUuidVisitor {
     type Value = WsUuid;
 
-    fn visit_node(&mut self, _node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
-        Ok(())
-    }
-
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,

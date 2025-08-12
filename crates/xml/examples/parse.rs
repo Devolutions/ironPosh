@@ -23,4 +23,31 @@ const SOAP: &str = r#"
 
 pub fn main() {
     let mut parsed = xml::parser::parse(SOAP).expect("Failed to parse XML");
+    let root = parsed.root();
+    for child in root.children() {
+        // println!("{:#?}", child);
+        for grandchild in child.children() {
+            // println!("|  {:#?}", grandchild);
+            for great_grandchild in grandchild.children() {
+                if great_grandchild.attributes().len() > 0 {
+                    println!("Found tag with attributes: ");
+                    println!("Tag Name: {}", great_grandchild.tag_name().name());
+                    for attr in great_grandchild.attributes() {
+                        println!("  Attribute: {} = {}", attr.name(), attr.value());
+                    }
+
+                    println!("|  Children of this tag:");
+                    for great_great_grandchild in great_grandchild.children() {
+                        println!(
+                            "|  Child Tag Name: {}",
+                            great_great_grandchild.tag_name().name()
+                        );
+                        println!("|  Child Tag Type: {:?}", great_great_grandchild.node_type())
+                    }
+                println!("==========================");
+                }
+
+            }
+        }
+    }
 }

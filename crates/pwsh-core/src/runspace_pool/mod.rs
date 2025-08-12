@@ -189,7 +189,7 @@ impl RunspacePool {
         let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
-        let _receive_result = self
+        let receive_result = self
             .shell
             .as_mut()
             .ok_or({

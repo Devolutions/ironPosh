@@ -39,12 +39,20 @@ pub trait XmlVisitor<'a> {
     /// Default implementation calls visit_children for backward compatibility
     fn visit_children(
         &mut self,
-        node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
-    ) -> Result<(), crate::XmlError>;
+        _node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
+    ) -> Result<(), crate::XmlError> {
+        Err(crate::XmlError::NotSupposeToBeCalled {
+            extra_info: "Default visit_children called, should be overridden or not called at all".to_string(),
+        })
+    }
 
     /// Visit the children of a node - used by TagValue types that process content
     /// Default implementation does nothing
-    fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError>;
+    fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError> {
+        Err(crate::XmlError::NotSupposeToBeCalled {
+            extra_info: "Default visit_node called, should be overridden or not called at all".to_string(),
+        })
+    }
 
     /// Return the finished value after traversal.
     fn finish(self) -> Result<Self::Value, XmlError>;

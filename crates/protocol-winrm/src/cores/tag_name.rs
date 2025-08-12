@@ -43,6 +43,10 @@ define_custom_tagname!(CreationXml, "creationXml", None);
 define_tagname!(Shell, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Command, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Receive, Some(Namespace::WsmanShell.uri()));
+define_tagname!(ReceiveResponse, Some(Namespace::WsmanShell.uri()));
+define_tagname!(Stream, Some(Namespace::WsmanShell.uri()));
+define_tagname!(CommandState, Some(Namespace::WsmanShell.uri()));
+define_tagname!(ExitCode, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Send, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
 

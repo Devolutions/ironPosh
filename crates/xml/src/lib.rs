@@ -31,4 +31,7 @@ pub enum XmlError {
 
     #[error("Invalid node type: expected '{expected:?}', found {found:?}")]
     InvalidNodeType { expected: NodeType, found: NodeType },
+
+    #[error("This code path is not supposed to be called: {extra_info}")]
+    NotSupposeToBeCalled { extra_info: String },
 }

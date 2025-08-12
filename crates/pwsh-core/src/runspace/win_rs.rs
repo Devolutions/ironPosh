@@ -145,7 +145,9 @@ impl WinRunspace {
         &mut self,
         soap_envelope: SoapEnvelope<'a>,
     ) -> Result<ReceiveValue<'a>, crate::PwshCoreError> {
-        todo!()
+        let receive_response = soap_envelope
+            .body
+            .as_ref().receive
     }
 
     pub fn accept_create_response<'a>(

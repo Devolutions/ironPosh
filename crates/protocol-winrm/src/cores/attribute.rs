@@ -75,6 +75,7 @@ macro_rules! define_attributes {
                 }
             }
         }
+
     };
 }
 
@@ -88,6 +89,11 @@ define_attributes!(
     N(Cow<'a, str>) => (None, "N"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     XmlLang(Cow<'a, str>) => (None, "xml:lang"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     CommandId(Cow<'a, str>) => (None, "CommandId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    State(Cow<'a, str>) => (None, "State"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    End(bool) => (None, "End"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    Unit(Cow<'a, str>) => (None, "Unit"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    EndUnit(bool) => (None, "EndUnit"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
+    SequenceID(u64) => (None, "SequenceID"), |v: &str| v.parse::<u64>().map_err(|e| e.to_string()),
     // Add new attributes here and they automatically get handled everywhere!
 );
 
