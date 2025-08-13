@@ -1,3 +1,5 @@
+use tracing::error;
+
 use super::super::{
     ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
@@ -17,18 +19,13 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplicationPrivateData {
     /// The application private data as a dictionary of string keys to primitive values
-    pub data: Option<BTreeMap<String, PsPrimitiveValue>>,
+    pub data: Option<BTreeMap<String, PsValue>>,
 }
 
 impl ApplicationPrivateData {
     /// Create a new ApplicationPrivateData with no data (null value)
     pub fn new() -> Self {
         Self { data: None }
-    }
-
-    /// Create a new ApplicationPrivateData with the provided dictionary
-    pub fn with_data(data: BTreeMap<String, PsPrimitiveValue>) -> Self {
-        Self { data: Some(data) }
     }
 }
 
@@ -57,12 +54,7 @@ impl From<ApplicationPrivateData> for ComplexObject {
                 // Convert BTreeMap<String, PsPrimitiveValue> to BTreeMap<PsValue, PsValue>
                 let ps_dict: BTreeMap<PsValue, PsValue> = data
                     .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            PsValue::Primitive(PsPrimitiveValue::Str(k)),
-                            PsValue::Primitive(v),
-                        )
-                    })
+                    .map(|(k, v)| (PsValue::Primitive(PsPrimitiveValue::Str(k)), v))
                     .collect();
 
                 PsValue::Object(ComplexObject {
@@ -85,7 +77,7 @@ impl From<ApplicationPrivateData> for ComplexObject {
         );
 
         ComplexObject {
-            type_def: Some(PsType::ps_primitive_dictionary()),
+            type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
             adapted_properties: BTreeMap::new(),
@@ -122,19 +114,38 @@ impl TryFrom<ComplexObject> for ApplicationPrivateData {
 
             let mut result = BTreeMap::new();
             for (key, value) in dict {
-                let PsValue::Primitive(PsPrimitiveValue::Str(key_str)) = key else {
+                let PsValue::Primitive(PsPrimitiveValue::Str(_)) = key else {
                     return Err(Self::Error::InvalidMessage(
                         "Dictionary key is not a string".to_string(),
                     ));
                 };
 
-                let PsValue::Primitive(value_primitive) = value else {
+                let PsValue::Object(value_obj) = value else {
                     return Err(Self::Error::InvalidMessage(
-                        "Dictionary value is not a primitive".to_string(),
+                        "Dictionary value is not an object".to_string(),
                     ));
                 };
 
-                result.insert(key_str.clone(), value_primitive.clone());
+                debug_assert!(value_obj.type_def == Some(PsType::ps_primitive_dictionary()));
+
+                let ComplexObjectContent::Container(Container::Dictionary(value_dict)) =
+                    &value_obj.content
+                else {
+                    return Err(Self::Error::InvalidMessage(format!(
+                        "Dictionary value is not a primitive dictionary: {:#?}",
+                        value_obj.content
+                    )));
+                };
+
+                for (value_key, value_value) in value_dict {
+                    let PsValue::Primitive(PsPrimitiveValue::Str(value_key_str)) = value_key else {
+                        return Err(Self::Error::InvalidMessage(
+                            "Dictionary key is not a string".to_string(),
+                        ));
+                    };
+
+                    result.insert(value_key_str.clone(), value_value.clone());
+                }
             }
 
             Some(result)
