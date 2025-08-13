@@ -1,17 +1,25 @@
+pub mod create_pipeline;
 pub mod deserialize;
 pub mod init_runspace_pool;
 pub mod pipeline_input;
+pub mod runspace_pool_host_call;
+pub mod runspace_pool_host_response;
+pub mod runspace_pool_state;
 pub mod serialize;
 pub mod session_capability;
 
+pub use create_pipeline::*;
+pub use init_runspace_pool::*;
+pub use runspace_pool_host_call::*;
+pub use runspace_pool_host_response::*;
+pub use runspace_pool_state::*;
+pub use session_capability::*;
+
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     hash::Hash,
 };
-
-pub use init_runspace_pool::*;
-pub use session_capability::*;
 
 use crate::MessageType;
 
@@ -73,6 +81,26 @@ impl PsType {
             type_names: vec![
                 Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
                 Cow::Borrowed("System.Collections.Hashtable"),
+                Cow::Borrowed("System.Object"),
+            ],
+        }
+    }
+
+    pub fn remote_host_method_id() -> Self {
+        PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Management.Automation.Remoting.RemoteHostMethodId"),
+                Cow::Borrowed("System.Enum"),
+                Cow::Borrowed("System.ValueType"),
+                Cow::Borrowed("System.Object"),
+            ],
+        }
+    }
+
+    pub fn array_list() -> Self {
+        PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Collections.ArrayList"),
                 Cow::Borrowed("System.Object"),
             ],
         }
