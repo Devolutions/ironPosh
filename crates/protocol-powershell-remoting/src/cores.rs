@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::{
@@ -242,6 +243,7 @@ impl PowerShellRemotingMessage {
         buffer
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub fn parse_ps_message(&self) -> Result<PsValue, crate::PowerShellRemotingError> {
         let xml = str::from_utf8(&self.data)?;
 

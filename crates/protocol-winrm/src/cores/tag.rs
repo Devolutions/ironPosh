@@ -1,4 +1,4 @@
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 use xml::builder::Element;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
@@ -199,18 +199,18 @@ where
     type Value = Tag<'a, V, N>;
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
-        debug!(
-            "TagVisitor visiting node: tag_name='{}', expected='{}', namespace={:?}",
-            node.tag_name().name(),
-            N::TAG_NAME,
-            node.tag_name().namespace()
+        trace!(
+            expected_tag_name = N::TAG_NAME,
+            actual_tag_name = node.tag_name().name(),
+            namespace = ?node.tag_name().namespace(),
+            "TagVisitor visiting node",
         );
 
         if node.is_element() && node.tag_name().name() == N::TAG_NAME {
             let value =
                 V::from_children(node.children().filter(|c| c.is_element() || c.is_text()))?;
             self.tag = Some(value);
-            debug!(tag_name = N::TAG_NAME, "Successfully created tag value");
+            trace!(tag_name = N::TAG_NAME, "Successfully created tag value");
         } else {
             warn!(
                 actual_tag_name = node.tag_name().name(),
@@ -220,13 +220,13 @@ where
         }
 
         for attr in node.attributes() {
-            debug!(
-                "Processing attribute: name='{}', value='{}'",
-                attr.name(),
-                attr.value()
+            trace!(
+                name = attr.name(),
+                value = attr.value(),
+                "Processing attribute"
             );
             if let Ok(attribute) = Attribute::from_node(node) {
-                debug!("Successfully parsed attribute: {:?}", attribute);
+                trace!("Successfully parsed attribute: {:?}", attribute);
                 self.attributes.push(attribute);
             } else {
                 debug!("Failed to parse attribute: {}", attr.name());

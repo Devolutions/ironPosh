@@ -168,7 +168,6 @@ impl DeserializationContext {
     }
 
     pub fn register_object(&mut self, ref_id: String, object: ComplexObject) {
-        debug!("Registering object reference RefId={}", ref_id);
         trace!(?object, "Object details for RefId={}", ref_id);
         self.object_refs.insert(ref_id, object);
     }
@@ -267,7 +266,7 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
             "TN" => {
                 // Full type definition - extract RefId and register it
                 if let Some(ref_id) = node.attribute("RefId") {
-                    debug!("Processing TN with RefId={}", ref_id);
+                    trace!(ref_id, "Processing TN with RefId");
                     // Process children to get <T> elements
                     self.visit_children(node.children(), context)?;
 
@@ -387,7 +386,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
 
         if tag_name == "Obj" {
             let ref_id = node.attribute("RefId");
-            debug!("Processing Obj with RefId={:?}", ref_id);
+            trace!("Processing Obj with RefId={:?}", ref_id);
             // Process children of the Obj element
             self.visit_children(node.children(), context)?;
 

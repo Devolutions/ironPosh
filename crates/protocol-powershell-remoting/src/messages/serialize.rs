@@ -36,13 +36,13 @@ where
 
     pub fn insert_new(&mut self, item: &'a T) -> Result<u32> {
         if let Some(existing_id) = self.map.get(item) {
-            debug!("Item already exists in RefIdMap with id={}", existing_id);
+            trace!("Item already exists in RefIdMap with id={}", existing_id);
             Err(crate::PowerShellRemotingError::SerializationError(
                 "Attempted to insert duplicate item into RefIdMap",
             ))
         } else {
             let id = self.next_id;
-            debug!("Assigning new RefId={} to item", id);
+            trace!("Assigning new RefId={} to item", id);
             self.map.insert(item, id);
             self.next_id += 1;
             Ok(id)
