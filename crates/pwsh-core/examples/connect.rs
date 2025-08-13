@@ -35,55 +35,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut connector = Connector::new(config);
 
     info!("Created connector, starting connection...");
+    let mut response = None;
+    'outer: loop {
+        // Step 1: Initial connection (should return shell create request)
+        let step_results = connector.step(response.clone(), None)?;
 
-    // Step 1: Initial connection (should return shell create request)
-    let step_result = connector.step(None)?;
+        for step_result in step_results {
+            info!("Received step result: {:?}", step_result);
 
-    match step_result {
-        StepResult::SendBack(http_request) => {
-            debug!("Got initial request: {:?}", http_request);
-
-            // Make the HTTP request (using ureq for simplicity in example)
-            let response = make_http_request(&http_request).await?;
-
-            // Step 2: Process shell create response
-            let step_result = connector.step(Some(response))?;
+            if let StepResult::ReadyForOperation { user_operation_issuer } = &step_result {
+                info!("Ready for operation: {:?}", user_operation_issuer);
+            }
 
             match step_result {
-                StepResult::SendBack(receive_request) => {
-                    debug!("Got receive request: {:?}", receive_request);
-
-                    // Make the receive request
-                    let receive_response = make_http_request(&receive_request).await?;
-
-                    // Step 3: Process receive response (should hit the todo!() for now)
-                    let step_result = connector.step(Some(receive_response));
-
-                    match step_result {
-                        Ok(StepResult::ReadyForOperation) => {
-                            info!("Connection established successfully!");
-                        }
-                        Ok(other) => {
-                            info!("Got step result: {:?}", other);
-                        }
-                        Err(e) => {
-                            warn!("Step failed (expected due to todo!()): {}", e);
-                        }
-                    }
+                StepResult::SendBack(http_request) => {
+                    // Make the HTTP request (using ureq for simplicity in example)
+                    response = Some(make_http_request(&http_request).await?);
                 }
                 StepResult::SendBackError(e) => {
-                    warn!("Connection failed: {}", e);
+                    warn!("Initial step failed: {}", e);
                 }
-                other => {
-                    info!("Unexpected step result: {:?}", other);
+                StepResult::Continue => {
+                    debug!("Continuing with next step");
+                    // Continue to the next step, which will handle the response
+                    response = None;
+                }
+                _ => {
+                    warn!("Unexpected step result: {:?}", step_result);
+                    break 'outer;
                 }
             }
-        }
-        StepResult::SendBackError(e) => {
-            warn!("Initial step failed: {}", e);
-        }
-        other => {
-            info!("Unexpected initial step result: {:?}", other);
         }
     }
 

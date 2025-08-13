@@ -40,6 +40,7 @@ impl<T> HttpRequest<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct HttpBuilder {
     pub(crate) server: ServerAddress,
     pub(crate) port: u16,

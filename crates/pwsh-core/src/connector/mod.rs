@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use protocol_powershell_remoting::HostInfo;
 use protocol_winrm::ws_management::WsMan;
-use tracing::info;
+use tracing::{info, instrument};
 
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, ServerAddress},
@@ -49,10 +49,45 @@ pub enum StepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
-    ReadyForOperation,
+    ReadyForOperation {
+        user_operation_issuer: UserOperationIssuer,
+    },
+    Continue,
 }
 
-#[derive(Default)]
+#[derive(Debug)]
+pub enum UserOperation {
+    CreatePipeline,
+}
+
+pub struct UserOperationCertificate {
+    user_operation: UserOperation,
+}
+
+#[derive(Debug)]
+pub struct UserOperationIssuer {
+    __marker: std::marker::PhantomData<()>,
+}
+
+impl UserOperationIssuer {
+    fn new() -> Self {
+        Self {
+            __marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn issue_operation(
+        self,
+        operation: UserOperation,
+    ) -> Result<UserOperationCertificate, crate::PwshCoreError> {
+        // consume self, and return a certificate for the operation
+        Ok(UserOperationCertificate {
+            user_operation: operation,
+        })
+    }
+}
+
+#[derive(Default, Debug)]
 pub enum ConnectorState {
     Idle,
     #[default]
@@ -65,6 +100,22 @@ pub enum ConnectorState {
         runspace_pool: RunspacePool,
         http_builder: HttpBuilder,
     },
+    ReadyForOperations {
+        runspace_pool: RunspacePool,
+        http_builder: HttpBuilder,
+    },
+}
+
+impl ConnectorState {
+    fn state_name(&self) -> &'static str {
+        match self {
+            ConnectorState::Idle => "Idle",
+            ConnectorState::Taken => "Taken",
+            ConnectorState::Connecting { .. } => "Connecting",
+            ConnectorState::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
+            ConnectorState::ReadyForOperations { .. } => "ReadyForOperations",
+        }
+    }
 }
 
 pub struct Connector {
@@ -81,23 +132,29 @@ impl Connector {
     }
 
     pub fn set_state(&mut self, state: ConnectorState) {
+        info!(state = state.state_name(), "Setting connector state");
         self.state = state;
     }
 
+    #[instrument(skip(self, server_response, user_request), name = "Connector::step")]
     pub fn step(
         &mut self,
-        request: Option<HttpRequest<String>>,
-    ) -> Result<StepResult, crate::PwshCoreError> {
+        server_response: Option<HttpRequest<String>>,
+        user_request: Option<UserOperationCertificate>,
+    ) -> Result<Vec<StepResult>, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
-        let response = match state {
+        let (new_state, response) = match state {
             ConnectorState::Taken => {
                 return Err(crate::PwshCoreError::UnlikelyToHappen(
                     "Connector should not be in Taken state when stepping",
                 ));
             }
             ConnectorState::Idle => {
-                debug_assert!(request.is_none(), "Request should be None in Idle state");
+                debug_assert!(
+                    server_response.is_none(),
+                    "Request should be None in Idle state"
+                );
                 let runspace_pool = RunspacePool::builder()
                     .connection(Arc::new(
                         WsMan::builder().to(self.config.wsman_to(None)).build(),
@@ -116,20 +173,20 @@ impl Connector {
 
                 let response = http_builder.post("/wsman", xml_body);
 
-                self.set_state(ConnectorState::Connecting {
+                let new_state = ConnectorState::Connecting {
                     expect_shell_created,
                     http_builder,
-                });
+                };
 
                 // Now we expect the shell create response
-                StepResult::SendBack(response)
+                (new_state, vec![StepResult::SendBack(response)])
             }
             ConnectorState::Connecting {
                 expect_shell_created,
                 http_builder,
             } => {
                 info!("Processing Connecting state");
-                let request = request.ok_or({
+                let request = server_response.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a request in Connecting state")
                 })?;
 
@@ -143,19 +200,18 @@ impl Connector {
 
                 let response = http_builder.post("/wsman", receive_request);
 
-                self.set_state(ConnectorState::ConnectReceiveCycle {
+                let new_state = ConnectorState::ConnectReceiveCycle {
                     runspace_pool,
                     http_builder,
-                });
+                };
 
-                StepResult::SendBack(response)
+                (new_state, vec![StepResult::SendBack(response)])
             }
             ConnectorState::ConnectReceiveCycle {
                 mut runspace_pool,
                 http_builder,
-            } => {
-                info!("Processing ConnectReceiveCycle state");
-                let request = request.ok_or({
+            } => 'receive_cycle: {
+                let request = server_response.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a request in ConnectReceiveCycle state",
                     )
@@ -173,13 +229,41 @@ impl Connector {
                 if let RunspacePoolState::NegotiationSent = runspace_pool.state {
                     let receive_request = runspace_pool.fire_receive()?;
                     let response = http_builder.post("/wsman", receive_request);
-                    StepResult::SendBack(response)
-                } else {
-                    todo!()
+                    let new_state = ConnectorState::ConnectReceiveCycle {
+                        runspace_pool,
+                        http_builder,
+                    };
+                    break 'receive_cycle (new_state, vec![StepResult::SendBack(response)]);
                 }
+
+                if let RunspacePoolState::Opened = runspace_pool.state {
+                    info!("Runspace pool is opened, ready for operations");
+                    let response = http_builder.post("/wsman", String::new());
+                    break 'receive_cycle (
+                        ConnectorState::ReadyForOperations {
+                            runspace_pool,
+                            http_builder,
+                        },
+                        vec![StepResult::SendBack(response)],
+                    );
+                }
+
+                todo!()
+            }
+            ConnectorState::ReadyForOperations {
+                runspace_pool,
+                http_builder,
+            } => {
+                if let Some(user_operation_certificate) = user_request {
+                    let UserOperationCertificate { user_operation } = user_operation_certificate;
+                    
+                }
+
+                todo!()
             }
         };
 
+        self.set_state(new_state);
         Ok(response)
     }
 }

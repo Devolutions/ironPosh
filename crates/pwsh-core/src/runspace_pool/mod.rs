@@ -3,14 +3,14 @@ use std::{collections::HashMap, sync::Arc};
 use base64::Engine;
 use protocol_powershell_remoting::{
     ApartmentState, ApplicationPrivateData, Defragmenter, HostInfo, InitRunspacePool,
-    PSThreadOptions, PowerShellRemotingMessage, PsValue, SessionCapability, fragment,
-    session_capability,
+    PSThreadOptions, PsValue, RunspacePoolStateMessage, RunspacePoolStateValue, SessionCapability,
+    fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
     ws_management::{OptionSetValue, WsMan},
 };
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, trace};
 use xml::parser::XmlDeserialize;
 
 use crate::{PwshCoreError, runspace::win_rs::WinRunspace};
@@ -50,6 +50,23 @@ pub enum RunspacePoolState {
     NegotiationSucceeded = 7,
     Connecting = 8,
     Disconnected = 9,
+}
+
+impl From<&RunspacePoolStateValue> for RunspacePoolState {
+    fn from(value: &RunspacePoolStateValue) -> Self {
+        match value {
+            RunspacePoolStateValue::BeforeOpen => RunspacePoolState::BeforeOpen,
+            RunspacePoolStateValue::Opening => RunspacePoolState::Opening,
+            RunspacePoolStateValue::Opened => RunspacePoolState::Opened,
+            RunspacePoolStateValue::Closed => RunspacePoolState::Closed,
+            RunspacePoolStateValue::Closing => RunspacePoolState::Closing,
+            RunspacePoolStateValue::Broken => RunspacePoolState::Broken,
+            RunspacePoolStateValue::NegotiationSent => RunspacePoolState::NegotiationSent,
+            RunspacePoolStateValue::NegotiationSucceeded => RunspacePoolState::NegotiationSucceeded,
+            RunspacePoolStateValue::Connecting => RunspacePoolState::Connecting,
+            RunspacePoolStateValue::Disconnected => RunspacePoolState::Disconnected,
+        }
+    }
 }
 
 // pub struct Pipeline
@@ -143,7 +160,7 @@ impl RunspacePool {
             None,
         )?;
 
-        debug!(request_groups = ?request_groups, "Fragmented negotiation requests");
+        trace!(request_groups = ?request_groups, "Fragmented negotiation requests");
 
         self.state = RunspacePoolState::NegotiationSent;
 
@@ -196,6 +213,7 @@ impl RunspacePool {
             .to_string())
     }
 
+    #[instrument(skip(self, soap_envelope))]
     pub(crate) fn accept_receive_response<'a>(
         &mut self,
         soap_envelope: String,
@@ -208,7 +226,7 @@ impl RunspacePool {
 
         self.parse_responses(streams)?;
 
-        todo!()
+        Ok(())
     }
 
     pub(crate) fn parse_responses(
@@ -225,12 +243,16 @@ impl RunspacePool {
 
             for message in messages {
                 let ps_value = message.parse_ps_message()?;
+                trace!(?ps_value, "Parsed PS message");
                 match message.message_type {
                     protocol_powershell_remoting::MessageType::SessionCapability => {
                         self.handle_session_capability(ps_value)?;
                     }
                     protocol_powershell_remoting::MessageType::ApplicationPrivateData => {
                         self.handle_application_private_data(ps_value)?;
+                    }
+                    protocol_powershell_remoting::MessageType::RunspacepoolState => {
+                        self.handle_runspacepool_state(ps_value)?;
                     }
                     _ => {
                         info!(
@@ -243,9 +265,10 @@ impl RunspacePool {
             }
         }
 
-        todo!()
+        Ok(())
     }
 
+    #[instrument(skip(self))]
     fn handle_session_capability(
         &mut self,
         session_capability: PsValue,
@@ -262,6 +285,7 @@ impl RunspacePool {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn handle_application_private_data(
         &mut self,
         app_data: PsValue,
@@ -273,12 +297,29 @@ impl RunspacePool {
         };
 
         let app_data = ApplicationPrivateData::try_from(app_data)?;
-        debug!(?app_data, "Received ApplicationPrivateData");
+        trace!(?app_data, "Received ApplicationPrivateData");
         self.application_private_data = Some(app_data);
+        Ok(())
+    }
+
+    #[instrument(skip(self, ps_value))]
+    fn handle_runspacepool_state(&mut self, ps_value: PsValue) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(runspacepool_state) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected RunspacepoolState as PsValue::Object",
+            ));
+        };
+
+        let runspacepool_state = RunspacePoolStateMessage::try_from(runspacepool_state)?;
+        trace!(?runspacepool_state, "Received RunspacePoolState");
+
+        self.state = RunspacePoolState::from(&runspacepool_state.runspace_state);
+
         Ok(())
     }
 }
 
+#[derive(Debug)]
 pub struct ExpectShellCreated {
     runspace_pool: RunspacePool,
 }
