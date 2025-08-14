@@ -1,11 +1,7 @@
-use std::{
-    any,
-    net::Ipv4Addr,
-    sync::{Arc, Mutex},
-};
+use std::net::Ipv4Addr;
 
 use anyhow::Context;
-use pwsh_core::connector::{http::ServerAddress, Authentication, Connector, ConnectorConfig, Scheme, StepResult, UserOperation};
+use pwsh_core::connector::{http::ServerAddress, Authentication, Connector, ConnectorConfig, Scheme, ConnectorStepResult, SessionStepResult, UserOperation};
 use tracing::{debug, info, warn};
 
 #[tokio::main]
@@ -38,30 +34,25 @@ async fn main() -> anyhow::Result<()> {
     info!("Created connector, starting connection...");
     let mut response = None;
 
-    let operation_issuer = 'outer: loop {
-
-        let step_results = connector
-            .step(response.take(), None)
+    let mut active_session = loop {
+        let step_result = connector
+            .step(response.take())
             .context("Failed to step through connector")?;
 
-        for step_result in step_results {
-            info!(step_result = ?step_result, "Processing step result");
+        info!(step_result = ?step_result, "Processing step result");
 
-            match step_result {
-                StepResult::SendBack(http_request) => {
-                    // Make the HTTP request (using ureq for simplicity in example)
-                    response = Some(make_http_request(&http_request).await?);
-                }
-                StepResult::SendBackError(e) => {
-                    warn!("Initial step failed: {}", e);
-                }
-                StepResult::ReadyForOperation {
-                    user_operation_issuer,
-                } => break 'outer user_operation_issuer,
-                _ => {
-                    warn!("Unexpected step result: {:?}", step_result);
-                    anyhow::bail!("Unexpected step result: {:?}", step_result);
-                }
+        match step_result {
+            ConnectorStepResult::SendBack(http_request) => {
+                // Make the HTTP request (using ureq for simplicity in example)
+                response = Some(make_http_request(&http_request).await?);
+            }
+            ConnectorStepResult::SendBackError(e) => {
+                warn!("Connection step failed: {}", e);
+                anyhow::bail!("Connection failed: {}", e);
+            }
+            ConnectorStepResult::Connected(session) => {
+                info!("Successfully connected!");
+                break session;
             }
         }
     };
@@ -73,61 +64,54 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         // Check for any server responses first
-        if response.is_some() {
-            let step_results = connector.step(response.take(), None)?;
-            for step_result in step_results {
-                match step_result {
-                    StepResult::SendBack(http_request) => {
-                        response = Some(make_http_request(&http_request).await.unwrap());
-                    }
-                    StepResult::PipelineCreated(pipeline) => {
-                        info!("Pipeline created successfully with ID: {}", pipeline.id());
-                    }
-                    StepResult::SendBackError(e) => {
-                        panic!("Server response error: {}", e);
-                    }
-                    _ => {
-                        debug!("Received step result: {:?}", step_result);
-                    }
+        if let Some(server_response) = response.take() {
+            let step_result = active_session.accept_server_response(server_response)?;
+            match step_result {
+                SessionStepResult::SendBack(http_request) => {
+                    response = Some(make_http_request(&http_request).await.unwrap());
+                }
+                SessionStepResult::PipelineCreated(pipeline) => {
+                    info!("Pipeline created successfully with ID: {}", pipeline.id());
+                }
+                SessionStepResult::SendBackError(e) => {
+                    panic!("Server response error: {}", e);
+                }
+                _ => {
+                    debug!("Received step result: {:?}", step_result);
                 }
             }
         }
 
-        let (sender,receiver) = tokio::sync::mpsc::channel(10)
+        // Prompt user for actions
+        print!("Do you want to create a pipeline? (y/n): ");
+        use std::io::{self, Write};
+        io::stdout().flush().unwrap();
 
-        tokio::task::spawn_blocking(move || {
-            // Prompt user for actions
-            print!("Do you want to create a pipeline? (y/n): ");
-            use std::io::{self, Write};
-            io::stdout().flush().unwrap();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
 
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            loop {
-                
-
-            match input.trim().to_lowercase().as_str() {
-                "y" | "yes" => {
-                    info!("Creating pipeline...");
-
-
-                sender.blocking_send(UserOperation::CreatePipeline)
-                    .expect("Failed to send operation request");
-                    // Issue the CreatePipeline operation
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => {
+                info!("Creating pipeline...");
+                let step_result = active_session.accept_client_operation(UserOperation::CreatePipeline)?;
+                match step_result {
+                    SessionStepResult::SendBack(http_request) => {
+                        response = Some(make_http_request(&http_request).await?);
                     }
-                "n" | "no" => {
-                    info!("Exiting...");
-                }
-                _ => {
-                    println!("Please enter 'y' for yes or 'n' for no.");
-                    continue;
+                    _ => {
+                        debug!("Unexpected step result from client operation: {:?}", step_result);
+                    }
                 }
             }
+            "n" | "no" => {
+                info!("Exiting...");
+                break;
             }
-        });
-
-        // let operation_issuer = Some(operation_issuer);
-
+            _ => {
+                println!("Please enter 'y' for yes or 'n' for no.");
+                continue;
+            }
+        }
     }
 
     info!("Exiting WinRM PowerShell client");
