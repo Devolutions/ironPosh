@@ -2,7 +2,11 @@ use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
 use crate::{
     cores::*,
-    rsp::{receive::{ReceiveValue, ReceiveResponseValue}, rsp::ShellValue},
+    rsp::{
+        commandline::CommandLineValue,
+        receive::{ReceiveResponseValue, ReceiveValue},
+        rsp::ShellValue,
+    },
     ws_management::body::ResourceCreatedValue,
 };
 
@@ -38,9 +42,13 @@ pub struct SoapBody<'a> {
     #[builder(default, setter(into, strip_option))]
     pub command: Option<Tag<'a, TagList<'a>, Command>>,
     #[builder(default, setter(into, strip_option))]
+    pub command_line: Option<Tag<'a, CommandLineValue, CommandLine>>,
+    #[builder(default, setter(into, strip_option))]
     pub receive: Option<Tag<'a, ReceiveValue<'a>, Receive>>,
     #[builder(default, setter(into, strip_option))]
     pub receive_response: Option<Tag<'a, ReceiveResponseValue<'a>, ReceiveResponse>>,
+    #[builder(default, setter(into, strip_option))]
+    pub command_response: Option<Tag<'a, Tag<'a, WsUuid, CommandId>, CommandResponse>>,
     #[builder(default, setter(into, strip_option))]
     pub send: Option<Tag<'a, TagList<'a>, Send>>,
     #[builder(default, setter(into, strip_option))]

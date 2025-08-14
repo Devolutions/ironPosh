@@ -2,11 +2,14 @@ use std::sync::Arc;
 
 use protocol_powershell_remoting::HostInfo;
 use protocol_winrm::ws_management::WsMan;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, ServerAddress},
-    runspace_pool::{ExpectShellCreated, RunspacePool, RunspacePoolState},
+    runspace_pool::{
+        ExpectShellCreated, PowerShell, RunspacePool, RunspacePoolCreator, RunspacePoolState,
+        pool::AcceptResponsResult,
+    },
 };
 pub mod http;
 
@@ -47,12 +50,12 @@ pub enum UserEvent {}
 #[derive(Debug)]
 pub enum StepResult {
     SendBack(HttpRequest<String>),
+    PipelineCreated(PowerShell),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     ReadyForOperation {
         user_operation_issuer: UserOperationIssuer,
     },
-    Continue,
 }
 
 #[derive(Debug)]
@@ -70,12 +73,6 @@ pub struct UserOperationIssuer {
 }
 
 impl UserOperationIssuer {
-    fn new() -> Self {
-        Self {
-            __marker: std::marker::PhantomData,
-        }
-    }
-
     pub fn issue_operation(
         self,
         operation: UserOperation,
@@ -104,6 +101,7 @@ pub enum ConnectorState {
         runspace_pool: RunspacePool,
         http_builder: HttpBuilder,
     },
+    Failed,
 }
 
 impl ConnectorState {
@@ -114,6 +112,7 @@ impl ConnectorState {
             ConnectorState::Connecting { .. } => "Connecting",
             ConnectorState::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
             ConnectorState::ReadyForOperations { .. } => "ReadyForOperations",
+            ConnectorState::Failed => "Failed",
         }
     }
 }
@@ -150,17 +149,22 @@ impl Connector {
                     "Connector should not be in Taken state when stepping",
                 ));
             }
+            ConnectorState::Failed => {
+                warn!("Connector is in Failed state, cannot proceed");
+                return Err(crate::PwshCoreError::InvalidState(
+                    "Connector is in Failed state",
+                ));
+            }
             ConnectorState::Idle => {
                 debug_assert!(
                     server_response.is_none(),
                     "Request should be None in Idle state"
                 );
-                let runspace_pool = RunspacePool::builder()
-                    .connection(Arc::new(
-                        WsMan::builder().to(self.config.wsman_to(None)).build(),
-                    ))
+                let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
+                let runspace_pool = RunspacePoolCreator::builder()
                     .host_info(HostInfo::builder().build())
-                    .build();
+                    .build()
+                    .into_runspace_pool(connection);
 
                 let http_builder = HttpBuilder::new(
                     self.config.server.0.clone(),
@@ -224,7 +228,12 @@ impl Connector {
                 })?;
 
                 // Ok, we definately need to change control flow here
-                runspace_pool.accept_receive_response(body)?;
+                let AcceptResponsResult::ReceiveResponse = runspace_pool.accept_response(body)?
+                else {
+                    return Err(crate::PwshCoreError::InvalidState(
+                        "Unexpected response type in ConnectReceiveCycle state from RunspacePool",
+                    ));
+                };
 
                 if let RunspacePoolState::NegotiationSent = runspace_pool.state {
                     let receive_request = runspace_pool.fire_receive()?;
@@ -248,18 +257,55 @@ impl Connector {
                     );
                 }
 
-                todo!()
+                warn!(
+                    "Unexpected RunspacePool state: {:?}, continuing with next step",
+                    runspace_pool.state
+                );
+
+                (ConnectorState::Failed, vec![])
             }
             ConnectorState::ReadyForOperations {
-                runspace_pool,
+                mut runspace_pool,
                 http_builder,
             } => {
+                let mut responses = vec![];
                 if let Some(user_operation_certificate) = user_request {
                     let UserOperationCertificate { user_operation } = user_operation_certificate;
 
+                    match user_operation {
+                        UserOperation::CreatePipeline => {
+                            let xml_body = runspace_pool.fire_create_pipeline()?;
+                            let response = http_builder.post("/wsman", xml_body);
+                            responses.push(StepResult::SendBack(response));
+                        }
+                    }
                 }
 
-                todo!()
+                if let Some(request) = server_response {
+                    let body = request.body.ok_or({
+                        crate::PwshCoreError::InvalidState(
+                            "Expected a body in ReadyForOperations state",
+                        )
+                    })?;
+
+                    match runspace_pool.accept_response(body)? {
+                        AcceptResponsResult::ReceiveResponse => {
+                            let receive_request = runspace_pool.fire_receive()?;
+                            let response = http_builder.post("/wsman", receive_request);
+                            responses.push(StepResult::SendBack(response));
+                        }
+                        AcceptResponsResult::NewPipeline(pipeline) => {
+                            responses.push(StepResult::PipelineCreated(pipeline));
+                        }
+                    }
+                }
+
+                let new_state = ConnectorState::ReadyForOperations {
+                    runspace_pool,
+                    http_builder,
+                };
+
+                (new_state, responses)
             }
         };
 

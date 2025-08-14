@@ -69,11 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 StepResult::SendBackError(e) => {
                     warn!("Initial step failed: {}", e);
                 }
-                StepResult::Continue => {
-                    debug!("Continuing with next step");
-                    // Continue to the next step, which will handle the response
-                    response = None;
-                }
                 StepResult::ReadyForOperation {
                     user_operation_issuer,
                 } => {

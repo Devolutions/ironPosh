@@ -1,11 +1,10 @@
-use crate::cores::{
-    Tag, Text, Time,
+use crate::{cores::{
     tag_name::{
         BufferMode, ClientIP, CompressionMode, CreationXml, DataLocale, Encoding, IdleTimeOut,
         InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
         ResourceUri, ShellId, ShellInactivity, ShellRunTime, State, TagName,
-    },
-};
+    }, CommandLine, Tag, Text, Time
+}, rsp::commandline::CommandLineValue};
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 
 // The XmlTagContainer derive macro generates:

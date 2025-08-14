@@ -1,15 +1,17 @@
-use std::sync::Arc;
-
 use base64::Engine;
 use protocol_winrm::{
-    cores::{DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag},
+    cores::{
+        Attribute, CommandLine, DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag, tag_name,
+    },
     rsp::{
+        commandline::CommandLineValue,
         receive::{ReceiveResponseValue, ReceiveValue},
         rsp::ShellValue,
     },
-    soap::SoapEnvelope,
+    soap::{SoapEnvelope, body::SoapBody},
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };
+use uuid::Uuid;
 use xml::builder::Element;
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
@@ -37,8 +39,6 @@ pub struct WinRunspace {
     #[builder(default)]
     codepage: Option<u32>,
 
-    ws_man: Arc<WsMan>,
-
     #[builder(default)]
     shell_id: Option<String>,
     #[builder(default)]
@@ -60,6 +60,7 @@ pub struct WinRunspace {
 impl WinRunspace {
     pub fn open<'a>(
         &'a self,
+        ws_man: &'a WsMan,
         option_set: Option<OptionSetValue>,
         open_content: &'a str,
     ) -> impl Into<Element<'a>> {
@@ -94,10 +95,10 @@ impl WinRunspace {
             option_set = option_set.add_option("WINRS_CODEPAGE", codepage.to_string());
         }
 
-        self.ws_man.invoke(
+        ws_man.invoke(
             ws_management::WsAction::Create,
             None,
-            Some(AnyTag::Shell(shell)),
+            SoapBody::builder().shell(shell).build(),
             Some(option_set),
             None,
         )
@@ -105,6 +106,7 @@ impl WinRunspace {
 
     pub fn fire_receive<'a>(
         &'a self,
+        ws_man: &'a WsMan,
         stream: Option<&'a str>,
         command_id: Option<&'a str>,
     ) -> impl Into<Element<'a>> {
@@ -136,10 +138,10 @@ impl WinRunspace {
             .as_ref()
             .map(|shell_id| SelectorSetValue::new().add_selector("ShellId", shell_id));
 
-        self.ws_man.invoke(
+        ws_man.invoke(
             ws_management::WsAction::ShellReceive,
             Some(&self.resource_uri),
-            Some(receive_tag.into()),
+            SoapBody::builder().receive(receive_tag).build(),
             Some(option_set),
             selector_set,
         )
@@ -221,5 +223,55 @@ impl WinRunspace {
         self.opened = true;
 
         Ok(())
+    }
+
+    pub(crate) fn create_pipeline_request<'a>(
+        &'a self,
+        connection: &'a WsMan,
+        command_id: &uuid::Uuid,
+        arguments: Vec<String>,
+        executable: Option<String>,
+        no_shell: Option<bool>,
+    ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
+        let command_line = CommandLineValue {
+            command: executable,
+            arguments,
+        };
+
+        let request = connection.invoke(
+            ws_management::WsAction::Command,
+            Some(self.resource_uri.as_ref()),
+            SoapBody::builder()
+                .command_line(
+                    Tag::new(command_line)
+                        .with_attribute(Attribute::CommandId(command_id.to_string().into())),
+                )
+                .build(),
+            Some(OptionSetValue::default().add_option(
+                "WINRS_SKIP_CMD_SHELL",
+                no_shell.unwrap_or_default().to_string(),
+            )),
+            self.selector_set.clone().into(),
+        );
+
+        Ok(request)
+    }
+
+    pub fn accept_commannd_response<'a>(
+        &mut self,
+        soap_envelope: SoapEnvelope<'a>,
+    ) -> Result<Uuid, crate::PwshCoreError> {
+        let command_id = soap_envelope
+            .body
+            .as_ref()
+            .command_response
+            .as_ref()
+            .ok_or(crate::PwshCoreError::InvalidResponse(
+                "No CommandResponse found in response",
+            ))?
+            .as_ref()
+            .as_ref();
+
+        Ok(command_id.0.clone())
     }
 }

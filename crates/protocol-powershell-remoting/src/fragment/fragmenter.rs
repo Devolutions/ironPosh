@@ -5,6 +5,7 @@ use super::fragment::Fragment;
 use crate::{PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
 
 /// Fragmenter handles fragmentation of outgoing PowerShell remoting messages
+#[derive(Debug)]
 pub struct Fragmenter {
     max_fragment_size: usize,
     outgoing_counter: u64,

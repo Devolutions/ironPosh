@@ -46,6 +46,8 @@ pub enum WsAction {
     Delete,
     Get,
     Put,
+    Command,
+    CommandResponse,
     ShellReceive,
     ShellCreate,
 }
@@ -57,6 +59,10 @@ impl WsAction {
             WsAction::Delete => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete",
             WsAction::Get => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",
             WsAction::Put => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put",
+            WsAction::Command => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
+            WsAction::CommandResponse => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandResponse"
+            }
             WsAction::ShellReceive => {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"
             } // See note below
@@ -72,7 +78,7 @@ impl WsMan {
         &'a self,
         action: WsAction,
         resource_uri: Option<&'a str>,
-        resource: Option<AnyTag<'a>>,
+        resource_body: SoapBody<'a>,
         option_set: Option<header::OptionSetValue>,
         selector_set: Option<header::SelectorSetValue>,
     ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
@@ -126,15 +132,11 @@ impl WsMan {
             .selector_set_opt(selector_set.map(Tag::from))
             .build();
 
-        // TODO: Handle the case where resource is something else
-        let body = match resource {
-            Some(AnyTag::Shell(shell)) => SoapBody::builder().shell(shell).build(),
-            Some(AnyTag::Receive(receive)) => SoapBody::builder().receive(receive).build(),
-            _ => SoapBody::builder().build(),
-        };
-
         // Create the complete SOAP envelope
-        let envelope = SoapEnvelope::builder().header(header).body(body).build();
+        let envelope = SoapEnvelope::builder()
+            .header(header)
+            .body(resource_body)
+            .build();
 
         // Convert to XML using Tag wrapper with proper namespaces
 

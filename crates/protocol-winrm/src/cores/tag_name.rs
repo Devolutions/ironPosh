@@ -39,16 +39,19 @@ define_tagname!(DesiredStream, Some(Namespace::WsmanShell.uri()));
 
 define_custom_tagname!(CreationXml, "creationXml", None);
 
-// PowerShell Remoting Operations (rsp namespace)
+define_tagname!(CommandLine, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Shell, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Command, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Receive, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ReceiveResponse, Some(Namespace::WsmanShell.uri()));
+define_tagname!(CommandResponse, Some(Namespace::WsmanShell.uri()));
+define_tagname!(CommandId, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Stream, Some(Namespace::WsmanShell.uri()));
 define_tagname!(CommandState, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ExitCode, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Send, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
+define_tagname!(Arguments, Some(Namespace::WsmanShell.uri()));
 
 // ====================
 // WS-Addressing (a namespace)
