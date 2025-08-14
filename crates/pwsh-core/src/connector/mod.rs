@@ -58,6 +58,38 @@ pub enum StepResult {
     },
 }
 
+impl StepResult {
+    pub fn priority(&self) -> u8 {
+        match self {
+            StepResult::SendBack(_) => 0,
+            StepResult::PipelineCreated(_) => 1,
+            StepResult::SendBackError(_) => 2,
+            StepResult::UserEvent(_) => 3,
+            StepResult::ReadyForOperation { .. } => 4,
+        }
+    }
+}
+
+impl PartialEq for StepResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority() == other.priority()
+    }
+}
+
+impl Eq for StepResult {}
+
+impl PartialOrd for StepResult {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.priority().cmp(&other.priority()))
+    }
+}
+
+impl Ord for StepResult {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
 #[derive(Debug)]
 pub enum UserOperation {
     CreatePipeline,
@@ -143,7 +175,7 @@ impl Connector {
     ) -> Result<Vec<StepResult>, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
-        let (new_state, response) = match state {
+        let (new_state, mut response) = match state {
             ConnectorState::Taken => {
                 return Err(crate::PwshCoreError::UnlikelyToHappen(
                     "Connector should not be in Taken state when stepping",
@@ -310,6 +342,7 @@ impl Connector {
         };
 
         self.set_state(new_state);
+        response.sort();
         Ok(response)
     }
 }

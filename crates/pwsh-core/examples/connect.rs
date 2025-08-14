@@ -1,16 +1,15 @@
 use std::{
+    any,
     net::Ipv4Addr,
     sync::{Arc, Mutex},
 };
 
-use pwsh_core::{
-    connector::http::ServerAddress,
-    connector::{Authentication, Connector, ConnectorConfig, Scheme, StepResult},
-};
+use anyhow::Context;
+use pwsh_core::connector::{http::ServerAddress, Authentication, Connector, ConnectorConfig, Scheme, StepResult, UserOperation};
 use tracing::{debug, info, warn};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::SubscriberBuilder::default()
         .with_target(false)
         .with_line_number(true)
@@ -35,31 +34,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         authentication: auth,
     };
 
-    let user_operation_request = Arc::new(Mutex::new(Vec::new()));
     let mut connector = Connector::new(config);
-    let mut operation_issuer: Option<pwsh_core::connector::UserOperationIssuer> = None;
-
     info!("Created connector, starting connection...");
     let mut response = None;
-    'outer: loop {
-        let operation = if user_operation_request.lock().unwrap().is_empty() {
-            info!("No user operation request, waiting for next step...");
-            None
-        } else {
-            if let Some(ready_for_operation) = operation_issuer.take() {
-                let operation = user_operation_request.lock().unwrap().pop().unwrap();
-                Some(ready_for_operation.issue_operation(operation)?)
-            } else {
-                info!("No operation issuer available, continuing...");
-                None
-            }
-        };
 
-        // Step 1: Initial connection (should return shell create request)
-        let step_results = connector.step(response.clone(), operation)?;
+    let operation_issuer = 'outer: loop {
+
+        let step_results = connector
+            .step(response.take(), None)
+            .context("Failed to step through connector")?;
 
         for step_result in step_results {
-            info!("Received step result: {:?}", step_result);
+            info!(step_result = ?step_result, "Processing step result");
 
             match step_result {
                 StepResult::SendBack(http_request) => {
@@ -71,24 +57,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 StepResult::ReadyForOperation {
                     user_operation_issuer,
-                } => {
-                    info!("Ready for operation: {:?}", user_operation_issuer);
-                    operation_issuer = Some(user_operation_issuer);
-                }
+                } => break 'outer user_operation_issuer,
                 _ => {
                     warn!("Unexpected step result: {:?}", step_result);
-                    break 'outer;
+                    anyhow::bail!("Unexpected step result: {:?}", step_result);
                 }
             }
         }
+    };
+
+    info!("Runspace pool is now open and ready for operations!");
+
+    // Start the main operation loop
+    let mut response = None;
+
+    loop {
+        // Check for any server responses first
+        if response.is_some() {
+            let step_results = connector.step(response.take(), None)?;
+            for step_result in step_results {
+                match step_result {
+                    StepResult::SendBack(http_request) => {
+                        response = Some(make_http_request(&http_request).await.unwrap());
+                    }
+                    StepResult::PipelineCreated(pipeline) => {
+                        info!("Pipeline created successfully with ID: {}", pipeline.id());
+                    }
+                    StepResult::SendBackError(e) => {
+                        panic!("Server response error: {}", e);
+                    }
+                    _ => {
+                        debug!("Received step result: {:?}", step_result);
+                    }
+                }
+            }
+        }
+
+        let (sender,receiver) = tokio::sync::mpsc::channel(10)
+
+        tokio::task::spawn_blocking(move || {
+            // Prompt user for actions
+            print!("Do you want to create a pipeline? (y/n): ");
+            use std::io::{self, Write};
+            io::stdout().flush().unwrap();
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            loop {
+                
+
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" => {
+                    info!("Creating pipeline...");
+
+
+                sender.blocking_send(UserOperation::CreatePipeline)
+                    .expect("Failed to send operation request");
+                    // Issue the CreatePipeline operation
+                    }
+                "n" | "no" => {
+                    info!("Exiting...");
+                }
+                _ => {
+                    println!("Please enter 'y' for yes or 'n' for no.");
+                    continue;
+                }
+            }
+            }
+        });
+
+        // let operation_issuer = Some(operation_issuer);
+
     }
 
+    info!("Exiting WinRM PowerShell client");
     Ok(())
 }
 
 async fn make_http_request(
     request: &pwsh_core::connector::http::HttpRequest<String>,
-) -> Result<pwsh_core::connector::http::HttpRequest<String>, Box<dyn std::error::Error>> {
+) -> Result<pwsh_core::connector::http::HttpRequest<String>, anyhow::Error> {
     info!("Making HTTP request to: {}", request.url);
     debug!("Request headers: {:?}", request.headers);
     debug!(
