@@ -1,10 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Defragmenter, HostInfo, InitRunspacePool,
-    PSThreadOptions, PsValue, RunspacePoolStateMessage, RunspacePoolStateValue, SessionCapability,
-    fragment,
+    ApartmentState, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
+    InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue, RunspacePoolStateMessage,
+    RunspacePoolStateValue, SessionCapability, fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -19,6 +22,17 @@ const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
 const SERIALIZATION_VERSION: &str = "1.1.0.1";
 const DEFAULT_CONFIGURATION_NAME: &str = "Microsoft.PowerShell";
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum PowerShellState {
+    CreatePipelineSent,
+    Ready,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct PipelineRepresentation {
+    pub id: uuid::Uuid,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PsInvocationState {
@@ -114,6 +128,9 @@ pub struct RunspacePool {
 
     #[builder(default)]
     session_capability: Option<SessionCapability>,
+
+    #[builder(default)]
+    pipelines: HashSet<PipelineRepresentation>,
 }
 
 impl RunspacePool {
@@ -227,6 +244,37 @@ impl RunspacePool {
         self.parse_responses(streams)?;
 
         Ok(())
+    }
+
+    pub(crate) fn create_pipeline(
+        &mut self,
+        add_to_history: bool,
+    ) -> Result<CreatePipeline, crate::PwshCoreError> {
+        if self.state != RunspacePoolState::Opened {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in Opened state to create a pipeline",
+            ));
+        }
+
+        let pipeline_id = uuid::Uuid::new_v4();
+        let pipeline_representation = PipelineRepresentation { id: pipeline_id };
+
+        self.pipelines.insert(pipeline_representation.clone());
+
+        let pipeline_message = PowerShellPipeline::builder()
+            .is_nested(false)
+            .redirect_shell_error_output_pipe(true)
+            .cmds(vec![])
+            .build();
+
+        let create_pipeline = CreatePipeline::builder()
+            .power_shell(pipeline_message)
+            .host_info(self.host_info.clone())
+            .apartment_state(self.apartment_state)
+            .build();
+
+
+        todo!()
     }
 
     pub(crate) fn parse_responses(

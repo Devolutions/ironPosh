@@ -256,7 +256,7 @@ impl Connector {
             } => {
                 if let Some(user_operation_certificate) = user_request {
                     let UserOperationCertificate { user_operation } = user_operation_certificate;
-                    
+
                 }
 
                 todo!()

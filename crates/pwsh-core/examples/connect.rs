@@ -1,4 +1,7 @@
-use std::net::Ipv4Addr;
+use std::{
+    net::Ipv4Addr,
+    sync::{Arc, Mutex},
+};
 
 use pwsh_core::{
     connector::http::ServerAddress,
@@ -32,20 +35,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         authentication: auth,
     };
 
+    let user_operation_request = Arc::new(Mutex::new(Vec::new()));
     let mut connector = Connector::new(config);
+    let mut operation_issuer: Option<pwsh_core::connector::UserOperationIssuer> = None;
 
     info!("Created connector, starting connection...");
     let mut response = None;
     'outer: loop {
+        let operation = if user_operation_request.lock().unwrap().is_empty() {
+            info!("No user operation request, waiting for next step...");
+            None
+        } else {
+            if let Some(ready_for_operation) = operation_issuer.take() {
+                let operation = user_operation_request.lock().unwrap().pop().unwrap();
+                Some(ready_for_operation.issue_operation(operation)?)
+            } else {
+                info!("No operation issuer available, continuing...");
+                None
+            }
+        };
+
         // Step 1: Initial connection (should return shell create request)
-        let step_results = connector.step(response.clone(), None)?;
+        let step_results = connector.step(response.clone(), operation)?;
 
         for step_result in step_results {
             info!("Received step result: {:?}", step_result);
-
-            if let StepResult::ReadyForOperation { user_operation_issuer } = &step_result {
-                info!("Ready for operation: {:?}", user_operation_issuer);
-            }
 
             match step_result {
                 StepResult::SendBack(http_request) => {
@@ -59,6 +73,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     debug!("Continuing with next step");
                     // Continue to the next step, which will handle the response
                     response = None;
+                }
+                StepResult::ReadyForOperation {
+                    user_operation_issuer,
+                } => {
+                    info!("Ready for operation: {:?}", user_operation_issuer);
+                    operation_issuer = Some(user_operation_issuer);
                 }
                 _ => {
                     warn!("Unexpected step result: {:?}", step_result);
