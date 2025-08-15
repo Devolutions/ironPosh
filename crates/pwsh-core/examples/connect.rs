@@ -6,7 +6,7 @@ use pwsh_core::connector::{
     UserOperation, http::ServerAddress,
 };
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, info_span, warn, Instrument};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -40,38 +40,39 @@ async fn main() -> anyhow::Result<()> {
 
     let mut connector = Connector::new(config);
     info!("Created connector, starting connection...");
-    let mut response = None;
+    let (active_session, next_request) = {
+        let mut response = None;
 
-    let _span = info_span!("ConnectionLoop").entered();
-    let active_session = loop {
-        let step_result = connector
-            .step(response.take())
-            .context("Failed to step through connector")?;
+        let _span = info_span!("ConnectionLoop").entered();
+        let (active_session, next_request) = loop {
+            let step_result = connector
+                .step(response.take())
+                .context("Failed to step through connector")?;
 
-        info!(step_result = ?step_result.name(), "Processing step result");
+            info!(step_result = ?step_result.name(), "Processing step result");
 
-        match step_result {
-            ConnectorStepResult::SendBack(http_request) => {
-                // Make the HTTP request (using ureq for simplicity in example)
-                response = Some(make_http_request(&http_request).await?);
+            match step_result {
+                ConnectorStepResult::SendBack(http_request) => {
+                    // Make the HTTP request (using ureq for simplicity in example)
+                    response = Some(make_http_request(&http_request).await?);
+                }
+                ConnectorStepResult::SendBackError(e) => {
+                    warn!("Connection step failed: {}", e);
+                    anyhow::bail!("Connection failed: {}", e);
+                }
+                ConnectorStepResult::Connected {
+                    active_session,
+                    next_receive_request,
+                } => {
+                    break (active_session, next_receive_request);
+                }
             }
-            ConnectorStepResult::SendBackError(e) => {
-                warn!("Connection step failed: {}", e);
-                anyhow::bail!("Connection failed: {}", e);
-            }
-            ConnectorStepResult::Connected {
-                active_session,
-                next_receive_request,
-            } => {
-                info!("Successfully connected!");
-                response = Some(next_receive_request);
-                break active_session;
-            }
-        }
+        };
+        drop(_span);
+        (active_session, next_request)
     };
-    drop(_span);
 
-    info!(last_response = ?response,"Runspace pool is now open and ready for operations!");
+    info!("Runspace pool is now open and ready for operations!");
 
     // Implement Actor Model for ActiveSession
     let (user_tx, user_rx) = mpsc::channel::<UserOperation>(32);
@@ -176,30 +177,27 @@ async fn main() -> anyhow::Result<()> {
             let server_tx = server_tx;
 
             info!("Network task started");
-            if let Some(response) = response.take() {
-                let _ = server_tx
-                    .send(response)
-                    .await
-                    .inspect_err(|e| warn!("Failed to send initial response back to actor: {}", e));
-            }
+            let response = make_http_request(&next_request)
+                .await
+                .context("Failed to make initial HTTP request")?;
+
+            info!("Network task received initial response");
+            server_tx
+                .send(response)
+                .await
+                .context("Failed to send initial response to actor")?;
 
             while let Some(http_request) = network_rx.recv().await {
                 info!("Network task making HTTP request");
-                match make_http_request(&http_request).await {
-                    Ok(response) => {
-                        if let Err(e) = server_tx.send(response).await {
-                            warn!("Failed to send response back to actor: {}", e);
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        warn!("HTTP request failed: {}", e);
-                        // Continue with the next request
-                    }
-                }
+                let response = make_http_request(&http_request)
+                    .await
+                    .context("Failed to make HTTP request")?;
+                let _ = server_tx.send(response).await?;
             }
 
             info!("Network task shutting down");
+
+            anyhow::Ok(())
         }
         .instrument(network_actor_span),
     );
