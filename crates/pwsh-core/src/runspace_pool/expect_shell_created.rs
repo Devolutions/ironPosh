@@ -17,7 +17,7 @@ impl ExpectShellCreated {
         let soap_response = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
-        runspace_pool.shell.accept_receive_response(&soap_response)?;
+        runspace_pool.shell.accept_create_response(&soap_response)?;
 
         Ok(runspace_pool)
     }

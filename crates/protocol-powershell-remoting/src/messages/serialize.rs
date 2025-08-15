@@ -112,7 +112,7 @@ impl<'a> PsType {
         }
 
         let ref_id = type_maps.insert_new(self)?;
-        debug!(
+        trace!(
             "Creating TN with new RefId={} and {} type names",
             ref_id,
             self.type_names.len()
@@ -201,7 +201,7 @@ impl<'a> ComplexObject {
         } else {
             // Assign a new RefId to this object and store it in the map.
             let new_ref_id = objects_map.insert_new(self)?;
-            debug!("Creating Obj with new RefId={}", new_ref_id);
+            trace!("Creating Obj with new RefId={}", new_ref_id);
             new_ref_id
         };
 

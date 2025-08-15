@@ -1,4 +1,4 @@
-use tracing::debug;
+use tracing::{debug, trace};
 use uuid::Uuid;
 
 use super::fragment::Fragment;
@@ -104,7 +104,7 @@ impl Fragmenter {
 
         for message in messages {
             let mut message_fragments = self.fragment(*message, rpid, pid, Some(remaing_size))?;
-            debug!(
+            trace!(
                 "Fragmented message {:?} into {} fragments",
                 message.message_type(),
                 message_fragments.len()

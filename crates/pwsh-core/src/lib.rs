@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 pub mod connector;
 pub mod runspace;
 pub mod runspace_pool;
@@ -30,5 +32,5 @@ pub enum PwshCoreError {
     XmlParsingError(#[from] xml::XmlError),
 
     #[error("Invalid response: {0}")]
-    InvalidResponse(&'static str),
+    InvalidResponse(Cow<'static, str>),
 }

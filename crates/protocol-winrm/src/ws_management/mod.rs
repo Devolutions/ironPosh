@@ -132,6 +132,9 @@ impl WsMan {
             .selector_set_opt(selector_set.map(Tag::from))
             .build();
 
+        // TODO: I don't like this design; it's a bit problematic, but I guess I will live with it right now.
+        let add_rsp_declaration = resource_body.command_line.is_some();
+
         // Create the complete SOAP envelope
         let envelope = SoapEnvelope::builder()
             .header(header)
@@ -140,10 +143,16 @@ impl WsMan {
 
         // Convert to XML using Tag wrapper with proper namespaces
 
-        Tag::<SoapEnvelope, Envelope>::new(envelope)
+        let mut soap = Tag::<SoapEnvelope, Envelope>::new(envelope)
             .with_declaration(Namespace::SoapEnvelope2003)
             .with_declaration(Namespace::WsAddressing2004)
             .with_declaration(Namespace::DmtfWsmanSchema)
-            .with_declaration(Namespace::MsWsmanSchema)
+            .with_declaration(Namespace::MsWsmanSchema);
+
+        if add_rsp_declaration {
+            soap = soap.with_declaration(Namespace::WsmanShell)
+        }
+
+        soap
     }
 }

@@ -115,7 +115,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
 
     fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
         for attribute in node.attributes() {
-            tracing::debug!(
+            tracing::trace!(
                 "AttributeVisitor checking attribute: name='{}', value='{}'",
                 attribute.name(),
                 attribute.value()
@@ -126,7 +126,7 @@ impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
                 Attribute::from_name_and_value(attribute.name(), attribute.value())?
             {
                 self.attribute = Some(parsed_attr);
-                tracing::debug!("Successfully parsed attribute: {:?}", self.attribute);
+                tracing::trace!("Successfully parsed attribute: {:?}", self.attribute);
                 return Ok(()); // Take the first recognized attribute
             } else {
                 tracing::debug!("Ignoring unknown attribute: {}", attribute.name());

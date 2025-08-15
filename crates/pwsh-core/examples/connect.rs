@@ -1,17 +1,25 @@
 use std::net::Ipv4Addr;
 
 use anyhow::Context;
-use pwsh_core::connector::{http::ServerAddress, Authentication, Connector, ConnectorConfig, Scheme, ConnectorStepResult, SessionStepResult, UserOperation};
-use tracing::{debug, info, warn};
+use pwsh_core::connector::{
+    Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme, SessionStepResult,
+    UserOperation, http::ServerAddress,
+};
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, info_span, warn, Instrument};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::SubscriberBuilder::default()
+        .with_env_filter(EnvFilter::new("pwsh_core=debug,ureq=warn"))
+        .with_max_level(tracing::Level::DEBUG)
         .with_target(false)
         .with_line_number(true)
         .with_file(true)
-        .with_max_level(tracing::Level::DEBUG)
         .init();
+
+    let _span = tracing::span!(tracing::Level::INFO, "main").entered();
 
     info!("Starting WinRM PowerShell client");
 
@@ -34,12 +42,13 @@ async fn main() -> anyhow::Result<()> {
     info!("Created connector, starting connection...");
     let mut response = None;
 
-    let mut active_session = loop {
+    let _span = info_span!("ConnectionLoop").entered();
+    let active_session = loop {
         let step_result = connector
             .step(response.take())
             .context("Failed to step through connector")?;
 
-        info!(step_result = ?step_result, "Processing step result");
+        info!(step_result = ?step_result.name(), "Processing step result");
 
         match step_result {
             ConnectorStepResult::SendBack(http_request) => {
@@ -50,69 +59,196 @@ async fn main() -> anyhow::Result<()> {
                 warn!("Connection step failed: {}", e);
                 anyhow::bail!("Connection failed: {}", e);
             }
-            ConnectorStepResult::Connected(session) => {
+            ConnectorStepResult::Connected {
+                active_session,
+                next_receive_request,
+            } => {
                 info!("Successfully connected!");
-                break session;
+                response = Some(next_receive_request);
+                break active_session;
             }
         }
     };
+    drop(_span);
 
-    info!("Runspace pool is now open and ready for operations!");
+    info!(last_response = ?response,"Runspace pool is now open and ready for operations!");
 
-    // Start the main operation loop
-    let mut response = None;
+    // Implement Actor Model for ActiveSession
+    let (user_tx, user_rx) = mpsc::channel::<UserOperation>(32);
+    let (server_tx, server_rx) =
+        mpsc::channel::<pwsh_core::connector::http::HttpRequest<String>>(32);
+    let (network_tx, network_rx) =
+        mpsc::channel::<pwsh_core::connector::http::HttpRequest<String>>(32);
+    let (ui_tx, ui_rx) = mpsc::channel::<String>(32);
 
-    loop {
-        // Check for any server responses first
-        if let Some(server_response) = response.take() {
-            let step_result = active_session.accept_server_response(server_response)?;
-            match step_result {
-                SessionStepResult::SendBack(http_request) => {
-                    response = Some(make_http_request(&http_request).await.unwrap());
+    // Spawn the ActiveSession Actor Task
+    let active_actor_span = info_span!("ActiveSessionActor");
+    let actor_handle = tokio::spawn(async move {
+        let mut session = active_session;
+        let mut user_rx = user_rx;
+        let mut server_rx = server_rx;
+        let network_tx = network_tx;
+        let ui_tx = ui_tx;
+
+        info!("ActiveSession actor started");
+
+        loop {
+            tokio::select! {
+                Some(user_operation) = user_rx.recv() => {
+                    info!("Actor received user operation: {:?}", user_operation);
+                    match session.accept_client_operation(user_operation) {
+                        Ok(result) => {
+                            match result {
+                                SessionStepResult::SendBack(http_request) => {
+                                    info!("Actor sending HTTP request to network task");
+                                    if let Err(e) = network_tx.send(http_request).await {
+                                        warn!("Failed to send HTTP request to network task: {}", e);
+                                        break;
+                                    }
+                                }
+                                SessionStepResult::PipelineCreated(pipeline) => {
+                                    let msg = format!("Pipeline created successfully! ID: {}", pipeline.id());
+                                    info!("{}", msg);
+                                    let _ = ui_tx.send(msg).await;
+                                }
+                                SessionStepResult::SendBackError(e) => {
+                                    let msg = format!("Error in user operation: {}", e);
+                                    warn!("{}", msg);
+                                    let _ = ui_tx.send(msg).await;
+                                }
+                                _ => {
+                                    debug!("Unexpected result from user operation: {:?}", result);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("Failed to process user operation: {}", e);
+                            warn!("{}", msg);
+                            let _ = ui_tx.send(msg).await;
+                        }
+                    }
                 }
-                SessionStepResult::PipelineCreated(pipeline) => {
-                    info!("Pipeline created successfully with ID: {}", pipeline.id());
-                }
-                SessionStepResult::SendBackError(e) => {
-                    panic!("Server response error: {}", e);
-                }
-                _ => {
-                    debug!("Received step result: {:?}", step_result);
+                Some(server_response) = server_rx.recv() => {
+                    info!("Actor received server response");
+                    match session.accept_server_response(server_response) {
+                        Ok(result) => {
+                            match result {
+                                SessionStepResult::SendBack(http_request) => {
+                                    info!("Actor sending follow-up HTTP request to network task");
+                                    if let Err(e) = network_tx.send(http_request).await {
+                                        warn!("Failed to send HTTP request to network task: {}", e);
+                                        break;
+                                    }
+                                }
+                                SessionStepResult::PipelineCreated(pipeline) => {
+                                    let msg = format!("Pipeline created from server response! ID: {}", pipeline.id());
+                                    info!("{}", msg);
+                                    let _ = ui_tx.send(msg).await;
+                                }
+                                SessionStepResult::SendBackError(e) => {
+                                    let msg = format!("Error in server response: {}", e);
+                                    warn!("{}", msg);
+                                    let _ = ui_tx.send(msg).await;
+                                }
+                                _ => {
+                                    debug!("Unexpected result from server response: {:?}", result);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let msg = format!("Failed to process server response: {}", e);
+                            error!("{}", msg);
+                            let _ = ui_tx.send(msg).await;
+                        }
+                    }
                 }
             }
         }
 
-        // Prompt user for actions
-        print!("Do you want to create a pipeline? (y/n): ");
-        use std::io::{self, Write};
-        io::stdout().flush().unwrap();
+        info!("ActiveSession actor shutting down");
+    }.instrument(active_actor_span));
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+    // Spawn the Network Task
+    let network_actor_span = info_span!("NetworkTask");
+    let network_handle = tokio::spawn(
+        async move {
+            let mut network_rx = network_rx;
+            let server_tx = server_tx;
 
-        match input.trim().to_lowercase().as_str() {
-            "y" | "yes" => {
-                info!("Creating pipeline...");
-                let step_result = active_session.accept_client_operation(UserOperation::CreatePipeline)?;
-                match step_result {
-                    SessionStepResult::SendBack(http_request) => {
-                        response = Some(make_http_request(&http_request).await?);
+            info!("Network task started");
+            if let Some(response) = response.take() {
+                let _ = server_tx
+                    .send(response)
+                    .await
+                    .inspect_err(|e| warn!("Failed to send initial response back to actor: {}", e));
+            }
+
+            while let Some(http_request) = network_rx.recv().await {
+                info!("Network task making HTTP request");
+                match make_http_request(&http_request).await {
+                    Ok(response) => {
+                        if let Err(e) = server_tx.send(response).await {
+                            warn!("Failed to send response back to actor: {}", e);
+                            break;
+                        }
                     }
-                    _ => {
-                        debug!("Unexpected step result from client operation: {:?}", step_result);
+                    Err(e) => {
+                        warn!("HTTP request failed: {}", e);
+                        // Continue with the next request
                     }
                 }
             }
-            "n" | "no" => {
-                info!("Exiting...");
-                break;
-            }
-            _ => {
-                println!("Please enter 'y' for yes or 'n' for no.");
-                continue;
-            }
+
+            info!("Network task shutting down");
         }
-    }
+        .instrument(network_actor_span),
+    );
+
+    // Spawn the User Input Task (Auto-create pipeline after delay)
+    let user_actor_span = info_span!("UserInputTask");
+    let user_input_handle = tokio::spawn(
+        async move {
+            let user_tx = user_tx;
+
+            info!("User input task started - will auto-create pipeline after 3 seconds");
+
+            // Wait 3 seconds to let the connection stabilize
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+            info!("Auto-creating pipeline...");
+            if let Err(e) = user_tx.send(UserOperation::CreatePipeline).await {
+                warn!("Failed to send user operation to actor: {}", e);
+                return;
+            }
+
+            // Wait another 5 seconds to let the pipeline work
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+            info!("Auto-exiting after pipeline execution");
+
+            info!("User input task shutting down");
+        }
+        .instrument(user_actor_span),
+    );
+
+    // Main task handles UI feedback
+    let ui_handle = tokio::spawn(async move {
+        let mut ui_rx = ui_rx;
+
+        info!("UI feedback task started");
+
+        while let Some(message) = ui_rx.recv().await {
+            println!("📢 {}", message);
+        }
+
+        info!("UI feedback task shutting down");
+    });
+
+    // Wait for user input task to complete (user chooses to exit)
+    let _ = user_input_handle.await;
+
+    // Wait for other tasks to complete
+    let _ = tokio::join!(actor_handle, network_handle, ui_handle);
 
     info!("Exiting WinRM PowerShell client");
     Ok(())

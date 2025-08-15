@@ -1,3 +1,5 @@
+use core::error;
+use tracing::error;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -42,8 +44,8 @@ pub struct RunspacePool {
     pub(super) apartment_state: ApartmentState,
     pub(super) host_info: HostInfo,
     pub(super) application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
-    pub(super) connection: Arc<WsMan>,
     pub(super) shell: WinRunspace,
+    pub(super) connection: Arc<WsMan>,
     pub(super) defragmenter: Defragmenter,
     pub(super) application_private_data: Option<ApplicationPrivateData>,
     pub(super) session_capability: Option<SessionCapability>,
@@ -162,8 +164,18 @@ impl RunspacePool {
             }));
         }
 
+
+        error!(
+            "Unimplemented handler for soap envelope body: {:?}",
+            soap_envelope.body
+        );
+
         Err(crate::PwshCoreError::InvalidResponse(
-            "Unexpected response type in RunspacePool",
+            format!(
+                "Unimplemented handler for soap envelope body: {:?}",
+                soap_envelope.body
+            )
+            .into(),
         ))
     }
 
@@ -259,7 +271,7 @@ impl RunspacePool {
     ) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(session_capability) = session_capability else {
             return Err(PwshCoreError::InvalidResponse(
-                "Expected SessionCapability as PsValue::Object",
+                "Expected SessionCapability as PsValue::Object".into(),
             ));
         };
 
@@ -276,7 +288,7 @@ impl RunspacePool {
     ) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(app_data) = app_data else {
             return Err(PwshCoreError::InvalidResponse(
-                "Expected ApplicationPrivateData as PsValue::Object",
+                "Expected ApplicationPrivateData as PsValue::Object".into(),
             ));
         };
 
@@ -290,7 +302,7 @@ impl RunspacePool {
     fn handle_runspacepool_state(&mut self, ps_value: PsValue) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(runspacepool_state) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
-                "Expected RunspacepoolState as PsValue::Object",
+                "Expected RunspacepoolState as PsValue::Object".into(),
             ));
         };
 

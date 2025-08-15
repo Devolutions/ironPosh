@@ -157,7 +157,7 @@ impl WinRunspace {
             .receive_response
             .as_ref()
             .ok_or(crate::PwshCoreError::InvalidResponse(
-                "No ReceiveResponse found in response",
+                "No ReceiveResponse found in response".into(),
             ))?;
 
         let streams = receive_response
@@ -167,17 +167,19 @@ impl WinRunspace {
             .map(|stream| stream.value.as_ref())
             .map(|stream| base64::engine::general_purpose::STANDARD.decode(stream))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| crate::PwshCoreError::InvalidResponse("Failed to decode streams"))?;
+            .map_err(|_| {
+                crate::PwshCoreError::InvalidResponse("Failed to decode streams".into())
+            })?;
 
         Ok(streams)
     }
 
     pub fn accept_create_response<'a>(
         &mut self,
-        soap_envelop: SoapEnvelope<'a>,
+        soap_envelop: &SoapEnvelope<'a>,
     ) -> Result<(), crate::PwshCoreError> {
         let shell = &soap_envelop.body.as_ref().shell.as_ref().ok_or(
-            crate::PwshCoreError::InvalidResponse("No shell found in response"),
+            crate::PwshCoreError::InvalidResponse("No shell found in response".into()),
         )?;
         let shell_id = shell.as_ref().shell_id.as_ref().map(|id| id.clone_value());
         let resource_uri = &shell.as_ref().resource_uri;
@@ -211,7 +213,7 @@ impl WinRunspace {
             .map(|t| t.value.as_ref().to_string());
 
         let resource_created = soap_envelop.body.as_ref().resource_created.as_ref().ok_or(
-            crate::PwshCoreError::InvalidResponse("No ResourceCreated found in response"),
+            crate::PwshCoreError::InvalidResponse("No ResourceCreated found in response".into()),
         )?;
 
         let reference_parameters = resource_created.as_ref().reference_parameters.as_ref();
@@ -267,7 +269,7 @@ impl WinRunspace {
             .command_response
             .as_ref()
             .ok_or(crate::PwshCoreError::InvalidResponse(
-                "No CommandResponse found in response",
+                "No CommandResponse found in response".into(),
             ))?
             .as_ref()
             .as_ref();

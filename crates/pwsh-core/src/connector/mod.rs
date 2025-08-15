@@ -54,7 +54,20 @@ pub enum UserEvent {}
 pub enum ConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
-    Connected(ActiveSession),
+    Connected {
+        active_session: ActiveSession,
+        next_receive_request: HttpRequest<String>,
+    },
+}
+
+impl ConnectorStepResult {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ConnectorStepResult::SendBack(_) => "SendBack",
+            ConnectorStepResult::SendBackError(_) => "SendBackError",
+            ConnectorStepResult::Connected { .. } => "Connected",
+        }
+    }
 }
 
 impl ConnectorStepResult {
@@ -62,7 +75,7 @@ impl ConnectorStepResult {
         match self {
             ConnectorStepResult::SendBack(_) => 0,
             ConnectorStepResult::SendBackError(_) => 1,
-            ConnectorStepResult::Connected(_) => 2,
+            ConnectorStepResult::Connected { .. } => 2,
         }
     }
 }
@@ -86,6 +99,7 @@ pub enum ConnectorState {
         runspace_pool: RunspacePool,
         http_builder: HttpBuilder,
     },
+    Connected,
     Failed,
 }
 
@@ -96,6 +110,7 @@ impl ConnectorState {
             ConnectorState::Taken => "Taken",
             ConnectorState::Connecting { .. } => "Connecting",
             ConnectorState::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
+            ConnectorState::Connected => "Connected",
             ConnectorState::Failed => "Failed",
         }
     }
@@ -137,6 +152,12 @@ impl Connector {
                 warn!("Connector is in Failed state, cannot proceed");
                 return Err(crate::PwshCoreError::InvalidState(
                     "Connector is in Failed state",
+                ));
+            }
+            ConnectorState::Connected => {
+                warn!("Connector is already connected, cannot step further");
+                return Err(crate::PwshCoreError::InvalidState(
+                    "Connector is already connected",
                 ));
             }
             ConnectorState::Idle => {
@@ -227,8 +248,13 @@ impl Connector {
                     (new_state, ConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
+                    let next_receive_request = runspace_pool.fire_receive()?;
+                    let next_http_request = http_builder.post("/wsman", next_receive_request);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
-                    (ConnectorState::Failed, ConnectorStepResult::Connected(active_session))
+                    (ConnectorState::Connected, ConnectorStepResult::Connected {
+                        active_session,
+                        next_receive_request: next_http_request,
+                    })
                 } else {
                     warn!(
                         "Unexpected RunspacePool state: {:?}",
