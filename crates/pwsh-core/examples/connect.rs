@@ -29,7 +29,7 @@ enum SessionCommand {
         response_tx: oneshot::Sender<anyhow::Result<SessionStepResult>>,
     },
     ProcessServerResponse {
-        response: pwsh_core::connector::http::HttpRequest<String>,
+        response: pwsh_core::connector::http::HttpResponse<String>,
     },
 }
 
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
     let (user_request_tx, user_request_rx) = mpsc::channel::<(UserOperation, oneshot::Sender<anyhow::Result<SessionStepResult>>)>(32);
     let (session_cmd_tx, session_cmd_rx) = mpsc::channel::<SessionCommand>(32);
     let (network_request_tx, network_request_rx) = mpsc::channel::<NetworkRequest>(32);
-    let (network_response_tx, network_response_rx) = mpsc::channel::<pwsh_core::connector::http::HttpRequest<String>>(32);
+    let (network_response_tx, network_response_rx) = mpsc::channel::<pwsh_core::connector::http::HttpResponse<String>>(32);
     let (ui_tx, ui_rx) = mpsc::channel::<String>(32);
     
     // Clone senders for multiple consumers
@@ -405,7 +405,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn make_http_request(
     request: &pwsh_core::connector::http::HttpRequest<String>,
-) -> Result<pwsh_core::connector::http::HttpRequest<String>, anyhow::Error> {
+) -> Result<pwsh_core::connector::http::HttpResponse<String>, anyhow::Error> {
     info!("Making HTTP request to: {}", request.url);
     debug!("Request headers: {:?}", request.headers);
     debug!(
@@ -442,12 +442,10 @@ async fn make_http_request(
     let response_body = response.into_string()?;
     debug!("Response body length: {}", response_body.len());
 
-    // Return as HttpRequest (simulating the response format)
-    Ok(pwsh_core::connector::http::HttpRequest {
-        method: pwsh_core::connector::http::Method::Post,
-        url: request.url.clone(),
+    // Return as HttpResponse with proper response format
+    Ok(pwsh_core::connector::http::HttpResponse {
+        status_code: 200,
         headers: vec![],
         body: Some(response_body),
-        cookie: None,
     })
 }

@@ -40,6 +40,13 @@ impl<T> HttpRequest<T> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct HttpResponse<T> {
+    pub status_code: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<T>,
+}
+
 #[derive(Debug)]
 pub struct HttpBuilder {
     pub(crate) server: ServerAddress,

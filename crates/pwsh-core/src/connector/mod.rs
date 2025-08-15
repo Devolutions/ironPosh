@@ -5,7 +5,7 @@ use protocol_winrm::ws_management::WsMan;
 use tracing::{info, instrument, warn};
 
 use crate::{
-    connector::http::{HttpBuilder, HttpRequest, ServerAddress},
+    connector::http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     runspace_pool::{
         ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
         pool::AcceptResponsResult,
@@ -138,7 +138,7 @@ impl Connector {
     #[instrument(skip(self, server_response), name = "Connector::step")]
     pub fn step(
         &mut self,
-        server_response: Option<HttpRequest<String>>,
+        server_response: Option<HttpResponse<String>>,
     ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
@@ -194,11 +194,11 @@ impl Connector {
                 http_builder,
             } => {
                 info!("Processing Connecting state");
-                let request = server_response.ok_or({
-                    crate::PwshCoreError::InvalidState("Expected a request in Connecting state")
+                let response = server_response.ok_or({
+                    crate::PwshCoreError::InvalidState("Expected a response in Connecting state")
                 })?;
 
-                let body = request.body.ok_or({
+                let body = response.body.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a body in Connecting state")
                 })?;
 
@@ -219,13 +219,13 @@ impl Connector {
                 mut runspace_pool,
                 http_builder,
             } => {
-                let request = server_response.ok_or({
+                let response = server_response.ok_or({
                     crate::PwshCoreError::InvalidState(
-                        "Expected a request in ConnectReceiveCycle state",
+                        "Expected a response in ConnectReceiveCycle state",
                     )
                 })?;
 
-                let body = request.body.ok_or({
+                let body = response.body.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a body in ConnectReceiveCycle state",
                     )
