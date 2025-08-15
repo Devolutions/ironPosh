@@ -4,6 +4,7 @@ pub mod connector;
 pub mod runspace;
 pub mod runspace_pool;
 pub mod pipeline;
+pub mod powershell;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PwshCoreError {

@@ -9,13 +9,9 @@ use protocol_powershell_remoting::{
 };
 use protocol_winrm::ws_management::WsMan;
 
-use crate::runspace::win_rs::WinRunspace;
+use crate::{pipeline::Pipeline, runspace::win_rs::WinRunspace};
 
-use super::{
-    enums::RunspacePoolState,
-    pool::RunspacePool,
-    types::{PipelineRepresentation, PowerShell},
-};
+use super::{enums::RunspacePoolState, pool::RunspacePool};
 
 #[derive(Debug, typed_builder::TypedBuilder)]
 pub struct RunspacePoolCreator {
@@ -40,8 +36,6 @@ pub struct RunspacePoolCreator {
     #[builder(default = std::collections::BTreeMap::new())]
     application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
 
-    #[builder(default)]
-    pipeline: HashMap<String, PowerShell>,
 
     #[builder(default = Defragmenter::new())]
     defragmenter: Defragmenter,
@@ -53,7 +47,7 @@ pub struct RunspacePoolCreator {
     session_capability: Option<SessionCapability>,
 
     #[builder(default)]
-    pipelines: HashSet<PipelineRepresentation>,
+    pipelines: HashMap<uuid::Uuid, Pipeline>,
 }
 
 impl RunspacePoolCreator {

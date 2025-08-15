@@ -1,6 +1,5 @@
 use crate::{
-    connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    runspace_pool::{PowerShell, RunspacePool, pool::AcceptResponsResult},
+    connector::http::{HttpBuilder, HttpRequest, HttpResponse}, powershell::PowerShell, runspace_pool::{pool::AcceptResponsResult, RunspacePool}
 };
 
 #[derive(Debug)]
@@ -61,9 +60,9 @@ impl ActiveSession {
         &mut self,
         response: HttpResponse<String>,
     ) -> Result<SessionStepResult, crate::PwshCoreError> {
-        let body = response.body.ok_or({
-            crate::PwshCoreError::InvalidState("Expected a body in server response")
-        })?;
+        let body = response
+            .body
+            .ok_or({ crate::PwshCoreError::InvalidState("Expected a body in server response") })?;
 
         match self.runspace_pool.accept_response(body)? {
             AcceptResponsResult::ReceiveResponse => {

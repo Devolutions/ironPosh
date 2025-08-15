@@ -35,22 +35,6 @@ impl PartialEq for PipelineRepresentation {
 
 impl Eq for PipelineRepresentation {}
 
-/// Purely a reference to the underlying PowerShell instance inside the runspace pool.
-#[derive(Debug, Clone)]
-pub struct PowerShell {
-    pub(crate) id: uuid::Uuid,
-}
-
-impl PowerShell {
-    pub(crate) fn new(id: uuid::Uuid) -> Self {
-        PowerShell { id }
-    }
-
-    pub fn id(&self) -> uuid::Uuid {
-        self.id
-    }
-}
-
 pub struct Runspace {
     pub id: uuid::Uuid,
     pub state: super::enums::RunspacePoolState,

@@ -18,12 +18,14 @@ use protocol_winrm::{
 use tracing::{debug, info, instrument, trace};
 use xml::parser::XmlDeserialize;
 
-use crate::{PwshCoreError, runspace::win_rs::WinRunspace, runspace_pool::PsInvocationState};
-
-use super::{
-    enums::RunspacePoolState,
-    types::{PipelineRepresentation, PowerShell},
+use crate::{
+    PwshCoreError,
+    pipeline::{Pipeline, PipelineState},
+    powershell::PowerShell,
+    runspace::win_rs::WinRunspace,
 };
+
+use super::enums::RunspacePoolState;
 
 const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
@@ -49,7 +51,7 @@ pub struct RunspacePool {
     pub(super) defragmenter: Defragmenter,
     pub(super) application_private_data: Option<ApplicationPrivateData>,
     pub(super) session_capability: Option<SessionCapability>,
-    pub(super) pipelines: HashSet<PipelineRepresentation>,
+    pub(super) pipelines: HashMap<uuid::Uuid, Pipeline>,
     pub(super) fragmenter: fragment::Fragmenter,
 }
 
@@ -145,23 +147,21 @@ impl RunspacePool {
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
             let streams = self.shell.accept_receive_response(&soap_envelope)?;
-            self.parse_responses(streams)?;
+            self.handle_pwsh_responses(streams)?;
             return Ok(AcceptResponsResult::ReceiveResponse);
         }
 
         if soap_envelope.body.as_ref().command_response.is_some() {
             let pipeline_id = self.shell.accept_commannd_response(soap_envelope)?;
-            self.pipelines
-                .remove(&PipelineRepresentation::new(pipeline_id));
 
-            self.pipelines.insert(PipelineRepresentation {
-                id: pipeline_id,
-                state: PsInvocationState::Running,
-            });
+            // Server has confirmed pipeline creation - create new pipeline state
+            let pipeline = Pipeline::new();
+            self.pipelines.insert(pipeline_id, pipeline);
 
-            return Ok(AcceptResponsResult::NewPipeline(PowerShell {
-                id: pipeline_id,
-            }));
+            // Create PowerShell handle from server-provided UUID
+            let handle = PowerShell::from_server_id(pipeline_id);
+
+            return Ok(AcceptResponsResult::NewPipeline(handle));
         }
 
         error!(
@@ -187,10 +187,8 @@ impl RunspacePool {
         }
 
         let pipeline_id = uuid::Uuid::new_v4();
-        self.pipelines.insert(PipelineRepresentation {
-            id: pipeline_id,
-            state: PsInvocationState::NotStarted,
-        });
+
+        self.pipelines.insert(pipeline_id, Pipeline::new());
 
         // Create a command to execute instead of empty command list
         let cmd = protocol_powershell_remoting::Command::builder()
@@ -203,8 +201,6 @@ impl RunspacePool {
             .redirect_shell_error_output_pipe(true)
             .cmds(Commands::new(cmd))
             .build();
-
-        debug!(?pipeline_message);
 
         let create_pipeline = CreatePipeline::builder()
             .power_shell(pipeline_message)
@@ -225,7 +221,7 @@ impl RunspacePool {
 
         let request = self.shell.create_pipeline_request(
             &self.connection,
-            &pipeline_id,
+            pipeline_id,
             arguments,
             None,
             None,
@@ -234,7 +230,12 @@ impl RunspacePool {
         Ok(request.into().to_string())
     }
 
-    fn parse_responses(&mut self, responses: Vec<Vec<u8>>) -> Result<(), crate::PwshCoreError> {
+    /// Fire create pipeline for a specific pipeline handle (used by service API)
+    #[instrument(skip(self, responses))]
+    fn handle_pwsh_responses(
+        &mut self,
+        responses: Vec<Vec<u8>>,
+    ) -> Result<(), crate::PwshCoreError> {
         for response in responses {
             let messages = match self.defragmenter.defragment(&response)? {
                 fragment::DefragmentResult::Incomplete => continue,
@@ -318,5 +319,149 @@ impl RunspacePool {
         self.state = RunspacePoolState::from(&runspacepool_state.runspace_state);
 
         Ok(())
+    }
+
+    // --- PowerShell Pipeline Management API ---
+    // Note: PowerShell handles are created by the server via fire_create_pipeline/accept_response flow
+    // Users should get handles from the ActiveSession after calling CreatePipeline operation
+
+    /// Adds a script to the specified pipeline.
+    ///
+    /// # Arguments
+    /// * `handle`: The handle to the pipeline to modify.
+    /// * `script`: The script string to add.
+    pub fn add_script(
+        &mut self,
+        handle: PowerShell,
+        script: impl Into<String>,
+    ) -> Result<(), PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state != PipelineState::NotStarted {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot add to a pipeline that has already been started",
+            ));
+        }
+
+        pipeline.add_script(script.into());
+        Ok(())
+    }
+
+    /// Adds a command (cmdlet) to the specified pipeline.
+    pub fn add_command(
+        &mut self,
+        handle: PowerShell,
+        command: impl Into<String>,
+    ) -> Result<(), PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state != PipelineState::NotStarted {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot add to a pipeline that has already been started",
+            ));
+        }
+
+        pipeline.add_command(command.into());
+        Ok(())
+    }
+
+    /// Adds a parameter to the last command in the specified pipeline.
+    pub fn add_parameter(
+        &mut self,
+        handle: PowerShell,
+        name: &str,
+        value: crate::pipeline::ParameterValue,
+    ) -> Result<(), PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state != PipelineState::NotStarted {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot add to a pipeline that has already been started",
+            ));
+        }
+
+        pipeline.add_parameter(name, value);
+        Ok(())
+    }
+
+    /// Adds a switch parameter (no value) to the last command in the specified pipeline.
+    pub fn add_switch_parameter(
+        &mut self,
+        handle: PowerShell,
+        name: &str,
+    ) -> Result<(), PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state != PipelineState::NotStarted {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot add to a pipeline that has already been started",
+            ));
+        }
+
+        pipeline.add_switch_parameter(name);
+        Ok(())
+    }
+
+    /// Invokes the specified pipeline and waits for its completion.
+    ///
+    /// This method will handle the entire PSRP message exchange:
+    /// 1. Send the `CreatePipeline` message.
+    /// 2. Send `Command`, `Send`, and `EndOfInput` messages.
+    /// 3. Enter a loop to `Receive` and process responses.
+    /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
+    /// 5. Return the final output upon completion.
+    pub async fn invoke_pipeline_request(
+        &mut self,
+        handle: PowerShell,
+    ) -> Result<String, PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        // Set pipeline state to Running
+        pipeline.state = PipelineState::Running;
+        info!(pipeline_id = %handle.id(), "Invoking pipeline");
+
+        // Convert business pipeline to protocol pipeline and build CreatePipeline message
+        let protocol_pipeline = pipeline.to_protocol_pipeline()?;
+        let create_pipeline = CreatePipeline::builder()
+            .power_shell(protocol_pipeline)
+            .host_info(self.host_info.clone())
+            .apartment_state(self.apartment_state)
+            .build();
+
+        debug!(?create_pipeline);
+
+        let fragmented =
+            self.fragmenter
+                .fragment(&create_pipeline, self.id, Some(handle.id()), None)?;
+
+        let arguments = fragmented
+            .into_iter()
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))
+            .collect::<Vec<_>>();
+
+        let request = self.shell.create_pipeline_request(
+            &self.connection,
+            handle.id().clone(),
+            arguments,
+            None,
+            None,
+        )?;
+
+        Ok(request.into().to_string())
     }
 }
