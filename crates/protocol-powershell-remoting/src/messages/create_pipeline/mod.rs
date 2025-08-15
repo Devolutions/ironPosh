@@ -1,21 +1,24 @@
 mod command;
+mod command_parameter;
+mod pipeline_result_types;
 mod powershell_pipeline;
 mod remote_stream_options;
+#[cfg(test)]
+mod test;
 
-pub use command::Command;
+pub use command::{Command, Commands};
+pub use command_parameter::CommandParameter;
+pub use pipeline_result_types::PipelineResultTypes;
 pub use powershell_pipeline::PowerShellPipeline;
 pub use remote_stream_options::RemoteStreamOptions;
 
-use super::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
-    PsValue, PsEnums,
-};
 use super::init_runspace_pool::{ApartmentState, HostInfo};
+use super::{
+    ComplexObject, ComplexObjectContent, PsEnums, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    PsType, PsValue,
+};
 use crate::MessageType;
 use std::{borrow::Cow, collections::BTreeMap};
-
-#[cfg(test)]
-mod test;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct CreatePipeline {
@@ -105,9 +108,7 @@ impl From<CreatePipeline> for ComplexObject {
 
         ComplexObject {
             type_def: Some(PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Object"),
-                ],
+                type_names: vec![Cow::Borrowed("System.Object")],
             }),
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -122,9 +123,10 @@ impl TryFrom<ComplexObject> for CreatePipeline {
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
-            value.extended_properties.get(name).ok_or_else(|| {
-                Self::Error::InvalidMessage(format!("Missing property: {}", name))
-            })
+            value
+                .extended_properties
+                .get(name)
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
         };
 
         let no_input = match &get_property("NoInput")?.value {
@@ -133,16 +135,14 @@ impl TryFrom<ComplexObject> for CreatePipeline {
         };
 
         let apartment_state = match &get_property("ApartmentState")?.value {
-            PsValue::Object(obj) => {
-                match &obj.content {
-                    ComplexObjectContent::PsEnums(PsEnums { value }) => match *value {
-                        0 => ApartmentState::STA,
-                        1 => ApartmentState::MTA,
-                        2 => ApartmentState::Unknown,
-                        _ => ApartmentState::Unknown,
-                    },
+            PsValue::Object(obj) => match &obj.content {
+                ComplexObjectContent::PsEnums(PsEnums { value }) => match *value {
+                    0 => ApartmentState::STA,
+                    1 => ApartmentState::MTA,
+                    2 => ApartmentState::Unknown,
                     _ => ApartmentState::Unknown,
-                }
+                },
+                _ => ApartmentState::Unknown,
             },
             _ => ApartmentState::Unknown,
         };
@@ -158,15 +158,22 @@ impl TryFrom<ComplexObject> for CreatePipeline {
         };
 
         let host_info = match &get_property("HostInfo")?.value {
-            PsValue::Object(obj) => HostInfo::try_from(obj.clone()).map_err(|_| {
-                Self::Error::InvalidMessage("Failed to parse HostInfo".to_string())
-            })?,
-            _ => return Err(Self::Error::InvalidMessage("HostInfo must be an object".to_string())),
+            PsValue::Object(obj) => HostInfo::try_from(obj.clone())
+                .map_err(|_| Self::Error::InvalidMessage("Failed to parse HostInfo".to_string()))?,
+            _ => {
+                return Err(Self::Error::InvalidMessage(
+                    "HostInfo must be an object".to_string(),
+                ));
+            }
         };
 
         let power_shell = match &get_property("PowerShell")?.value {
             PsValue::Object(obj) => PowerShellPipeline::try_from(obj.clone())?,
-            _ => return Err(Self::Error::InvalidMessage("PowerShell must be an object".to_string())),
+            _ => {
+                return Err(Self::Error::InvalidMessage(
+                    "PowerShell must be an object".to_string(),
+                ));
+            }
         };
 
         let is_nested = match &get_property("IsNested")?.value {
@@ -188,12 +195,10 @@ impl TryFrom<ComplexObject> for CreatePipeline {
 
 impl CreatePipeline {
     pub fn simple_command(command: &str) -> Self {
-        let cmd = Command::builder()
-            .cmd(command.to_string())
-            .build();
+        let cmd = Command::builder().cmd(command.to_string()).build();
 
         let pipeline = PowerShellPipeline::builder()
-            .cmds(vec![cmd])
+            .cmds(Commands::new(cmd))
             .build();
 
         let host_info = HostInfo::builder().build();
@@ -211,7 +216,7 @@ impl CreatePipeline {
             .build();
 
         let pipeline = PowerShellPipeline::builder()
-            .cmds(vec![cmd])
+            .cmds(Commands::new(cmd))
             .build();
 
         let host_info = HostInfo::builder().build();

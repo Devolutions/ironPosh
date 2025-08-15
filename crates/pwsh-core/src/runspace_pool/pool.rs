@@ -1,15 +1,15 @@
 use core::error;
-use tracing::error;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
+use tracing::error;
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
-    InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue, RunspacePoolStateMessage,
-    SessionCapability, fragment,
+    ApartmentState, ApplicationPrivateData, Command, Commands, CreatePipeline, Defragmenter,
+    HostInfo, InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue,
+    RunspacePoolStateMessage, SessionCapability, fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -164,7 +164,6 @@ impl RunspacePool {
             }));
         }
 
-
         error!(
             "Unimplemented handler for soap envelope body: {:?}",
             soap_envelope.body
@@ -193,11 +192,18 @@ impl RunspacePool {
             state: PsInvocationState::NotStarted,
         });
 
+        // Create a command to execute instead of empty command list
+        let cmd = protocol_powershell_remoting::Command::builder()
+            .cmd(r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#)
+            .is_script(true)
+            .build();
+
         let pipeline_message = PowerShellPipeline::builder()
             .is_nested(false)
             .redirect_shell_error_output_pipe(true)
-            .cmds(vec![])
+            .cmds(Commands::new(cmd))
             .build();
+
         debug!(?pipeline_message);
 
         let create_pipeline = CreatePipeline::builder()

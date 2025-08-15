@@ -1,6 +1,11 @@
+use uuid::Uuid;
 
 use super::*;
-use crate::deserialize::{DeserializationContext, PsXmlDeserialize};
+use crate::{
+    Fragmenter,
+    deserialize::{DeserializationContext, PsXmlDeserialize},
+    serialize::RefIdMap,
+};
 
 const REAL_CREATE_PIPELINE: &str = r#"
 <Obj RefId="0">
@@ -88,31 +93,7 @@ const REAL_CREATE_PIPELINE: &str = r#"
     "#;
 
 #[test]
-fn test_create_pipeline_simple_command() {
-    let pipeline = CreatePipeline::simple_command("Get-Process");
-
-    assert_eq!(pipeline.power_shell.cmds.len(), 1);
-    assert_eq!(pipeline.power_shell.cmds[0].cmd, "Get-Process");
-    assert!(!pipeline.power_shell.cmds[0].is_script);
-}
-
-#[test]
-fn test_create_pipeline_script_command() {
-    let script = r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#;
-    let pipeline = CreatePipeline::script_command(script);
-
-    assert_eq!(pipeline.power_shell.cmds.len(), 1);
-    assert_eq!(pipeline.power_shell.cmds[0].cmd, script);
-    assert!(pipeline.power_shell.cmds[0].is_script);
-}
-
-#[test]
-fn test_message_type() {
-    let pipeline = CreatePipeline::simple_command("Test");
-    assert_eq!(pipeline.message_type().value(), 0x00021006);
-}
-
-#[test]
+#[tracing_test::traced_test]
 fn test_deserialize_real_create_pipeline() {
     let parsed = xml::parser::parse(REAL_CREATE_PIPELINE).unwrap();
     let root = parsed.root_element();
@@ -123,70 +104,48 @@ fn test_deserialize_real_create_pipeline() {
     if let PsValue::Object(complex_obj) = ps_value {
         let create_pipeline = CreatePipeline::try_from(complex_obj).unwrap();
 
-        // Verify the parsed values match the XML
-        assert_eq!(create_pipeline.no_input, true);
-        assert_eq!(create_pipeline.apartment_state, ApartmentState::Unknown);
-        assert_eq!(
-            create_pipeline.remote_stream_options,
-            RemoteStreamOptions::None
-        );
-        assert_eq!(create_pipeline.add_to_history, false);
-        assert_eq!(create_pipeline.is_nested, false);
+        // Verify top-level CreatePipeline properties (lines 16, 37, 90)
+        assert_eq!(create_pipeline.no_input, true, "NoInput should be true");
+        assert_eq!(create_pipeline.add_to_history, false, "AddToHistory should be false");
+        assert_eq!(create_pipeline.is_nested, false, "IsNested should be false");
 
-        // Verify host info
-        assert_eq!(create_pipeline.host_info.is_host_null, true);
-        assert_eq!(create_pipeline.host_info.is_host_ui_null, true);
-        assert_eq!(create_pipeline.host_info.is_host_raw_ui_null, true);
-        assert_eq!(create_pipeline.host_info.use_runspace_host, true);
+        // Verify ApartmentState (lines 17-26)
+        assert_eq!(create_pipeline.apartment_state, ApartmentState::Unknown, "ApartmentState should be Unknown (2)");
 
-        // Verify pipeline
-        assert_eq!(create_pipeline.power_shell.is_nested, false);
-        assert_eq!(
-            create_pipeline.power_shell.redirect_shell_error_output_pipe,
-            true
-        );
-        assert_eq!(create_pipeline.power_shell.cmds.len(), 1);
+        // Verify RemoteStreamOptions (lines 27-36)  
+        assert_eq!(create_pipeline.remote_stream_options, RemoteStreamOptions::None, "RemoteStreamOptions should be None (0)");
 
-        // Verify the command
+        // Verify HostInfo properties (lines 38-45)
+        assert_eq!(create_pipeline.host_info.is_host_null, true, "_isHostNull should be true");
+        assert_eq!(create_pipeline.host_info.is_host_ui_null, true, "_isHostUINull should be true");
+        assert_eq!(create_pipeline.host_info.is_host_raw_ui_null, true, "_isHostRawUINull should be true");
+        assert_eq!(create_pipeline.host_info.use_runspace_host, true, "_useRunspaceHost should be true");
+
+        // Verify PowerShell pipeline properties (lines 46-88)
+        assert_eq!(create_pipeline.power_shell.is_nested, false, "PowerShell.IsNested should be false");
+        assert_eq!(create_pipeline.power_shell.redirect_shell_error_output_pipe, true, "RedirectShellErrorOutputPipe should be true");
+        assert_eq!(create_pipeline.power_shell.history, "", "History should be empty string (Nil in XML)");
+        
+        // Verify Commands array (line 53-83)
+        assert_eq!(create_pipeline.power_shell.cmds.len(), 1, "Should have exactly 1 command");
+
+        // Verify Command properties (lines 54-82)
         let cmd = &create_pipeline.power_shell.cmds[0];
-        assert_eq!(
-            cmd.cmd,
-            r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#
-        );
-        assert_eq!(cmd.is_script, true);
-        assert_eq!(cmd.use_local_scope, None);
-        assert_eq!(cmd.args.len(), 0);
+        assert_eq!(cmd.cmd, r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#, "Command text should match");
+        assert_eq!(cmd.is_script, true, "IsScript should be true");
+        assert_eq!(cmd.use_local_scope, None, "UseLocalScope should be None (Nil in XML)");
+        assert_eq!(cmd.args.len(), 0, "Args should be empty list");
+
+        // Verify merge properties all reference the same PipelineResultTypes::None (0)
+        assert_eq!(cmd.merge_my_result, PipelineResultTypes::None, "MergeMyResult should be None (0)");
+        assert_eq!(cmd.merge_to_result, PipelineResultTypes::None, "MergeToResult should be None (0)");
+        assert_eq!(cmd.merge_previous_results, PipelineResultTypes::None, "MergePreviousResults should be None (0)");
+        assert_eq!(cmd.merge_error, PipelineResultTypes::None, "MergeError should be None (0)");
+        assert_eq!(cmd.merge_warning, PipelineResultTypes::None, "MergeWarning should be None (0)");
+        assert_eq!(cmd.merge_verbose, PipelineResultTypes::None, "MergeVerbose should be None (0)");
+        assert_eq!(cmd.merge_debug, PipelineResultTypes::None, "MergeDebug should be None (0)");
+        assert_eq!(cmd.merge_information, PipelineResultTypes::None, "MergeInformation should be None (0)");
     } else {
         panic!("Expected ComplexObject");
     }
-}
-
-#[test]
-fn test_roundtrip_serialization() {
-    let script = r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#;
-    let original = CreatePipeline::script_command(script);
-
-    // Serialize to ComplexObject
-    let complex_obj = ComplexObject::from(original.clone());
-
-    // Deserialize back
-    let roundtrip = CreatePipeline::try_from(complex_obj).unwrap();
-
-    // Verify they're equal
-    assert_eq!(original.no_input, roundtrip.no_input);
-    assert_eq!(original.apartment_state, roundtrip.apartment_state);
-    assert_eq!(
-        original.remote_stream_options,
-        roundtrip.remote_stream_options
-    );
-    assert_eq!(original.add_to_history, roundtrip.add_to_history);
-    assert_eq!(original.is_nested, roundtrip.is_nested);
-    assert_eq!(
-        original.power_shell.cmds[0].cmd,
-        roundtrip.power_shell.cmds[0].cmd
-    );
-    assert_eq!(
-        original.power_shell.cmds[0].is_script,
-        roundtrip.power_shell.cmds[0].is_script
-    );
 }

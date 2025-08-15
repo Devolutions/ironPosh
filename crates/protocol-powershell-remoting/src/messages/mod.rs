@@ -105,6 +105,17 @@ impl PsType {
             ],
         }
     }
+
+    pub fn pipeline_result_types() -> Self {
+        PsType {
+            type_names: vec![
+                Cow::Borrowed("System.Management.Automation.Runspaces.PipelineResultTypes"),
+                Cow::Borrowed("System.Enum"),
+                Cow::Borrowed("System.ValueType"),
+                Cow::Borrowed("System.Object"),
+            ],
+        }
+    }
 }
 
 impl PartialEq for PsType {

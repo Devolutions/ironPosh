@@ -1,14 +1,16 @@
-use super::command::Command;
+use crate::Commands;
+
 use super::super::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
+use super::command::Command;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct PowerShellPipeline {
     #[builder(default = false)]
     pub is_nested: bool,
-    pub cmds: Vec<Command>,
+    pub cmds: Commands,
     #[builder(default)]
     pub history: String,
     #[builder(default = false)]
@@ -28,7 +30,9 @@ impl From<PowerShellPipeline> for ComplexObject {
         );
 
         // Commands as ArrayList
-        let cmds: Vec<PsValue> = pipeline.cmds.into_iter()
+        let cmds: Vec<PsValue> = pipeline
+            .cmds
+            .into_iter()
             .map(|cmd| PsValue::Object(ComplexObject::from(cmd)))
             .collect();
 
@@ -52,7 +56,11 @@ impl From<PowerShellPipeline> for ComplexObject {
             "History".to_string(),
             PsProperty {
                 name: "History".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(pipeline.history)),
+                value: if pipeline.history.is_empty() {
+                    PsValue::Primitive(PsPrimitiveValue::Nil)
+                } else {
+                    PsValue::Primitive(PsPrimitiveValue::Str(pipeline.history))
+                },
             },
         );
 
@@ -60,7 +68,9 @@ impl From<PowerShellPipeline> for ComplexObject {
             "RedirectShellErrorOutputPipe".to_string(),
             PsProperty {
                 name: "RedirectShellErrorOutputPipe".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(pipeline.redirect_shell_error_output_pipe)),
+                value: PsValue::Primitive(PsPrimitiveValue::Bool(
+                    pipeline.redirect_shell_error_output_pipe,
+                )),
             },
         );
 
@@ -79,14 +89,19 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
-            value.extended_properties.get(name).ok_or_else(|| {
-                Self::Error::InvalidMessage(format!("Missing property: {}", name))
-            })
+            value
+                .extended_properties
+                .get(name)
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
         };
 
         let is_nested = match &get_property("IsNested")?.value {
             PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-            _ => return Err(Self::Error::InvalidMessage("IsNested must be a bool".to_string())),
+            _ => {
+                return Err(Self::Error::InvalidMessage(
+                    "IsNested must be a bool".to_string(),
+                ));
+            }
         };
 
         let cmds = match &get_property("Cmds")?.value {
@@ -100,9 +115,17 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
                     }
                     commands
                 }
-                _ => return Err(Self::Error::InvalidMessage("Cmds must be a list".to_string())),
+                _ => {
+                    return Err(Self::Error::InvalidMessage(
+                        "Cmds must be a list".to_string(),
+                    ));
+                }
             },
-            _ => return Err(Self::Error::InvalidMessage("Cmds must be an object".to_string())),
+            _ => {
+                return Err(Self::Error::InvalidMessage(
+                    "Cmds must be an object".to_string(),
+                ));
+            }
         };
 
         let history = match value.extended_properties.get("History") {
@@ -114,14 +137,15 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
             None => String::new(),
         };
 
-        let redirect_shell_error_output_pipe = match &get_property("RedirectShellErrorOutputPipe")?.value {
-            PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-            _ => false,
-        };
+        let redirect_shell_error_output_pipe =
+            match &get_property("RedirectShellErrorOutputPipe")?.value {
+                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
+                _ => false,
+            };
 
         Ok(PowerShellPipeline {
             is_nested,
-            cmds,
+            cmds: Commands::try_from(cmds)?,
             history,
             redirect_shell_error_output_pipe,
         })
