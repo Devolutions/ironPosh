@@ -41,12 +41,14 @@ enum NetworkRequest {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let log_file = std::fs::File::create("winrm_client.log")?;
     tracing_subscriber::fmt::SubscriberBuilder::default()
         .with_env_filter(EnvFilter::new("pwsh_core=debug,ureq=warn"))
         .with_max_level(tracing::Level::DEBUG)
         .with_target(false)
         .with_line_number(true)
         .with_file(true)
+        .with_writer(log_file)
         .init();
 
     let _span = tracing::span!(tracing::Level::INFO, "main").entered();
