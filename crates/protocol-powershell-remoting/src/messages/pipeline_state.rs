@@ -109,12 +109,13 @@ impl TryFrom<ComplexObject> for PipelineStateMessage {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let pipeline_state_prop = value
-            .extended_properties
-            .get("PipelineState")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing PipelineState property".to_string())
-            })?;
+        let pipeline_state_prop =
+            value
+                .extended_properties
+                .get("PipelineState")
+                .ok_or_else(|| {
+                    Self::Error::InvalidMessage("Missing PipelineState property".to_string())
+                })?;
 
         let pipeline_state = match &pipeline_state_prop.value {
             PsValue::Primitive(PsPrimitiveValue::I32(state)) => {
@@ -241,13 +242,34 @@ mod tests {
 
     #[test]
     fn test_ps_invocation_state_try_from() {
-        assert_eq!(PSInvocationState::try_from(0).unwrap(), PSInvocationState::NotStarted);
-        assert_eq!(PSInvocationState::try_from(1).unwrap(), PSInvocationState::Running);
-        assert_eq!(PSInvocationState::try_from(2).unwrap(), PSInvocationState::Stopping);
-        assert_eq!(PSInvocationState::try_from(3).unwrap(), PSInvocationState::Stopped);
-        assert_eq!(PSInvocationState::try_from(4).unwrap(), PSInvocationState::Completed);
-        assert_eq!(PSInvocationState::try_from(5).unwrap(), PSInvocationState::Failed);
-        assert_eq!(PSInvocationState::try_from(6).unwrap(), PSInvocationState::Disconnected);
+        assert_eq!(
+            PSInvocationState::try_from(0).unwrap(),
+            PSInvocationState::NotStarted
+        );
+        assert_eq!(
+            PSInvocationState::try_from(1).unwrap(),
+            PSInvocationState::Running
+        );
+        assert_eq!(
+            PSInvocationState::try_from(2).unwrap(),
+            PSInvocationState::Stopping
+        );
+        assert_eq!(
+            PSInvocationState::try_from(3).unwrap(),
+            PSInvocationState::Stopped
+        );
+        assert_eq!(
+            PSInvocationState::try_from(4).unwrap(),
+            PSInvocationState::Completed
+        );
+        assert_eq!(
+            PSInvocationState::try_from(5).unwrap(),
+            PSInvocationState::Failed
+        );
+        assert_eq!(
+            PSInvocationState::try_from(6).unwrap(),
+            PSInvocationState::Disconnected
+        );
 
         assert!(PSInvocationState::try_from(7).is_err());
         assert!(PSInvocationState::try_from(-1).is_err());

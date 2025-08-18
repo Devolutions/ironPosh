@@ -106,7 +106,7 @@ impl WinRunspace {
         &'a self,
         ws_man: &'a WsMan,
         stream: Option<&'a str>,
-        command_id: Option<&'a str>,
+        command_id: Option<&'a Uuid>,
     ) -> impl Into<Element<'a>> {
         let stream = stream.unwrap_or("stdout");
 
@@ -114,7 +114,7 @@ impl WinRunspace {
 
         let desired_stream = if let Some(command_id) = command_id {
             desired_stream.with_attribute(protocol_winrm::cores::Attribute::CommandId(
-                command_id.into(),
+                command_id.clone(),
             ))
         } else {
             desired_stream
@@ -249,8 +249,7 @@ impl WinRunspace {
             Some(self.resource_uri.as_ref()),
             SoapBody::builder()
                 .command_line(
-                    Tag::new(command_line)
-                        .with_attribute(Attribute::CommandId(command_id.to_string().into())),
+                    Tag::new(command_line).with_attribute(Attribute::CommandId(command_id)),
                 )
                 .build(),
             Some(OptionSetValue::default().add_option(
@@ -339,7 +338,7 @@ impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
 }
 
 pub struct CommandState {
-    pub command_id: String,
+    pub command_id: Uuid,
     pub state: String,
     pub exit_code: Option<i32>,
 }
@@ -354,7 +353,7 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
             .attributes
             .iter()
             .find_map(|attr| match attr {
-                Attribute::CommandId(id) => Some(id.to_string()),
+                Attribute::CommandId(id) => Some(id),
                 _ => None,
             })
             .ok_or(crate::PwshCoreError::InvalidResponse(
@@ -379,9 +378,26 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
             .map(|exit_code| exit_code.value.0);
 
         Ok(CommandState {
-            command_id,
+            command_id: command_id.clone(),
             state: state.to_string(),
             exit_code,
         })
+    }
+}
+
+impl CommandState {
+    pub fn is_done(&self) -> bool {
+        self.state
+            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done"
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.state
+            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending"
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.state
+            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running"
     }
 }

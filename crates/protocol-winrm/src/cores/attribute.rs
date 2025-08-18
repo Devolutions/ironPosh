@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use uuid::Uuid;
+
 // Macro that ensures compile-time safety by generating all the boilerplate
 macro_rules! define_attributes {
     (
@@ -88,7 +90,9 @@ define_attributes!(
     RefId(Cow<'a, str>) => (None, "RefId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     N(Cow<'a, str>) => (None, "N"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     XmlLang(Cow<'a, str>) => (None, "xml:lang"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
-    CommandId(Cow<'a, str>) => (None, "CommandId"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
+    CommandId(Uuid) => (None, "CommandId"), |v: &str| -> Result<Uuid, String> {
+        Uuid::parse_str(v).map_err(|e| e.to_string())
+    },
     State(Cow<'a, str>) => (None, "State"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },
     End(bool) => (None, "End"), |v: &str| v.parse::<bool>().map_err(|e| e.to_string()),
     Unit(Cow<'a, str>) => (None, "Unit"), |v: &str| -> Result<Cow<'a, str>, String> { Ok(Cow::Owned(v.to_string())) },

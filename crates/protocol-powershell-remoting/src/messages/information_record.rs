@@ -84,7 +84,7 @@ impl From<InformationRecord> for ComplexObject {
                     .into_iter()
                     .map(|tag| PsValue::Primitive(PsPrimitiveValue::Str(tag)))
                     .collect();
-                
+
                 // Create array-like structure for tags
                 let tags_obj = ComplexObject {
                     type_def: Some(PsType {
@@ -196,7 +196,9 @@ impl TryFrom<ComplexObject> for InformationRecord {
             .extended_properties
             .get("InformationalRecord_Message")
             .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing InformationalRecord_Message property".to_string())
+                Self::Error::InvalidMessage(
+                    "Missing InformationalRecord_Message property".to_string(),
+                )
             })?;
         let message_data = match &message_data.value {
             PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
@@ -243,11 +245,7 @@ impl TryFrom<ComplexObject> for InformationRecord {
                             tags.push(s.clone());
                         }
                     }
-                    if tags.is_empty() {
-                        None
-                    } else {
-                        Some(tags)
-                    }
+                    if tags.is_empty() { None } else { Some(tags) }
                 }
                 _ => None,
             });

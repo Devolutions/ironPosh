@@ -12,13 +12,12 @@ use protocol_winrm::{
     ws_management::{OptionSetValue, WsMan},
 };
 use tracing::{debug, info, instrument, trace};
+use uuid::Uuid;
 use xml::parser::XmlDeserialize;
 
 use crate::{
-    PwshCoreError,
-    pipeline::{Pipeline, PipelineState},
-    powershell::PowerShell,
-    runspace::win_rs::WinRunspace,
+    PwshCoreError, pipeline::Pipeline, powershell::PowerShell, runspace::win_rs::WinRunspace,
+    runspace_pool::PsInvocationState,
 };
 
 use super::enums::RunspacePoolState;
@@ -123,7 +122,7 @@ impl RunspacePool {
     pub(crate) fn fire_receive<'a>(
         &mut self,
         stream: Option<&'a str>,
-        command_id: Option<&'a str>,
+        command_id: Option<&Uuid>,
     ) -> Result<String, crate::PwshCoreError> {
         Ok(self
             .shell
@@ -143,7 +142,15 @@ impl RunspacePool {
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
             let (streams, command_state) = self.shell.accept_receive_response(&soap_envelope)?;
-            self.handle_pwsh_responses(streams, command_state)?;
+            self.handle_pwsh_responses(streams)?;
+
+            if let Some(command_state) = command_state {
+                if command_state.is_done() {
+                    // If command state is done, we can remove the pipeline from the pool
+                    self.pipelines.remove(&command_state.command_id);
+                }
+            }
+
             return Ok(AcceptResponsResult::ReceiveResponse);
         }
 
@@ -233,11 +240,10 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
-    #[instrument(skip(self, responses, command_state))]
+    #[instrument(skip(self, responses))]
     fn handle_pwsh_responses(
         &mut self,
         responses: Vec<crate::runspace::win_rs::Stream>,
-        command_state: Option<crate::runspace::win_rs::CommandState>,
     ) -> Result<(), crate::PwshCoreError> {
         for stream in responses {
             let messages = match self.defragmenter.defragment(stream.value())? {
@@ -261,13 +267,17 @@ impl RunspacePool {
                         self.handle_runspacepool_state(ps_value)?;
                     }
                     protocol_powershell_remoting::MessageType::ProgressRecord => {
-                        todo!("Handle ProgressRecord messages");
+                        self.handle_progress_record(ps_value, stream.name(), stream.command_id())?;
                     }
                     protocol_powershell_remoting::MessageType::InformationRecord => {
-                        todo!("Handle Output messages");
+                        self.handle_information_record(
+                            ps_value,
+                            stream.name(),
+                            stream.command_id(),
+                        )?;
                     }
                     protocol_powershell_remoting::MessageType::PipelineState => {
-                        todo!("Handle PipelineState messages");
+                        self.handle_pipeline_state(ps_value, stream.name(), stream.command_id())?;
                     }
                     _ => {
                         info!(
@@ -333,6 +343,137 @@ impl RunspacePool {
         Ok(())
     }
 
+    #[instrument(skip(self, ps_value, stream_name, command_id))]
+    fn handle_progress_record(
+        &mut self,
+        ps_value: PsValue,
+        stream_name: &str,
+        command_id: Option<&str>,
+    ) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(progress_record) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected ProgressRecord as PsValue::Object".into(),
+            ));
+        };
+
+        let progress_record =
+            protocol_powershell_remoting::ProgressRecord::try_from(progress_record)?;
+
+        // Question: Can we have a Optional command id here?
+        let Some(command_id) = command_id else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected command_id to be Some".into(),
+            ));
+        };
+
+        trace!(
+            ?progress_record,
+            stream_name = stream_name,
+            command_id = command_id,
+            "Received ProgressRecord"
+        );
+
+        // Find the pipeline by command_id
+        let pipeline =
+            self.pipelines
+                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
+                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
+                })?)
+                .ok_or(PwshCoreError::InvalidResponse(
+                    "Pipeline not found for command_id".into(),
+                ))?;
+
+        pipeline.add_progress_record(progress_record);
+
+        Ok(())
+    }
+
+    #[instrument(skip(self, ps_value, stream_name, command_id))]
+    fn handle_information_record(
+        &mut self,
+        ps_value: PsValue,
+        stream_name: &str,
+        command_id: Option<&str>,
+    ) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(info_record) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected InformationRecord as PsValue::Object".into(),
+            ));
+        };
+
+        let info_record = protocol_powershell_remoting::InformationRecord::try_from(info_record)?;
+        trace!(
+            ?info_record,
+            stream_name = stream_name,
+            command_id = command_id,
+            "Received InformationRecord"
+        );
+
+        // Question: Can we have a Optional command id here?
+        let Some(command_id) = command_id else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected command_id to be Some".into(),
+            ));
+        };
+
+        // Find the pipeline by command_id
+        let pipeline =
+            self.pipelines
+                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
+                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
+                })?)
+                .ok_or(PwshCoreError::InvalidResponse(
+                    "Pipeline not found for command_id".into(),
+                ))?;
+
+        pipeline.add_information_record(info_record);
+
+        Ok(())
+    }
+
+    #[instrument(skip(self, ps_value, stream_name, command_id))]
+    fn handle_pipeline_state(
+        &mut self,
+        ps_value: PsValue,
+        stream_name: &str,
+        command_id: Option<&str>,
+    ) -> Result<(), crate::PwshCoreError> {
+        let PsValue::Object(pipeline_state) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected PipelineState as PsValue::Object".into(),
+            ));
+        };
+
+        let pipeline_state =
+            protocol_powershell_remoting::PipelineStateMessage::try_from(pipeline_state)?;
+        trace!(
+            ?pipeline_state,
+            stream_name = stream_name,
+            command_id = command_id,
+            "Received PipelineState"
+        );
+        // Question: Can we have a Optional command id here?
+        let Some(command_id) = command_id else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected command_id to be Some".into(),
+            ));
+        };
+
+        // Find the pipeline by command_id
+        let pipeline =
+            self.pipelines
+                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
+                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
+                })?)
+                .ok_or(PwshCoreError::InvalidResponse(
+                    "Pipeline not found for command_id".into(),
+                ))?;
+        // Update the pipeline state
+        pipeline.state = PsInvocationState::from(pipeline_state.pipeline_state);
+
+        Ok(())
+    }
+
     // --- PowerShell Pipeline Management API ---
     // Note: PowerShell handles are created by the server via fire_create_pipeline/accept_response flow
     // Users should get handles from the ActiveSession after calling CreatePipeline operation
@@ -352,7 +493,7 @@ impl RunspacePool {
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
-        if pipeline.state != PipelineState::NotStarted {
+        if pipeline.state != PsInvocationState::NotStarted {
             return Err(PwshCoreError::InvalidState(
                 "Cannot add to a pipeline that has already been started",
             ));
@@ -373,7 +514,7 @@ impl RunspacePool {
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
-        if pipeline.state != PipelineState::NotStarted {
+        if pipeline.state != PsInvocationState::NotStarted {
             return Err(PwshCoreError::InvalidState(
                 "Cannot add to a pipeline that has already been started",
             ));
@@ -395,7 +536,7 @@ impl RunspacePool {
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
-        if pipeline.state != PipelineState::NotStarted {
+        if pipeline.state != PsInvocationState::NotStarted {
             return Err(PwshCoreError::InvalidState(
                 "Cannot add to a pipeline that has already been started",
             ));
@@ -416,7 +557,7 @@ impl RunspacePool {
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
-        if pipeline.state != PipelineState::NotStarted {
+        if pipeline.state != PsInvocationState::NotStarted {
             return Err(PwshCoreError::InvalidState(
                 "Cannot add to a pipeline that has already been started",
             ));
@@ -441,7 +582,7 @@ impl RunspacePool {
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
         // Set pipeline state to Running
-        pipeline.state = PipelineState::Running;
+        pipeline.state = PsInvocationState::Running;
         info!(pipeline_id = %handle.id(), "Invoking pipeline");
 
         // Convert business pipeline to protocol pipeline and build CreatePipeline message

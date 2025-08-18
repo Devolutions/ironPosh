@@ -190,10 +190,9 @@ impl TryFrom<ComplexObject> for ProgressRecord {
             }
         };
 
-        let activity_id = value
-            .extended_properties
-            .get("ActivityId")
-            .ok_or_else(|| Self::Error::InvalidMessage("Missing ActivityId property".to_string()))?;
+        let activity_id = value.extended_properties.get("ActivityId").ok_or_else(|| {
+            Self::Error::InvalidMessage("Missing ActivityId property".to_string())
+        })?;
         let activity_id = match &activity_id.value {
             PsValue::Primitive(PsPrimitiveValue::I32(id)) => *id,
             _ => {
@@ -203,29 +202,32 @@ impl TryFrom<ComplexObject> for ProgressRecord {
             }
         };
 
-        let status_description = value
-            .extended_properties
-            .get("StatusDescription")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
+        let status_description =
+            value
+                .extended_properties
+                .get("StatusDescription")
+                .and_then(|prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                    _ => None,
+                });
 
-        let current_operation = value
-            .extended_properties
-            .get("CurrentOperation")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
+        let current_operation =
+            value
+                .extended_properties
+                .get("CurrentOperation")
+                .and_then(|prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                    _ => None,
+                });
 
-        let parent_activity_id = value
-            .extended_properties
-            .get("ParentActivityId")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(id)) if *id >= 0 => Some(*id),
-                _ => None,
-            });
+        let parent_activity_id =
+            value
+                .extended_properties
+                .get("ParentActivityId")
+                .and_then(|prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::I32(id)) if *id >= 0 => Some(*id),
+                    _ => None,
+                });
 
         let percent_complete = value
             .extended_properties
@@ -250,13 +252,14 @@ impl TryFrom<ComplexObject> for ProgressRecord {
             })
             .unwrap_or(ProgressRecordType::Processing);
 
-        let seconds_remaining = value
-            .extended_properties
-            .get("SecondsRemaining")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
-                _ => None,
-            });
+        let seconds_remaining =
+            value
+                .extended_properties
+                .get("SecondsRemaining")
+                .and_then(|prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
+                    _ => None,
+                });
 
         Ok(ProgressRecord::builder()
             .activity(activity)

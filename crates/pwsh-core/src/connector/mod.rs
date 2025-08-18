@@ -238,7 +238,7 @@ impl Connector {
                     (new_state, ConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
-                    let next_receive_request = runspace_pool.fire_receive(None,None)?;
+                    let next_receive_request = runspace_pool.fire_receive(None, None)?;
                     let next_http_request = http_builder.post("/wsman", next_receive_request);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (

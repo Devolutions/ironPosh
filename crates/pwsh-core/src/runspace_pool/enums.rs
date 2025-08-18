@@ -17,6 +17,28 @@ pub enum PsInvocationState {
     Disconnected = 6,
 }
 
+impl From<protocol_powershell_remoting::PSInvocationState> for PsInvocationState {
+    fn from(value: protocol_powershell_remoting::PSInvocationState) -> Self {
+        match value {
+            protocol_powershell_remoting::PSInvocationState::NotStarted => {
+                PsInvocationState::NotStarted
+            }
+            protocol_powershell_remoting::PSInvocationState::Running => PsInvocationState::Running,
+            protocol_powershell_remoting::PSInvocationState::Stopping => {
+                PsInvocationState::Stopping
+            }
+            protocol_powershell_remoting::PSInvocationState::Stopped => PsInvocationState::Stopped,
+            protocol_powershell_remoting::PSInvocationState::Completed => {
+                PsInvocationState::Completed
+            }
+            protocol_powershell_remoting::PSInvocationState::Failed => PsInvocationState::Failed,
+            protocol_powershell_remoting::PSInvocationState::Disconnected => {
+                PsInvocationState::Disconnected
+            }
+        }
+    }
+}
+
 /// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/b05495bc-a9b2-4794-9f43-4bf1f3633900
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]

@@ -1,13 +1,4 @@
-/// Represents the possible states of a PowerShell pipeline invocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PipelineState {
-    NotStarted,
-    Running,
-    Stopping,
-    Stopped,
-    Completed,
-    Failed,
-}
+use crate::runspace_pool::PsInvocationState;
 
 /// Represents a parameter value in business logic terms
 #[derive(Debug, Clone, PartialEq)]
@@ -66,17 +57,19 @@ impl PipelineCommand {
 /// Represents execution results in business terms
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionResult {
-    pub output_objects: Vec<String>, // Simplified for now - could be more complex later
     pub error_messages: Vec<String>,
     pub warning_messages: Vec<String>,
     pub debug_messages: Vec<String>,
+    pub information_messages: Vec<String>,
+    pub progress_records: Vec<protocol_powershell_remoting::ProgressRecord>,
+    pub information_records: Vec<protocol_powershell_remoting::InformationRecord>,
 }
 
 /// Internal representation of a PowerShell pipeline's state and configuration.
 /// This is owned and managed by the `RunspacePool`.
 #[derive(Debug, Clone)]
 pub struct Pipeline {
-    pub(crate) state: PipelineState,
+    pub(crate) state: PsInvocationState,
     pub(crate) commands: Vec<PipelineCommand>,
     pub(crate) results: ExecutionResult,
 }
@@ -84,10 +77,24 @@ pub struct Pipeline {
 impl Pipeline {
     pub(crate) fn new() -> Self {
         Self {
-            state: PipelineState::NotStarted,
+            state: PsInvocationState::NotStarted,
             commands: Vec::new(),
             results: ExecutionResult::default(),
         }
+    }
+
+    pub(crate) fn add_information_record(
+        &mut self,
+        record: protocol_powershell_remoting::InformationRecord,
+    ) {
+        self.results.information_records.push(record);
+    }
+
+    pub(crate) fn add_progress_record(
+        &mut self,
+        record: protocol_powershell_remoting::ProgressRecord,
+    ) {
+        self.results.progress_records.push(record);
     }
 
     pub(crate) fn add_script(&mut self, script: String) {

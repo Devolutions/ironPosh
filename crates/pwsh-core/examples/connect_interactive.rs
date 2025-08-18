@@ -1,7 +1,4 @@
-
 /// THIS EXAMPLE IS NOT COMPLETE YET!
-
-
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
@@ -349,7 +346,7 @@ async fn main() -> anyhow::Result<()> {
         .instrument(request_dispatcher_span),
     );
 
-    let user_context = Arc::new(Mutex::new(HashMap::<String,Vec<PowerShell>>::new()));
+    let user_context = Arc::new(Mutex::new(HashMap::<String, Vec<PowerShell>>::new()));
     let user_actor_span = info_span!("UserInputTask");
     let user_context_clone = Arc::clone(&user_context);
     let user_input_handle = tokio::spawn(
@@ -482,18 +479,16 @@ async fn main() -> anyhow::Result<()> {
             match message {
                 UserEvent::PipelineCreated { powershell } => {
                     println!("Pipeline created: {:?}", powershell);
-                    user_context.lock().unwrap().insert(
-                        "PowerShell".to_string(),
-                        vec![powershell],
-                    );
+                    user_context
+                        .lock()
+                        .unwrap()
+                        .insert("PowerShell".to_string(), vec![powershell]);
                 }
                 _ => {
                     println!("Received user event: {:?}", message);
                 }
-                
             }
         }
-
 
         info!("UI feedback task shutting down");
         anyhow::Ok(())
