@@ -104,38 +104,17 @@ pub struct AttributeVisitor<'a> {
 impl<'a> xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
     type Value = Attribute<'a>;
 
-    fn visit_children(
+    fn visit_attribute(
         &mut self,
-        _node: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+        _attribute: xml::parser::Attribute<'a, 'a>,
     ) -> Result<(), xml::XmlError> {
-        Err(xml::XmlError::InvalidXml(
-            "Expected no children for Attribute".to_string(),
-        ))
-    }
-
-    fn visit_node(&mut self, node: xml::parser::Node<'a, 'a>) -> Result<(), xml::XmlError> {
-        for attribute in node.attributes() {
-            tracing::trace!(
-                "AttributeVisitor checking attribute: name='{}', value='{}'",
-                attribute.name(),
-                attribute.value()
-            );
-
-            // Try to parse this attribute using our compile-time safe method
-            if let Some(parsed_attr) =
-                Attribute::from_name_and_value(attribute.name(), attribute.value())?
-            {
-                self.attribute = Some(parsed_attr);
-                tracing::trace!("Successfully parsed attribute: {:?}", self.attribute);
-                return Ok(()); // Take the first recognized attribute
-            } else {
-                tracing::debug!("Ignoring unknown attribute: {}", attribute.name());
-            }
-        }
-
-        Err(xml::XmlError::InvalidXml(
-            "No valid attribute found".to_string(),
-        ))
+        Attribute::from_name_and_value(_attribute.name(), _attribute.value())
+            .map(|attr| {
+                if let Some(parsed_attr) = attr {
+                    self.attribute = Some(parsed_attr);
+                }
+            })
+            .map_err(|e| xml::XmlError::InvalidXml(e.to_string()))
     }
 
     fn finish(self) -> Result<Self::Value, xml::XmlError> {
@@ -151,8 +130,18 @@ impl<'a> xml::parser::XmlDeserialize<'a> for Attribute<'a> {
         AttributeVisitor { attribute: None }
     }
 
-    fn from_node(node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
-        xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+    fn from_node(_node: xml::parser::Node<'a, 'a>) -> Result<Self, xml::XmlError> {
+        Err(xml::XmlError::InvalidXml(
+            "Attributes should not be parsed from nodes directly".to_string(),
+        ))
+    }
+
+    fn from_children(
+        _children: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<Self, xml::XmlError> {
+        Err(xml::XmlError::InvalidXml(
+            "Attributes should not be parsed from children directly".to_string(),
+        ))
     }
 }
 

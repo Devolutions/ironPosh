@@ -56,6 +56,16 @@ pub trait XmlVisitor<'a> {
         })
     }
 
+    fn visit_attribute(
+        &mut self,
+        _attribute: crate::parser::Attribute<'a, 'a>,
+    ) -> Result<(), crate::XmlError> {
+        Err(crate::XmlError::NotSupposeToBeCalled {
+            extra_info: "Default visit_attribute called, should be overridden or not called at all"
+                .to_string(),
+        })
+    }
+
     /// Return the finished value after traversal.
     fn finish(self) -> Result<Self::Value, XmlError>;
 }
@@ -98,6 +108,12 @@ pub trait XmlDeserialize<'a>: Sized {
     ) -> Result<Self, XmlError> {
         let mut visitor = Self::visitor();
         visitor.visit_children(children)?;
+        visitor.finish()
+    }
+
+    fn from_attribute(attribute: crate::parser::Attribute<'a, 'a>) -> Result<Self, XmlError> {
+        let mut visitor = Self::visitor();
+        visitor.visit_attribute(attribute)?;
         visitor.finish()
     }
 }

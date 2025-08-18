@@ -225,7 +225,7 @@ where
                 value = attr.value(),
                 "Processing attribute"
             );
-            if let Ok(attribute) = Attribute::from_node(node) {
+            if let Ok(attribute) = Attribute::from_attribute(attr) {
                 trace!("Successfully parsed attribute: {:?}", attribute);
                 self.attributes.push(attribute);
             } else {
