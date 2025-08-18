@@ -48,9 +48,6 @@ impl ConnectorConfig {
 }
 
 #[derive(Debug)]
-pub enum UserEvent {}
-
-#[derive(Debug)]
 pub enum ConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
@@ -197,7 +194,7 @@ impl Connector {
 
                 let mut runspace_pool = expect_shell_created.accept(body)?;
 
-                let receive_request = runspace_pool.fire_receive()?;
+                let receive_request = runspace_pool.fire_receive(None, None)?;
 
                 let response = http_builder.post("/wsman", receive_request);
 
@@ -232,7 +229,7 @@ impl Connector {
                 };
 
                 if let RunspacePoolState::NegotiationSent = runspace_pool.state {
-                    let receive_request = runspace_pool.fire_receive()?;
+                    let receive_request = runspace_pool.fire_receive(None, None)?;
                     let response = http_builder.post("/wsman", receive_request);
                     let new_state = ConnectorState::ConnectReceiveCycle {
                         runspace_pool,
@@ -241,7 +238,7 @@ impl Connector {
                     (new_state, ConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
-                    let next_receive_request = runspace_pool.fire_receive()?;
+                    let next_receive_request = runspace_pool.fire_receive(None,None)?;
                     let next_http_request = http_builder.post("/wsman", next_receive_request);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (

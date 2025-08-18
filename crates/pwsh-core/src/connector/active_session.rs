@@ -6,11 +6,15 @@ use crate::{
 };
 
 #[derive(Debug)]
+pub enum UserEvent {
+    PipelineCreated { powershell: PowerShell },
+}
+
+#[derive(Debug)]
 pub enum SessionStepResult {
-    SendBack(HttpRequest<String>),
-    PipelineCreated(PowerShell),
+    SendBack(Vec<HttpRequest<String>>),
     SendBackError(crate::PwshCoreError),
-    UserEvent(super::UserEvent),
+    UserEvent(UserEvent),
     OperationSuccess,
 }
 
@@ -18,7 +22,6 @@ impl SessionStepResult {
     pub fn priority(&self) -> u8 {
         match self {
             SessionStepResult::SendBack(_) => 0,
-            SessionStepResult::PipelineCreated(_) => 1,
             SessionStepResult::SendBackError(_) => 2,
             SessionStepResult::UserEvent(_) => 3,
             SessionStepResult::OperationSuccess => 4,
@@ -68,9 +71,9 @@ impl ActiveSession {
     ) -> Result<SessionStepResult, crate::PwshCoreError> {
         match operation {
             UserOperation::CreatePipeline => {
-                let xml_body = self.runspace_pool.fire_create_pipeline()?;
-                let response = self.http_builder.post("/wsman", xml_body);
-                Ok(SessionStepResult::SendBack(response))
+                Ok(SessionStepResult::UserEvent(UserEvent::PipelineCreated {
+                    powershell: self.runspace_pool.init_pipeline(),
+                }))
             }
             UserOperation::OperatePipeline {
                 powershell,
@@ -93,11 +96,11 @@ impl ActiveSession {
                 Ok(SessionStepResult::OperationSuccess)
             }
             UserOperation::InvokePipeline { powershell } => {
-                let request = self.runspace_pool.invoke_pipeline_request(powershell);
-                match request {
+                let command_request = self.runspace_pool.invoke_pipeline_request(powershell);
+                match command_request {
                     Ok(request) => {
                         let response = self.http_builder.post("/wsman", request);
-                        Ok(SessionStepResult::SendBack(response))
+                        Ok(SessionStepResult::SendBack(vec![response]))
                     }
                     Err(e) => Ok(SessionStepResult::SendBackError(e)),
                 }
@@ -116,12 +119,14 @@ impl ActiveSession {
 
         match self.runspace_pool.accept_response(body)? {
             AcceptResponsResult::ReceiveResponse => {
-                let receive_request = self.runspace_pool.fire_receive()?;
+                let receive_request = self.runspace_pool.fire_receive(None, None)?;
                 let response = self.http_builder.post("/wsman", receive_request);
-                Ok(SessionStepResult::SendBack(response))
+                Ok(SessionStepResult::SendBack(vec![response]))
             }
             AcceptResponsResult::NewPipeline(pipeline) => {
-                Ok(SessionStepResult::PipelineCreated(pipeline))
+                Ok(SessionStepResult::UserEvent(UserEvent::PipelineCreated {
+                    powershell: pipeline,
+                }))
             }
         }
     }
