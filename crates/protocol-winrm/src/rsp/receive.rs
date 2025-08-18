@@ -1,7 +1,7 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 use tracing::warn;
 
-use crate::cores::{DesiredStream, ReceiveResponse, Stream, Tag, TagName, TagValue, Text};
+use crate::cores::{DesiredStream, Stream, Tag, TagName, TagValue, Text};
 use xml::{
     XmlError,
     builder::Element,

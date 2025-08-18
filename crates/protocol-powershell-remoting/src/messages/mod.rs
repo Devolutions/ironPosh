@@ -15,11 +15,7 @@ pub use runspace_pool_host_response::*;
 pub use runspace_pool_state::*;
 pub use session_capability::*;
 
-use std::{
-    borrow::Cow,
-    collections::BTreeMap,
-    hash::Hash,
-};
+use std::{borrow::Cow, collections::BTreeMap, hash::Hash};
 
 use crate::MessageType;
 

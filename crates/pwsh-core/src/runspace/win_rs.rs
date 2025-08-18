@@ -1,11 +1,11 @@
 use base64::Engine;
 use protocol_winrm::{
     cores::{
-        Attribute, CommandLine, DesiredStream, Receive, Shell, Tag, Time, anytag::AnyTag, tag_name,
+        Attribute, DesiredStream, Receive, Shell, Tag, Time,
     },
     rsp::{
         commandline::CommandLineValue,
-        receive::{ReceiveResponseValue, ReceiveValue},
+        receive::ReceiveValue,
         rsp::ShellValue,
     },
     soap::{SoapEnvelope, body::SoapBody},
@@ -274,6 +274,6 @@ impl WinRunspace {
             .as_ref()
             .as_ref();
 
-        Ok(command_id.0.clone())
+        Ok(command_id.0)
     }
 }

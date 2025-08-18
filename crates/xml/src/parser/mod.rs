@@ -42,7 +42,8 @@ pub trait XmlVisitor<'a> {
         _node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
     ) -> Result<(), crate::XmlError> {
         Err(crate::XmlError::NotSupposeToBeCalled {
-            extra_info: "Default visit_children called, should be overridden or not called at all".to_string(),
+            extra_info: "Default visit_children called, should be overridden or not called at all"
+                .to_string(),
         })
     }
 
@@ -50,7 +51,8 @@ pub trait XmlVisitor<'a> {
     /// Default implementation does nothing
     fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError> {
         Err(crate::XmlError::NotSupposeToBeCalled {
-            extra_info: "Default visit_node called, should be overridden or not called at all".to_string(),
+            extra_info: "Default visit_node called, should be overridden or not called at all"
+                .to_string(),
         })
     }
 

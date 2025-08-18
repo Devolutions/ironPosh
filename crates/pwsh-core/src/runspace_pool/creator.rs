@@ -1,10 +1,10 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::Arc,
 };
 
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Defragmenter, Fragment, Fragmenter, HostInfo,
+    ApartmentState, ApplicationPrivateData, Defragmenter, Fragmenter, HostInfo,
     PSThreadOptions, PsValue, SessionCapability,
 };
 use protocol_winrm::ws_management::WsMan;
@@ -35,7 +35,6 @@ pub struct RunspacePoolCreator {
 
     #[builder(default = std::collections::BTreeMap::new())]
     application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
-
 
     #[builder(default = Defragmenter::new())]
     defragmenter: Defragmenter,

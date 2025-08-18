@@ -1,5 +1,5 @@
-use std::net::Ipv4Addr;
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -105,12 +105,16 @@ async fn main() -> anyhow::Result<()> {
     info!("Runspace pool is now open and ready for operations!");
 
     // Setup channels for the new concurrent architecture
-    let (user_request_tx, user_request_rx) = mpsc::channel::<(UserOperation, oneshot::Sender<anyhow::Result<SessionStepResult>>)>(32);
+    let (user_request_tx, user_request_rx) = mpsc::channel::<(
+        UserOperation,
+        oneshot::Sender<anyhow::Result<SessionStepResult>>,
+    )>(32);
     let (session_cmd_tx, session_cmd_rx) = mpsc::channel::<SessionCommand>(32);
     let (network_request_tx, network_request_rx) = mpsc::channel::<NetworkRequest>(32);
-    let (network_response_tx, network_response_rx) = mpsc::channel::<pwsh_core::connector::http::HttpResponse<String>>(32);
+    let (network_response_tx, network_response_rx) =
+        mpsc::channel::<pwsh_core::connector::http::HttpResponse<String>>(32);
     let (ui_tx, ui_rx) = mpsc::channel::<String>(32);
-    
+
     // Clone senders for multiple consumers
     let session_cmd_tx_for_network = session_cmd_tx.clone();
     let session_cmd_tx_for_receive = session_cmd_tx.clone();
@@ -228,14 +232,16 @@ async fn main() -> anyhow::Result<()> {
             let session_cmd_tx = session_cmd_tx_for_network;
 
             info!("NetworkPool started");
-            
+
             // Spawn initial response handler separately to avoid blocking the pool
             let initial_session_tx = session_cmd_tx.clone();
             tokio::spawn(async move {
                 let initial_response = make_http_request(&next_request).await?;
                 info!("NetworkPool received initial response");
                 initial_session_tx
-                    .send(SessionCommand::ProcessServerResponse { response: initial_response })
+                    .send(SessionCommand::ProcessServerResponse {
+                        response: initial_response,
+                    })
                     .await?;
                 anyhow::Ok(())
             });
@@ -245,11 +251,13 @@ async fn main() -> anyhow::Result<()> {
                     NetworkRequest::HttpRequest(http_request) => {
                         info!("NetworkPool making user-requested HTTP request");
                         let session_cmd_tx = session_cmd_tx.clone();
-                        
+
                         // Spawn individual request handlers for concurrency
                         tokio::spawn(async move {
                             let response = make_http_request(&http_request).await?;
-                            session_cmd_tx.send(SessionCommand::ProcessServerResponse { response }).await?;
+                            session_cmd_tx
+                                .send(SessionCommand::ProcessServerResponse { response })
+                                .await?;
                             anyhow::Ok(())
                         });
                     }
@@ -283,7 +291,9 @@ async fn main() -> anyhow::Result<()> {
                 match timeout(Duration::from_secs(30), network_response_rx.recv()).await {
                     Ok(Some(response)) => {
                         info!("ReceiveActor received server message");
-                        session_cmd_tx.send(SessionCommand::ProcessServerResponse { response }).await?;
+                        session_cmd_tx
+                            .send(SessionCommand::ProcessServerResponse { response })
+                            .await?;
                     }
                     Ok(None) => {
                         info!("ReceiveActor channel closed");
@@ -296,7 +306,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            
+
             info!("ReceiveActor shutting down");
             anyhow::Ok(())
         }
@@ -314,7 +324,10 @@ async fn main() -> anyhow::Result<()> {
 
             while let Some((operation, response_tx)) = user_request_rx.recv().await {
                 let correlation_id = Uuid::new_v4();
-                info!("RequestDispatcher processing operation: {:?} (correlation: {})", operation, correlation_id);
+                info!(
+                    "RequestDispatcher processing operation: {:?} (correlation: {})",
+                    operation, correlation_id
+                );
 
                 let session_cmd = SessionCommand::ProcessUserOperation {
                     correlation_id,
@@ -323,8 +336,9 @@ async fn main() -> anyhow::Result<()> {
                 };
 
                 // Non-blocking send to session manager
-                session_cmd_tx.try_send(session_cmd)
-                    .map_err(|e| anyhow::anyhow!("Failed to send user operation to session manager: {}", e))?;
+                session_cmd_tx.try_send(session_cmd).map_err(|e| {
+                    anyhow::anyhow!("Failed to send user operation to session manager: {}", e)
+                })?;
             }
 
             info!("RequestDispatcher shutting down");
@@ -346,7 +360,9 @@ async fn main() -> anyhow::Result<()> {
 
             info!("Auto-creating first pipeline...");
             let (response_tx, response_rx) = oneshot::channel();
-            user_request_tx.send((UserOperation::CreatePipeline, response_tx)).await?;
+            user_request_tx
+                .send((UserOperation::CreatePipeline, response_tx))
+                .await?;
 
             // Wait for response
             let result = response_rx.await??;
@@ -357,7 +373,9 @@ async fn main() -> anyhow::Result<()> {
 
             info!("Auto-creating second pipeline concurrently...");
             let (response_tx2, response_rx2) = oneshot::channel();
-            user_request_tx.send((UserOperation::CreatePipeline, response_tx2)).await?;
+            user_request_tx
+                .send((UserOperation::CreatePipeline, response_tx2))
+                .await?;
 
             // Wait for second response
             let result2 = response_rx2.await??;
@@ -393,7 +411,7 @@ async fn main() -> anyhow::Result<()> {
     // Wait for other tasks to complete
     let _ = tokio::join!(
         session_handle,
-        network_handle, 
+        network_handle,
         receive_handle,
         request_dispatcher_handle,
         ui_handle

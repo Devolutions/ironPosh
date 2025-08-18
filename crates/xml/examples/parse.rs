@@ -42,11 +42,13 @@ pub fn main() {
                             "|  Child Tag Name: {}",
                             great_great_grandchild.tag_name().name()
                         );
-                        println!("|  Child Tag Type: {:?}", great_great_grandchild.node_type())
+                        println!(
+                            "|  Child Tag Type: {:?}",
+                            great_great_grandchild.node_type()
+                        )
                     }
-                println!("==========================");
+                    println!("==========================");
                 }
-
             }
         }
     }

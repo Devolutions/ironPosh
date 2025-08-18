@@ -35,7 +35,7 @@ pub struct Command {
 impl From<Command> for ComplexObject {
     fn from(command: Command) -> Self {
         let mut extended_properties = BTreeMap::new();
-        
+
         let cmd_str = command.cmd.clone();
 
         extended_properties.insert(
@@ -60,7 +60,7 @@ impl From<Command> for ComplexObject {
             .into_iter()
             .map(|param| PsValue::Object(param.into()))
             .collect();
-        
+
         let args_obj = ComplexObject {
             type_def: Some(PsType::array_list()),
             to_string: None,
@@ -82,7 +82,9 @@ impl From<Command> for ComplexObject {
             PsProperty {
                 name: "UseLocalScope".to_string(),
                 value: match command.use_local_scope {
-                    Some(use_local_scope) => PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope)),
+                    Some(use_local_scope) => {
+                        PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope))
+                    }
                     None => PsValue::Primitive(PsPrimitiveValue::Nil),
                 },
             },
@@ -222,7 +224,9 @@ impl TryFrom<ComplexObject> for Command {
         let get_merge_property = |name: &str| -> PipelineResultTypes {
             match value.extended_properties.get(name) {
                 Some(prop) => match &prop.value {
-                    PsValue::Object(obj) => PipelineResultTypes::try_from(obj.clone()).unwrap_or_default(),
+                    PsValue::Object(obj) => {
+                        PipelineResultTypes::try_from(obj.clone()).unwrap_or_default()
+                    }
                     _ => PipelineResultTypes::default(),
                 },
                 None => PipelineResultTypes::default(),

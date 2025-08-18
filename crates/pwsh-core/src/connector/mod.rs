@@ -13,8 +13,8 @@ use crate::{
 };
 
 pub use active_session::{ActiveSession, SessionStepResult, UserOperation};
-pub mod http;
 pub mod active_session;
+pub mod http;
 
 #[derive(Debug, Clone)]
 pub enum Authentication {
@@ -80,8 +80,6 @@ impl ConnectorStepResult {
     }
 }
 
-
-
 #[derive(Default, Debug)]
 pub enum ConnectorState {
     Idle,
@@ -111,7 +109,6 @@ impl ConnectorState {
         }
     }
 }
-
 
 pub struct Connector {
     state: ConnectorState,
@@ -247,18 +244,21 @@ impl Connector {
                     let next_receive_request = runspace_pool.fire_receive()?;
                     let next_http_request = http_builder.post("/wsman", next_receive_request);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
-                    (ConnectorState::Connected, ConnectorStepResult::Connected {
-                        active_session,
-                        next_receive_request: next_http_request,
-                    })
+                    (
+                        ConnectorState::Connected,
+                        ConnectorStepResult::Connected {
+                            active_session,
+                            next_receive_request: next_http_request,
+                        },
+                    )
                 } else {
-                    warn!(
-                        "Unexpected RunspacePool state: {:?}",
-                        runspace_pool.state
-                    );
-                    (ConnectorState::Failed, ConnectorStepResult::SendBackError(
-                        crate::PwshCoreError::InvalidState("Unexpected RunspacePool state")
-                    ))
+                    warn!("Unexpected RunspacePool state: {:?}", runspace_pool.state);
+                    (
+                        ConnectorState::Failed,
+                        ConnectorStepResult::SendBackError(crate::PwshCoreError::InvalidState(
+                            "Unexpected RunspacePool state",
+                        )),
+                    )
                 }
             }
         };

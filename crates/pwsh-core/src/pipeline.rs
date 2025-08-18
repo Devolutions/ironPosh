@@ -65,6 +65,7 @@ impl PipelineCommand {
 
 /// Represents execution results in business terms
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct ExecutionResult {
     pub output_objects: Vec<String>, // Simplified for now - could be more complex later
     pub error_messages: Vec<String>,
@@ -72,16 +73,6 @@ pub struct ExecutionResult {
     pub debug_messages: Vec<String>,
 }
 
-impl Default for ExecutionResult {
-    fn default() -> Self {
-        Self {
-            output_objects: Vec::new(),
-            error_messages: Vec::new(),
-            warning_messages: Vec::new(),
-            debug_messages: Vec::new(),
-        }
-    }
-}
 
 /// Internal representation of a PowerShell pipeline's state and configuration.
 /// This is owned and managed by the `RunspacePool`.
@@ -198,7 +189,7 @@ impl Pipeline {
 
         // Use TryFrom to create Commands (handles empty check)
         let commands = Commands::try_from(protocol_commands)
-            .map_err(|e| crate::PwshCoreError::PowerShellRemotingError(e))?;
+            .map_err(crate::PwshCoreError::PowerShellRemotingError)?;
 
         Ok(
             protocol_powershell_remoting::messages::create_pipeline::PowerShellPipeline::builder()

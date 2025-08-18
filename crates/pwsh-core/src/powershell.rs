@@ -1,4 +1,3 @@
-
 /// A handle to a PowerShell pipeline managed by a `RunspacePool`.
 ///
 /// This struct is a lightweight, copyable identifier for a specific pipeline.

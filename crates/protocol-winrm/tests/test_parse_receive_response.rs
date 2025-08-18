@@ -26,15 +26,27 @@ mod tests {
         );
 
         let header = soap_envelope.header.as_ref().unwrap();
-        
+
         // Validate all header fields that should be present in receive_response.xml
         assert!(header.value.action.is_some(), "Header should have Action");
-        assert!(header.value.message_id.is_some(), "Header should have MessageID");
+        assert!(
+            header.value.message_id.is_some(),
+            "Header should have MessageID"
+        );
         assert!(header.value.to.is_some(), "Header should have To");
-        assert!(header.value.relates_to.is_some(), "Header should have RelatesTo");
-        assert!(header.value.operation_id.is_some(), "Header should have OperationID");
-        assert!(header.value.sequence_id.is_some(), "Header should have SequenceId");
-        
+        assert!(
+            header.value.relates_to.is_some(),
+            "Header should have RelatesTo"
+        );
+        assert!(
+            header.value.operation_id.is_some(),
+            "Header should have OperationID"
+        );
+        assert!(
+            header.value.sequence_id.is_some(),
+            "Header should have SequenceId"
+        );
+
         // Validate action is for ReceiveResponse
         if let Some(action) = &header.value.action {
             let action_text: &str = action.value.as_ref();
@@ -49,8 +61,8 @@ mod tests {
         if let Some(message_id) = &header.value.message_id {
             let uuid_str = format!("{}", message_id.value.0);
             assert!(
-                uuid_str.contains("6c334787-ef2c-40e4-992f-de4599ed2505") ||
-                uuid_str.contains("6C334787-EF2C-40E4-992F-DE4599ED2505"),
+                uuid_str.contains("6c334787-ef2c-40e4-992f-de4599ed2505")
+                    || uuid_str.contains("6C334787-EF2C-40E4-992F-DE4599ED2505"),
                 "MessageID should match the wire capture, got: {}",
                 uuid_str
             );
@@ -68,8 +80,8 @@ mod tests {
         if let Some(operation_id) = &header.value.operation_id {
             let uuid_str = format!("{}", operation_id.value.0);
             assert!(
-                uuid_str.contains("672d68a1-9782-4f78-bebc-8b5db2355fda") ||
-                uuid_str.contains("672D68A1-9782-4F78-BEBC-8B5DB2355FDA"),
+                uuid_str.contains("672d68a1-9782-4f78-bebc-8b5db2355fda")
+                    || uuid_str.contains("672D68A1-9782-4F78-BEBC-8B5DB2355FDA"),
                 "OperationID should match the wire capture, got: {}",
                 uuid_str
             );
@@ -93,7 +105,7 @@ mod tests {
         );
 
         let receive_response = body.receive_response.as_ref().unwrap();
-        
+
         // Validate that the ReceiveResponse contains streams
         assert!(
             !receive_response.value.streams.is_empty(),
@@ -102,23 +114,22 @@ mod tests {
 
         // Validate the first stream
         let first_stream = &receive_response.value.streams[0];
-        
+
         // The stream should have a Name attribute set to "stdout"
-        let name_attr = first_stream.attributes.iter()
+        let name_attr = first_stream
+            .attributes
+            .iter()
             .find(|attr| matches!(attr, protocol_winrm::cores::Attribute::Name(_)));
         assert!(name_attr.is_some(), "Stream should have a Name attribute");
-        
+
         if let Some(protocol_winrm::cores::Attribute::Name(name)) = name_attr {
             assert_eq!(name, "stdout", "Stream name should be 'stdout'");
         }
 
         // The stream should contain the base64 encoded data
         let stream_content: &str = first_stream.value.as_ref();
-        assert!(
-            !stream_content.is_empty(),
-            "Stream should contain data"
-        );
-        
+        assert!(!stream_content.is_empty(), "Stream should contain data");
+
         // Verify it contains the base64 data from the XML
         let expected_base64 = "AAAAAAAAAAMAAAAAAAAAAAMAAABnAQAAAAUQAgBsDPVb/zVH8pB752JScmEJAAAAAAAAAAAAAAAAAAAAAO+7vzxPYmogUmVmSWQ9IjAiPjxNUz48STMyIE49IlJ1bnNwYWNlU3RhdGUiPjI8L0kzMj48L01TPjwvT2JqPg==";
         assert_eq!(
@@ -128,11 +139,17 @@ mod tests {
         );
 
         // Validate that other body fields are None (since they're not in this response)
-        assert!(body.resource_created.is_none(), "Body should not have ResourceCreated");
+        assert!(
+            body.resource_created.is_none(),
+            "Body should not have ResourceCreated"
+        );
         assert!(body.shell.is_none(), "Body should not have Shell");
         assert!(body.command.is_none(), "Body should not have Command");
         assert!(body.receive.is_none(), "Body should not have Receive");
-        assert!(body.command_response.is_none(), "Body should not have CommandResponse");
+        assert!(
+            body.command_response.is_none(),
+            "Body should not have CommandResponse"
+        );
 
         // Pretty print the complete parsed SOAP envelope structure
         println!("\n=== PARSED SOAP ENVELOPE STRUCTURE ===");

@@ -1,13 +1,13 @@
 use super::super::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty,
-    PsType, PsValue,
+    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
+    PsValue,
 };
 use crate::MessageType;
 use std::collections::BTreeMap;
 
 /// RunspacePoolHostResponse is a message sent from the client to the server as a response
 /// from a host call executed on the client RunspacePool's host.
-/// 
+///
 /// MessageType value: 0x00021101
 /// Direction: Client to Server
 /// Target: RunspacePool
@@ -60,7 +60,9 @@ impl From<RunspacePoolHostResponse> for ComplexObject {
         let method_id_obj = ComplexObject {
             type_def: Some(PsType::remote_host_method_id()),
             to_string: Some(host_response.method_name),
-            content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(host_response.method_id)),
+            content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
+                host_response.method_id,
+            )),
             adapted_properties: BTreeMap::new(),
             extended_properties: BTreeMap::new(),
         };
@@ -131,7 +133,9 @@ impl TryFrom<ComplexObject> for RunspacePoolHostResponse {
             ));
         };
 
-        let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(method_id)) = &mi_obj.content else {
+        let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(method_id)) =
+            &mi_obj.content
+        else {
             return Err(Self::Error::InvalidMessage(
                 "Method identifier content is not an I32".to_string(),
             ));
@@ -140,12 +144,14 @@ impl TryFrom<ComplexObject> for RunspacePoolHostResponse {
         let method_name = mi_obj.to_string.clone().unwrap_or_default();
 
         // Extract optional method result (mr)
-        let method_result = value.extended_properties
+        let method_result = value
+            .extended_properties
             .get("mr")
             .map(|prop| prop.value.clone());
 
         // Extract optional method exception (me)
-        let method_exception = value.extended_properties
+        let method_exception = value
+            .extended_properties
             .get("me")
             .map(|prop| prop.value.clone());
 

@@ -1,4 +1,4 @@
-use protocol_powershell_remoting::{RunspacePoolStateMessage, RunspacePoolStateValue};
+use protocol_powershell_remoting::RunspacePoolStateValue;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum PowerShellState {

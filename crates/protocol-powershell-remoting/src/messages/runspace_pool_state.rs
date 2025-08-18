@@ -1,6 +1,5 @@
 use super::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty,
-    PsValue,
+    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
 };
 use crate::MessageType;
 use std::collections::BTreeMap;
@@ -112,12 +111,13 @@ impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let runspace_state_prop = value
-            .extended_properties
-            .get("RunspaceState")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing RunspaceState property".to_string())
-            })?;
+        let runspace_state_prop =
+            value
+                .extended_properties
+                .get("RunspaceState")
+                .ok_or_else(|| {
+                    Self::Error::InvalidMessage("Missing RunspaceState property".to_string())
+                })?;
 
         let runspace_state = match &runspace_state_prop.value {
             PsValue::Primitive(PsPrimitiveValue::I32(state)) => {
@@ -126,7 +126,7 @@ impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
             _ => {
                 return Err(Self::Error::InvalidMessage(
                     "RunspaceState property is not an I32".to_string(),
-                ))
+                ));
             }
         };
 

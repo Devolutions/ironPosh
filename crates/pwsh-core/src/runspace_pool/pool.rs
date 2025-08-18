@@ -1,13 +1,12 @@
-use core::error;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::Arc,
 };
 use tracing::error;
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Command, Commands, CreatePipeline, Defragmenter,
+    ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter,
     HostInfo, InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue,
     RunspacePoolStateMessage, SessionCapability, fragment,
 };
@@ -422,10 +421,7 @@ impl RunspacePool {
     /// 3. Enter a loop to `Receive` and process responses.
     /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
     /// 5. Return the final output upon completion.
-    pub fn invoke_pipeline_request(
-        &mut self,
-        handle: PowerShell,
-    ) -> Result<String, PwshCoreError> {
+    pub fn invoke_pipeline_request(&mut self, handle: PowerShell) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
@@ -456,7 +452,7 @@ impl RunspacePool {
 
         let request = self.shell.create_pipeline_request(
             &self.connection,
-            handle.id().clone(),
+            handle.id(),
             arguments,
             None,
             None,

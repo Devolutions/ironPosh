@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 /// RunspacePoolHostCall is a message sent from the server to the client to perform
 /// a method call on the host associated with the RunspacePool on the server.
-/// 
+///
 /// MessageType value: 0x00021100
 /// Direction: Server to Client
 /// Target: RunspacePool
@@ -56,7 +56,9 @@ impl From<RunspacePoolHostCall> for ComplexObject {
         let method_id_obj = ComplexObject {
             type_def: Some(PsType::remote_host_method_id()),
             to_string: Some(host_call.method_name),
-            content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(host_call.method_id)),
+            content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
+                host_call.method_id,
+            )),
             adapted_properties: BTreeMap::new(),
             extended_properties: BTreeMap::new(),
         };
@@ -122,7 +124,9 @@ impl TryFrom<ComplexObject> for RunspacePoolHostCall {
             ));
         };
 
-        let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(method_id)) = &mi_obj.content else {
+        let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(method_id)) =
+            &mi_obj.content
+        else {
             return Err(Self::Error::InvalidMessage(
                 "Method identifier content is not an I32".to_string(),
             ));
@@ -141,12 +145,13 @@ impl TryFrom<ComplexObject> for RunspacePoolHostCall {
             ));
         };
 
-        let parameters = if let ComplexObjectContent::Container(Container::List(params)) = &mp_obj.content {
-            params.clone()
-        } else {
-            // Empty list case
-            Vec::new()
-        };
+        let parameters =
+            if let ComplexObjectContent::Container(Container::List(params)) = &mp_obj.content {
+                params.clone()
+            } else {
+                // Empty list case
+                Vec::new()
+            };
 
         Ok(RunspacePoolHostCall {
             call_id: *call_id,

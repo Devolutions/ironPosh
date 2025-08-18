@@ -87,4 +87,3 @@ impl<'a> xml::parser::XmlDeserialize<'a> for CommandLineValue {
         }
     }
 }
-
