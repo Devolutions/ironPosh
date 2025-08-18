@@ -26,8 +26,21 @@ const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
 const SERIALIZATION_VERSION: &str = "1.1.0.1";
 
+pub struct DesiredStream {
+    pub name: String,
+    pub command_id: Option<Uuid>,
+}
+impl DesiredStream {
+    pub(crate) fn runspace_pool_streams() -> Vec<Self> {
+        vec![DesiredStream {
+            name: "stdout".to_string(),
+            command_id: None,
+        }]
+    }
+}
+
 pub enum AcceptResponsResult {
-    ReceiveResponse,
+    ReceiveResponse { desired_streams: Vec<DesiredStream> },
     NewPipeline(PowerShell),
 }
 
@@ -121,12 +134,11 @@ impl RunspacePool {
     // We should accept the pipeline id here, but for now let's ignore it
     pub(crate) fn fire_receive<'a>(
         &mut self,
-        stream: Option<&'a str>,
-        command_id: Option<&Uuid>,
+        desired_streams: Vec<DesiredStream>,
     ) -> Result<String, crate::PwshCoreError> {
         Ok(self
             .shell
-            .fire_receive(&self.connection, stream, command_id)
+            .fire_receive(&self.connection, desired_streams)
             .into()
             .to_string())
     }
@@ -142,16 +154,34 @@ impl RunspacePool {
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
             let (streams, command_state) = self.shell.accept_receive_response(&soap_envelope)?;
+            let streams_ids = streams
+                .iter()
+                .map(|stream| stream.command_id().cloned())
+                .collect::<Vec<_>>();
+
             self.handle_pwsh_responses(streams)?;
 
-            if let Some(command_state) = command_state {
-                if command_state.is_done() {
+            if let Some(command_state) = command_state
+                && command_state.is_done() {
                     // If command state is done, we can remove the pipeline from the pool
                     self.pipelines.remove(&command_state.command_id);
                 }
-            }
 
-            return Ok(AcceptResponsResult::ReceiveResponse);
+            // find the intersetction of streams.id and self.pipelines.keys()
+            let desired_streams = streams_ids
+                .into_iter()
+                .filter(|stream| {
+                    self.pipelines
+                        .keys()
+                        .any(|pipeline_id| Some(pipeline_id) == stream.as_ref())
+                })
+                .map(|stream| DesiredStream {
+                    name: "stdout".to_string(),
+                    command_id: stream,
+                })
+                .collect::<Vec<_>>();
+
+            return Ok(AcceptResponsResult::ReceiveResponse { desired_streams });
         }
 
         if soap_envelope.body.as_ref().command_response.is_some() {
@@ -348,7 +378,7 @@ impl RunspacePool {
         &mut self,
         ps_value: PsValue,
         stream_name: &str,
-        command_id: Option<&str>,
+        command_id: Option<&Uuid>,
     ) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(progress_record) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
@@ -369,16 +399,14 @@ impl RunspacePool {
         trace!(
             ?progress_record,
             stream_name = stream_name,
-            command_id = command_id,
+            command_id = ?command_id,
             "Received ProgressRecord"
         );
 
         // Find the pipeline by command_id
         let pipeline =
             self.pipelines
-                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
-                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
-                })?)
+                .get_mut(command_id)
                 .ok_or(PwshCoreError::InvalidResponse(
                     "Pipeline not found for command_id".into(),
                 ))?;
@@ -393,7 +421,7 @@ impl RunspacePool {
         &mut self,
         ps_value: PsValue,
         stream_name: &str,
-        command_id: Option<&str>,
+        command_id: Option<&Uuid>,
     ) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(info_record) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
@@ -405,7 +433,7 @@ impl RunspacePool {
         trace!(
             ?info_record,
             stream_name = stream_name,
-            command_id = command_id,
+            command_id = ?command_id,
             "Received InformationRecord"
         );
 
@@ -417,14 +445,12 @@ impl RunspacePool {
         };
 
         // Find the pipeline by command_id
-        let pipeline =
-            self.pipelines
-                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
-                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
-                })?)
-                .ok_or(PwshCoreError::InvalidResponse(
-                    "Pipeline not found for command_id".into(),
-                ))?;
+        let pipeline = self
+            .pipelines
+            .get_mut(command_id)
+            .ok_or(PwshCoreError::InvalidResponse(
+                "Pipeline not found for command_id".into(),
+            ))?;
 
         pipeline.add_information_record(info_record);
 
@@ -436,7 +462,7 @@ impl RunspacePool {
         &mut self,
         ps_value: PsValue,
         stream_name: &str,
-        command_id: Option<&str>,
+        command_id: Option<&Uuid>,
     ) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(pipeline_state) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
@@ -449,7 +475,7 @@ impl RunspacePool {
         trace!(
             ?pipeline_state,
             stream_name = stream_name,
-            command_id = command_id,
+            command_id = ?command_id,
             "Received PipelineState"
         );
         // Question: Can we have a Optional command id here?
@@ -460,14 +486,12 @@ impl RunspacePool {
         };
 
         // Find the pipeline by command_id
-        let pipeline =
-            self.pipelines
-                .get_mut(&uuid::Uuid::parse_str(command_id).map_err(|_| {
-                    PwshCoreError::InvalidResponse("Invalid command_id format".into())
-                })?)
-                .ok_or(PwshCoreError::InvalidResponse(
-                    "Pipeline not found for command_id".into(),
-                ))?;
+        let pipeline = self
+            .pipelines
+            .get_mut(command_id)
+            .ok_or(PwshCoreError::InvalidResponse(
+                "Pipeline not found for command_id".into(),
+            ))?;
         // Update the pipeline state
         pipeline.state = PsInvocationState::from(pipeline_state.pipeline_state);
 

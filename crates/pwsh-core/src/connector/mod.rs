@@ -7,7 +7,7 @@ use tracing::{info, instrument, warn};
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     runspace_pool::{
-        ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
+        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
         pool::AcceptResponsResult,
     },
 };
@@ -194,7 +194,8 @@ impl Connector {
 
                 let mut runspace_pool = expect_shell_created.accept(body)?;
 
-                let receive_request = runspace_pool.fire_receive(None, None)?;
+                let receive_request =
+                    runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
 
                 let response = http_builder.post("/wsman", receive_request);
 
@@ -221,7 +222,8 @@ impl Connector {
                     )
                 })?;
 
-                let AcceptResponsResult::ReceiveResponse = runspace_pool.accept_response(body)?
+                let AcceptResponsResult::ReceiveResponse { desired_streams } =
+                    runspace_pool.accept_response(body)?
                 else {
                     return Err(crate::PwshCoreError::InvalidState(
                         "Unexpected response type in ConnectReceiveCycle state from RunspacePool",
@@ -229,7 +231,7 @@ impl Connector {
                 };
 
                 if let RunspacePoolState::NegotiationSent = runspace_pool.state {
-                    let receive_request = runspace_pool.fire_receive(None, None)?;
+                    let receive_request = runspace_pool.fire_receive(desired_streams)?;
                     let response = http_builder.post("/wsman", receive_request);
                     let new_state = ConnectorState::ConnectReceiveCycle {
                         runspace_pool,
@@ -238,7 +240,7 @@ impl Connector {
                     (new_state, ConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
-                    let next_receive_request = runspace_pool.fire_receive(None, None)?;
+                    let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
                     let next_http_request = http_builder.post("/wsman", next_receive_request);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (

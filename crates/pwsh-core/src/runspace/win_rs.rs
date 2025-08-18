@@ -105,23 +105,23 @@ impl WinRunspace {
     pub fn fire_receive<'a>(
         &'a self,
         ws_man: &'a WsMan,
-        stream: Option<&'a str>,
-        command_id: Option<&'a Uuid>,
+        desired_streams: Vec<crate::runspace_pool::DesiredStream>,
     ) -> impl Into<Element<'a>> {
-        let stream = stream.unwrap_or("stdout");
+        let desired_streams = desired_streams
+            .into_iter()
+            .map(|stream| {
+                let mut tag = Tag::from_name(DesiredStream).with_value(Text::from(stream.name));
 
-        let desired_stream = Tag::new(stream).with_name(DesiredStream);
+                if let Some(command_id) = stream.command_id {
+                    tag = tag.with_attribute(Attribute::CommandId(command_id));
+                }
 
-        let desired_stream = if let Some(command_id) = command_id {
-            desired_stream.with_attribute(protocol_winrm::cores::Attribute::CommandId(
-                command_id.clone(),
-            ))
-        } else {
-            desired_stream
-        };
+                tag
+            })
+            .collect();
 
         let receive = ReceiveValue::builder()
-            .desired_stream(desired_stream)
+            .desired_streams(desired_streams)
             .build();
 
         let receive_tag = Tag::from_name(Receive)
@@ -284,7 +284,7 @@ impl WinRunspace {
 #[derive(Debug, Clone)]
 pub(crate) struct Stream {
     name: String,
-    command_id: Option<String>,
+    command_id: Option<Uuid>,
     value: Vec<u8>,
 }
 
@@ -293,8 +293,8 @@ impl Stream {
         &self.name
     }
 
-    pub(crate) fn command_id(&self) -> Option<&str> {
-        self.command_id.as_deref()
+    pub(crate) fn command_id(&self) -> Option<&Uuid> {
+        self.command_id.as_ref()
     }
 
     pub(crate) fn value(&self) -> &[u8] {
@@ -318,7 +318,7 @@ impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
             ))?;
 
         let command_id = attributes.iter().find_map(|attr| match attr {
-            Attribute::CommandId(id) => Some(id.to_string()),
+            Attribute::CommandId(id) => Some(id.to_owned()),
             _ => None,
         });
 
@@ -378,7 +378,7 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
             .map(|exit_code| exit_code.value.0);
 
         Ok(CommandState {
-            command_id: command_id.clone(),
+            command_id: *command_id,
             state: state.to_string(),
             exit_code,
         })

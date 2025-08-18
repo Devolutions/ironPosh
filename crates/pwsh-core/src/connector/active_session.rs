@@ -118,8 +118,8 @@ impl ActiveSession {
         ))?;
 
         match self.runspace_pool.accept_response(body)? {
-            AcceptResponsResult::ReceiveResponse => {
-                let receive_request = self.runspace_pool.fire_receive(None, None)?;
+            AcceptResponsResult::ReceiveResponse { desired_streams } => {
+                let receive_request = self.runspace_pool.fire_receive(desired_streams)?;
                 let response = self.http_builder.post("/wsman", receive_request);
                 Ok(SessionStepResult::SendBack(vec![response]))
             }

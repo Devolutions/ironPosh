@@ -8,5 +8,5 @@ pub mod types;
 pub use creator::RunspacePoolCreator;
 pub use enums::{PowerShellState, PsInvocationState, RunspacePoolState};
 pub use expect_shell_created::ExpectShellCreated;
-pub use pool::RunspacePool;
+pub use pool::{DesiredStream, RunspacePool};
 pub use types::{PipelineRepresentation, Runspace};

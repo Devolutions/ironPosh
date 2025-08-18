@@ -10,9 +10,60 @@ use xml::{
     parser::{XmlDeserialize, XmlVisitor},
 };
 
-#[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct ReceiveValue<'a> {
-    pub desired_stream: Tag<'a, Text<'a>, DesiredStream>,
+    pub desired_streams: Vec<Tag<'a, Text<'a>, DesiredStream>>,
+}
+
+impl<'a> TagValue<'a> for ReceiveValue<'a> {
+    fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
+        for stream in self.desired_streams {
+            element = element.add_child(stream.into_element());
+        }
+        element
+    }
+}
+
+pub struct ReceiveVisitor<'a> {
+    pub desired_stream: Vec<Tag<'a, Text<'a>, DesiredStream>>,
+}
+
+impl<'a> XmlVisitor<'a> for ReceiveVisitor<'a> {
+    type Value = ReceiveValue<'a>;
+
+    fn visit_children(
+        &mut self,
+        nodes: impl Iterator<Item = xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), xml::XmlError> {
+        for node in nodes {
+            match (node.tag_name().name(), node.tag_name().namespace()) {
+                (DesiredStream::TAG_NAME, DesiredStream::NAMESPACE) => {
+                    let stream = Tag::from_node(node)?;
+                    self.desired_stream.push(stream);
+                }
+                _ => {
+                    warn!("Unexpected tag in Receive: {}", node.tag_name().name());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Value, XmlError> {
+        Ok(ReceiveValue {
+            desired_streams: self.desired_stream,
+        })
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for ReceiveValue<'a> {
+    type Visitor = ReceiveVisitor<'a>;
+
+    fn visitor() -> Self::Visitor {
+        ReceiveVisitor {
+            desired_stream: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
