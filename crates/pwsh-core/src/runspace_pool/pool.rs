@@ -120,14 +120,14 @@ impl RunspacePool {
     }
 
     // We should accept the pipeline id here, but for now let's ignore it
-    pub(crate) fn fire_receive(&mut self) -> Result<String, crate::PwshCoreError> {
+    pub(crate) fn fire_receive<'a>(
+        &mut self,
+        stream: Option<&'a str>,
+        command_id: Option<&'a str>,
+    ) -> Result<String, crate::PwshCoreError> {
         Ok(self
             .shell
-            .fire_receive(
-                &self.connection,
-                None, // No specific stream
-                None, // No command ID
-            )
+            .fire_receive(&self.connection, stream, command_id)
             .into()
             .to_string())
     }
@@ -142,8 +142,8 @@ impl RunspacePool {
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
-            let streams = self.shell.accept_receive_response(&soap_envelope)?;
-            self.handle_pwsh_responses(streams)?;
+            let (streams, command_state) = self.shell.accept_receive_response(&soap_envelope)?;
+            self.handle_pwsh_responses(streams, command_state)?;
             return Ok(AcceptResponsResult::ReceiveResponse);
         }
 
@@ -172,6 +172,12 @@ impl RunspacePool {
             )
             .into(),
         ))
+    }
+
+    pub(crate) fn init_pipeline(&mut self) -> PowerShell {
+        let pineline_id = uuid::Uuid::new_v4();
+        self.pipelines.insert(pineline_id, Pipeline::new());
+        PowerShell { id: pineline_id }
     }
 
     #[instrument(skip(self))]
@@ -227,13 +233,14 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
-    #[instrument(skip(self, responses))]
+    #[instrument(skip(self, responses, command_state))]
     fn handle_pwsh_responses(
         &mut self,
-        responses: Vec<Vec<u8>>,
+        responses: Vec<crate::runspace::win_rs::Stream>,
+        command_state: Option<crate::runspace::win_rs::CommandState>,
     ) -> Result<(), crate::PwshCoreError> {
-        for response in responses {
-            let messages = match self.defragmenter.defragment(&response)? {
+        for stream in responses {
+            let messages = match self.defragmenter.defragment(stream.value())? {
                 fragment::DefragmentResult::Incomplete => continue,
                 fragment::DefragmentResult::Complete(power_shell_remoting_messages) => {
                     power_shell_remoting_messages
@@ -252,6 +259,15 @@ impl RunspacePool {
                     }
                     protocol_powershell_remoting::MessageType::RunspacepoolState => {
                         self.handle_runspacepool_state(ps_value)?;
+                    }
+                    protocol_powershell_remoting::MessageType::ProgressRecord => {
+                        todo!("Handle ProgressRecord messages");
+                    }
+                    protocol_powershell_remoting::MessageType::InformationRecord => {
+                        todo!("Handle Output messages");
+                    }
+                    protocol_powershell_remoting::MessageType::PipelineState => {
+                        todo!("Handle PipelineState messages");
                     }
                     _ => {
                         info!(
