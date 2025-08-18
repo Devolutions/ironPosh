@@ -147,7 +147,7 @@ pub struct ComplexObject {
     pub extended_properties: BTreeMap<String, PsProperty>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum ComplexObjectContent {
     /// If the Complex Object being serialized is an Extended Primitive Object, then the value of the primitive type is serialized as described in section 2.2.5.1.
     ///Example (compare with the serialization of a string without notes in section 2.2.5.1.1):
@@ -161,13 +161,8 @@ pub enum ComplexObjectContent {
     ExtendedPrimitive(PsPrimitiveValue),
     Container(Container),
     PsEnums(PsEnums),
+    #[default]
     Standard,
-}
-
-impl Default for ComplexObjectContent {
-    fn default() -> Self {
-        ComplexObjectContent::Standard
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
