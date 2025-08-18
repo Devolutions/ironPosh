@@ -26,16 +26,39 @@ const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
 const SERIALIZATION_VERSION: &str = "1.1.0.1";
 
+#[derive(Debug, Clone)]
 pub struct DesiredStream {
-    pub name: String,
-    pub command_id: Option<Uuid>,
+    name: String,
+    command_id: Option<Uuid>,
 }
 impl DesiredStream {
+    pub(crate) fn new(name: impl Into<String>, command_id: Option<Uuid>) -> Self {
+        Self {
+            name: name.into(),
+            command_id,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn command_id(&self) -> Option<&Uuid> {
+        self.command_id.as_ref()
+    }
+
     pub(crate) fn runspace_pool_streams() -> Vec<Self> {
         vec![DesiredStream {
             name: "stdout".to_string(),
             command_id: None,
         }]
+    }
+
+    pub(crate) fn stdout_for_command(command_id: Uuid) -> Self {
+        DesiredStream {
+            name: "stdout".to_string(),
+            command_id: Some(command_id),
+        }
     }
 }
 
@@ -136,6 +159,7 @@ impl RunspacePool {
         &mut self,
         desired_streams: Vec<DesiredStream>,
     ) -> Result<String, crate::PwshCoreError> {
+        debug_assert!(desired_streams.len() > 0, "At least one desired stream");
         Ok(self
             .shell
             .fire_receive(&self.connection, desired_streams)
@@ -156,45 +180,52 @@ impl RunspacePool {
             let (streams, command_state) = self.shell.accept_receive_response(&soap_envelope)?;
             let streams_ids = streams
                 .iter()
-                .map(|stream| stream.command_id().cloned())
+                .filter_map(|stream| stream.command_id().cloned())
                 .collect::<Vec<_>>();
 
             self.handle_pwsh_responses(streams)?;
 
             if let Some(command_state) = command_state
-                && command_state.is_done() {
-                    // If command state is done, we can remove the pipeline from the pool
-                    self.pipelines.remove(&command_state.command_id);
-                }
+                && command_state.is_done()
+            {
+                // If command state is done, we can remove the pipeline from the pool
+                self.pipelines.remove(&command_state.command_id);
+            }
 
-            // find the intersetction of streams.id and self.pipelines.keys()
-            let desired_streams = streams_ids
-                .into_iter()
-                .filter(|stream| {
-                    self.pipelines
-                        .keys()
-                        .any(|pipeline_id| Some(pipeline_id) == stream.as_ref())
-                })
-                .map(|stream| DesiredStream {
-                    name: "stdout".to_string(),
-                    command_id: stream,
-                })
-                .collect::<Vec<_>>();
+            let desired_streams = if streams_ids.len() > 0 {
+                // find the intersetction of streams.id and self.pipelines.keys()
+                streams_ids
+                    .into_iter()
+                    .filter(|stream| {
+                        self.pipelines
+                            .keys()
+                            .any(|pipeline_id| pipeline_id == stream)
+                    })
+                    .map(|stream| DesiredStream::new("stdout", stream.to_owned().into()))
+                    .collect::<Vec<_>>()
+            } else {
+                DesiredStream::runspace_pool_streams()
+            };
 
             return Ok(AcceptResponsResult::ReceiveResponse { desired_streams });
         }
 
         if soap_envelope.body.as_ref().command_response.is_some() {
-            let pipeline_id = self.shell.accept_commannd_response(soap_envelope)?;
+            let pipeline_id = self.shell.accept_commannd_response(&soap_envelope)?;
 
-            // Server has confirmed pipeline creation - create new pipeline state
-            let pipeline = Pipeline::new();
-            self.pipelines.insert(pipeline_id, pipeline);
+            // We have received the pipeline creation response
+            // 1. update the state of the pipeline
+            // 2. fire receive request for the new pipeline
+            self.pipelines
+                .get_mut(&pipeline_id)
+                .ok_or(crate::PwshCoreError::InvalidResponse(
+                    "Pipeline not found for command response".into(),
+                ))?
+                .state = PsInvocationState::Running;
 
-            // Create PowerShell handle from server-provided UUID
-            let handle = PowerShell::from_server_id(pipeline_id);
-
-            return Ok(AcceptResponsResult::NewPipeline(handle));
+            return Ok(AcceptResponsResult::ReceiveResponse {
+                desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
+            });
         }
 
         error!(
@@ -218,6 +249,7 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self))]
+    #[deprecated]
     pub(crate) fn fire_create_pipeline(&mut self) -> Result<String, crate::PwshCoreError> {
         if self.state != RunspacePoolState::Opened {
             return Err(crate::PwshCoreError::InvalidState(
@@ -404,12 +436,12 @@ impl RunspacePool {
         );
 
         // Find the pipeline by command_id
-        let pipeline =
-            self.pipelines
-                .get_mut(command_id)
-                .ok_or(PwshCoreError::InvalidResponse(
-                    "Pipeline not found for command_id".into(),
-                ))?;
+        let pipeline = self
+            .pipelines
+            .get_mut(command_id)
+            .ok_or(PwshCoreError::InvalidResponse(
+                "Pipeline not found for command_id".into(),
+            ))?;
 
         pipeline.add_progress_record(progress_record);
 
