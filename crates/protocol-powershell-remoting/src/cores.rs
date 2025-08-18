@@ -29,7 +29,7 @@ impl TryFrom<u32> for Destination {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageType {
     SessionCapability,
     InitRunspacepool,
