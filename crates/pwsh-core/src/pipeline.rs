@@ -109,17 +109,17 @@ impl Pipeline {
         self.commands.push(PipelineCommand::new_command(command));
     }
 
-    pub(crate) fn add_parameter(&mut self, name: &str, value: ParameterValue) {
+    pub(crate) fn add_parameter(&mut self, name: String, value: ParameterValue) {
         if let Some(last_cmd) = self.commands.last_mut() {
-            last_cmd.add_parameter(name.to_string(), value);
+            last_cmd.add_parameter(name, value);
         } else {
             tracing::warn!("Attempted to add a parameter with no prior command.");
         }
     }
 
-    pub(crate) fn add_switch_parameter(&mut self, name: &str) {
+    pub(crate) fn add_switch_parameter(&mut self, name: String) {
         if let Some(last_cmd) = self.commands.last_mut() {
-            last_cmd.add_switch_parameter(name.to_string());
+            last_cmd.add_switch_parameter(name);
         } else {
             tracing::warn!("Attempted to add a switch parameter with no prior command.");
         }

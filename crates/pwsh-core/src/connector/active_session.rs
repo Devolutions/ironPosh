@@ -1,5 +1,8 @@
 use crate::{
-    connector::http::{HttpBuilder, HttpRequest, HttpResponse}, powershell::PowerShell, runspace_pool::{pool::AcceptResponsResult, RunspacePool}
+    connector::http::{HttpBuilder, HttpRequest, HttpResponse},
+    pipeline::ParameterValue,
+    powershell::PowerShell,
+    runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 
 #[derive(Debug)]
@@ -8,6 +11,7 @@ pub enum SessionStepResult {
     PipelineCreated(PowerShell),
     SendBackError(crate::PwshCoreError),
     UserEvent(super::UserEvent),
+    OperationSuccess,
 }
 
 impl SessionStepResult {
@@ -17,13 +21,29 @@ impl SessionStepResult {
             SessionStepResult::PipelineCreated(_) => 1,
             SessionStepResult::SendBackError(_) => 2,
             SessionStepResult::UserEvent(_) => 3,
+            SessionStepResult::OperationSuccess => 4,
         }
     }
 }
 
 #[derive(Debug)]
+pub enum PowershellOperations {
+    AddScript(String),
+    AddCommand(String),
+    AddParameter { name: String, value: ParameterValue },
+    AddArgument(String),
+}
+
+#[derive(Debug)]
 pub enum UserOperation {
     CreatePipeline,
+    OperatePipeline {
+        powershell: PowerShell,
+        operation: PowershellOperations,
+    },
+    InvokePipeline {
+        powershell: PowerShell,
+    },
 }
 
 /// ActiveSession manages post-connection operations
@@ -52,6 +72,36 @@ impl ActiveSession {
                 let response = self.http_builder.post("/wsman", xml_body);
                 Ok(SessionStepResult::SendBack(response))
             }
+            UserOperation::OperatePipeline {
+                powershell,
+                operation,
+            } => {
+                match operation {
+                    PowershellOperations::AddScript(script) => {
+                        self.runspace_pool.add_script(powershell, script)?;
+                    }
+                    PowershellOperations::AddCommand(command) => {
+                        self.runspace_pool.add_command(powershell, command)?;
+                    }
+                    PowershellOperations::AddParameter { name, value } => {
+                        self.runspace_pool.add_parameter(powershell, name, value)?;
+                    }
+                    PowershellOperations::AddArgument(arg) => {
+                        self.runspace_pool.add_switch_parameter(powershell, arg)?;
+                    }
+                }
+                Ok(SessionStepResult::OperationSuccess)
+            }
+            UserOperation::InvokePipeline { powershell } => {
+                let request = self.runspace_pool.invoke_pipeline_request(powershell);
+                match request {
+                    Ok(request) => {
+                        let response = self.http_builder.post("/wsman", request);
+                        Ok(SessionStepResult::SendBack(response))
+                    }
+                    Err(e) => Ok(SessionStepResult::SendBackError(e)),
+                }
+            }
         }
     }
 
@@ -60,9 +110,9 @@ impl ActiveSession {
         &mut self,
         response: HttpResponse<String>,
     ) -> Result<SessionStepResult, crate::PwshCoreError> {
-        let body = response
-            .body
-            .ok_or({ crate::PwshCoreError::InvalidState("Expected a body in server response") })?;
+        let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
+            "Expected a body in server response",
+        ))?;
 
         match self.runspace_pool.accept_response(body)? {
             AcceptResponsResult::ReceiveResponse => {

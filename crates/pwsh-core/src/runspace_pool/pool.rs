@@ -375,7 +375,7 @@ impl RunspacePool {
     pub fn add_parameter(
         &mut self,
         handle: PowerShell,
-        name: &str,
+        name: String,
         value: crate::pipeline::ParameterValue,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -397,7 +397,7 @@ impl RunspacePool {
     pub fn add_switch_parameter(
         &mut self,
         handle: PowerShell,
-        name: &str,
+        name: String,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
             .pipelines
@@ -422,7 +422,7 @@ impl RunspacePool {
     /// 3. Enter a loop to `Receive` and process responses.
     /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
     /// 5. Return the final output upon completion.
-    pub async fn invoke_pipeline_request(
+    pub fn invoke_pipeline_request(
         &mut self,
         handle: PowerShell,
     ) -> Result<String, PwshCoreError> {

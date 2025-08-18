@@ -230,7 +230,7 @@ impl WinRunspace {
     pub(crate) fn create_pipeline_request<'a>(
         &'a self,
         connection: &'a WsMan,
-        command_id: &uuid::Uuid,
+        command_id: uuid::Uuid,
         arguments: Vec<String>,
         executable: Option<String>,
         no_shell: Option<bool>,

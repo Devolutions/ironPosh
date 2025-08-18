@@ -194,7 +194,7 @@ impl<'a> ComplexObject {
     ) -> Result<Element<'a>> {
         let ref_id = if let Some(obj_ref_id) = objects_map.map.get(self) {
             // If this object has already been serialized, return a reference element.
-            debug!("Creating Ref for existing object with RefId={}", obj_ref_id);
+            trace!("Creating Ref for existing object with RefId={}", obj_ref_id);
             return Ok(
                 Element::new("Ref").add_attribute(Attribute::new("RefId", obj_ref_id.to_string()))
             );

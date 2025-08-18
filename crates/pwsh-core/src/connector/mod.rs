@@ -81,10 +81,6 @@ impl ConnectorStepResult {
 }
 
 
-pub struct UserOperationCertificate {
-    user_operation: UserOperation,
-}
-
 
 #[derive(Default, Debug)]
 pub enum ConnectorState {
