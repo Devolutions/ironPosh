@@ -177,6 +177,7 @@ impl From<()> for Empty {
 xml_num_value!(U8, u8);
 xml_num_value!(U32, u32);
 xml_num_value!(U64, u64);
+xml_num_value!(I32, i32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WsUuid(pub uuid::Uuid);

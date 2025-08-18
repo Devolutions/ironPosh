@@ -2,7 +2,7 @@ use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 use tracing::warn;
 
 use crate::cores::{
-    CommandState, DesiredStream, ExitCode, Stream, Tag, TagName, TagValue, Text,
+    CommandState, DesiredStream, ExitCode, Stream, Tag, TagName, TagValue, Text, tag_value,
 };
 use xml::{
     XmlError,
@@ -61,7 +61,7 @@ impl TryFrom<&str> for CommandStateValueState {
 
 #[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
 pub struct CommandStateValue<'a> {
-    pub exit_code: Option<Tag<'a, Text<'a>, ExitCode>>,
+    pub exit_code: Option<Tag<'a, tag_value::I32, ExitCode>>,
 }
 
 // ReceiveResponse main structure
