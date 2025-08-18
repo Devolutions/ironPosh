@@ -110,10 +110,11 @@ impl WinRunspace {
         let desired_streams = desired_streams
             .into_iter()
             .map(|stream| {
-                let mut tag = Tag::from_name(DesiredStream).with_value(Text::from(stream.name));
+                let mut tag =
+                    Tag::from_name(DesiredStream).with_value(Text::from(stream.name().to_owned()));
 
-                if let Some(command_id) = stream.command_id {
-                    tag = tag.with_attribute(Attribute::CommandId(command_id));
+                if let Some(command_id) = stream.command_id() {
+                    tag = tag.with_attribute(Attribute::CommandId(command_id.clone()));
                 }
 
                 tag
@@ -264,7 +265,7 @@ impl WinRunspace {
 
     pub fn accept_commannd_response<'a>(
         &mut self,
-        soap_envelope: SoapEnvelope<'a>,
+        soap_envelope: &SoapEnvelope<'a>,
     ) -> Result<Uuid, crate::PwshCoreError> {
         let command_id = soap_envelope
             .body
