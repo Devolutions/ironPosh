@@ -1,7 +1,9 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 use tracing::warn;
 
-use crate::cores::{DesiredStream, Stream, Tag, TagName, TagValue, Text};
+use crate::cores::{
+    CommandState, DesiredStream, ExitCode, Stream, Tag, TagName, TagValue, Text,
+};
 use xml::{
     XmlError,
     builder::Element,
@@ -13,10 +15,60 @@ pub struct ReceiveValue<'a> {
     pub desired_stream: Tag<'a, Text<'a>, DesiredStream>,
 }
 
+#[derive(Debug, Clone)]
+pub enum CommandStateValueState {
+    Done,
+    Pending,
+    Running,
+}
+
+impl CommandStateValueState {
+    pub fn value(&self) -> &'static str {
+        match self {
+            CommandStateValueState::Done => {
+                "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done"
+            }
+            CommandStateValueState::Pending => {
+                "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending"
+            }
+            CommandStateValueState::Running => {
+                "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running"
+            }
+        }
+    }
+}
+
+impl TryFrom<&str> for CommandStateValueState {
+    type Error = XmlError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done" => {
+                Ok(CommandStateValueState::Done)
+            }
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending" => {
+                Ok(CommandStateValueState::Pending)
+            }
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running" => {
+                Ok(CommandStateValueState::Running)
+            }
+            _ => Err(XmlError::GenericError(format!(
+                "Unknown CommandStateValueState: {value}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+pub struct CommandStateValue<'a> {
+    pub exit_code: Option<Tag<'a, Text<'a>, ExitCode>>,
+}
+
 // ReceiveResponse main structure
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct ReceiveResponseValue<'a> {
     pub streams: Vec<Tag<'a, Text<'a>, Stream>>,
+    pub command_state: Option<Tag<'a, CommandStateValue<'a>, CommandState>>,
 }
 
 impl<'a> TagValue<'a> for ReceiveResponseValue<'a> {
@@ -31,6 +83,7 @@ impl<'a> TagValue<'a> for ReceiveResponseValue<'a> {
 
 pub struct ReceiveResponseVisitor<'a> {
     pub streams: Vec<Tag<'a, Text<'a>, Stream>>,
+    pub command_state: Option<Tag<'a, CommandStateValue<'a>, CommandState>>,
 }
 
 impl<'a> XmlVisitor<'a> for ReceiveResponseVisitor<'a> {
@@ -46,6 +99,10 @@ impl<'a> XmlVisitor<'a> for ReceiveResponseVisitor<'a> {
                     let stream = Tag::from_node(node)?;
                     self.streams.push(stream);
                 }
+                (CommandState::TAG_NAME, CommandState::NAMESPACE) => {
+                    let command_state = Tag::from_node(node)?;
+                    self.command_state = Some(command_state);
+                }
                 _ => {
                     warn!(
                         "Unexpected tag in ReceiveResponse: {}",
@@ -60,6 +117,7 @@ impl<'a> XmlVisitor<'a> for ReceiveResponseVisitor<'a> {
     fn finish(self) -> Result<Self::Value, XmlError> {
         Ok(ReceiveResponseValue {
             streams: self.streams,
+            command_state: self.command_state,
         })
     }
 }
@@ -70,6 +128,7 @@ impl<'a> XmlDeserialize<'a> for ReceiveResponseValue<'a> {
     fn visitor() -> Self::Visitor {
         ReceiveResponseVisitor {
             streams: Vec::new(),
+            command_state: None,
         }
     }
 }
