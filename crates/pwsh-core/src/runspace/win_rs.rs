@@ -1,13 +1,7 @@
 use base64::Engine;
 use protocol_winrm::{
-    cores::{
-        Attribute, DesiredStream, Receive, Shell, Tag, Time,
-    },
-    rsp::{
-        commandline::CommandLineValue,
-        receive::ReceiveValue,
-        rsp::ShellValue,
-    },
+    cores::{Attribute, DesiredStream, Receive, Shell, Tag, Time},
+    rsp::{commandline::CommandLineValue, receive::ReceiveValue, rsp::ShellValue},
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };

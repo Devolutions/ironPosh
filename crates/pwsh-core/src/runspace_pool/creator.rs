@@ -1,11 +1,8 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Defragmenter, Fragmenter, HostInfo,
-    PSThreadOptions, PsValue, SessionCapability,
+    ApartmentState, ApplicationPrivateData, Defragmenter, Fragmenter, HostInfo, PSThreadOptions,
+    PsValue, SessionCapability,
 };
 use protocol_winrm::ws_management::WsMan;
 

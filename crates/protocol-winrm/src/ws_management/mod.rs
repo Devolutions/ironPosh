@@ -3,10 +3,7 @@ pub mod header;
 pub use header::*;
 
 use crate::{
-    cores::{
-        Attribute, Tag, Time, WsUuid, namespace::Namespace, tag_name::*,
-        tag_value::Text,
-    },
+    cores::{Attribute, Tag, Time, WsUuid, namespace::Namespace, tag_name::*, tag_value::Text},
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
 };

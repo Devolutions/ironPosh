@@ -1,14 +1,11 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tracing::error;
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter,
-    HostInfo, InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue,
-    RunspacePoolStateMessage, SessionCapability, fragment,
+    ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter, HostInfo,
+    InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue, RunspacePoolStateMessage,
+    SessionCapability, fragment,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,

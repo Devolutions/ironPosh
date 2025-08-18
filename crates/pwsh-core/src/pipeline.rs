@@ -64,15 +64,13 @@ impl PipelineCommand {
 }
 
 /// Represents execution results in business terms
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ExecutionResult {
     pub output_objects: Vec<String>, // Simplified for now - could be more complex later
     pub error_messages: Vec<String>,
     pub warning_messages: Vec<String>,
     pub debug_messages: Vec<String>,
 }
-
 
 /// Internal representation of a PowerShell pipeline's state and configuration.
 /// This is owned and managed by the `RunspacePool`.
