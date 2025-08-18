@@ -1,7 +1,11 @@
 use base64::Engine;
 use protocol_winrm::{
-    cores::{Attribute, DesiredStream, Receive, Shell, Tag, Time},
-    rsp::{commandline::CommandLineValue, receive::ReceiveValue, rsp::ShellValue},
+    cores::{Attribute, DesiredStream, Receive, Shell, Tag, Text, Time, tag_name},
+    rsp::{
+        commandline::CommandLineValue,
+        receive::{CommandStateValue, ReceiveValue},
+        rsp::ShellValue,
+    },
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };
@@ -141,10 +145,10 @@ impl WinRunspace {
         )
     }
 
-    pub fn accept_receive_response<'a>(
+    pub(crate) fn accept_receive_response<'a>(
         &mut self,
         soap_envelope: &SoapEnvelope<'a>,
-    ) -> Result<Vec<Vec<u8>>, crate::PwshCoreError> {
+    ) -> Result<(Vec<Stream>, Option<CommandState>), crate::PwshCoreError> {
         let receive_response = &soap_envelope
             .body
             .as_ref()
@@ -158,14 +162,20 @@ impl WinRunspace {
             .value
             .streams
             .iter()
-            .map(|stream| stream.value.as_ref())
-            .map(|stream| base64::engine::general_purpose::STANDARD.decode(stream))
+            .map(Stream::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| {
                 crate::PwshCoreError::InvalidResponse("Failed to decode streams".into())
             })?;
 
-        Ok(streams)
+        let command_state = receive_response
+            .value
+            .command_state
+            .as_ref()
+            .map(CommandState::try_from)
+            .transpose()?;
+
+        Ok((streams, command_state))
     }
 
     pub fn accept_create_response<'a>(
@@ -269,5 +279,109 @@ impl WinRunspace {
             .as_ref();
 
         Ok(command_id.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Stream {
+    name: String,
+    command_id: Option<String>,
+    value: Vec<u8>,
+}
+
+impl Stream {
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn command_id(&self) -> Option<&str> {
+        self.command_id.as_deref()
+    }
+
+    pub(crate) fn value(&self) -> &[u8] {
+        &self.value
+    }
+}
+
+impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
+    type Error = crate::PwshCoreError;
+
+    fn try_from(value: &Tag<'a, Text<'a>, tag_name::Stream>) -> Result<Self, Self::Error> {
+        let attributes = &value.attributes;
+        let name = attributes
+            .iter()
+            .find_map(|attr| match attr {
+                Attribute::Name(name) => Some(name.to_string()),
+                _ => None,
+            })
+            .ok_or(crate::PwshCoreError::InvalidResponse(
+                "Stream tag missing name attribute".into(),
+            ))?;
+
+        let command_id = attributes.iter().find_map(|attr| match attr {
+            Attribute::CommandId(id) => Some(id.to_string()),
+            _ => None,
+        });
+
+        // let value = value.value.as_ref();
+        let value = base64::engine::general_purpose::STANDARD
+            .decode(value.value.as_ref())
+            .map_err(|_| {
+                crate::PwshCoreError::InvalidResponse("Failed to decode stream value".into())
+            })?;
+
+        Ok(Stream {
+            name,
+            command_id,
+            value,
+        })
+    }
+}
+
+pub struct CommandState {
+    pub command_id: String,
+    pub state: String,
+    pub exit_code: Option<i32>,
+}
+
+impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for CommandState {
+    type Error = crate::PwshCoreError;
+
+    fn try_from(
+        value: &Tag<'a, CommandStateValue<'a>, tag_name::CommandState>,
+    ) -> Result<Self, Self::Error> {
+        let command_id = value
+            .attributes
+            .iter()
+            .find_map(|attr| match attr {
+                Attribute::CommandId(id) => Some(id.to_string()),
+                _ => None,
+            })
+            .ok_or(crate::PwshCoreError::InvalidResponse(
+                "CommandState tag missing command_id attribute".into(),
+            ))?;
+
+        let state = value
+            .attributes
+            .iter()
+            .find_map(|attr| match attr {
+                Attribute::State(state) => Some(state.to_string()),
+                _ => None,
+            })
+            .ok_or(crate::PwshCoreError::InvalidResponse(
+                "CommandState tag missing state attribute".into(),
+            ))?;
+
+        let exit_code = value
+            .value
+            .exit_code
+            .as_ref()
+            .map(|exit_code| exit_code.value.0);
+
+        Ok(CommandState {
+            command_id,
+            state: state.to_string(),
+            exit_code,
+        })
     }
 }
