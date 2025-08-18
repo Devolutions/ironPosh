@@ -1,42 +1,21 @@
-use std::collections::HashMap;
+use std::io::BufRead;
 use std::net::Ipv4Addr;
-use std::time::Duration;
 
 use anyhow::Context;
+use pwsh_core::connector::active_session::{PowershellOperations, UserEvent};
 use pwsh_core::connector::{
     Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme, SessionStepResult,
     UserOperation, http::ServerAddress,
 };
+use pwsh_core::powershell::PowerShell;
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span, warn};
 use tracing_subscriber::EnvFilter;
-use uuid::Uuid;
 
-// Data structures for the new concurrent architecture
-#[derive(Debug)]
-struct PendingRequest {
-    correlation_id: Uuid,
-    operation: UserOperation,
-    response_tx: oneshot::Sender<anyhow::Result<SessionStepResult>>,
-}
-
-#[derive(Debug)]
-enum SessionCommand {
-    ProcessUserOperation {
-        correlation_id: Uuid,
-        operation: UserOperation,
-        response_tx: oneshot::Sender<anyhow::Result<SessionStepResult>>,
-    },
-    ProcessServerResponse {
-        response: pwsh_core::connector::http::HttpResponse<String>,
-    },
-}
-
-#[derive(Debug)]
-enum NetworkRequest {
-    HttpRequest(pwsh_core::connector::http::HttpRequest<String>),
-    ContinuousReceive,
+pub enum NextStep {
+    NetworkResponse(pwsh_core::connector::http::HttpResponse<String>),
+    UserRequest(UserOperation),
 }
 
 #[tokio::main]
@@ -72,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut connector = Connector::new(config);
     info!("Created connector, starting connection...");
-    let (active_session, next_request) = {
+    let (mut active_session, next_request) = {
         let mut response = None;
 
         let _span = info_span!("ConnectionLoop").entered();
@@ -106,321 +85,159 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Runspace pool is now open and ready for operations!");
 
-    // Setup channels for the new concurrent architecture
-    let (user_request_tx, user_request_rx) = mpsc::channel::<(
-        UserOperation,
-        oneshot::Sender<anyhow::Result<SessionStepResult>>,
-    )>(32);
-    let (session_cmd_tx, session_cmd_rx) = mpsc::channel::<SessionCommand>(32);
-    let (network_request_tx, network_request_rx) = mpsc::channel::<NetworkRequest>(32);
-    let (network_response_tx, network_response_rx) =
-        mpsc::channel::<pwsh_core::connector::http::HttpResponse<String>>(32);
-    let (ui_tx, ui_rx) = mpsc::channel::<String>(32);
+    let (network_request_tx, mut network_request_rx) = mpsc::channel(2);
+    let (network_response_tx, mut network_response_rx) = mpsc::channel(2);
 
-    // Clone senders for multiple consumers
-    let session_cmd_tx_for_network = session_cmd_tx.clone();
-    let session_cmd_tx_for_receive = session_cmd_tx.clone();
-    let session_cmd_tx_for_dispatcher = session_cmd_tx.clone();
-
-    // Spawn the SessionManager Actor - manages session state and correlates requests
-    let session_manager_span = info_span!("SessionManager");
-    let session_handle = tokio::spawn(async move {
-        let mut session = active_session;
-        let mut pending_requests: HashMap<Uuid, PendingRequest> = HashMap::new();
-        let mut session_cmd_rx = session_cmd_rx;
-        let network_request_tx = network_request_tx;
-        let ui_tx = ui_tx;
-
-        info!("SessionManager started");
-
-        while let Some(cmd) = session_cmd_rx.recv().await {
-            match cmd {
-                SessionCommand::ProcessUserOperation { correlation_id, operation, response_tx } => {
-                    info!("SessionManager processing user operation: {:?} (correlation: {})", operation, correlation_id);
-                    
-                    match session.accept_client_operation(operation) {
-                        Ok(result) => {
-                            match result {
-                                SessionStepResult::SendBack(http_request) => {
-                                    info!("SessionManager queuing HTTP request for correlation: {}", correlation_id);
-                                    pending_requests.insert(correlation_id, PendingRequest {
-                                        correlation_id,
-                                        operation: UserOperation::CreatePipeline, // Use a dummy operation since we already consumed the original
-                                        response_tx,
-                                    });
-                                    
-                                    if let Err(e) = network_request_tx.send(NetworkRequest::HttpRequest(http_request)).await {
-                                        warn!("Failed to send HTTP request to network: {}", e);
-                                        if let Some(pending) = pending_requests.remove(&correlation_id) {
-                                            let _ = pending.response_tx.send(Err(anyhow::anyhow!("Network send failed: {}", e)));
-                                        }
-                                    }
-                                }
-                                other_result => {
-                                    info!("SessionManager immediate result: {:?}", other_result);
-                                    
-                                    // Send UI feedback for immediate results
-                                    match &other_result {
-                                        SessionStepResult::PipelineCreated(pipeline) => {
-                                            let msg = format!("Pipeline created successfully! ID: {}", pipeline.id());
-                                            let _ = ui_tx.send(msg).await;
-                                        }
-                                        SessionStepResult::SendBackError(e) => {
-                                            let msg = format!("Error in user operation: {}", e);
-                                            let _ = ui_tx.send(msg).await;
-                                        }
-                                        _ => {}
-                                    }
-                                    
-                                    let _ = response_tx.send(Ok(other_result));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to process user operation: {}", e);
-                            let _ = response_tx.send(Err(anyhow::anyhow!("Session error: {}", e)));
-                        }
-                    }
-                }
-                SessionCommand::ProcessServerResponse { response } => {
-                    info!("SessionManager processing server response");
-                    match session.accept_server_response(response) {
-                        Ok(result) => {
-                            match result {
-                                SessionStepResult::SendBack(http_request) => {
-                                    info!("SessionManager sending follow-up HTTP request");
-                                    let _ = network_request_tx.send(NetworkRequest::HttpRequest(http_request)).await;
-                                }
-                                SessionStepResult::PipelineCreated(pipeline) => {
-                                    let msg = format!("Pipeline created from server response! ID: {}", pipeline.id());
-                                    info!("{}", msg);
-                                    let _ = ui_tx.send(msg).await;
-                                }
-                                SessionStepResult::SendBackError(e) => {
-                                    let msg = format!("Error in server response: {}", e);
-                                    warn!("{}", msg);
-                                    let _ = ui_tx.send(msg).await;
-                                }
-                                _ => {
-                                    debug!("Server response result: {:?}", result);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to process server response: {}", e);
-                            let msg = format!("Failed to process server response: {}", e);
-                            let _ = ui_tx.send(msg).await;
-                        }
-                    }
-                    
-                    // Complete any pending requests that might be resolved by this server response
-                    // For now, we'll complete the first pending request as a simple approach
-                    if let Some((_, pending)) = pending_requests.drain().next() {
-                        let _ = pending.response_tx.send(Ok(SessionStepResult::SendBackError(pwsh_core::PwshCoreError::ConnectorError("Completed by server response".to_string()))));
-                    }
-                }
-            }
-        }
-
-        info!("SessionManager shutting down");
-        anyhow::Ok(())
-    }.instrument(session_manager_span));
-
-    // Spawn the Network Pool - handles HTTP requests concurrently
-    let network_pool_span = info_span!("NetworkPool");
-    let network_handle = tokio::spawn(
+    tokio::spawn(
         async move {
-            let mut network_request_rx = network_request_rx;
-            let session_cmd_tx = session_cmd_tx_for_network;
-
-            info!("NetworkPool started");
-
-            // Spawn initial response handler separately to avoid blocking the pool
-            let initial_session_tx = session_cmd_tx.clone();
-            tokio::spawn(async move {
-                let initial_response = make_http_request(&next_request).await?;
-                info!("NetworkPool received initial response");
-                initial_session_tx
-                    .send(SessionCommand::ProcessServerResponse {
-                        response: initial_response,
-                    })
-                    .await?;
-                anyhow::Ok(())
-            });
-
-            while let Some(network_request) = network_request_rx.recv().await {
-                match network_request {
-                    NetworkRequest::HttpRequest(http_request) => {
-                        info!("NetworkPool making user-requested HTTP request");
-                        let session_cmd_tx = session_cmd_tx.clone();
-
-                        // Spawn individual request handlers for concurrency
-                        tokio::spawn(async move {
-                            let response = make_http_request(&http_request).await?;
-                            session_cmd_tx
-                                .send(SessionCommand::ProcessServerResponse { response })
-                                .await?;
-                            anyhow::Ok(())
-                        });
+            while let Some(request) = network_request_rx.recv().await {
+                let network_response_tx = network_response_tx.clone();
+                tokio::spawn(async move {
+                    match make_http_request(&request).await {
+                        Ok(response) => {
+                            if let Err(e) = network_response_tx.send(response).await {
+                                error!("Failed to send network response: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            error!("HTTP request failed: {}", e);
+                        }
                     }
-                    NetworkRequest::ContinuousReceive => {
-                        info!("NetworkPool handling continuous receive request");
-                        // This would be implemented based on the specific receive mechanism
-                        // For now, we'll implement it as a placeholder
-                    }
-                }
+                });
             }
-
-            info!("NetworkPool shutting down");
-            anyhow::Ok(())
         }
-        .instrument(network_pool_span),
+        .instrument(info_span!("NetworkRequestHandler")),
     );
 
-    // Spawn the ReceiveActor - continuous long-polling for server messages
-    let receive_actor_span = info_span!("ReceiveActor");
-    let receive_handle = tokio::spawn(
-        async move {
-            let session_cmd_tx = session_cmd_tx_for_receive;
-            let _network_response_tx = network_response_tx;
-            let mut network_response_rx = network_response_rx;
+    let (user_request_tx, mut user_request_rx) = mpsc::channel(2);
 
-            info!("ReceiveActor started - beginning continuous receive loop");
+    // Store the created pipeline for reuse
+    let (pipeline_tx, pipeline_rx) = oneshot::channel();
+    let user_request_tx_clone = user_request_tx.clone();
+
+    tokio::spawn(
+        async move {
+            info!("Creating initial pipeline...");
+            user_request_tx
+                .send(UserOperation::CreatePipeline)
+                .await
+                .unwrap();
+
+            // Wait for pipeline to be created
+            let pipeline: PowerShell = pipeline_rx.await.unwrap();
+            info!("Pipeline ready! Enter PowerShell commands (type 'exit' to quit):");
+
+            let stdin = tokio::io::stdin();
+            let mut reader = tokio::io::BufReader::new(stdin);
+            let mut line = String::new();
 
             loop {
-                // Create a receive request (this would be protocol-specific)
-                // For now, we'll simulate continuous receiving with a timeout
-                match timeout(Duration::from_secs(30), network_response_rx.recv()).await {
-                    Ok(Some(response)) => {
-                        info!("ReceiveActor received server message");
-                        session_cmd_tx
-                            .send(SessionCommand::ProcessServerResponse { response })
-                            .await?;
+                print!("> ");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let command = line.trim().to_string();
+                        if command.to_lowercase() == "exit" {
+                            info!("Exiting...");
+                            break;
+                        }
+                        if !command.is_empty() {
+                            // Add the script to the pipeline
+                            user_request_tx_clone
+                                .send(UserOperation::OperatePipeline {
+                                    powershell: pipeline,
+                                    operation: PowershellOperations::AddScript(command.clone()),
+                                })
+                                .await
+                                .unwrap();
+
+                            // Invoke the pipeline
+                            user_request_tx_clone
+                                .send(UserOperation::InvokePipeline {
+                                    powershell: pipeline,
+                                })
+                                .await
+                                .unwrap();
+                        }
                     }
-                    Ok(None) => {
-                        info!("ReceiveActor channel closed");
+                    Err(e) => {
+                        error!("Failed to read input: {}", e);
                         break;
-                    }
-                    Err(_) => {
-                        // Timeout - this is normal for long-polling, continue the loop
-                        debug!("ReceiveActor timeout - retrying receive");
-                        continue;
                     }
                 }
             }
-
-            info!("ReceiveActor shutting down");
-            anyhow::Ok(())
         }
-        .instrument(receive_actor_span),
+        .instrument(info_span!("UserInputHandler")),
     );
 
-    // Spawn the RequestDispatcher - handles concurrent user operations
-    let request_dispatcher_span = info_span!("RequestDispatcher");
-    let request_dispatcher_handle = tokio::spawn(
-        async move {
-            let mut user_request_rx = user_request_rx;
-            let session_cmd_tx = session_cmd_tx_for_dispatcher;
+    network_request_tx
+        .send(next_request)
+        .await
+        .context("Failed to send initial request")?;
 
-            info!("RequestDispatcher started");
+    let mut pipeline_tx = Some(pipeline_tx);
+    loop {
+        let next_step = tokio::select! {
+            network_response = network_response_rx.recv() => {
+                if let Some(response) = network_response {
+                    NextStep::NetworkResponse(response)
+                } else {
+                    error!("No response received from server");
+                    return Err(anyhow::anyhow!("No response received from server"));
+                }
+            },
+            user_request = user_request_rx.recv() => {
+                if let Some(user_request) = user_request {
+                    NextStep::UserRequest(user_request)
+                } else {
+                    error!("No user request received");
+                    return Err(anyhow::anyhow!("No user request received"));
+                }
+            },
+        };
 
-            while let Some((operation, response_tx)) = user_request_rx.recv().await {
-                let correlation_id = Uuid::new_v4();
-                info!(
-                    "RequestDispatcher processing operation: {:?} (correlation: {})",
-                    operation, correlation_id
-                );
+        let step_result = match next_step {
+            NextStep::NetworkResponse(http_response) => active_session
+                .accept_server_response(http_response)
+                .context("Failed to accept server response")?,
+            NextStep::UserRequest(user_operation) => active_session
+                .accept_client_operation(user_operation)
+                .context("Failed to accept user operation")?,
+        };
 
-                let session_cmd = SessionCommand::ProcessUserOperation {
-                    correlation_id,
-                    operation,
-                    response_tx,
-                };
+        info!("Received server response, processing...");
 
-                // Non-blocking send to session manager
-                session_cmd_tx.try_send(session_cmd).map_err(|e| {
-                    anyhow::anyhow!("Failed to send user operation to session manager: {}", e)
-                })?;
+        match step_result {
+            SessionStepResult::SendBack(http_requests) => {
+                for http_request in http_requests {
+                    network_request_tx
+                        .send(http_request)
+                        .await
+                        .context("Failed to send HTTP request")?;
+                }
             }
-
-            info!("RequestDispatcher shutting down");
-            anyhow::Ok(())
+            SessionStepResult::SendBackError(e) => {
+                error!("Error in session step: {}", e);
+                return Err(anyhow::anyhow!("Session step failed: {}", e));
+            }
+            SessionStepResult::UserEvent(event) => match event {
+                UserEvent::PipelineCreated { powershell } => {
+                    info!("Pipeline created: {:?}", powershell);
+                    let sent = pipeline_tx.take().map(|tx| tx.send(powershell));
+                    if let Some(Err(_)) = sent {
+                        error!("Failed to send pipeline through channel");
+                        return Err(anyhow::anyhow!("Failed to send pipeline through channel"));
+                    }
+                }
+            },
+            SessionStepResult::OperationSuccess => {
+                info!("Operation completed successfully");
+            }
         }
-        .instrument(request_dispatcher_span),
-    );
-
-    // Spawn the User Input Task (Auto-create pipeline after delay) - now uses the new architecture
-    let user_actor_span = info_span!("UserInputTask");
-    let user_input_handle = tokio::spawn(
-        async move {
-            let user_request_tx = user_request_tx;
-
-            info!("User input task started - will auto-create pipeline after 3 seconds");
-
-            // Wait 3 seconds to let the connection stabilize
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-            info!("Auto-creating first pipeline...");
-            let (response_tx, response_rx) = oneshot::channel();
-            user_request_tx
-                .send((UserOperation::CreatePipeline, response_tx))
-                .await?;
-
-            // Wait for response
-            let result = response_rx.await??;
-            info!("First pipeline request completed: {:?}", result);
-
-            // Wait 2 seconds, then create a second pipeline to demonstrate concurrency
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-            info!("Auto-creating second pipeline concurrently...");
-            let (response_tx2, response_rx2) = oneshot::channel();
-            user_request_tx
-                .send((UserOperation::CreatePipeline, response_tx2))
-                .await?;
-
-            // Wait for second response
-            let result2 = response_rx2.await??;
-            info!("Second pipeline request completed: {:?}", result2);
-
-            // Wait another 3 seconds to let everything settle
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-            info!("Auto-exiting after concurrent pipeline execution");
-            info!("User input task shutting down");
-            anyhow::Ok(())
-        }
-        .instrument(user_actor_span),
-    );
-
-    // Main task handles UI feedback
-    let ui_handle = tokio::spawn(async move {
-        let mut ui_rx = ui_rx;
-
-        info!("UI feedback task started");
-
-        while let Some(message) = ui_rx.recv().await {
-            println!("📢 {}", message);
-        }
-
-        info!("UI feedback task shutting down");
-        anyhow::Ok(())
-    });
-
-    // Wait for user input task to complete (user chooses to exit)
-    let _ = user_input_handle.await;
-
-    // Wait for other tasks to complete
-    let _ = tokio::join!(
-        session_handle,
-        network_handle,
-        receive_handle,
-        request_dispatcher_handle,
-        ui_handle
-    );
-
-    info!("Exiting WinRM PowerShell client");
-    Ok(())
+    }
 }
 
 async fn make_http_request(
