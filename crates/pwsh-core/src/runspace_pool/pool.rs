@@ -16,7 +16,11 @@ use uuid::Uuid;
 use xml::parser::XmlDeserialize;
 
 use crate::{
-    PwshCoreError, pipeline::Pipeline, powershell::PowerShell, runspace::win_rs::WinRunspace,
+    PwshCoreError,
+    host::{HostCall, HostCallType},
+    pipeline::Pipeline,
+    powershell::PowerShell,
+    runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
 };
 
@@ -62,9 +66,11 @@ impl DesiredStream {
     }
 }
 
+#[derive(Debug)]
 pub enum AcceptResponsResult {
     ReceiveResponse { desired_streams: Vec<DesiredStream> },
     NewPipeline(PowerShell),
+    HostCall(HostCall),
 }
 
 #[derive(Debug)]
@@ -183,7 +189,7 @@ impl RunspacePool {
                 .filter_map(|stream| stream.command_id().cloned())
                 .collect::<Vec<_>>();
 
-            self.handle_pwsh_responses(streams)?;
+            let handle_pwsh_response = self.handle_pwsh_responses(streams)?;
 
             if let Some(command_state) = command_state
                 && command_state.is_done()
@@ -340,6 +346,13 @@ impl RunspacePool {
                     }
                     protocol_powershell_remoting::MessageType::PipelineState => {
                         self.handle_pipeline_state(ps_value, stream.name(), stream.command_id())?;
+                    }
+                    protocol_powershell_remoting::MessageType::PipelineHostCall => {
+                        let host_call = self.handle_pipeline_host_call(
+                            ps_value,
+                            stream.name(),
+                            stream.command_id(),
+                        )?;
                     }
                     _ => {
                         info!(
@@ -669,5 +682,42 @@ impl RunspacePool {
         )?;
 
         Ok(request.into().to_string())
+    }
+
+    pub fn handle_pipeline_host_call(
+        &mut self,
+        ps_value: PsValue,
+        stream_name: &str,
+        command_id: Option<&Uuid>,
+    ) -> Result<HostCall, crate::PwshCoreError> {
+        let PsValue::Object(pipeline_host_call) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected PipelineHostCall as PsValue::Object".into(),
+            ));
+        };
+
+        let pipeline_host_call =
+            protocol_powershell_remoting::PipelineHostCall::try_from(pipeline_host_call)?;
+
+        debug!(
+            ?pipeline_host_call,
+            stream_name = stream_name,
+            command_id = ?command_id,
+            "Received PipelineHostCall"
+        );
+
+        // Question: Can we have a Optional command id here?
+        let Some(command_id) = command_id else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected command_id to be Some".into(),
+            ));
+        };
+
+        Ok(HostCall::from((
+            &pipeline_host_call,
+            HostCallType::Pipeline {
+                id: command_id.to_owned(),
+            },
+        )))
     }
 }
