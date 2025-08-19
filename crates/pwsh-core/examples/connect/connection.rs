@@ -1,6 +1,6 @@
 use anyhow::Context;
-use pwsh_core::connector::{Connector, ConnectorStepResult, ConnectorConfig};
 use pwsh_core::connector::active_session::ActiveSession;
+use pwsh_core::connector::{Connector, ConnectorConfig, ConnectorStepResult};
 use tracing::{info, info_span, warn};
 
 use crate::http_client::make_http_request;
@@ -8,13 +8,16 @@ use crate::http_client::make_http_request;
 /// Establish connection to the PowerShell remote server
 pub async fn establish_connection(
     config: ConnectorConfig,
-) -> anyhow::Result<(ActiveSession, pwsh_core::connector::http::HttpRequest<String>)> {
+) -> anyhow::Result<(
+    ActiveSession,
+    pwsh_core::connector::http::HttpRequest<String>,
+)> {
     let mut connector = Connector::new(config);
     info!("Created connector, starting connection...");
-    
+
     let mut response = None;
     let _span = info_span!("ConnectionLoop").entered();
-    
+
     let (active_session, next_request) = loop {
         let step_result = connector
             .step(response.take())
@@ -39,7 +42,7 @@ pub async fn establish_connection(
             }
         }
     };
-    
+
     drop(_span);
     Ok((active_session, next_request))
 }

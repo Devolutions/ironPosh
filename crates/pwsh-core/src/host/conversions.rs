@@ -1,6 +1,6 @@
 use super::{
     error::HostError,
-    methods::{HostCallMethodWithParams, HostMethodParams, UIMethodParams, RawUIMethodParams},
+    methods::{HostCallMethodWithParams, HostMethodParams, RawUIMethodParams, UIMethodParams},
 };
 
 /// Convert HostCallRequest to HostCallMethodWithParams based on method_id and parameters
@@ -12,9 +12,15 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
         // Host methods: 1-10, UI methods: 11-30, RawUI methods: 31-60
         match call.method_id {
             // Host methods (1-10)
-            1 => Ok(HostCallMethodWithParams::HostMethod(HostMethodParams::GetName)),
-            2 => Ok(HostCallMethodWithParams::HostMethod(HostMethodParams::GetVersion)),
-            3 => Ok(HostCallMethodWithParams::HostMethod(HostMethodParams::GetInstanceId)),
+            1 => Ok(HostCallMethodWithParams::HostMethod(
+                HostMethodParams::GetName,
+            )),
+            2 => Ok(HostCallMethodWithParams::HostMethod(
+                HostMethodParams::GetVersion,
+            )),
+            3 => Ok(HostCallMethodWithParams::HostMethod(
+                HostMethodParams::GetInstanceId,
+            )),
             4 => Ok(HostCallMethodWithParams::HostMethod(
                 HostMethodParams::GetCurrentCulture,
             )),
@@ -24,7 +30,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             6 => {
                 let exit_code = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 Ok(HostCallMethodWithParams::HostMethod(
@@ -52,43 +58,47 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             13 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::Write(value)))
+                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::Write(
+                    value,
+                )))
             }
             14 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteLine(value)))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteLine(value),
+                ))
             }
             15 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteErrorLine(
-                    value,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteErrorLine(value),
+                ))
             }
             16 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteDebugLine(
-                    value,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteDebugLine(value),
+                ))
             }
             17 => {
                 let source_id = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i64())
                     .ok_or(HostError::InvalidParameters)?;
                 let record = call
@@ -96,34 +106,34 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
                     .get(1)
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteProgress(
-                    source_id, record,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteProgress(source_id, record),
+                ))
             }
             18 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteVerboseLine(
-                    value,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteVerboseLine(value),
+                ))
             }
             19 => {
                 let value = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::WriteWarningLine(
-                    value,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::WriteWarningLine(value),
+                ))
             }
             20 => {
                 let caption = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
                 let descriptions = call
@@ -139,7 +149,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             21 => {
                 let caption = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
                 let message = call
@@ -157,17 +167,14 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
                     .get(3)
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::UIMethod(UIMethodParams::PromptForChoice(
-                    caption,
-                    message,
-                    choices,
-                    default_choice,
-                )))
+                Ok(HostCallMethodWithParams::UIMethod(
+                    UIMethodParams::PromptForChoice(caption, message, choices, default_choice),
+                ))
             }
             22 => {
                 let caption = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_string())
                     .ok_or(HostError::InvalidParameters)?;
                 let message = call
@@ -197,7 +204,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             32 => {
                 let color = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 Ok(HostCallMethodWithParams::RawUIMethod(
@@ -210,7 +217,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             34 => {
                 let color = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 Ok(HostCallMethodWithParams::RawUIMethod(
@@ -223,7 +230,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             36 => {
                 let x = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let y = call
@@ -241,7 +248,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             38 => {
                 let x = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let y = call
@@ -259,7 +266,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             40 => {
                 let percentage = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 Ok(HostCallMethodWithParams::RawUIMethod(
@@ -272,7 +279,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             42 => {
                 let width = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let height = call
@@ -290,7 +297,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             44 => {
                 let width = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let height = call
@@ -314,12 +321,12 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             48 => {
                 let options = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                Ok(HostCallMethodWithParams::RawUIMethod(RawUIMethodParams::ReadKey(
-                    options,
-                )))
+                Ok(HostCallMethodWithParams::RawUIMethod(
+                    RawUIMethodParams::ReadKey(options),
+                ))
             }
             49 => Ok(HostCallMethodWithParams::RawUIMethod(
                 RawUIMethodParams::FlushInputBuffer,
@@ -327,7 +334,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             50 => {
                 let x = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let y = call
@@ -347,7 +354,7 @@ impl TryFrom<&super::HostCallRequest> for HostCallMethodWithParams {
             51 => {
                 let x = call
                     .parameters
-                    .get(0)
+                    .first()
                     .and_then(|p| p.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
                 let y = call

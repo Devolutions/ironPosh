@@ -1,10 +1,11 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::{HostCallMethodWithParams, HostCallRequest, HostCallResponse},
+    host::{HostCallRequest, HostCallType},
     pipeline::ParameterValue,
     powershell::PowerShell,
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
+use protocol_powershell_remoting::PsValue;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
@@ -60,6 +61,12 @@ pub enum PowershellOperations {
     AddArgument(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum HostCallScope {
+    Pipeline { command_id: uuid::Uuid },
+    RunspacePool,
+}
+
 #[derive(Debug)]
 pub enum UserOperation {
     CreatePipeline,
@@ -70,6 +77,21 @@ pub enum UserOperation {
     InvokePipeline {
         powershell: PowerShell,
     },
+    /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
+    SubmitHostResponse {
+        scope: HostCallScope,
+        call_id: i64,
+        method_id: i32,
+        method_name: String,
+        result: Option<PsValue>,
+        error: Option<PsValue>,
+    },
+    /// Allow UI to abort a pending prompt cleanly (timeout, user cancelled)
+    CancelHostCall {
+        scope: HostCallScope,
+        call_id: i64,
+        reason: Option<String>,
+    },
 }
 
 /// ActiveSession manages post-connection operations
@@ -77,6 +99,8 @@ pub enum UserOperation {
 pub struct ActiveSession {
     runspace_pool: RunspacePool,
     http_builder: HttpBuilder,
+    /// Tracks pending host calls by (scope, call_id) to validate responses
+    pending_host_calls: std::collections::HashMap<(HostCallScope, i64), ()>,
 }
 
 impl ActiveSession {
@@ -84,6 +108,7 @@ impl ActiveSession {
         Self {
             runspace_pool,
             http_builder,
+            pending_host_calls: std::collections::HashMap::new(),
         }
     }
 
@@ -128,6 +153,77 @@ impl ActiveSession {
                     Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
                 }
             }
+            UserOperation::SubmitHostResponse {
+                scope,
+                call_id,
+                method_id,
+                method_name,
+                result,
+                error,
+            } => {
+                // Validate that this host call is actually pending
+                let key = (scope.clone(), call_id);
+                if !self.pending_host_calls.contains_key(&key) {
+                    return Err(crate::PwshCoreError::InvalidState(
+                        "Host call not found or already completed",
+                    ));
+                }
+
+                // Remove from pending calls
+                self.pending_host_calls.remove(&key);
+
+                // Create the appropriate host response message based on scope
+                match scope {
+                    HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
+                        command_id,
+                        call_id,
+                        method_id,
+                        method_name,
+                        result,
+                        error,
+                    ),
+                    HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
+                        call_id,
+                        method_id,
+                        method_name,
+                        result,
+                        error,
+                    ),
+                }
+            }
+            UserOperation::CancelHostCall {
+                scope,
+                call_id,
+                reason: _reason,
+            } => {
+                // Remove from pending calls if it exists
+                let key = (scope.clone(), call_id);
+                self.pending_host_calls.remove(&key);
+
+                // For cancellation, send an error response
+                let error_msg = format!("Host call {call_id} was cancelled");
+                let error = Some(PsValue::Primitive(
+                    protocol_powershell_remoting::PsPrimitiveValue::Str(error_msg),
+                ));
+
+                match scope {
+                    HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
+                        command_id,
+                        call_id,
+                        0,
+                        "Cancelled".to_string(),
+                        None,
+                        error,
+                    ),
+                    HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
+                        call_id,
+                        0,
+                        "Cancelled".to_string(),
+                        None,
+                        error,
+                    ),
+                }
+            }
         }
     }
 
@@ -155,6 +251,14 @@ impl ActiveSession {
                     }));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
+                    // Track this host call as pending
+                    let scope = match host_call.call_type {
+                        HostCallType::Pipeline { id } => HostCallScope::Pipeline { command_id: id },
+                        HostCallType::RunspacePool => HostCallScope::RunspacePool,
+                    };
+                    let key = (scope, host_call.call_id);
+                    self.pending_host_calls.insert(key, ());
+
                     step_output.push(ActiveSessionOutput::HostCall(host_call));
                 }
             }
@@ -164,4 +268,90 @@ impl ActiveSession {
         Ok(step_output)
     }
 
+    /// Send a pipeline host response back to the server
+    fn send_pipeline_host_response(
+        &mut self,
+        command_id: uuid::Uuid,
+        call_id: i64,
+        method_id: i32,
+        method_name: String,
+        result: Option<PsValue>,
+        error: Option<PsValue>,
+    ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
+        // Only send a response if we have a result or error to report
+        // Void methods (like Write, WriteLine, WriteProgress) don't need responses
+        if result.is_none() && error.is_none() {
+            return Ok(ActiveSessionOutput::OperationSuccess);
+        }
+
+        use protocol_powershell_remoting::PipelineHostResponse;
+
+        let host_response = PipelineHostResponse::builder()
+            .call_id(call_id)
+            .method_id(method_id)
+            .method_name(method_name)
+            .method_result_opt(result)
+            .method_exception_opt(error)
+            .build();
+
+        // Fragment and send via RunspacePool
+        let request = self
+            .runspace_pool
+            .send_pipeline_host_response(command_id, host_response)?;
+        let http_response = self.http_builder.post("/wsman", request);
+
+        // Queue a receive after sending the response
+        let receive_request = self.runspace_pool.fire_receive(
+            crate::runspace_pool::DesiredStream::pipeline_streams(command_id),
+        )?;
+        let receive_http_response = self.http_builder.post("/wsman", receive_request);
+
+        Ok(ActiveSessionOutput::SendBack(vec![
+            http_response,
+            receive_http_response,
+        ]))
+    }
+
+    /// Send a runspace pool host response back to the server
+    fn send_runspace_pool_host_response(
+        &mut self,
+        call_id: i64,
+        method_id: i32,
+        method_name: String,
+        result: Option<PsValue>,
+        error: Option<PsValue>,
+    ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
+        // Only send a response if we have a result or error to report
+        // Void methods (like Write, WriteLine, WriteProgress) don't need responses
+        if result.is_none() && error.is_none() {
+            return Ok(ActiveSessionOutput::OperationSuccess);
+        }
+
+        use protocol_powershell_remoting::RunspacePoolHostResponse;
+
+        let host_response = RunspacePoolHostResponse::builder()
+            .call_id(call_id)
+            .method_id(method_id)
+            .method_name(method_name)
+            .method_result_opt(result)
+            .method_exception_opt(error)
+            .build();
+
+        // Fragment and send via RunspacePool
+        let request = self
+            .runspace_pool
+            .send_runspace_pool_host_response(host_response)?;
+        let http_response = self.http_builder.post("/wsman", request);
+
+        // Queue a receive after sending the response
+        let receive_request = self
+            .runspace_pool
+            .fire_receive(crate::runspace_pool::DesiredStream::runspace_pool_streams())?;
+        let receive_http_response = self.http_builder.post("/wsman", receive_request);
+
+        Ok(ActiveSessionOutput::SendBack(vec![
+            http_response,
+            receive_http_response,
+        ]))
+    }
 }

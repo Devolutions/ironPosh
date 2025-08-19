@@ -57,6 +57,19 @@ impl DesiredStream {
         }]
     }
 
+    pub(crate) fn pipeline_streams(command_id: Uuid) -> Vec<Self> {
+        vec![
+            DesiredStream {
+                name: "stdout".to_string(),
+                command_id: Some(command_id),
+            },
+            DesiredStream {
+                name: "stderr".to_string(),
+                command_id: Some(command_id),
+            },
+        ]
+    }
+
     pub(crate) fn stdout_for_command(command_id: Uuid) -> Self {
         DesiredStream {
             name: "stdout".to_string(),
@@ -731,4 +744,57 @@ impl RunspacePool {
         )))
     }
 
+    /// Send a pipeline host response to the server
+    pub fn send_pipeline_host_response(
+        &mut self,
+        command_id: uuid::Uuid,
+        host_response: protocol_powershell_remoting::PipelineHostResponse,
+    ) -> Result<String, PwshCoreError> {
+        // Fragment the host response message
+        let fragmented =
+            self.fragmenter
+                .fragment(&host_response, self.id, Some(command_id), None)?;
+
+        // Encode fragments as base64
+        let arguments = fragmented
+            .into_iter()
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))
+            .collect::<Vec<_>>();
+
+        // Create WS-Man Send request (send data to stdin)
+        let request =
+            self.shell
+                .send_data_request(&self.connection, Some(command_id), arguments)?;
+
+        Ok(request.into().to_string())
+    }
+
+    /// Send a runspace pool host response to the server
+    pub fn send_runspace_pool_host_response(
+        &mut self,
+        host_response: protocol_powershell_remoting::RunspacePoolHostResponse,
+    ) -> Result<String, PwshCoreError> {
+        // Fragment the host response message
+        let fragmented = self.fragmenter.fragment(
+            &host_response,
+            self.id,
+            None, // No command ID for runspace pool messages
+            None,
+        )?;
+
+        // Encode fragments as base64
+        let arguments = fragmented
+            .into_iter()
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))
+            .collect::<Vec<_>>();
+
+        // Create WS-Man Send request (send data to stdin)
+        let request = self.shell.send_data_request(
+            &self.connection,
+            None, // No command ID for runspace pool
+            arguments,
+        )?;
+
+        Ok(request.into().to_string())
+    }
 }

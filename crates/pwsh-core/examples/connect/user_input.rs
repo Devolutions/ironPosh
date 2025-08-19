@@ -1,15 +1,12 @@
+use pwsh_core::connector::UserOperation;
+use pwsh_core::connector::active_session::PowershellOperations;
+use pwsh_core::powershell::PowerShell;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tracing::{Instrument, error, info, info_span};
-use pwsh_core::connector::active_session::PowershellOperations;
-use pwsh_core::connector::UserOperation;
-use pwsh_core::powershell::PowerShell;
 
 /// Handle user input for PowerShell commands
-pub async fn handle_user_input(
-    user_request_tx: mpsc::Sender<UserOperation>,
-    pipeline: PowerShell,
-) {
+pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pipeline: PowerShell) {
     info!("Pipeline ready! Enter PowerShell commands (type 'exit' to quit):");
 
     let stdin = tokio::io::stdin();
@@ -70,10 +67,7 @@ pub fn spawn_user_input_handler(
     tokio::spawn(
         async move {
             info!("Creating initial pipeline...");
-            if let Err(e) = user_request_tx
-                .send(UserOperation::CreatePipeline)
-                .await
-            {
+            if let Err(e) = user_request_tx.send(UserOperation::CreatePipeline).await {
                 error!("Failed to send create pipeline request: {}", e);
                 return;
             }

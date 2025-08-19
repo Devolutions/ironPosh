@@ -263,6 +263,43 @@ impl WinRunspace {
         Ok(request)
     }
 
+    /// Send data to the shell stdin (for host responses)
+    pub fn send_data_request<'a>(
+        &'a self,
+        connection: &'a WsMan,
+        command_id: Option<uuid::Uuid>,
+        data: Vec<String>,
+    ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
+        use protocol_winrm::{
+            cores::{Tag, tag_name::Send},
+            soap::body::SoapBody,
+        };
+
+        // Add send tag with data
+        let send_tag = if let Some(cmd_id) = command_id {
+            // For pipeline-scoped sends, include CommandId
+            Tag::from_name(Send)
+                .with_value(Text::from(data.join("")))
+                .with_attribute(Attribute::CommandId(cmd_id))
+        } else {
+            // For runspace-scoped sends, no CommandId
+            Tag::from_name(Send).with_value(Text::from(data.join("")))
+        };
+
+        let request = connection.invoke(
+            ws_management::WsAction::Send,
+            Some(self.resource_uri.as_ref()),
+            SoapBody::builder().send(send_tag).build(),
+            Some(
+                OptionSetValue::default()
+                    .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string()),
+            ),
+            self.selector_set.clone().into(),
+        );
+
+        Ok(request)
+    }
+
     pub fn accept_commannd_response<'a>(
         &mut self,
         soap_envelope: &SoapEnvelope<'a>,

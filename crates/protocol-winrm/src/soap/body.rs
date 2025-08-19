@@ -50,7 +50,7 @@ pub struct SoapBody<'a> {
     #[builder(default, setter(into, strip_option))]
     pub command_response: Option<Tag<'a, Tag<'a, WsUuid, CommandId>, CommandResponse>>,
     #[builder(default, setter(into, strip_option))]
-    pub send: Option<Tag<'a, TagList<'a>, Send>>,
+    pub send: Option<Tag<'a, Text<'a>, Send>>,
     #[builder(default, setter(into, strip_option))]
     pub signal: Option<Tag<'a, TagList<'a>, Signal>>,
 }

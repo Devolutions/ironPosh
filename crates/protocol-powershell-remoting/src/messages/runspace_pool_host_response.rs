@@ -26,10 +26,10 @@ pub struct RunspacePoolHostResponse {
     /// String representation of the method name
     pub method_name: String,
     /// Optional return value from the method
-    #[builder(default, setter(strip_option))]
+    #[builder(default, setter(strip_option(fallback_suffix = "_opt")))]
     pub method_result: Option<PsValue>,
     /// Optional exception thrown by the method invocation
-    #[builder(default, setter(strip_option))]
+    #[builder(default, setter(strip_option(fallback_suffix = "_opt")))]
     pub method_exception: Option<PsValue>,
 }
 
