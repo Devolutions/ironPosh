@@ -1,6 +1,6 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::{HostCallMethodWithParams, HostCallRequest},
+    host::{HostCallMethodWithParams, HostCallRequest, HostCallResponse},
     pipeline::ParameterValue,
     powershell::PowerShell,
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
@@ -163,4 +163,5 @@ impl ActiveSession {
         step_output.sort();
         Ok(step_output)
     }
+
 }
