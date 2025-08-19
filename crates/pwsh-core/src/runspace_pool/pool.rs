@@ -16,7 +16,7 @@ use xml::parser::XmlDeserialize;
 
 use crate::{
     PwshCoreError,
-    host::{HostCall, HostCallType},
+    host::{HostCallRequest, HostCallType},
     pipeline::Pipeline,
     powershell::PowerShell,
     runspace::win_rs::WinRunspace,
@@ -69,12 +69,12 @@ impl DesiredStream {
 pub enum AcceptResponsResult {
     ReceiveResponse { desired_streams: Vec<DesiredStream> },
     NewPipeline(PowerShell),
-    HostCall(HostCall),
+    HostCall(HostCallRequest),
 }
 
 #[derive(Debug)]
 pub enum PwshMessageResponse {
-    HostCall(HostCall),
+    HostCall(HostCallRequest),
     // TODO: Add other message responses like PipelineOutput, PipelineError, etc.
     // PipelineOutput
 }
@@ -699,7 +699,7 @@ impl RunspacePool {
         ps_value: PsValue,
         stream_name: &str,
         command_id: Option<&Uuid>,
-    ) -> Result<HostCall, crate::PwshCoreError> {
+    ) -> Result<HostCallRequest, crate::PwshCoreError> {
         let PsValue::Object(pipeline_host_call) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
                 "Expected PipelineHostCall as PsValue::Object".into(),
@@ -723,7 +723,7 @@ impl RunspacePool {
             ));
         };
 
-        Ok(HostCall::from((
+        Ok(HostCallRequest::from((
             &pipeline_host_call,
             HostCallType::Pipeline {
                 id: command_id.to_owned(),

@@ -1,48 +1,16 @@
+mod conversions;
+mod error;
+mod methods;
+mod types;
+
+pub use error::*;
+pub use methods::*;
+pub use types::*;
+
 use protocol_powershell_remoting::{PipelineHostCall, PsValue};
-use uuid::Uuid;
-
-pub mod ps_host;
-pub mod raw_ui;
-pub mod ui;
-
-// Re-export the traits for convenience
-pub use ps_host::PSHost;
-pub use raw_ui::PSHostRawUserInterface;
-pub use ui::PSHostUserInterface;
-
-/// Error type for host operations
-#[derive(Debug, Clone)]
-pub enum HostError {
-    NotImplemented,
-    InvalidParameters,
-    Cancelled,
-    Other(String),
-}
-
-impl std::fmt::Display for HostError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            HostError::NotImplemented => write!(f, "Operation not implemented"),
-            HostError::InvalidParameters => write!(f, "Invalid parameters"),
-            HostError::Cancelled => write!(f, "Operation cancelled"),
-            HostError::Other(msg) => write!(f, "{msg}"),
-        }
-    }
-}
-
-impl std::error::Error for HostError {}
-
-/// Result type for host operations
-pub type HostResult<T> = Result<T, HostError>;
 
 #[derive(Debug, Clone)]
-pub enum HostCallType {
-    Pipeline { id: Uuid },
-    RunspacePool,
-}
-
-#[derive(Debug, Clone)]
-pub struct HostCall {
+pub struct HostCallRequest {
     /// Type of the host call
     pub call_type: HostCallType,
     /// Unique identifier for this host call
@@ -55,7 +23,7 @@ pub struct HostCall {
     pub parameters: Vec<PsValue>,
 }
 
-impl HostCall {
+impl HostCallRequest {
     pub fn new(
         call_type: HostCallType,
         call_id: i64,
@@ -71,9 +39,82 @@ impl HostCall {
             parameters,
         }
     }
+
+    /// Extract the method call with typed parameters
+    pub fn get_param(&self) -> Result<HostCallMethodWithParams, HostError> {
+        HostCallMethodWithParams::try_from(self)
+    }
+
+    /// Submit the result and create a response
+    pub fn submit_result(self, result: HostCallMethodReturn) -> HostCallResponse {
+        // Extract method and delegate to the new submit method
+        let method = match self.get_param() {
+            Ok(method) => method,
+            Err(error) => {
+                // If we can't extract the method, create an error response
+                return HostCallResponse {
+                    call_type: self.call_type,
+                    call_id: self.call_id,
+                    method_id: self.method_id,
+                    method_name: self.method_name,
+                    method_result: None,
+                    method_exception: Some(PsValue::Primitive(
+                        protocol_powershell_remoting::PsPrimitiveValue::Str(error.to_string()),
+                    )),
+                };
+            }
+        };
+
+        let (method_result, method_exception) = match method.submit(result) {
+            Ok((result, exception)) => (result, exception),
+            Err(error) => {
+                // If submit fails, create an error response
+                (
+                    None,
+                    Some(PsValue::Primitive(
+                        protocol_powershell_remoting::PsPrimitiveValue::Str(error.to_string()),
+                    )),
+                )
+            }
+        };
+
+        HostCallResponse {
+            call_type: self.call_type,
+            call_id: self.call_id,
+            method_id: self.method_id,
+            method_name: self.method_name,
+            method_result,
+            method_exception,
+        }
+    }
+
+    /// Convenience method to extract method and get a closure for submitting results
+    /// Usage: let (method_result, method_exception) = self.get_method()?.submit(result)?;
+    pub fn extract_method_and_submit(
+        self,
+        result: HostCallMethodReturn,
+    ) -> Result<(Option<PsValue>, Option<PsValue>), HostError> {
+        self.get_param()?.submit(result)
+    }
 }
 
-impl From<(&PipelineHostCall, HostCallType)> for HostCall {
+#[derive(Debug, Clone)]
+pub struct HostCallResponse {
+    /// Type of the host call
+    pub call_type: HostCallType,
+    /// Unique identifier for this host call
+    pub call_id: i64,
+    /// The host method identifier (enum value)
+    pub method_id: i32,
+    /// String representation of the method name
+    pub method_name: String,
+    /// Optional return value from the method
+    pub method_result: Option<PsValue>,
+    /// Optional exception thrown by the method invocation
+    pub method_exception: Option<PsValue>,
+}
+
+impl From<(&PipelineHostCall, HostCallType)> for HostCallRequest {
     fn from((call, call_type): (&PipelineHostCall, HostCallType)) -> Self {
         let PipelineHostCall {
             call_id,
@@ -92,8 +133,8 @@ impl From<(&PipelineHostCall, HostCallType)> for HostCall {
     }
 }
 
-impl From<HostCall> for PipelineHostCall {
-    fn from(val: HostCall) -> Self {
+impl From<HostCallRequest> for PipelineHostCall {
+    fn from(val: HostCallRequest) -> Self {
         PipelineHostCall {
             call_id: val.call_id,
             method_id: val.method_id,

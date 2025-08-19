@@ -1,6 +1,6 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::HostCall,
+    host::{HostCallMethodWithParams, HostCallRequest},
     pipeline::ParameterValue,
     powershell::PowerShell,
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
@@ -16,7 +16,7 @@ pub enum ActiveSessionOutput {
     SendBack(Vec<HttpRequest<String>>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
-    HostCall(HostCall),
+    HostCall(HostCallRequest),
     OperationSuccess,
 }
 
@@ -43,7 +43,7 @@ impl Ord for ActiveSessionOutput {
 impl ActiveSessionOutput {
     pub fn priority(&self) -> u8 {
         match self {
-            ActiveSessionOutput::HostCall(_) => 1,
+            ActiveSessionOutput::HostCall { .. } => 1,
             ActiveSessionOutput::SendBack(_) => 2,
             ActiveSessionOutput::SendBackError(_) => 3,
             ActiveSessionOutput::UserEvent(_) => 4,

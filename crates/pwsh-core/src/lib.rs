@@ -35,4 +35,7 @@ pub enum PwshCoreError {
 
     #[error("Invalid response: {0}")]
     InvalidResponse(Cow<'static, str>),
+
+    #[error("Host error: {0}")]
+    HostError(#[from] crate::host::HostError),
 }
