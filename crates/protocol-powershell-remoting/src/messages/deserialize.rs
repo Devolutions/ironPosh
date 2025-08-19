@@ -441,7 +441,8 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     }
                 }
                 // Handle primitive content for ExtendedPrimitive objects
-                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "Nil" | "BA" | "Version" | "DT" => {
+                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "Nil" | "BA" | "Version"
+                | "DT" => {
                     let primitive = PsPrimitiveValue::from_node(child)?;
                     self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
                 }

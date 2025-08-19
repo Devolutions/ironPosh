@@ -184,7 +184,9 @@ mod tests {
             .call_id(42)
             .method_id(11) // ReadLine method
             .method_name("ReadLine".to_string())
-            .method_result(PsValue::Primitive(PsPrimitiveValue::Str("Alice".to_string())))
+            .method_result(PsValue::Primitive(PsPrimitiveValue::Str(
+                "Alice".to_string(),
+            )))
             .build();
 
         let complex_obj = ComplexObject::from(original.clone());
@@ -199,7 +201,9 @@ mod tests {
             .call_id(1)
             .method_id(20) // WriteProgress method
             .method_name("WriteProgress".to_string())
-            .method_exception(PsValue::Primitive(PsPrimitiveValue::Str("Test exception".to_string())))
+            .method_exception(PsValue::Primitive(PsPrimitiveValue::Str(
+                "Test exception".to_string(),
+            )))
             .build();
 
         let complex_obj = ComplexObject::from(original.clone());
@@ -234,6 +238,9 @@ mod tests {
             .method_name("ReadLine".to_string())
             .build();
 
-        assert_eq!(host_response.message_type(), MessageType::PipelineHostResponse);
+        assert_eq!(
+            host_response.message_type(),
+            MessageType::PipelineHostResponse
+        );
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-pub use active_session::{ActiveSession, SessionStepResult, UserOperation};
+pub use active_session::{ActiveSession, ActiveSessionOutput, UserOperation};
 pub mod active_session;
 pub mod http;
 
@@ -222,11 +222,14 @@ impl Connector {
                     )
                 })?;
 
-                let AcceptResponsResult::ReceiveResponse { desired_streams } =
-                    runspace_pool.accept_response(body)?
+                let accept_response_results = runspace_pool.accept_response(body)?;
+                let Some(AcceptResponsResult::ReceiveResponse { desired_streams }) =
+                    accept_response_results
+                        .into_iter()
+                        .find(|r| matches!(r, AcceptResponsResult::ReceiveResponse { .. }))
                 else {
                     return Err(crate::PwshCoreError::InvalidState(
-                        "Unexpected response type in ConnectReceiveCycle state from RunspacePool",
+                        "Expected ReceiveResponse in ConnectReceiveCycle state",
                     ));
                 };
 

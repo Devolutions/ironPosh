@@ -181,9 +181,9 @@ mod tests {
             .call_id(42)
             .method_id(11) // ReadLine method
             .method_name("ReadLine".to_string())
-            .parameters(vec![
-                PsValue::Primitive(PsPrimitiveValue::Str("Please enter your username".to_string()))
-            ])
+            .parameters(vec![PsValue::Primitive(PsPrimitiveValue::Str(
+                "Please enter your username".to_string(),
+            ))])
             .build();
 
         let complex_obj = ComplexObject::from(original.clone());

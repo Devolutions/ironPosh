@@ -114,7 +114,7 @@ impl WinRunspace {
                     Tag::from_name(DesiredStream).with_value(Text::from(stream.name().to_owned()));
 
                 if let Some(command_id) = stream.command_id() {
-                    tag = tag.with_attribute(Attribute::CommandId(command_id.clone()));
+                    tag = tag.with_attribute(Attribute::CommandId(*command_id));
                 }
 
                 tag

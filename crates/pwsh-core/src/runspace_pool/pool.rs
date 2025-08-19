@@ -1,5 +1,4 @@
 use std::{collections::HashMap, sync::Arc};
-use tracing::error;
 
 use base64::Engine;
 use protocol_powershell_remoting::{
@@ -71,6 +70,21 @@ pub enum AcceptResponsResult {
     ReceiveResponse { desired_streams: Vec<DesiredStream> },
     NewPipeline(PowerShell),
     HostCall(HostCall),
+}
+
+#[derive(Debug)]
+pub enum PwshMessageResponse {
+    HostCall(HostCall),
+    // TODO: Add other message responses like PipelineOutput, PipelineError, etc.
+    // PipelineOutput
+}
+
+impl From<PwshMessageResponse> for AcceptResponsResult {
+    fn from(response: PwshMessageResponse) -> Self {
+        match response {
+            PwshMessageResponse::HostCall(host_call) => AcceptResponsResult::HostCall(host_call),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -165,7 +179,7 @@ impl RunspacePool {
         &mut self,
         desired_streams: Vec<DesiredStream>,
     ) -> Result<String, crate::PwshCoreError> {
-        debug_assert!(desired_streams.len() > 0, "At least one desired stream");
+        debug_assert!(!desired_streams.is_empty(), "At least one desired stream");
         Ok(self
             .shell
             .fire_receive(&self.connection, desired_streams)
@@ -174,13 +188,15 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self, soap_envelope))]
-    pub(crate) fn accept_response<'a>(
+    pub(crate) fn accept_response(
         &mut self,
         soap_envelope: String,
-    ) -> Result<AcceptResponsResult, crate::PwshCoreError> {
+    ) -> Result<Vec<AcceptResponsResult>, crate::PwshCoreError> {
         let parsed = xml::parser::parse(soap_envelope.as_str())?;
         let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
+
+        let mut result = Vec::new();
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
             let (streams, command_state) = self.shell.accept_receive_response(&soap_envelope)?;
@@ -190,6 +206,7 @@ impl RunspacePool {
                 .collect::<Vec<_>>();
 
             let handle_pwsh_response = self.handle_pwsh_responses(streams)?;
+            result.extend(handle_pwsh_response.into_iter().map(|resp| resp.into()));
 
             if let Some(command_state) = command_state
                 && command_state.is_done()
@@ -198,7 +215,7 @@ impl RunspacePool {
                 self.pipelines.remove(&command_state.command_id);
             }
 
-            let desired_streams = if streams_ids.len() > 0 {
+            let desired_streams = if !streams_ids.is_empty() {
                 // find the intersetction of streams.id and self.pipelines.keys()
                 streams_ids
                     .into_iter()
@@ -213,7 +230,7 @@ impl RunspacePool {
                 DesiredStream::runspace_pool_streams()
             };
 
-            return Ok(AcceptResponsResult::ReceiveResponse { desired_streams });
+            result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
         }
 
         if soap_envelope.body.as_ref().command_response.is_some() {
@@ -229,23 +246,14 @@ impl RunspacePool {
                 ))?
                 .state = PsInvocationState::Running;
 
-            return Ok(AcceptResponsResult::ReceiveResponse {
+            result.push(AcceptResponsResult::ReceiveResponse {
                 desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
             });
         }
 
-        error!(
-            "Unimplemented handler for soap envelope body: {:?}",
-            soap_envelope.body
-        );
+        debug_assert!(!result.is_empty(), "We should have at least one result");
 
-        Err(crate::PwshCoreError::InvalidResponse(
-            format!(
-                "Unimplemented handler for soap envelope body: {:?}",
-                soap_envelope.body
-            )
-            .into(),
-        ))
+        Ok(result)
     }
 
     pub(crate) fn init_pipeline(&mut self) -> PowerShell {
@@ -312,7 +320,8 @@ impl RunspacePool {
     fn handle_pwsh_responses(
         &mut self,
         responses: Vec<crate::runspace::win_rs::Stream>,
-    ) -> Result<(), crate::PwshCoreError> {
+    ) -> Result<Vec<PwshMessageResponse>, crate::PwshCoreError> {
+        let mut result = Vec::new();
         for stream in responses {
             let messages = match self.defragmenter.defragment(stream.value())? {
                 fragment::DefragmentResult::Incomplete => continue,
@@ -353,6 +362,7 @@ impl RunspacePool {
                             stream.name(),
                             stream.command_id(),
                         )?;
+                        result.push(PwshMessageResponse::HostCall(host_call));
                     }
                     _ => {
                         info!(
@@ -365,7 +375,7 @@ impl RunspacePool {
             }
         }
 
-        Ok(())
+        Ok(result)
     }
 
     #[instrument(skip(self))]

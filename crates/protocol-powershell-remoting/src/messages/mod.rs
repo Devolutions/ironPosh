@@ -48,7 +48,7 @@ pub enum PsPrimitiveValue {
     Bytes(Vec<u8>),
     Version(String),
     DateTime(String), // Store as string for now
-    // Add more primitive types as needed
+                      // Add more primitive types as needed
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

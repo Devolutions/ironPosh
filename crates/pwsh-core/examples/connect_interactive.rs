@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::Context;
 use pwsh_core::connector::active_session::{PowershellOperations, UserEvent};
 use pwsh_core::connector::{
-    Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme, SessionStepResult,
+    ActiveSessionOutput, Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme,
     UserOperation, http::ServerAddress,
 };
 use pwsh_core::powershell::PowerShell;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 struct PendingRequest {
     correlation_id: Uuid,
     operation: UserOperation,
-    response_tx: oneshot::Sender<anyhow::Result<SessionStepResult>>,
+    response_tx: oneshot::Sender<anyhow::Result<ActiveSessionOutput>>,
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ enum SessionCommand {
     ProcessUserOperation {
         correlation_id: Uuid,
         operation: UserOperation,
-        response_tx: oneshot::Sender<anyhow::Result<SessionStepResult>>,
+        response_tx: oneshot::Sender<anyhow::Result<ActiveSessionOutput>>,
     },
     ProcessServerResponse {
         response: pwsh_core::connector::http::HttpResponse<String>,
@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
     // Setup channels for the new concurrent architecture
     let (user_request_tx, user_request_rx) = mpsc::channel::<(
         UserOperation,
-        oneshot::Sender<anyhow::Result<SessionStepResult>>,
+        oneshot::Sender<anyhow::Result<ActiveSessionOutput>>,
     )>(32);
     let (session_cmd_tx, session_cmd_rx) = mpsc::channel::<SessionCommand>(32);
     let (network_request_tx, network_request_rx) = mpsc::channel::<NetworkRequest>(32);
@@ -144,7 +144,7 @@ async fn main() -> anyhow::Result<()> {
                     match session.accept_client_operation(operation) {
                         Ok(result) => {
                             match result {
-                                SessionStepResult::SendBack(http_request) => {
+                                ActiveSessionOutput::SendBack(http_request) => {
                                     info!("SessionManager queuing HTTP request for correlation: {}", correlation_id);
                                     pending_requests.insert(correlation_id, PendingRequest {
                                         correlation_id,
@@ -159,16 +159,16 @@ async fn main() -> anyhow::Result<()> {
                                         }
                                     }
                                 }
-                                SessionStepResult::UserEvent(user_event) => {
+                                ActiveSessionOutput::UserEvent(user_event) => {
                                     info!("SessionManager emitting user event: {:?}", user_event);
-                                    let _ = response_tx.send(Ok(SessionStepResult::UserEvent(user_event)));
+                                    let _ = response_tx.send(Ok(ActiveSessionOutput::UserEvent(user_event)));
                                 }
                                 other_result => {
                                     info!("SessionManager immediate result: {:?}", other_result);
                                     
                                     // Send UI feedback for immediate results
                                     match &other_result {
-                                        SessionStepResult::SendBackError(e) => {
+                                        ActiveSessionOutput::SendBackError(e) => {
                                             error!(?e, "Error in user operation");
                                         }
                                         _ => {}
@@ -189,15 +189,15 @@ async fn main() -> anyhow::Result<()> {
                     match session.accept_server_response(response) {
                         Ok(result) => {
                             match result {
-                                SessionStepResult::SendBack(http_request) => {
+                                ActiveSessionOutput::SendBack(http_request) => {
                                     info!("SessionManager sending follow-up HTTP request");
                                     let _ = network_request_tx.send(NetworkRequest::HttpRequest(http_request)).await;
                                 }
-                                SessionStepResult::UserEvent(user_event) => {
+                                ActiveSessionOutput::UserEvent(user_event) => {
                                     info!(user_event = ?user_event, "SessionManager emitting user event");
                                     let _ = ui_tx.send(user_event).await;
                                 }
-                                SessionStepResult::SendBackError(e) => {
+                                ActiveSessionOutput::SendBackError(e) => {
                                     error!(?e, "Error in server response processing");
                                 }
                                 _ => {
@@ -213,7 +213,7 @@ async fn main() -> anyhow::Result<()> {
                     // Complete any pending requests that might be resolved by this server response
                     // For now, we'll complete the first pending request as a simple approach
                     if let Some((_, pending)) = pending_requests.drain().next() {
-                        let _ = pending.response_tx.send(Ok(SessionStepResult::SendBackError(pwsh_core::PwshCoreError::ConnectorError("Completed by server response".to_string()))));
+                        let _ = pending.response_tx.send(Ok(ActiveSessionOutput::SendBackError(pwsh_core::PwshCoreError::ConnectorError("Completed by server response".to_string()))));
                     }
                 }
             }

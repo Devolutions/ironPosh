@@ -1,10 +1,9 @@
-use std::io::BufRead;
 use std::net::Ipv4Addr;
 
 use anyhow::Context;
 use pwsh_core::connector::active_session::{PowershellOperations, UserEvent};
 use pwsh_core::connector::{
-    Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme, SessionStepResult,
+    ActiveSessionOutput, Authentication, Connector, ConnectorConfig, ConnectorStepResult, Scheme,
     UserOperation, http::ServerAddress,
 };
 use pwsh_core::powershell::PowerShell;
@@ -199,42 +198,49 @@ async fn main() -> anyhow::Result<()> {
             },
         };
 
-        let step_result = match next_step {
+        let step_results = match next_step {
             NextStep::NetworkResponse(http_response) => active_session
                 .accept_server_response(http_response)
                 .context("Failed to accept server response")?,
-            NextStep::UserRequest(user_operation) => active_session
-                .accept_client_operation(user_operation)
-                .context("Failed to accept user operation")?,
+            NextStep::UserRequest(user_operation) => vec![
+                active_session
+                    .accept_client_operation(user_operation)
+                    .context("Failed to accept user operation")?,
+            ],
         };
 
         info!("Received server response, processing...");
 
-        match step_result {
-            SessionStepResult::SendBack(http_requests) => {
-                for http_request in http_requests {
-                    network_request_tx
-                        .send(http_request)
-                        .await
-                        .context("Failed to send HTTP request")?;
-                }
-            }
-            SessionStepResult::SendBackError(e) => {
-                error!("Error in session step: {}", e);
-                return Err(anyhow::anyhow!("Session step failed: {}", e));
-            }
-            SessionStepResult::UserEvent(event) => match event {
-                UserEvent::PipelineCreated { powershell } => {
-                    info!("Pipeline created: {:?}", powershell);
-                    let sent = pipeline_tx.take().map(|tx| tx.send(powershell));
-                    if let Some(Err(_)) = sent {
-                        error!("Failed to send pipeline through channel");
-                        return Err(anyhow::anyhow!("Failed to send pipeline through channel"));
+        for step_result in step_results {
+            match step_result {
+                ActiveSessionOutput::SendBack(http_requests) => {
+                    for http_request in http_requests {
+                        network_request_tx
+                            .send(http_request)
+                            .await
+                            .context("Failed to send HTTP request")?;
                     }
                 }
-            },
-            SessionStepResult::OperationSuccess => {
-                info!("Operation completed successfully");
+                ActiveSessionOutput::SendBackError(e) => {
+                    error!("Error in session step: {}", e);
+                    return Err(anyhow::anyhow!("Session step failed: {}", e));
+                }
+                ActiveSessionOutput::UserEvent(event) => match event {
+                    UserEvent::PipelineCreated { powershell } => {
+                        info!("Pipeline created: {:?}", powershell);
+                        let sent = pipeline_tx.take().map(|tx| tx.send(powershell));
+                        if let Some(Err(_)) = sent {
+                            error!("Failed to send pipeline through channel");
+                            return Err(anyhow::anyhow!("Failed to send pipeline through channel"));
+                        }
+                    }
+                },
+                ActiveSessionOutput::HostCall(host_call) => {
+                    todo!("Handle host call: {:?}", host_call);
+                }
+                ActiveSessionOutput::OperationSuccess => {
+                    info!("Operation completed successfully");
+                }
             }
         }
     }
