@@ -60,10 +60,12 @@ impl<'a> PsPrimitiveValue {
             PsPrimitiveValue::I32(i) => Element::new("I32").set_text_owned(i.to_string()),
             PsPrimitiveValue::U32(u) => Element::new("U32").set_text_owned(u.to_string()),
             PsPrimitiveValue::I64(i) => Element::new("I64").set_text_owned(i.to_string()),
+            PsPrimitiveValue::U64(u) => Element::new("U64").set_text_owned(u.to_string()),
             PsPrimitiveValue::Guid(g) => Element::new("G").set_text_owned(g.clone()),
             PsPrimitiveValue::Nil => Element::new("Nil"), // empty tag
             PsPrimitiveValue::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
             PsPrimitiveValue::Version(v) => Element::new("Version").set_text_owned(v.clone()),
+            PsPrimitiveValue::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
         })
     }
 }

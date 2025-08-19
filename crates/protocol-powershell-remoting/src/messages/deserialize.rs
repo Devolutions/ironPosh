@@ -72,12 +72,23 @@ impl<'a> XmlVisitor<'a> for PsPrimitiveValueVisitor<'a> {
                 })?;
                 self.value = Some(PsPrimitiveValue::U32(uint_val));
             }
+            "U64" => {
+                let text = node.text().unwrap_or("0");
+                let uint_val = text.parse::<u64>().map_err(|_| {
+                    xml::XmlError::GenericError(format!("Invalid u64 value: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::U64(uint_val));
+            }
             "I64" => {
                 let text = node.text().unwrap_or("0");
                 let long_val = text.parse::<i64>().map_err(|_| {
                     xml::XmlError::GenericError(format!("Invalid i64 value: {text}"))
                 })?;
                 self.value = Some(PsPrimitiveValue::I64(long_val));
+            }
+            "DT" => {
+                let text = node.text().unwrap_or("").to_string();
+                self.value = Some(PsPrimitiveValue::DateTime(text));
             }
             "G" => {
                 let text = node.text().unwrap_or("").to_string();
@@ -430,7 +441,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     }
                 }
                 // Handle primitive content for ExtendedPrimitive objects
-                "S" | "B" | "I32" | "U32" | "I64" | "G" | "Nil" | "BA" | "Version" => {
+                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "Nil" | "BA" | "Version" | "DT" => {
                     let primitive = PsPrimitiveValue::from_node(child)?;
                     self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
                 }
@@ -528,7 +539,7 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
 
         match tag_name {
             // Handle primitive values
-            "S" | "B" | "I32" | "U32" | "I64" | "G" | "Nil" | "BA" | "Version" => {
+            "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "Nil" | "BA" | "Version" | "DT" => {
                 let primitive = PsPrimitiveValue::from_node(node)?;
                 self.value = Some(PsValue::Primitive(primitive));
             }

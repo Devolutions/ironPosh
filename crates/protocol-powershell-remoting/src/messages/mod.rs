@@ -42,10 +42,12 @@ pub enum PsPrimitiveValue {
     I32(i32),
     U32(u32),
     I64(i64),
+    U64(u64),
     Guid(String),
     Nil,
     Bytes(Vec<u8>),
     Version(String),
+    DateTime(String), // Store as string for now
     // Add more primitive types as needed
 }
 
