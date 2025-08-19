@@ -67,6 +67,15 @@ pub enum HostCallScope {
     RunspacePool,
 }
 
+impl From<HostCallType> for HostCallScope {
+    fn from(host_call_type: HostCallType) -> Self {
+        match host_call_type {
+            HostCallType::Pipeline { id } => HostCallScope::Pipeline { command_id: id },
+            HostCallType::RunspacePool => HostCallScope::RunspacePool,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UserOperation {
     CreatePipeline,
@@ -252,10 +261,7 @@ impl ActiveSession {
                 }
                 AcceptResponsResult::HostCall(host_call) => {
                     // Track this host call as pending
-                    let scope = match host_call.call_type {
-                        HostCallType::Pipeline { id } => HostCallScope::Pipeline { command_id: id },
-                        HostCallType::RunspacePool => HostCallScope::RunspacePool,
-                    };
+                    let scope: HostCallScope = host_call.call_type.clone().into();
                     let key = (scope, host_call.call_id);
                     self.pending_host_calls.insert(key, ());
 

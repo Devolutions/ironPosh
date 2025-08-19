@@ -264,6 +264,7 @@ impl WinRunspace {
     }
 
     /// Send data to the shell stdin (for host responses)
+    /// TODO: We should handle fragmentation properly
     pub fn send_data_request<'a>(
         &'a self,
         connection: &'a WsMan,
