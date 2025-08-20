@@ -14,7 +14,6 @@ use tracing::{error, info, instrument, warn};
 use config::{create_connector_config, init_logging};
 use connection::establish_connection;
 use network::spawn_network_handler;
-use tracing_subscriber::fmt::format;
 use types::NextStep;
 use user_input::spawn_user_input_handler;
 
@@ -155,36 +154,45 @@ async fn run_event_loop(
                     }
                 },
                 ActiveSessionOutput::HostCall(host_call) => {
-                    info!("Received host call: method_name='{}', call_id={}", 
-                          host_call.method_name, host_call.call_id);
-                    
+                    info!(
+                        "Received host call: method_name='{}', call_id={}",
+                        host_call.method_name, host_call.call_id
+                    );
+
                     let method = host_call.get_param().map_err(|e| {
                         error!("Failed to parse host call parameters: {:#}", e);
                         e
                     })?;
-                    
+
                     info!("Processing host call method: {:?}", method);
 
                     // Handle the host call and create a response
                     use pwsh_core::host::{HostCallMethodReturn, RawUIMethodReturn};
-                    
+
                     let response = match method {
                         // For GetBufferSize, return a default console buffer size
                         pwsh_core::host::HostCallMethodWithParams::RawUIMethod(
-                            pwsh_core::host::RawUIMethodParams::GetBufferSize
+                            pwsh_core::host::RawUIMethodParams::GetBufferSize,
                         ) => {
                             info!("Handling GetBufferSize - returning default console size");
-                            HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(120, 30))
+                            HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(
+                                120, 30,
+                            ))
                         }
-                        
+
                         // For WriteProgress, just acknowledge (void return)
                         pwsh_core::host::HostCallMethodWithParams::UIMethod(
-                            pwsh_core::host::UIMethodParams::WriteProgress(source_id, record)
+                            pwsh_core::host::UIMethodParams::WriteProgress(source_id, record),
                         ) => {
-                            info!("Handling WriteProgress - source_id={}, record={}", source_id, record);
-                            HostCallMethodReturn::UIMethod(pwsh_core::host::UIMethodReturn::WriteProgress)
+                            info!(
+                                "Handling WriteProgress - source_id={}, record={}",
+                                source_id, record
+                            );
+                            HostCallMethodReturn::UIMethod(
+                                pwsh_core::host::UIMethodReturn::WriteProgress,
+                            )
                         }
-                        
+
                         // For other methods, return not implemented error for now
                         other => {
                             warn!("Host call method not implemented: {:?}", other);
@@ -194,15 +202,21 @@ async fn run_event_loop(
 
                     // Submit the response
                     let host_response = host_call.submit_result(response);
-                    info!("Created host call response for call_id={}", host_response.call_id);
-                    
+                    info!(
+                        "Created host call response for call_id={}",
+                        host_response.call_id
+                    );
+
                     // For now, we're not sending the response back yet - that requires more infrastructure
                     // TODO: Implement sending host call responses back to the server
                 }
                 ActiveSessionOutput::OperationSuccess => {
                     info!("Operation completed successfully");
                 }
-                ActiveSessionOutput::PipelineOutput { output, handle: _handle } => {
+                ActiveSessionOutput::PipelineOutput {
+                    output,
+                    handle: _handle,
+                } => {
                     info!("Pipeline output: {}", output);
                     println!("Pipeline output: {}", output);
                 }

@@ -1,9 +1,12 @@
 use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
 use std::collections::BTreeMap;
+use typed_builder::TypedBuilder;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder)]
 pub struct Coordinates {
+    #[builder(default = 0)]
     pub x: i32,
+    #[builder(default = 0)]
     pub y: i32,
 }
 
@@ -34,9 +37,11 @@ impl From<Coordinates> for ComplexObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder)]
 pub struct Size {
+    #[builder(default = 0)]
     pub width: i32,
+    #[builder(default = 0)]
     pub height: i32,
 }
 
@@ -67,46 +72,44 @@ impl From<Size> for ComplexObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder)]
 pub struct HostDefaultData {
+    #[builder(default = 7)]
     pub foreground_color: i32,          // Key 0: System.ConsoleColor
+    #[builder(default = 0)]
     pub background_color: i32,          // Key 1: System.ConsoleColor
+    #[builder(default)]
     pub cursor_position: Coordinates,   // Key 2: System.Management.Automation.Host.Coordinates
+    #[builder(default)]
     pub window_position: Coordinates,   // Key 3: System.Management.Automation.Host.Coordinates
+    #[builder(default = 25)]
     pub max_physical_cursor_size: i32,  // Key 4: System.Int32
+    #[builder(default_code = "Size { width: 120, height: 30 }")]
     pub window_size: Size,              // Key 5: System.Management.Automation.Host.Size
+    #[builder(default_code = "Size { width: 120, height: 30 }")]
     pub buffer_size: Size,              // Key 6: System.Management.Automation.Host.Size
+    #[builder(default_code = "Size { width: 120, height: 30 }")]
     pub max_window_size: Size,          // Key 7: System.Management.Automation.Host.Size
+    #[builder(default_code = "Size { width: 3824, height: 2121 }")]
     pub max_physical_window_size: Size, // Key 8: System.Management.Automation.Host.Size
+    #[builder(default = "PowerShell".to_string())]
     pub host_name: String,              // Key 9: System.String
 }
 
 impl HostDefaultData {
     pub fn default_powershell() -> Self {
-        Self {
-            foreground_color: 7, // Gray
-            background_color: 0, // Black
-            cursor_position: Coordinates { x: 0, y: 27 },
-            window_position: Coordinates { x: 0, y: 0 },
-            max_physical_cursor_size: 25,
-            window_size: Size {
-                width: 120,
-                height: 30,
-            },
-            buffer_size: Size {
-                width: 120,
-                height: 30,
-            },
-            max_window_size: Size {
-                width: 120,
-                height: 30,
-            },
-            max_physical_window_size: Size {
-                width: 3824,
-                height: 2121,
-            },
-            host_name: "PowerShell".to_string(),
-        }
+        Self::builder()
+            .foreground_color(7) // Gray
+            .background_color(0) // Black
+            .cursor_position(Coordinates::builder().x(0).y(27).build())
+            .window_position(Coordinates::builder().x(0).y(0).build())
+            .max_physical_cursor_size(25)
+            .window_size(Size::builder().width(120).height(30).build())
+            .buffer_size(Size::builder().width(120).height(30).build())
+            .max_window_size(Size::builder().width(120).height(30).build())
+            .max_physical_window_size(Size::builder().width(3824).height(2121).build())
+            .host_name("PowerShell".to_string())
+            .build()
     }
 
     // Convert to the BTreeMap<PsValue, PsValue> format expected by HostInfo DCT

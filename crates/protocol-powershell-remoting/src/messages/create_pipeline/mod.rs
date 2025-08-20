@@ -201,7 +201,7 @@ impl CreatePipeline {
             .cmds(Commands::new(cmd))
             .build();
 
-        let host_info = HostInfo::builder().build();
+        let host_info = HostInfo::builder().use_runspace_host(true).build();
 
         CreatePipeline::builder()
             .host_info(host_info)

@@ -431,17 +431,6 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
 
 impl CommandState {
     pub fn is_done(&self) -> bool {
-        self.state
-            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done"
-    }
-
-    pub fn is_pending(&self) -> bool {
-        self.state
-            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending"
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.state
-            == "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running"
+        self.state == "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Done"
     }
 }

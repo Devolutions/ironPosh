@@ -18,6 +18,18 @@ pub struct HostInfo {
     pub host_default_data: HostDefaultData,
 }
 
+impl HostInfo {
+    pub fn enabled_all() -> Self {
+        HostInfo {
+            is_host_null: true,
+            is_host_ui_null: true,
+            is_host_raw_ui_null: true,
+            use_runspace_host: true,
+            host_default_data: HostDefaultData::default(),
+        }
+    }
+}
+
 impl From<HostInfo> for ComplexObject {
     fn from(host_info: HostInfo) -> Self {
         let mut extended_properties = BTreeMap::new();

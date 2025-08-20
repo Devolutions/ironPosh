@@ -32,6 +32,7 @@ pub struct ConnectorConfig {
     pub server: (ServerAddress, u16),
     pub scheme: Scheme,
     pub authentication: Authentication,
+    pub host_info: HostInfo,
 }
 
 impl ConnectorConfig {
@@ -157,7 +158,7 @@ impl Connector {
                 );
                 let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
                 let runspace_pool = RunspacePoolCreator::builder()
-                    .host_info(HostInfo::builder().build())
+                    .host_info(self.config.host_info.clone())
                     .build()
                     .into_runspace_pool(connection);
 

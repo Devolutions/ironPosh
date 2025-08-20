@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use base64::Engine;
 use protocol_powershell_remoting::{
@@ -287,8 +290,8 @@ impl RunspacePool {
                 && command_state.is_done()
             {
                 debug!(
-                    "Command {} is done, removing pipeline",
-                    command_state.command_id
+                    pipeline_id = ?command_state.command_id,
+                    "Command state done is received, removing pipeline",
                 );
                 // If command state is done, we can remove the pipeline from the pool
                 self.pipelines.remove(&command_state.command_id);
@@ -296,13 +299,23 @@ impl RunspacePool {
 
             let desired_streams = if !streams_ids.is_empty() {
                 // find the intersetction of streams.id and self.pipelines.keys()
-                streams_ids
+                let next_desired_streams = streams_ids.into_iter().filter(|stream| {
+                    self.pipelines
+                        .keys()
+                        .any(|pipeline_id| pipeline_id == stream)
+                });
+                
+
+
+                // keep unique stream with the same id
+                let mut stream_set = HashSet::new();
+
+                for stream in next_desired_streams {
+                    stream_set.insert(stream);
+                }
+
+                stream_set
                     .into_iter()
-                    .filter(|stream| {
-                        self.pipelines
-                            .keys()
-                            .any(|pipeline_id| pipeline_id == stream)
-                    })
                     .map(|stream| DesiredStream::new("stdout", stream.to_owned().into()))
                     .collect::<Vec<_>>()
             } else {
@@ -396,7 +409,7 @@ impl RunspacePool {
                     e
                 })?;
 
-                info!(?ps_value,message_type = ?message.message_type, "Parsed PS message");
+                info!(message_type = ?message.message_type, ?ps_value, "Parsed PS message");
 
                 match message.message_type {
                     protocol_powershell_remoting::MessageType::SessionCapability => {
@@ -476,7 +489,7 @@ impl RunspacePool {
                             })?;
                         debug!(?host_call, "Successfully created host call");
                         result.push(PwshMessageResponse::HostCall(host_call));
-                        debug!("Pushed HostCall response");
+                        debug!(result_len = result.len(), "Pushed HostCall response");
                     }
                     protocol_powershell_remoting::MessageType::PipelineOutput => {
                         debug!(
