@@ -7,7 +7,9 @@ use tracing_subscriber::EnvFilter;
 pub fn init_logging() -> anyhow::Result<()> {
     let log_file = std::fs::File::create("winrm_client.log")?;
     tracing_subscriber::fmt::SubscriberBuilder::default()
-        .with_env_filter(EnvFilter::new("pwsh_core=debug,ureq=warn"))
+        // Hide HTTP-related logs by setting them to ERROR level
+        // Focus on our PowerShell remoting logic
+        .with_env_filter(EnvFilter::new("pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error"))
         .with_max_level(tracing::Level::DEBUG)
         .with_target(false)
         .with_line_number(true)

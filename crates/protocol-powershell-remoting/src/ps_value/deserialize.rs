@@ -6,7 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
-use tracing::{debug, trace};
+use tracing::trace;
 use xml::parser::{XmlDeserialize, XmlVisitor};
 
 type Result<T> = std::result::Result<T, xml::XmlError>;
@@ -157,7 +157,7 @@ impl DeserializationContext {
     }
 
     pub fn register_type(&mut self, ref_id: String, ps_type: PsType) {
-        debug!(
+        trace!(
             "Registering type reference RefId={} with {} type names",
             ref_id,
             ps_type.type_names.len()
@@ -168,7 +168,7 @@ impl DeserializationContext {
 
     pub fn get_type(&self, ref_id: &str) -> Option<&PsType> {
         let result = self.type_refs.get(ref_id);
-        debug!(
+        trace!(
             "Looking up type reference RefId={}, found={}",
             ref_id,
             result.is_some()
@@ -183,13 +183,13 @@ impl DeserializationContext {
 
     pub fn get_object(&self, ref_id: &str) -> Option<&ComplexObject> {
         let result = self.object_refs.get(ref_id);
-        debug!(
+        trace!(
             "Looking up object reference RefId={}, found={}",
             ref_id,
             result.is_some()
         );
         if result.is_none() {
-            debug!(
+            trace!(
                 "Available object RefIds: {:?}",
                 self.object_refs.keys().collect::<Vec<_>>()
             );
@@ -293,7 +293,7 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
                     context.register_type(ref_id.to_string(), ps_type.clone());
                     self.resolved_type = Some(ps_type);
                 } else {
-                    debug!("Processing TN without RefId");
+                    trace!("Processing TN without RefId");
                     // TN without RefId - just process children
                     self.visit_children(node.children(), context)?;
                     self.resolved_type = Some(PsType {
@@ -304,18 +304,18 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
             "TNRef" => {
                 // Type reference - look up existing type definition
                 if let Some(ref_id) = node.attribute("RefId") {
-                    debug!("Processing TNRef with RefId={}", ref_id);
+                    trace!("Processing TNRef with RefId={}", ref_id);
                     if let Some(ps_type) = context.get_type(ref_id) {
-                        debug!("Successfully resolved TNRef RefId={}", ref_id);
+                        trace!("Successfully resolved TNRef RefId={}", ref_id);
                         self.resolved_type = Some(ps_type.clone());
                     } else {
-                        debug!("Failed to resolve TNRef RefId={}", ref_id);
+                        trace!("Failed to resolve TNRef RefId={}", ref_id);
                         return Err(xml::XmlError::GenericError(format!(
                             "Type reference {ref_id} not found"
                         )));
                     }
                 } else {
-                    debug!("TNRef missing RefId attribute");
+                    trace!("TNRef missing RefId attribute");
                     return Err(xml::XmlError::GenericError(
                         "TNRef missing RefId attribute".to_string(),
                     ));
@@ -565,18 +565,18 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
             // Handle object references
             "Ref" => {
                 if let Some(ref_id) = node.attribute("RefId") {
-                    debug!("Processing Ref with RefId={}", ref_id);
+                    trace!("Processing Ref with RefId={}", ref_id);
                     if let Some(complex_obj) = context.get_object(ref_id) {
-                        debug!("Successfully resolved object reference RefId={}", ref_id);
+                        trace!("Successfully resolved object reference RefId={}", ref_id);
                         self.value = Some(PsValue::Object(complex_obj.clone()));
                     } else {
-                        debug!("Failed to resolve object reference RefId={}", ref_id);
+                        trace!("Failed to resolve object reference RefId={}", ref_id);
                         return Err(xml::XmlError::GenericError(format!(
                             "Object reference {ref_id} not found"
                         )));
                     }
                 } else {
-                    debug!("Ref missing RefId attribute");
+                    trace!("Ref missing RefId attribute");
                     return Err(xml::XmlError::GenericError(
                         "Ref missing RefId attribute".to_string(),
                     ));

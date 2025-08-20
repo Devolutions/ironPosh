@@ -9,6 +9,7 @@ use protocol_winrm::{
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
 };
+use tracing::{debug, instrument};
 use uuid::Uuid;
 use xml::builder::Element;
 
@@ -146,6 +147,7 @@ impl WinRunspace {
         )
     }
 
+    #[instrument(skip_all)]
     pub(crate) fn accept_receive_response<'a>(
         &mut self,
         soap_envelope: &SoapEnvelope<'a>,
@@ -175,6 +177,8 @@ impl WinRunspace {
             .as_ref()
             .map(CommandState::try_from)
             .transpose()?;
+
+        debug!(receive_response = ?receive_response,?command_state, "Received streams and command state");
 
         Ok((streams, command_state))
     }
@@ -376,6 +380,7 @@ impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
     }
 }
 
+#[derive(Debug)]
 pub struct CommandState {
     pub command_id: Uuid,
     pub state: String,

@@ -52,6 +52,10 @@ impl PipelineCommand {
     pub fn add_switch_parameter(&mut self, name: String) {
         self.parameters.push(Parameter { name, value: None });
     }
+
+    pub(crate) fn new_output_stream() -> PipelineCommand {
+        PipelineCommand::new_script("Out-String -Stream".to_string())
+    }
 }
 
 /// Represents execution results in business terms
@@ -97,22 +101,6 @@ impl Pipeline {
         self.results.progress_records.push(record);
     }
 
-    pub(crate) fn add_script(&mut self, script: String) {
-        self.commands.push(PipelineCommand::new_script(script));
-    }
-
-    pub(crate) fn add_command(&mut self, command: String) {
-        self.commands.push(PipelineCommand::new_command(command));
-    }
-
-    pub(crate) fn add_parameter(&mut self, name: String, value: ParameterValue) {
-        if let Some(last_cmd) = self.commands.last_mut() {
-            last_cmd.add_parameter(name, value);
-        } else {
-            tracing::warn!("Attempted to add a parameter with no prior command.");
-        }
-    }
-
     pub(crate) fn add_switch_parameter(&mut self, name: String) {
         if let Some(last_cmd) = self.commands.last_mut() {
             last_cmd.add_switch_parameter(name);
@@ -121,14 +109,8 @@ impl Pipeline {
         }
     }
 
-    /// Check if the pipeline has any commands
-    pub(crate) fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
-
-    /// Get the number of commands in the pipeline
-    pub(crate) fn command_count(&self) -> usize {
-        self.commands.len()
+    pub(crate) fn add_command(&mut self, command: PipelineCommand) {
+        self.commands.push(command);
     }
 }
 

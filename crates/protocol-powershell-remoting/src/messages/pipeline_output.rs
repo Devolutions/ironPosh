@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::PsValue;
 use crate::{MessageType, PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
 
@@ -7,7 +9,9 @@ pub struct PipelineOutput {
 }
 
 impl From<PsValue> for PipelineOutput {
-    fn from(v: PsValue) -> Self { Self { data: v } }
+    fn from(v: PsValue) -> Self {
+        Self { data: v }
+    }
 }
 
 impl PsObjectWithType for PipelineOutput {
@@ -21,6 +25,12 @@ impl PsObjectWithType for PipelineOutput {
     }
 }
 
+impl Display for PipelineOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.data)
+    }
+}
+
 impl TryFrom<&PowerShellRemotingMessage> for PipelineOutput {
     type Error = PowerShellRemotingError;
 
@@ -30,6 +40,8 @@ impl TryFrom<&PowerShellRemotingMessage> for PipelineOutput {
                 "not a PipelineOutput message".into(),
             ));
         }
-        Ok(PipelineOutput { data: msg.parse_ps_message()? })
+        Ok(PipelineOutput {
+            data: msg.parse_ps_message()?,
+        })
     }
 }

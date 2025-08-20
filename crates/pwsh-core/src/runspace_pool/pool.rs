@@ -3,22 +3,22 @@ use std::{collections::HashMap, sync::Arc};
 use base64::Engine;
 use protocol_powershell_remoting::{
     ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter, HostInfo,
-    InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue, RunspacePoolStateMessage,
-    SessionCapability, fragment, fragmentation,
+    InitRunspacePool, PSThreadOptions, PipelineOutput, PowerShellPipeline, PsValue,
+    RunspacePoolStateMessage, SessionCapability, fragmentation,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
     ws_management::{OptionSetValue, WsMan},
 };
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 use xml::parser::XmlDeserialize;
 
 use crate::{
     PwshCoreError,
     host::{HostCallRequest, HostCallType},
-    pipeline::Pipeline,
-    powershell::PipelineHandle,
+    pipeline::{ParameterValue, Pipeline, PipelineCommand},
+    powershell::{PipelineHandle, PipelineOutputType},
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
 };
@@ -80,22 +80,42 @@ impl DesiredStream {
 
 #[derive(Debug)]
 pub enum AcceptResponsResult {
-    ReceiveResponse { desired_streams: Vec<DesiredStream> },
+    ReceiveResponse {
+        desired_streams: Vec<DesiredStream>,
+    },
     NewPipeline(PipelineHandle),
     HostCall(HostCallRequest),
+    PipelineOutput {
+        output: PipelineOutput,
+        handle: PipelineHandle,
+    },
 }
 
 #[derive(Debug)]
 pub enum PwshMessageResponse {
     HostCall(HostCallRequest),
-    // TODO: Add other message responses like PipelineOutput, PipelineError, etc.
-    // PipelineOutput
+    PipelineOutput {
+        output: PipelineOutput,
+        handle: PipelineHandle,
+    },
+}
+
+impl PwshMessageResponse {
+    pub fn name(&self) -> &str {
+        match self {
+            PwshMessageResponse::HostCall(_) => "HostCall",
+            PwshMessageResponse::PipelineOutput { .. } => "PipelineOutput",
+        }
+    }
 }
 
 impl From<PwshMessageResponse> for AcceptResponsResult {
     fn from(response: PwshMessageResponse) -> Self {
         match response {
             PwshMessageResponse::HostCall(host_call) => AcceptResponsResult::HostCall(host_call),
+            PwshMessageResponse::PipelineOutput { output, handle } => {
+                AcceptResponsResult::PipelineOutput { output, handle }
+            }
         }
     }
 }
@@ -117,6 +137,7 @@ pub struct RunspacePool {
     pub(super) session_capability: Option<SessionCapability>,
     pub(super) pipelines: HashMap<uuid::Uuid, Pipeline>,
     pub(super) fragmenter: fragmentation::Fragmenter,
+    pub(super) runspace_pool_desired_stream_is_pooling: bool,
 }
 
 impl RunspacePool {
@@ -235,6 +256,15 @@ impl RunspacePool {
                 .filter_map(|stream| stream.command_id().cloned())
                 .collect::<Vec<_>>();
 
+            let is_there_a_stream_has_no_command_id =
+                streams.iter().any(|stream| stream.command_id().is_none());
+            if is_there_a_stream_has_no_command_id {
+                debug!(
+                    "There is a stream without command_id, it should be the runspace pool stream"
+                );
+                self.runspace_pool_desired_stream_is_pooling = false
+            }
+
             debug!(
                 "Processing {} streams with command IDs: {:?}",
                 streams.len(),
@@ -247,9 +277,10 @@ impl RunspacePool {
             })?;
 
             debug!(
-                "Processed {} PowerShell responses",
-                handle_pwsh_response.len()
+                names = ?handle_pwsh_response.iter().map(|r| r.name()).collect::<Vec<_>>(),
+                "Handled PowerShell responses"
             );
+
             result.extend(handle_pwsh_response.into_iter().map(|resp| resp.into()));
 
             if let Some(command_state) = command_state
@@ -275,10 +306,17 @@ impl RunspacePool {
                     .map(|stream| DesiredStream::new("stdout", stream.to_owned().into()))
                     .collect::<Vec<_>>()
             } else {
-                DesiredStream::runspace_pool_streams()
+                if !self.runspace_pool_desired_stream_is_pooling {
+                    self.runspace_pool_desired_stream_is_pooling = true;
+                    DesiredStream::runspace_pool_streams()
+                } else {
+                    vec![]
+                }
             };
 
-            result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
+            if !desired_streams.is_empty() {
+                result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
+            }
         }
 
         if soap_envelope.body.as_ref().command_response.is_some() {
@@ -299,7 +337,6 @@ impl RunspacePool {
             });
         }
 
-        debug_assert!(!result.is_empty(), "We should have at least one result");
         debug!(?result, "Accept response results");
 
         Ok(result)
@@ -311,59 +348,6 @@ impl RunspacePool {
         PipelineHandle { id: pineline_id }
     }
 
-    #[instrument(skip(self))]
-    #[deprecated]
-    pub(crate) fn fire_create_pipeline(&mut self) -> Result<String, crate::PwshCoreError> {
-        if self.state != RunspacePoolState::Opened {
-            return Err(crate::PwshCoreError::InvalidState(
-                "RunspacePool must be in Opened state to create a pipeline",
-            ));
-        }
-
-        let pipeline_id = uuid::Uuid::new_v4();
-
-        self.pipelines.insert(pipeline_id, Pipeline::new());
-
-        // Create a command to execute instead of empty command list
-        let cmd = protocol_powershell_remoting::Command::builder()
-            .cmd(r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#)
-            .is_script(true)
-            .build();
-
-        let pipeline_message = PowerShellPipeline::builder()
-            .is_nested(false)
-            .redirect_shell_error_output_pipe(true)
-            .cmds(Commands::new(cmd))
-            .build();
-
-        let create_pipeline = CreatePipeline::builder()
-            .power_shell(pipeline_message)
-            .host_info(self.host_info.clone())
-            .apartment_state(self.apartment_state)
-            .build();
-
-        debug!(?create_pipeline);
-
-        let fragmented =
-            self.fragmenter
-                .fragment(&create_pipeline, self.id, Some(pipeline_id), None)?;
-
-        let arguments = fragmented
-            .into_iter()
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))
-            .collect::<Vec<_>>();
-
-        let request = self.shell.create_pipeline_request(
-            &self.connection,
-            pipeline_id,
-            arguments,
-            None,
-            None,
-        )?;
-
-        Ok(request.into().to_string())
-    }
-
     /// Fire create pipeline for a specific pipeline handle (used by service API)
     #[instrument(skip(self, responses))]
     fn handle_pwsh_responses(
@@ -372,14 +356,12 @@ impl RunspacePool {
     ) -> Result<Vec<PwshMessageResponse>, crate::PwshCoreError> {
         let mut result = Vec::new();
 
-        debug!("Processing {} PowerShell response streams", responses.len());
-
         for (stream_index, stream) in responses.into_iter().enumerate() {
             debug!(
-                "Processing stream {}: name={}, command_id={:?}",
                 stream_index,
-                stream.name(),
-                stream.command_id()
+                stream_name = ?stream.name(),
+                pipeline_id = ?stream.command_id(),
+                "Processing stream"
             );
 
             let messages = match self.defragmenter.defragment(stream.value()).map_err(|e| {
@@ -481,18 +463,20 @@ impl RunspacePool {
                     }
                     protocol_powershell_remoting::MessageType::PipelineHostCall => {
                         debug!(
-                            "Handling PipelineHostCall message for stream={}, command_id={:?}",
-                            stream.name(),
-                            stream.command_id()
+                            stream_name = ?stream.name(),
+                            pipeline_id = ?stream.command_id(),
+                            "Handling PipelineHostCall message"
                         );
+
                         let host_call = self
                             .handle_pipeline_host_call(ps_value, stream.name(), stream.command_id())
                             .map_err(|e| {
                                 error!("Failed to handle PipelineHostCall: {:#}", e);
                                 e
                             })?;
-                        debug!("Successfully created host call: {:?}", host_call);
+                        debug!(?host_call, "Successfully created host call");
                         result.push(PwshMessageResponse::HostCall(host_call));
+                        debug!("Pushed HostCall response");
                     }
                     protocol_powershell_remoting::MessageType::PipelineOutput => {
                         debug!(
@@ -501,14 +485,20 @@ impl RunspacePool {
                             stream.command_id()
                         );
 
-                        let output = self.handle_pipeline_output(
-                            ps_value,
-                            stream.name(),
-                            stream.command_id(),
-                        )?;
+                        let output = self.handle_pipeline_output(ps_value)?;
 
                         debug!("Successfully handled PipelineOutput: {:?}", output);
-                        result.push(PwshMessageResponse::HostCall(output));
+                        result.push(PwshMessageResponse::PipelineOutput {
+                            output,
+                            handle: PipelineHandle {
+                                id: stream
+                                    .command_id()
+                                    .ok_or(crate::PwshCoreError::InvalidResponse(
+                                        "PipelineOutput message must have a command_id".into(),
+                                    ))?
+                                    .clone(),
+                            },
+                        });
                     }
                     _ => {
                         error!(
@@ -521,7 +511,7 @@ impl RunspacePool {
             }
         }
 
-        debug!("Completed processing, returning {} results", result.len());
+        info!(?result, "Processed PowerShell responses");
         Ok(result)
     }
 
@@ -704,74 +694,6 @@ impl RunspacePool {
     // Note: PowerShell handles are created by the server via fire_create_pipeline/accept_response flow
     // Users should get handles from the ActiveSession after calling CreatePipeline operation
 
-    /// Adds a script to the specified pipeline.
-    ///
-    /// # Arguments
-    /// * `handle`: The handle to the pipeline to modify.
-    /// * `script`: The script string to add.
-    pub fn add_script(
-        &mut self,
-        handle: PipelineHandle,
-        script: impl Into<String>,
-    ) -> Result<(), PwshCoreError> {
-        let pipeline = self
-            .pipelines
-            .get_mut(&handle.id())
-            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
-
-        if pipeline.state != PsInvocationState::NotStarted {
-            return Err(PwshCoreError::InvalidState(
-                "Cannot add to a pipeline that has already been started",
-            ));
-        }
-
-        pipeline.add_script(script.into());
-        Ok(())
-    }
-
-    /// Adds a command (cmdlet) to the specified pipeline.
-    pub fn add_command(
-        &mut self,
-        handle: PipelineHandle,
-        command: impl Into<String>,
-    ) -> Result<(), PwshCoreError> {
-        let pipeline = self
-            .pipelines
-            .get_mut(&handle.id())
-            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
-
-        if pipeline.state != PsInvocationState::NotStarted {
-            return Err(PwshCoreError::InvalidState(
-                "Cannot add to a pipeline that has already been started",
-            ));
-        }
-
-        pipeline.add_command(command.into());
-        Ok(())
-    }
-
-    /// Adds a parameter to the last command in the specified pipeline.
-    pub fn add_parameter(
-        &mut self,
-        handle: PipelineHandle,
-        name: String,
-        value: crate::pipeline::ParameterValue,
-    ) -> Result<(), PwshCoreError> {
-        let pipeline = self
-            .pipelines
-            .get_mut(&handle.id())
-            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
-
-        if pipeline.state != PsInvocationState::NotStarted {
-            return Err(PwshCoreError::InvalidState(
-                "Cannot add to a pipeline that has already been started",
-            ));
-        }
-
-        pipeline.add_parameter(name, value);
-        Ok(())
-    }
-
     /// Adds a switch parameter (no value) to the last command in the specified pipeline.
     pub fn add_switch_parameter(
         &mut self,
@@ -804,11 +726,16 @@ impl RunspacePool {
     pub fn invoke_pipeline_request(
         &mut self,
         handle: PipelineHandle,
+        output_type: PipelineOutputType,
     ) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if let PipelineOutputType::Streamed = output_type {
+            pipeline.add_command(PipelineCommand::new_output_stream());
+        }
 
         // Set pipeline state to Running
         pipeline.state = PsInvocationState::Running;
@@ -864,6 +791,9 @@ impl RunspacePool {
             ?pipeline_host_call,
             stream_name = stream_name,
             command_id = ?command_id,
+            method_id = pipeline_host_call.method_id,
+            method_name = pipeline_host_call.method_name,
+            parameter_count = pipeline_host_call.parameters.len(),
             "Received PipelineHostCall"
         );
 
@@ -939,38 +869,29 @@ impl RunspacePool {
     pub fn handle_pipeline_output(
         &mut self,
         ps_value: PsValue,
-        stream_name: &str,
-        command_id: Option<&Uuid>,
-    ) -> Result<HostCallRequest, PwshCoreError> {
-        let PsValue::Object(pipeline_output) = ps_value else {
-            return Err(PwshCoreError::InvalidResponse(
-                "Expected PipelineOutput as PsValue::Object".into(),
+    ) -> Result<PipelineOutput, PwshCoreError> {
+        let pipeline_output = PipelineOutput::from(ps_value);
+
+        Ok(pipeline_output)
+    }
+
+    pub(crate) fn add_command(
+        &mut self,
+        powershell: PipelineHandle,
+        command: PipelineCommand,
+    ) -> Result<(), PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&powershell.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state != PsInvocationState::NotStarted {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot add to a pipeline that has already been started",
             ));
-        };
+        }
 
-        // let pipeline_output =
-        //     protocol_powershell_remoting::PipelineOutput::try_from(pipeline_output)?;
-
-        // debug!(
-        //     ?pipeline_output,
-        //     stream_name = stream_name,
-        //     command_id = ?command_id,
-        //     "Received PipelineOutput"
-        // );
-
-        // // Question: Can we have a Optional command id here?
-        // let Some(command_id) = command_id else {
-        //     return Err(PwshCoreError::InvalidResponse(
-        //         "Expected command_id to be Some".into(),
-        //     ));
-        // };
-
-        // Ok(HostCallRequest::from((
-        //     &pipeline_output,
-        //     HostCallType::Pipeline {
-        //         id: command_id.to_owned(),
-        //     },
-        // )))
-        todo!()
+        pipeline.add_command(command);
+        Ok(())
     }
 }

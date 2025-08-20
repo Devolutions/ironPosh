@@ -1,12 +1,16 @@
-use pwsh_core::connector::UserOperation;
 use pwsh_core::connector::active_session::PowershellOperations;
+use pwsh_core::pipeline::PipelineCommand;
 use pwsh_core::powershell::PipelineHandle;
+use pwsh_core::{connector::UserOperation, powershell::PipelineOutputType};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tracing::{Instrument, error, info, info_span};
 
 /// Handle user input for PowerShell commands
-pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pipeline: PipelineHandle) {
+pub async fn handle_user_input(
+    user_request_tx: mpsc::Sender<UserOperation>,
+    pipeline: PipelineHandle,
+) {
     info!("Pipeline ready! Enter PowerShell commands (type 'exit' to quit):");
 
     let stdin = tokio::io::stdin();
@@ -31,7 +35,9 @@ pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pip
                     if let Err(e) = user_request_tx
                         .send(UserOperation::OperatePipeline {
                             powershell: pipeline,
-                            operation: PowershellOperations::AddScript(command.clone()),
+                            operation: PowershellOperations::AddCommand {
+                                command: PipelineCommand::new_script(command),
+                            },
                         })
                         .await
                     {
@@ -43,6 +49,7 @@ pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pip
                     if let Err(e) = user_request_tx
                         .send(UserOperation::InvokePipeline {
                             powershell: pipeline,
+                            output_type: PipelineOutputType::Streamed,
                         })
                         .await
                     {

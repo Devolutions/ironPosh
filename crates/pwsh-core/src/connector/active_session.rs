@@ -1,11 +1,11 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::{HostCallRequest, HostCallType},
-    pipeline::ParameterValue,
-    powershell::PipelineHandle,
+    host::{self, HostCallRequest, HostCallType},
+    pipeline::{ParameterValue, PipelineCommand},
+    powershell::{PipelineHandle, PipelineOutputType},
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
-use protocol_powershell_remoting::PsValue;
+use protocol_powershell_remoting::{PipelineOutput, PsValue};
 use tracing::{debug, error, instrument};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,6 +19,10 @@ pub enum ActiveSessionOutput {
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     HostCall(HostCallRequest),
+    PipelineOutput {
+        output: PipelineOutput,
+        handle: PipelineHandle,
+    },
     OperationSuccess,
 }
 
@@ -49,16 +53,15 @@ impl ActiveSessionOutput {
             ActiveSessionOutput::SendBack(_) => 2,
             ActiveSessionOutput::SendBackError(_) => 3,
             ActiveSessionOutput::UserEvent(_) => 4,
-            ActiveSessionOutput::OperationSuccess => 5,
+            ActiveSessionOutput::PipelineOutput { .. } => 5,
+            ActiveSessionOutput::OperationSuccess => 6,
         }
     }
 }
 
 #[derive(Debug)]
 pub enum PowershellOperations {
-    AddScript(String),
-    AddCommand(String),
-    AddParameter { name: String, value: ParameterValue },
+    AddCommand { command: PipelineCommand },
     AddArgument(String),
 }
 
@@ -86,6 +89,7 @@ pub enum UserOperation {
     },
     InvokePipeline {
         powershell: PipelineHandle,
+        output_type: PipelineOutputType,
     },
     /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
     SubmitHostResponse {
@@ -138,14 +142,8 @@ impl ActiveSession {
                 operation,
             } => {
                 match operation {
-                    PowershellOperations::AddScript(script) => {
-                        self.runspace_pool.add_script(powershell, script)?;
-                    }
-                    PowershellOperations::AddCommand(command) => {
+                    PowershellOperations::AddCommand { command } => {
                         self.runspace_pool.add_command(powershell, command)?;
-                    }
-                    PowershellOperations::AddParameter { name, value } => {
-                        self.runspace_pool.add_parameter(powershell, name, value)?;
                     }
                     PowershellOperations::AddArgument(arg) => {
                         self.runspace_pool.add_switch_parameter(powershell, arg)?;
@@ -153,8 +151,13 @@ impl ActiveSession {
                 }
                 Ok(ActiveSessionOutput::OperationSuccess)
             }
-            UserOperation::InvokePipeline { powershell } => {
-                let command_request = self.runspace_pool.invoke_pipeline_request(powershell);
+            UserOperation::InvokePipeline {
+                powershell,
+                output_type,
+            } => {
+                let command_request = self
+                    .runspace_pool
+                    .invoke_pipeline_request(powershell, output_type);
                 match command_request {
                     Ok(request) => {
                         let response = self.http_builder.post("/wsman", request);
@@ -283,13 +286,20 @@ impl ActiveSession {
                     }));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
-                    debug!("Received host call: {:?}", host_call);
+                    debug!(host_call = ?host_call, "Received host call request");
                     // Track this host call as pending
                     let scope: HostCallScope = host_call.call_type.clone().into();
                     let key = (scope, host_call.call_id);
                     self.pending_host_calls.insert(key, ());
 
                     step_output.push(ActiveSessionOutput::HostCall(host_call));
+                }
+                AcceptResponsResult::PipelineOutput { output, handle } => {
+                    debug!("Pipeline output: {:?}", output);
+                    step_output.push(ActiveSessionOutput::PipelineOutput {
+                        output,
+                        handle: handle.clone(),
+                    });
                 }
             }
         }

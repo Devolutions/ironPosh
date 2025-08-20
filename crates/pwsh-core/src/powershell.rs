@@ -9,16 +9,19 @@ pub struct PipelineHandle {
 }
 
 impl PipelineHandle {
-    /// Creates a PowerShell handle from a server-provided UUID.
-    ///
-    /// This function is internal because handles should only be created by
-    /// the server via the PSRP protocol flow.
-    pub(crate) fn from_server_id(id: uuid::Uuid) -> Self {
-        Self { id }
-    }
-
     /// Returns the unique identifier for this PowerShell handle.
     pub fn id(&self) -> uuid::Uuid {
         self.id
     }
+}
+
+
+/// Defines how the output of a pipeline should be handled
+/// This concept is not part of the PWSH protocol, it is used internally
+/// to determine how the output should be processed when invoking a pipeline.
+#[derive(Debug)]
+pub enum PipelineOutputType {
+    Raw,
+    /// Invoke pipeline with a extra command `Out-String -Stream`
+    Streamed,
 }

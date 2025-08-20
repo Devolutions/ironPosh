@@ -1,6 +1,6 @@
 use crate::{
     HostInfo,
-    fragment::{DefragmentResult, Defragmenter, Fragmenter},
+    fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
     messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
 };
 use std::collections::BTreeMap;
