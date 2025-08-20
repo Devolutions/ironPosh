@@ -79,47 +79,48 @@ impl From<InformationRecord> for ComplexObject {
         }
 
         if let Some(tags) = record.tags
-            && !tags.is_empty() {
-                let tag_values: Vec<PsValue> = tags
+            && !tags.is_empty()
+        {
+            let tag_values: Vec<PsValue> = tags
+                .into_iter()
+                .map(|tag| PsValue::Primitive(PsPrimitiveValue::Str(tag)))
+                .collect();
+
+            // Create array-like structure for tags
+            let tags_obj = ComplexObject {
+                type_def: Some(PsType {
+                    type_names: vec![
+                        Cow::Borrowed("System.String[]"),
+                        Cow::Borrowed("System.Array"),
+                        Cow::Borrowed("System.Object"),
+                    ],
+                }),
+                to_string: None,
+                content: ComplexObjectContent::Standard,
+                adapted_properties: BTreeMap::new(),
+                extended_properties: tag_values
                     .into_iter()
-                    .map(|tag| PsValue::Primitive(PsPrimitiveValue::Str(tag)))
-                    .collect();
+                    .enumerate()
+                    .map(|(i, val)| {
+                        (
+                            i.to_string(),
+                            PsProperty {
+                                name: i.to_string(),
+                                value: val,
+                            },
+                        )
+                    })
+                    .collect(),
+            };
 
-                // Create array-like structure for tags
-                let tags_obj = ComplexObject {
-                    type_def: Some(PsType {
-                        type_names: vec![
-                            Cow::Borrowed("System.String[]"),
-                            Cow::Borrowed("System.Array"),
-                            Cow::Borrowed("System.Object"),
-                        ],
-                    }),
-                    to_string: None,
-                    content: ComplexObjectContent::Standard,
-                    adapted_properties: BTreeMap::new(),
-                    extended_properties: tag_values
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, val)| {
-                            (
-                                i.to_string(),
-                                PsProperty {
-                                    name: i.to_string(),
-                                    value: val,
-                                },
-                            )
-                        })
-                        .collect(),
-                };
-
-                extended_properties.insert(
-                    "InformationalRecord_Tags".to_string(),
-                    PsProperty {
-                        name: "InformationalRecord_Tags".to_string(),
-                        value: PsValue::Object(tags_obj),
-                    },
-                );
-            }
+            extended_properties.insert(
+                "InformationalRecord_Tags".to_string(),
+                PsProperty {
+                    name: "InformationalRecord_Tags".to_string(),
+                    value: PsValue::Object(tags_obj),
+                },
+            );
+        }
 
         if let Some(user) = record.user {
             extended_properties.insert(

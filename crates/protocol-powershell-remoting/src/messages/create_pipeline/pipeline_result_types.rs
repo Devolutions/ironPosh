@@ -1,8 +1,7 @@
 use super::super::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PipelineResultTypes {
     #[default]
     None = 0x00,
@@ -14,7 +13,6 @@ pub enum PipelineResultTypes {
     All = 0x20,
     Null = 0x40,
 }
-
 
 impl PipelineResultTypes {
     pub fn value(self) -> i32 {

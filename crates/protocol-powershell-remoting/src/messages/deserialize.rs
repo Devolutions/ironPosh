@@ -339,10 +339,12 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
         _context: &mut DeserializationContext,
     ) -> Result<()> {
         for child in children {
-            if child.is_element() && child.tag_name().name() == "T"
-                && let Some(text) = child.text() {
-                    self.type_names.push(Cow::Owned(text.to_string()));
-                }
+            if child.is_element()
+                && child.tag_name().name() == "T"
+                && let Some(text) = child.text()
+            {
+                self.type_names.push(Cow::Owned(text.to_string()));
+            }
         }
         Ok(())
     }
@@ -488,11 +490,11 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
         // Post-process to detect enum content
         if let Some(type_def) = &self.type_def
             && type_def.type_names.iter().any(|name| name.contains("Enum"))
-                && let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) =
-                    &self.content
-                {
-                    self.content = ComplexObjectContent::PsEnums(PsEnums { value: *value });
-                }
+            && let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) =
+                &self.content
+        {
+            self.content = ComplexObjectContent::PsEnums(PsEnums { value: *value });
+        }
 
         Ok(())
     }
@@ -689,23 +691,24 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
 
                         for entry_child in en_child.children() {
                             if entry_child.is_element()
-                                && let Some(n_attr) = entry_child.attribute("N") {
-                                    match n_attr {
-                                        "Key" => {
-                                            key = Some(PsValue::from_node_with_context(
-                                                entry_child,
-                                                context,
-                                            )?);
-                                        }
-                                        "Value" => {
-                                            value = Some(PsValue::from_node_with_context(
-                                                entry_child,
-                                                context,
-                                            )?);
-                                        }
-                                        _ => {}
+                                && let Some(n_attr) = entry_child.attribute("N")
+                            {
+                                match n_attr {
+                                    "Key" => {
+                                        key = Some(PsValue::from_node_with_context(
+                                            entry_child,
+                                            context,
+                                        )?);
                                     }
+                                    "Value" => {
+                                        value = Some(PsValue::from_node_with_context(
+                                            entry_child,
+                                            context,
+                                        )?);
+                                    }
+                                    _ => {}
                                 }
+                            }
                         }
 
                         if let (Some(k), Some(v)) = (key, value) {

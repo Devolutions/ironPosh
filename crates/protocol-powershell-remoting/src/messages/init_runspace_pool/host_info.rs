@@ -107,9 +107,10 @@ impl TryFrom<ComplexObject> for HostInfo {
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let get_bool_property = |name: &str| -> Result<bool, Self::Error> {
-            let property = value.extended_properties.get(name).ok_or_else(|| {
-                Self::Error::InvalidMessage(format!("Missing property: {name}"))
-            })?;
+            let property = value
+                .extended_properties
+                .get(name)
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))?;
 
             match &property.value {
                 PsValue::Primitive(PsPrimitiveValue::Bool(b)) => Ok(*b),

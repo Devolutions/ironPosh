@@ -1,6 +1,6 @@
 use super::super::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue,
-    PsProperty, PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    PsType, PsValue,
 };
 use crate::MessageType;
 use std::collections::BTreeMap;

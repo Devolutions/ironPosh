@@ -1,6 +1,6 @@
 use crate::messages::{
-    deserialize::{DeserializationContext, PsXmlDeserialize},
     ComplexObject, PipelineHostCall, PsValue,
+    deserialize::{DeserializationContext, PsXmlDeserialize},
 };
 
 const PIPELINE_HOST_CALL: &'static str = r#"
@@ -13,11 +13,11 @@ fn test_parse_real_pipeline_host_call() {
     let parsed = xml::parser::parse(PIPELINE_HOST_CALL).expect("Failed to parse XML");
     let root = parsed.root_element();
     let mut context = DeserializationContext::new();
-    let complex_obj = ComplexObject::from_node_with_context(root, &mut context)
-        .expect("Failed to deserialize");
-    
+    let complex_obj =
+        ComplexObject::from_node_with_context(root, &mut context).expect("Failed to deserialize");
+
     println!("Complex Object: {:#?}", complex_obj);
-    
+
     // Debug the method identifier structure
     if let Some(mi_prop) = complex_obj.extended_properties.get("mi") {
         if let PsValue::Object(mi_obj) = &mi_prop.value {
@@ -25,12 +25,12 @@ fn test_parse_real_pipeline_host_call() {
             println!("Method identifier to_string: {:?}", mi_obj.to_string);
         }
     }
-    
-    let pipeline_host_call = PipelineHostCall::try_from(complex_obj)
-        .expect("Failed to convert to PipelineHostCall");
-        
+
+    let pipeline_host_call =
+        PipelineHostCall::try_from(complex_obj).expect("Failed to convert to PipelineHostCall");
+
     println!("PipelineHostCall: {:#?}", pipeline_host_call);
-    
+
     // Verify the parsed values
     assert_eq!(pipeline_host_call.call_id, -100);
     assert_eq!(pipeline_host_call.method_id, 20);

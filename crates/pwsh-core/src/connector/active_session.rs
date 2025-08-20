@@ -243,29 +243,32 @@ impl ActiveSession {
         &mut self,
         response: HttpResponse<String>,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        
         let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
             "Expected a body in server response",
         ))?;
 
         debug!("Response body length: {}", body.len());
 
-        let results = self.runspace_pool.accept_response(body)
-            .map_err(|e| {
-                error!("RunspacePool.accept_response failed: {:#}", e);
-                e
-            })?;
-            
+        let results = self.runspace_pool.accept_response(body).map_err(|e| {
+            error!("RunspacePool.accept_response failed: {:#}", e);
+            e
+        })?;
+
         let mut step_output = Vec::new();
         debug!(?results, "RunspacePool accept_response results");
-        
+
         for (index, result) in results.into_iter().enumerate() {
             debug!("Processing result {}: {:?}", index, result);
-            
+
             match result {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
-                    debug!("Creating receive request for streams: {:?}", desired_streams);
-                    let receive_request = self.runspace_pool.fire_receive(desired_streams)
+                    debug!(
+                        "Creating receive request for streams: {:?}",
+                        desired_streams
+                    );
+                    let receive_request = self
+                        .runspace_pool
+                        .fire_receive(desired_streams)
                         .map_err(|e| {
                             error!("Failed to create receive request: {:#}", e);
                             e
