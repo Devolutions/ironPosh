@@ -1,9 +1,8 @@
+use super::command::Command;
 use crate::Commands;
-
-use super::super::{
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
-use super::command::Command;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]

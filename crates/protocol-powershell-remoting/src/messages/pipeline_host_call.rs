@@ -1,8 +1,8 @@
-use super::super::{
+use crate::MessageType;
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
 };
-use crate::MessageType;
 use std::collections::BTreeMap;
 
 /// PipelineHostCall is a message sent from the server to the client to perform
@@ -174,7 +174,7 @@ impl TryFrom<ComplexObject> for PipelineHostCall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::PsPrimitiveValue;
+    use crate::ps_value::PsPrimitiveValue;
 
     #[test]
     fn test_pipeline_host_call_roundtrip() {

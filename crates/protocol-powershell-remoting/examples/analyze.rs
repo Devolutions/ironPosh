@@ -302,7 +302,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
 
         // Display formatted PowerShell Object
         print_section("7. PowerShell Object Details");
-        println!("{:#?}", ps_object);
+        println!("{}", ps_object);
     }
 
     print_separator("ANALYSIS COMPLETE");

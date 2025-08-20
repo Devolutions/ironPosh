@@ -494,6 +494,22 @@ impl RunspacePool {
                         debug!("Successfully created host call: {:?}", host_call);
                         result.push(PwshMessageResponse::HostCall(host_call));
                     }
+                    protocol_powershell_remoting::MessageType::PipelineOutput => {
+                        debug!(
+                            "Handling PipelineOutput message for stream={}, command_id={:?}",
+                            stream.name(),
+                            stream.command_id()
+                        );
+
+                        let output = self.handle_pipeline_output(
+                            ps_value,
+                            stream.name(),
+                            stream.command_id(),
+                        )?;
+
+                        debug!("Successfully handled PipelineOutput: {:?}", output);
+                        result.push(PwshMessageResponse::HostCall(output));
+                    }
                     _ => {
                         error!(
                             "Received message of type {:?}, but no handler implemented",
@@ -915,5 +931,43 @@ impl RunspacePool {
         )?;
 
         Ok(request.into().to_string())
+    }
+
+    pub fn handle_pipeline_output(
+        &mut self,
+        ps_value: PsValue,
+        stream_name: &str,
+        command_id: Option<&Uuid>,
+    ) -> Result<HostCallRequest, PwshCoreError> {
+        let PsValue::Object(pipeline_output) = ps_value else {
+            return Err(PwshCoreError::InvalidResponse(
+                "Expected PipelineOutput as PsValue::Object".into(),
+            ));
+        };
+
+        // let pipeline_output =
+        //     protocol_powershell_remoting::PipelineOutput::try_from(pipeline_output)?;
+
+        // debug!(
+        //     ?pipeline_output,
+        //     stream_name = stream_name,
+        //     command_id = ?command_id,
+        //     "Received PipelineOutput"
+        // );
+
+        // // Question: Can we have a Optional command id here?
+        // let Some(command_id) = command_id else {
+        //     return Err(PwshCoreError::InvalidResponse(
+        //         "Expected command_id to be Some".into(),
+        //     ));
+        // };
+
+        // Ok(HostCallRequest::from((
+        //     &pipeline_output,
+        //     HostCallType::Pipeline {
+        //         id: command_id.to_owned(),
+        //     },
+        // )))
+        todo!()
     }
 }

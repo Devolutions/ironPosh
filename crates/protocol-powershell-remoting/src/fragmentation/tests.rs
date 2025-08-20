@@ -1,5 +1,8 @@
 use super::*;
-use crate::messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability};
+use crate::{
+    messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
+    ps_value::PsObjectWithType,
+};
 use std::collections::BTreeMap;
 use tracing::info;
 use tracing_test::traced_test;

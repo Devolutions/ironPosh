@@ -3,8 +3,8 @@ use uuid::Uuid;
 use super::*;
 use crate::{
     Fragmenter,
-    deserialize::{DeserializationContext, PsXmlDeserialize},
-    serialize::RefIdMap,
+    ps_value::deserialize::{DeserializationContext, PsXmlDeserialize},
+    ps_value::serialize::RefIdMap,
 };
 
 const REAL_CREATE_PIPELINE: &str = r#"

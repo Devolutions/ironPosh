@@ -2,7 +2,7 @@ use tracing::{debug, trace};
 use uuid::Uuid;
 
 use super::fragment::Fragment;
-use crate::{PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
+use crate::{PowerShellRemotingError, PowerShellRemotingMessage, ps_value::PsObjectWithType};
 
 /// Fragmenter handles fragmentation of outgoing PowerShell remoting messages
 #[derive(Debug)]
@@ -11,7 +11,7 @@ pub struct Fragmenter {
     outgoing_counter: u64,
 }
 
-fn safe_split_at<'a>(data: &'a [u8], size: usize) -> (&'a [u8], &'a [u8]) {
+fn safe_split_at(data: &[u8], size: usize) -> (&[u8], &[u8]) {
     if data.len() <= size {
         (data, &[])
     } else {
@@ -100,7 +100,7 @@ impl Fragmenter {
         let mut remaing_size = self.max_fragment_size;
         // Here we perhaps should not call it fragments anymore
         // Because we are grouping multiple fragments together into one Vec<u8>
-        let mut fragements = Vec::new();
+        let mut fragements: Vec<Vec<u8>> = Vec::new();
 
         for message in messages {
             let mut message_fragments = self.fragment(*message, rpid, pid, Some(remaing_size))?;
@@ -112,20 +112,20 @@ impl Fragmenter {
 
             // If we have remaining space, append the next message to the last fragment
             // This can save some space if the last fragment is not full
-            if remaing_size != self.max_fragment_size && fragements.len() > 0 {
+            if remaing_size != self.max_fragment_size && !fragements.is_empty() {
                 debug!(
                     "Appending to last fragment, remaining size: {}",
                     remaing_size
                 );
-                fragements.last_mut().map(|last: &mut Vec<u8>| {
+                if let Some(last) = fragements.last_mut() {
                     last.extend(message_fragments.remove(0));
-                });
+                }
             }
 
             fragements.extend(message_fragments);
 
             remaing_size = self.max_fragment_size - fragements.last().map_or(0, |last| last.len());
-            if remaing_size <= 0 {
+            if remaing_size == 0 {
                 remaing_size = self.max_fragment_size; // Reset for next message
             }
         }

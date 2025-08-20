@@ -1,13 +1,14 @@
 pub mod cores;
-pub mod fragment;
+pub mod fragmentation;
 pub mod messages;
+pub mod ps_value;
 
-use core::error;
 use std::str::Utf8Error;
 
 pub use cores::*;
-pub use fragment::*;
+pub use fragmentation::*;
 pub use messages::*;
+pub use ps_value::PsObjectWithType;
 
 #[cfg(test)]
 mod tests;

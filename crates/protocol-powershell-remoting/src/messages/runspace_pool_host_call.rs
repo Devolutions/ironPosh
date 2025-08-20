@@ -1,8 +1,8 @@
-use super::super::{
+use crate::MessageType;
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
 };
-use crate::MessageType;
 use std::collections::BTreeMap;
 
 /// RunspacePoolHostCall is a message sent from the server to the client to perform

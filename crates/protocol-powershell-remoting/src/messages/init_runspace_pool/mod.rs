@@ -10,11 +10,11 @@ pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
 pub use ps_thread_options::PSThreadOptions;
 
-use super::{
+use crate::MessageType;
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
 };
-use crate::MessageType;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

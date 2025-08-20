@@ -4,10 +4,7 @@ use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::{
-    PsObjectWithType, PsValue,
-    deserialize::{DeserializationContext, PsXmlDeserialize},
-};
+use crate::ps_value::{DeserializationContext, PsObjectWithType, PsValue, PsXmlDeserialize};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Destination {

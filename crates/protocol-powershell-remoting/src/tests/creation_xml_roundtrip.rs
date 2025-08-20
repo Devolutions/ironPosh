@@ -1,6 +1,6 @@
 use crate::{
     DefragmentResult, Defragmenter,
-    messages::{
+    ps_value::{
         PsValue,
         deserialize::{DeserializationContext, PsXmlDeserialize},
     },

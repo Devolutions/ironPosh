@@ -1,6 +1,9 @@
 use crate::{
-    deserialize::PsXmlDeserialize,
-    messages::{PsValue, deserialize::DeserializationContext},
+    ps_value::deserialize::PsXmlDeserialize,
+    ps_value::{
+        ComplexObjectContent, Container, PsPrimitiveValue, PsValue,
+        deserialize::DeserializationContext,
+    },
 };
 
 const PIPELINE_OUTPUT: &'static str = r#"
@@ -54,7 +57,7 @@ fn test_parse_real_pipeline_output() {
         .adapted_properties
         .get("Name")
         .expect("Should have Name property");
-    if let PsValue::Primitive(crate::messages::PsPrimitiveValue::Str(name)) = &name_prop.value {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = &name_prop.value {
         assert_eq!(name, "ADMF", "Name should be ADMF");
     } else {
         panic!("Name property should be a string");
@@ -64,9 +67,7 @@ fn test_parse_real_pipeline_output() {
         .adapted_properties
         .get("FullName")
         .expect("Should have FullName property");
-    if let PsValue::Primitive(crate::messages::PsPrimitiveValue::Str(full_name)) =
-        &full_name_prop.value
-    {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(full_name)) = &full_name_prop.value {
         assert_eq!(
             full_name, "C:\\Users\\Administrator\\Documents\\ADMF",
             "FullName should match"
@@ -79,8 +80,7 @@ fn test_parse_real_pipeline_output() {
         .adapted_properties
         .get("Exists")
         .expect("Should have Exists property");
-    if let PsValue::Primitive(crate::messages::PsPrimitiveValue::Bool(exists)) = &exists_prop.value
-    {
+    if let PsValue::Primitive(PsPrimitiveValue::Bool(exists)) = &exists_prop.value {
         assert!(exists, "Exists should be true");
     } else {
         panic!("Exists property should be a boolean");
@@ -96,8 +96,7 @@ fn test_parse_real_pipeline_output() {
         .extended_properties
         .get("PSPath")
         .expect("Should have PSPath property");
-    if let PsValue::Primitive(crate::messages::PsPrimitiveValue::Str(ps_path)) = &ps_path_prop.value
-    {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(ps_path)) = &ps_path_prop.value {
         assert_eq!(
             ps_path,
             "Microsoft.PowerShell.Core\\FileSystem::C:\\Users\\Administrator\\Documents\\ADMF",
@@ -135,7 +134,7 @@ fn test_parse_real_pipeline_output() {
             .adapted_properties
             .get("Name")
             .expect("PSDrive should have Name property");
-        if let PsValue::Primitive(crate::messages::PsPrimitiveValue::Str(name)) = &name_prop.value {
+        if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = &name_prop.value {
             assert_eq!(name, "C", "PSDrive Name should be C");
         } else {
             panic!("PSDrive Name property should be a string");
@@ -155,9 +154,8 @@ fn test_parse_real_pipeline_output() {
             .get("Drives")
             .expect("PSProvider should have Drives property");
         if let PsValue::Object(drives_obj) = &drives_prop.value {
-            if let crate::messages::ComplexObjectContent::Container(
-                crate::messages::Container::List(drives_list),
-            ) = &drives_obj.content
+            if let ComplexObjectContent::Container(Container::List(drives_list)) =
+                &drives_obj.content
             {
                 assert!(!drives_list.is_empty(), "Drives list should not be empty");
 
@@ -234,14 +232,14 @@ fn test_parse_real_pipeline_output_detailed_inspection() {
 
             // Check if we have any container content
             match &obj.content {
-                crate::messages::ComplexObjectContent::Standard => println!("\nContent: Standard"),
-                crate::messages::ComplexObjectContent::ExtendedPrimitive(prim) => {
+                ComplexObjectContent::Standard => println!("\nContent: Standard"),
+                ComplexObjectContent::ExtendedPrimitive(prim) => {
                     println!("\nContent: ExtendedPrimitive({:?})", prim)
                 }
-                crate::messages::ComplexObjectContent::Container(container) => {
+                ComplexObjectContent::Container(container) => {
                     println!("\nContent: Container({:?})", container);
                 }
-                crate::messages::ComplexObjectContent::PsEnums(enums) => {
+                ComplexObjectContent::PsEnums(enums) => {
                     println!("\nContent: Enum({})", enums.value)
                 }
             }
@@ -265,15 +263,15 @@ fn classify_ps_value(value: &PsValue) -> String {
                 .unwrap_or("Unknown");
 
             let content_type = match &obj.content {
-                crate::messages::ComplexObjectContent::Standard => "Standard",
-                crate::messages::ComplexObjectContent::ExtendedPrimitive(_) => "ExtendedPrimitive",
-                crate::messages::ComplexObjectContent::Container(container) => match container {
-                    crate::messages::Container::List(_) => "List",
-                    crate::messages::Container::Dictionary(_) => "Dictionary",
-                    crate::messages::Container::Stack(_) => "Stack",
-                    crate::messages::Container::Queue(_) => "Queue",
+                ComplexObjectContent::Standard => "Standard",
+                ComplexObjectContent::ExtendedPrimitive(_) => "ExtendedPrimitive",
+                ComplexObjectContent::Container(container) => match container {
+                    Container::List(_) => "List",
+                    Container::Dictionary(_) => "Dictionary",
+                    Container::Stack(_) => "Stack",
+                    Container::Queue(_) => "Queue",
                 },
-                crate::messages::ComplexObjectContent::PsEnums(_) => "Enum",
+                ComplexObjectContent::PsEnums(_) => "Enum",
             };
 
             format!(

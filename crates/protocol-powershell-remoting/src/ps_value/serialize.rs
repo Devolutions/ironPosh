@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use crate::{ComplexObject, ComplexObjectContent, Container, PsType, PsValue};
-
-use super::{PsPrimitiveValue, PsProperty};
+use super::{
+    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
+};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 

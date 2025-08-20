@@ -1,6 +1,8 @@
-use crate::messages::{
-    ComplexObject, PipelineHostCall, PsValue,
-    deserialize::{DeserializationContext, PsXmlDeserialize},
+use crate::{
+    messages::PipelineHostCall,
+    ps_value::ComplexObject,
+    ps_value::PsValue,
+    ps_value::deserialize::{DeserializationContext, PsXmlDeserialize},
 };
 
 const PIPELINE_HOST_CALL: &'static str = r#"

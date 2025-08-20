@@ -1,8 +1,8 @@
-use super::{
+use crate::MessageType;
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
     PsValue,
 };
-use crate::MessageType;
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]

@@ -1,4 +1,4 @@
-use super::super::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
@@ -49,7 +49,7 @@ impl TryFrom<ComplexObject> for CommandParameter {
             value
                 .extended_properties
                 .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
         let name = match &get_property("N")?.value {

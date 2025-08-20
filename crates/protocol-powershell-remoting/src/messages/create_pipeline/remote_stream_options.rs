@@ -1,4 +1,4 @@
-use super::super::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

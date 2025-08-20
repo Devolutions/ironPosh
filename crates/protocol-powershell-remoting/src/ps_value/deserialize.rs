@@ -15,7 +15,6 @@ type Result<T> = std::result::Result<T, xml::XmlError>;
 /// PsPrimitiveValue Visitor and XmlDeserialize Implementation
 /// (Kept for backwards compatibility - primitives don't need context)
 /// ================================================================================================
-
 pub struct PsPrimitiveValueVisitor<'a> {
     value: Option<PsPrimitiveValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
@@ -140,7 +139,6 @@ impl<'a> XmlDeserialize<'a> for PsPrimitiveValue {
 /// ================================================================================================
 /// Context-Aware Deserialization System for Type and Object References
 /// ================================================================================================
-
 /// Context for deserialization that maintains reference maps
 #[derive(Debug, Default)]
 pub struct DeserializationContext {

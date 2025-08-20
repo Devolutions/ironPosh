@@ -13,11 +13,11 @@ pub use powershell_pipeline::PowerShellPipeline;
 pub use remote_stream_options::RemoteStreamOptions;
 
 use super::init_runspace_pool::{ApartmentState, HostInfo};
-use super::{
+use crate::MessageType;
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, PsEnums, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
 };
-use crate::MessageType;
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
@@ -126,7 +126,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             value
                 .extended_properties
                 .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
         let no_input = match &get_property("NoInput")?.value {

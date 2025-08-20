@@ -1,7 +1,7 @@
-use super::super::{
+use super::{CommandParameter, PipelineResultTypes};
+use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
-use super::{CommandParameter, PipelineResultTypes};
 use std::{collections::BTreeMap, ops::Index};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
@@ -172,7 +172,7 @@ impl TryFrom<ComplexObject> for Command {
             value
                 .extended_properties
                 .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
         let cmd = match &get_property("Cmd")?.value {
