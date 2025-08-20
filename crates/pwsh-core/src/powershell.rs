@@ -4,11 +4,11 @@
 /// All operations on the pipeline are performed via methods on the `RunspacePool`
 /// that take this handle as an argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PowerShell {
+pub struct PipelineHandle {
     pub(crate) id: uuid::Uuid,
 }
 
-impl PowerShell {
+impl PipelineHandle {
     /// Creates a PowerShell handle from a server-provided UUID.
     ///
     /// This function is internal because handles should only be created by

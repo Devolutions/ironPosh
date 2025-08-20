@@ -73,7 +73,7 @@ async fn run_event_loop(
     mut network_response_rx: mpsc::Receiver<pwsh_core::connector::http::HttpResponse<String>>,
     mut user_request_rx: mpsc::Receiver<pwsh_core::connector::UserOperation>,
     network_request_tx: mpsc::Sender<pwsh_core::connector::http::HttpRequest<String>>,
-    mut pipeline_tx: Option<oneshot::Sender<pwsh_core::powershell::PowerShell>>,
+    mut pipeline_tx: Option<oneshot::Sender<pwsh_core::powershell::PipelineHandle>>,
 ) -> anyhow::Result<()> {
     loop {
         let next_step = tokio::select! {

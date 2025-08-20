@@ -1,12 +1,12 @@
 use pwsh_core::connector::UserOperation;
 use pwsh_core::connector::active_session::PowershellOperations;
-use pwsh_core::powershell::PowerShell;
+use pwsh_core::powershell::PipelineHandle;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tracing::{Instrument, error, info, info_span};
 
 /// Handle user input for PowerShell commands
-pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pipeline: PowerShell) {
+pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pipeline: PipelineHandle) {
     info!("Pipeline ready! Enter PowerShell commands (type 'exit' to quit):");
 
     let stdin = tokio::io::stdin();
@@ -62,7 +62,7 @@ pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pip
 /// Spawn user input handler task
 pub fn spawn_user_input_handler(
     user_request_tx: mpsc::Sender<UserOperation>,
-    pipeline_rx: tokio::sync::oneshot::Receiver<PowerShell>,
+    pipeline_rx: tokio::sync::oneshot::Receiver<PipelineHandle>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {

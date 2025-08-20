@@ -2,7 +2,7 @@ use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
     host::{HostCallRequest, HostCallType},
     pipeline::ParameterValue,
-    powershell::PowerShell,
+    powershell::PipelineHandle,
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 use protocol_powershell_remoting::PsValue;
@@ -10,7 +10,7 @@ use tracing::{debug, error, instrument};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
-    PipelineCreated { powershell: PowerShell },
+    PipelineCreated { powershell: PipelineHandle },
 }
 
 #[derive(Debug)]
@@ -81,11 +81,11 @@ impl From<HostCallType> for HostCallScope {
 pub enum UserOperation {
     CreatePipeline,
     OperatePipeline {
-        powershell: PowerShell,
+        powershell: PipelineHandle,
         operation: PowershellOperations,
     },
     InvokePipeline {
-        powershell: PowerShell,
+        powershell: PipelineHandle,
     },
     /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
     SubmitHostResponse {

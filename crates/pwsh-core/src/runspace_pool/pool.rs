@@ -4,7 +4,7 @@ use base64::Engine;
 use protocol_powershell_remoting::{
     ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter, HostInfo,
     InitRunspacePool, PSThreadOptions, PowerShellPipeline, PsValue, RunspacePoolStateMessage,
-    SessionCapability, fragment,
+    SessionCapability, fragment, fragmentation,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -18,7 +18,7 @@ use crate::{
     PwshCoreError,
     host::{HostCallRequest, HostCallType},
     pipeline::Pipeline,
-    powershell::PowerShell,
+    powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
 };
@@ -81,7 +81,7 @@ impl DesiredStream {
 #[derive(Debug)]
 pub enum AcceptResponsResult {
     ReceiveResponse { desired_streams: Vec<DesiredStream> },
-    NewPipeline(PowerShell),
+    NewPipeline(PipelineHandle),
     HostCall(HostCallRequest),
 }
 
@@ -116,7 +116,7 @@ pub struct RunspacePool {
     pub(super) application_private_data: Option<ApplicationPrivateData>,
     pub(super) session_capability: Option<SessionCapability>,
     pub(super) pipelines: HashMap<uuid::Uuid, Pipeline>,
-    pub(super) fragmenter: fragment::Fragmenter,
+    pub(super) fragmenter: fragmentation::Fragmenter,
 }
 
 impl RunspacePool {
@@ -305,10 +305,10 @@ impl RunspacePool {
         Ok(result)
     }
 
-    pub(crate) fn init_pipeline(&mut self) -> PowerShell {
+    pub(crate) fn init_pipeline(&mut self) -> PipelineHandle {
         let pineline_id = uuid::Uuid::new_v4();
         self.pipelines.insert(pineline_id, Pipeline::new());
-        PowerShell { id: pineline_id }
+        PipelineHandle { id: pineline_id }
     }
 
     #[instrument(skip(self))]
@@ -386,11 +386,11 @@ impl RunspacePool {
                 error!("Failed to defragment stream {}: {:#}", stream_index, e);
                 e
             })? {
-                fragment::DefragmentResult::Incomplete => {
+                fragmentation::DefragmentResult::Incomplete => {
                     debug!("Stream {} incomplete, continuing", stream_index);
                     continue;
                 }
-                fragment::DefragmentResult::Complete(power_shell_remoting_messages) => {
+                fragmentation::DefragmentResult::Complete(power_shell_remoting_messages) => {
                     debug!(
                         "Stream {} complete with {} messages",
                         stream_index,
@@ -711,7 +711,7 @@ impl RunspacePool {
     /// * `script`: The script string to add.
     pub fn add_script(
         &mut self,
-        handle: PowerShell,
+        handle: PipelineHandle,
         script: impl Into<String>,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -732,7 +732,7 @@ impl RunspacePool {
     /// Adds a command (cmdlet) to the specified pipeline.
     pub fn add_command(
         &mut self,
-        handle: PowerShell,
+        handle: PipelineHandle,
         command: impl Into<String>,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -753,7 +753,7 @@ impl RunspacePool {
     /// Adds a parameter to the last command in the specified pipeline.
     pub fn add_parameter(
         &mut self,
-        handle: PowerShell,
+        handle: PipelineHandle,
         name: String,
         value: crate::pipeline::ParameterValue,
     ) -> Result<(), PwshCoreError> {
@@ -775,7 +775,7 @@ impl RunspacePool {
     /// Adds a switch parameter (no value) to the last command in the specified pipeline.
     pub fn add_switch_parameter(
         &mut self,
-        handle: PowerShell,
+        handle: PipelineHandle,
         name: String,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -801,7 +801,10 @@ impl RunspacePool {
     /// 3. Enter a loop to `Receive` and process responses.
     /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
     /// 5. Return the final output upon completion.
-    pub fn invoke_pipeline_request(&mut self, handle: PowerShell) -> Result<String, PwshCoreError> {
+    pub fn invoke_pipeline_request(
+        &mut self,
+        handle: PipelineHandle,
+    ) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
