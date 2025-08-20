@@ -92,7 +92,7 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
             value
                 .extended_properties
                 .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {}", name)))
+                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
         let is_nested = match &get_property("IsNested")?.value {

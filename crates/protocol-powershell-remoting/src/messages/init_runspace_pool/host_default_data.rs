@@ -1,5 +1,5 @@
 use super::super::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Coordinates {

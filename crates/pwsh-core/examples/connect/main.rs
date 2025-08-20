@@ -9,11 +9,12 @@ use anyhow::Context;
 use pwsh_core::connector::ActiveSessionOutput;
 use pwsh_core::connector::active_session::UserEvent;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info};
+use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging};
 use connection::establish_connection;
 use network::spawn_network_handler;
+use tracing_subscriber::fmt::format;
 use types::NextStep;
 use user_input::spawn_user_input_handler;
 
@@ -35,11 +36,11 @@ async fn main() -> anyhow::Result<()> {
     let (user_request_tx, user_request_rx) = mpsc::channel(2);
 
     // Spawn network handler
-    spawn_network_handler(network_request_rx, network_response_tx);
+    let handle = spawn_network_handler(network_request_rx, network_response_tx);
 
     // Set up pipeline creation
     let (pipeline_tx, pipeline_rx) = oneshot::channel();
-    spawn_user_input_handler(user_request_tx.clone(), pipeline_rx);
+    let handle2 = spawn_user_input_handler(user_request_tx.clone(), pipeline_rx);
 
     // Send initial network request
     network_request_tx
@@ -56,9 +57,17 @@ async fn main() -> anyhow::Result<()> {
         Some(pipeline_tx),
     )
     .await
+    .inspect_err(|e| error!("Error in main event loop: {}", e))?;
+
+    info!("Exiting main function");
+    handle.abort();
+    handle2.abort();
+    drop(_span);
+    Ok(())
 }
 
 /// Main event loop that processes network responses and user requests
+#[instrument(skip_all)]
 async fn run_event_loop(
     mut active_session: pwsh_core::connector::active_session::ActiveSession,
     mut network_response_rx: mpsc::Receiver<pwsh_core::connector::http::HttpResponse<String>>,
@@ -86,20 +95,42 @@ async fn run_event_loop(
             },
         };
 
+        info!("Processing next step: {next_step}");
+
         let step_results = match next_step {
-            NextStep::NetworkResponse(http_response) => active_session
-                .accept_server_response(http_response)
-                .context("Failed to accept server response")?,
-            NextStep::UserRequest(user_operation) => vec![
+            NextStep::NetworkResponse(http_response) => {
+                info!(
+                    "Processing network response with body length: {}",
+                    http_response.body.as_ref().map(|b| b.len()).unwrap_or(0)
+                );
+
                 active_session
-                    .accept_client_operation(user_operation)
-                    .context("Failed to accept user operation")?,
-            ],
+                    .accept_server_response(http_response)
+                    .map_err(|e| {
+                        error!("Failed to accept server response: {:#}", e);
+                        e
+                    })
+                    .context("Failed to accept server response")?
+            }
+            NextStep::UserRequest(user_operation) => {
+                info!("Processing user operation: {:?}", user_operation);
+
+                vec![
+                    active_session
+                        .accept_client_operation(user_operation)
+                        .map_err(|e| {
+                            error!("Failed to accept user operation: {:#}", e);
+                            e
+                        })
+                        .context("Failed to accept user operation")?,
+                ]
+            }
         };
 
-        info!("Received server response, processing...");
+        info!(?step_results, "Received server response, processing...");
 
         for step_result in step_results {
+            info!(?step_result, "Processing step result");
             match step_result {
                 ActiveSessionOutput::SendBack(http_requests) => {
                     for http_request in http_requests {
@@ -124,20 +155,20 @@ async fn run_event_loop(
                     }
                 },
                 ActiveSessionOutput::HostCall(host_call) => {
-                    let method = host_call.get_param()?;
+                    info!("Received host call: {:?}", host_call);
+                    let method = host_call.get_param().map_err(|e| {
+                        error!("Failed to get host call parameters: {:#}", e);
+                        e
+                    })?;
+                    info!("Handling host call method: {:?}", method);
 
-                    match &method {
-                        pwsh_core::host::HostCallMethodWithParams::HostMethod(
-                            host_method_params,
-                        ) => todo!(),
-                        pwsh_core::host::HostCallMethodWithParams::UIMethod(uimethod_params) => {
-                            todo!()
-                        }
-                        pwsh_core::host::HostCallMethodWithParams::RawUIMethod(
-                            raw_uimethod_params,
-                        ) => todo!(),
-                    }
-                    todo!("Handle host call: {:?}", method);
+                    // For now, we'll just log the host call but not implement full handling
+                    // This prevents the todo!() panic from occurring
+                    warn!("Host call received but not fully implemented: {:?}", method);
+
+                    // We should implement proper host call handling here
+                    // For WriteProgress calls, we typically don't need to send a response
+                    // since they are void methods
                 }
                 ActiveSessionOutput::OperationSuccess => {
                     info!("Operation completed successfully");

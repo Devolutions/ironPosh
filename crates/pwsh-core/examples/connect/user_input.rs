@@ -63,7 +63,7 @@ pub async fn handle_user_input(user_request_tx: mpsc::Sender<UserOperation>, pip
 pub fn spawn_user_input_handler(
     user_request_tx: mpsc::Sender<UserOperation>,
     pipeline_rx: tokio::sync::oneshot::Receiver<PowerShell>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
             info!("Creating initial pipeline...");
@@ -83,5 +83,5 @@ pub fn spawn_user_input_handler(
             }
         }
         .instrument(info_span!("UserInputHandler")),
-    );
+    )
 }

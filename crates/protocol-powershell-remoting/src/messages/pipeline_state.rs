@@ -49,8 +49,7 @@ impl TryFrom<i32> for PSInvocationState {
             5 => Ok(PSInvocationState::Failed),
             6 => Ok(PSInvocationState::Disconnected),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Invalid PSInvocationState value: {}",
-                value
+                "Invalid PSInvocationState value: {value}"
             ))),
         }
     }

@@ -1,6 +1,6 @@
 use super::super::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
-    PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue,
+    PsProperty, PsType, PsValue,
 };
 use crate::MessageType;
 use std::collections::BTreeMap;
@@ -132,12 +132,13 @@ impl TryFrom<ComplexObject> for PipelineHostCall {
             ));
         };
 
-        let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(method_id)) =
-            &mi_obj.content
-        else {
-            return Err(Self::Error::InvalidMessage(
-                "Method identifier content is not an I32".to_string(),
-            ));
+        let method_id = match &mi_obj.content {
+            ComplexObjectContent::PsEnums(ps_enums) => ps_enums.value,
+            _ => {
+                return Err(Self::Error::InvalidMessage(
+                    "Method identifier content is not an I32 or Enum".to_string(),
+                ));
+            }
         };
 
         let method_name = mi_obj.to_string.clone().unwrap_or_default();
@@ -163,7 +164,7 @@ impl TryFrom<ComplexObject> for PipelineHostCall {
 
         Ok(PipelineHostCall {
             call_id: *call_id,
-            method_id: *method_id,
+            method_id,
             method_name,
             parameters,
         })

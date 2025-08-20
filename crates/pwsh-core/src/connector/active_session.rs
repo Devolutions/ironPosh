@@ -6,6 +6,7 @@ use crate::{
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 use protocol_powershell_remoting::PsValue;
+use tracing::{debug, error, instrument};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
@@ -237,29 +238,49 @@ impl ActiveSession {
     }
 
     /// Handle a server response
+    #[instrument(skip(self, response))]
     pub fn accept_server_response(
         &mut self,
         response: HttpResponse<String>,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
+        
         let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
             "Expected a body in server response",
         ))?;
 
-        let results = self.runspace_pool.accept_response(body)?;
+        debug!("Response body length: {}", body.len());
+
+        let results = self.runspace_pool.accept_response(body)
+            .map_err(|e| {
+                error!("RunspacePool.accept_response failed: {:#}", e);
+                e
+            })?;
+            
         let mut step_output = Vec::new();
-        for result in results {
+        debug!(?results, "RunspacePool accept_response results");
+        
+        for (index, result) in results.into_iter().enumerate() {
+            debug!("Processing result {}: {:?}", index, result);
+            
             match result {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
-                    let receive_request = self.runspace_pool.fire_receive(desired_streams)?;
+                    debug!("Creating receive request for streams: {:?}", desired_streams);
+                    let receive_request = self.runspace_pool.fire_receive(desired_streams)
+                        .map_err(|e| {
+                            error!("Failed to create receive request: {:#}", e);
+                            e
+                        })?;
                     let response = self.http_builder.post("/wsman", receive_request);
                     step_output.push(ActiveSessionOutput::SendBack(vec![response]));
                 }
                 AcceptResponsResult::NewPipeline(pipeline) => {
+                    debug!("New pipeline created: {:?}", pipeline);
                     step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
                         powershell: pipeline,
                     }));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
+                    debug!("Received host call: {:?}", host_call);
                     // Track this host call as pending
                     let scope: HostCallScope = host_call.call_type.clone().into();
                     let key = (scope, host_call.call_id);
@@ -271,6 +292,7 @@ impl ActiveSession {
         }
 
         step_output.sort();
+        debug!("Returning {} step outputs", step_output.len());
         Ok(step_output)
     }
 

@@ -78,8 +78,8 @@ impl From<InformationRecord> for ComplexObject {
             );
         }
 
-        if let Some(tags) = record.tags {
-            if !tags.is_empty() {
+        if let Some(tags) = record.tags
+            && !tags.is_empty() {
                 let tag_values: Vec<PsValue> = tags
                     .into_iter()
                     .map(|tag| PsValue::Primitive(PsPrimitiveValue::Str(tag)))
@@ -120,7 +120,6 @@ impl From<InformationRecord> for ComplexObject {
                     },
                 );
             }
-        }
 
         if let Some(user) = record.user {
             extended_properties.insert(

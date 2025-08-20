@@ -1,9 +1,9 @@
 use super::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsValue,
 };
 use crate::MessageType;
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
@@ -86,14 +86,13 @@ impl TryFrom<ComplexObject> for SessionCapability {
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let get_version_property = |name: &str| -> Result<String, Self::Error> {
             let property = value.extended_properties.get(name).ok_or_else(|| {
-                Self::Error::InvalidMessage(format!("Missing property: {}", name))
+                Self::Error::InvalidMessage(format!("Missing property: {name}"))
             })?;
 
             match &property.value {
                 PsValue::Primitive(PsPrimitiveValue::Version(version)) => Ok(version.clone()),
                 _ => Err(Self::Error::InvalidMessage(format!(
-                    "Property '{}' is not a Version",
-                    name
+                    "Property '{name}' is not a Version"
                 ))),
             }
         };

@@ -51,8 +51,7 @@ impl TryFrom<i32> for RunspacePoolStateValue {
             8 => Ok(RunspacePoolStateValue::Connecting),
             9 => Ok(RunspacePoolStateValue::Disconnected),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Invalid RunspacePoolState value: {}",
-                value
+                "Invalid RunspacePoolState value: {value}"
             ))),
         }
     }

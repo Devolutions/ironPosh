@@ -249,6 +249,12 @@ pub struct PsTypeContextVisitor<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
+impl<'a> Default for PsTypeContextVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> PsTypeContextVisitor<'a> {
     pub fn new() -> Self {
         Self {
@@ -307,8 +313,7 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
                     } else {
                         debug!("Failed to resolve TNRef RefId={}", ref_id);
                         return Err(xml::XmlError::GenericError(format!(
-                            "Type reference {} not found",
-                            ref_id
+                            "Type reference {ref_id} not found"
                         )));
                     }
                 } else {
@@ -320,8 +325,7 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
             }
             _ => {
                 return Err(xml::XmlError::UnexpectedTag(format!(
-                    "Unexpected tag in PsType: {}",
-                    tag_name
+                    "Unexpected tag in PsType: {tag_name}"
                 )));
             }
         }
@@ -335,11 +339,10 @@ impl<'a> PsXmlVisitor<'a> for PsTypeContextVisitor<'a> {
         _context: &mut DeserializationContext,
     ) -> Result<()> {
         for child in children {
-            if child.is_element() && child.tag_name().name() == "T" {
-                if let Some(text) = child.text() {
+            if child.is_element() && child.tag_name().name() == "T"
+                && let Some(text) = child.text() {
                     self.type_names.push(Cow::Owned(text.to_string()));
                 }
-            }
         }
         Ok(())
     }
@@ -366,6 +369,12 @@ pub struct ComplexObjectContextVisitor<'a> {
     adapted_properties: BTreeMap<String, PsProperty>,
     extended_properties: BTreeMap<String, PsProperty>,
     _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> Default for ComplexObjectContextVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> ComplexObjectContextVisitor<'a> {
@@ -477,15 +486,13 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
         }
 
         // Post-process to detect enum content
-        if let Some(type_def) = &self.type_def {
-            if type_def.type_names.iter().any(|name| name.contains("Enum")) {
-                if let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) =
+        if let Some(type_def) = &self.type_def
+            && type_def.type_names.iter().any(|name| name.contains("Enum"))
+                && let ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) =
                     &self.content
                 {
                     self.content = ComplexObjectContent::PsEnums(PsEnums { value: *value });
                 }
-            }
-        }
 
         Ok(())
     }
@@ -513,6 +520,12 @@ impl<'a> PsXmlDeserialize<'a> for ComplexObject {
 pub struct PsValueContextVisitor<'a> {
     value: Option<PsValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> Default for PsValueContextVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> PsValueContextVisitor<'a> {
@@ -559,8 +572,7 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
                     } else {
                         debug!("Failed to resolve object reference RefId={}", ref_id);
                         return Err(xml::XmlError::GenericError(format!(
-                            "Object reference {} not found",
-                            ref_id
+                            "Object reference {ref_id} not found"
                         )));
                     }
                 } else {
@@ -572,8 +584,7 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
             }
             _ => {
                 return Err(xml::XmlError::UnexpectedTag(format!(
-                    "Unexpected tag for PsValue: {}",
-                    tag_name
+                    "Unexpected tag for PsValue: {tag_name}"
                 )));
             }
         }
@@ -607,6 +618,12 @@ impl<'a> PsXmlDeserialize<'a> for PsValue {
 pub struct ContainerContextVisitor<'a> {
     container: Option<Container>,
     _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> Default for ContainerContextVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> ContainerContextVisitor<'a> {
@@ -671,8 +688,8 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
                         let mut value: Option<PsValue> = None;
 
                         for entry_child in en_child.children() {
-                            if entry_child.is_element() {
-                                if let Some(n_attr) = entry_child.attribute("N") {
+                            if entry_child.is_element()
+                                && let Some(n_attr) = entry_child.attribute("N") {
                                     match n_attr {
                                         "Key" => {
                                             key = Some(PsValue::from_node_with_context(
@@ -689,7 +706,6 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
                                         _ => {}
                                     }
                                 }
-                            }
                         }
 
                         if let (Some(k), Some(v)) = (key, value) {
@@ -701,8 +717,7 @@ impl<'a> PsXmlVisitor<'a> for ContainerContextVisitor<'a> {
             }
             _ => {
                 return Err(xml::XmlError::UnexpectedTag(format!(
-                    "Unexpected container tag: {}",
-                    tag_name
+                    "Unexpected container tag: {tag_name}"
                 )));
             }
         }
@@ -737,6 +752,12 @@ pub struct PsPropertyContextVisitor<'a> {
     name: Option<String>,
     value: Option<PsValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> Default for PsPropertyContextVisitor<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> PsPropertyContextVisitor<'a> {
@@ -786,7 +807,7 @@ impl<'a> PsXmlVisitor<'a> for PsPropertyContextVisitor<'a> {
             xml::XmlError::GenericError("No value found for PsProperty".to_string())
         })?;
 
-        let name = self.name.unwrap_or_else(|| "".to_string());
+        let name = self.name.unwrap_or_default();
 
         Ok(PsProperty { name, value })
     }

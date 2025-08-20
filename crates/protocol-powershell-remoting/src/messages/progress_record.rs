@@ -35,8 +35,7 @@ impl TryFrom<i32> for ProgressRecordType {
             0 => Ok(ProgressRecordType::Processing),
             1 => Ok(ProgressRecordType::Completed),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Invalid ProgressRecordType value: {}",
-                value
+                "Invalid ProgressRecordType value: {value}"
             ))),
         }
     }
@@ -52,7 +51,7 @@ pub struct ProgressRecord {
     pub current_operation: Option<String>,
     #[builder(default, setter(transform = |x: Option<i32>| x.filter(|&v| v >= 0)))]
     pub parent_activity_id: Option<i32>,
-    #[builder(default, setter(transform = |x: i32| if x >= -1 && x <= 100 { x } else { -1 }))]
+    #[builder(default, setter(transform = |x: i32| if (-1..=100).contains(&x) { x } else { -1 }))]
     pub percent_complete: i32,
     #[builder(default = ProgressRecordType::Processing)]
     pub progress_type: ProgressRecordType,

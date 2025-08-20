@@ -2,7 +2,9 @@ use super::super::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum PipelineResultTypes {
+    #[default]
     None = 0x00,
     Output = 0x01,
     Error = 0x02,
@@ -13,11 +15,6 @@ pub enum PipelineResultTypes {
     Null = 0x40,
 }
 
-impl Default for PipelineResultTypes {
-    fn default() -> Self {
-        PipelineResultTypes::None
-    }
-}
 
 impl PipelineResultTypes {
     pub fn value(self) -> i32 {

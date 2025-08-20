@@ -7,7 +7,7 @@ use crate::http_client::make_http_request;
 pub fn spawn_network_handler(
     mut network_request_rx: mpsc::Receiver<pwsh_core::connector::http::HttpRequest<String>>,
     network_response_tx: mpsc::Sender<pwsh_core::connector::http::HttpResponse<String>>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
             while let Some(request) = network_request_rx.recv().await {
@@ -27,5 +27,5 @@ pub fn spawn_network_handler(
             }
         }
         .instrument(info_span!("NetworkRequestHandler")),
-    );
+    )
 }

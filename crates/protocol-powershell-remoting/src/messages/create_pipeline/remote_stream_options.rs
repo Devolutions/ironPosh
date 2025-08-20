@@ -44,8 +44,7 @@ impl TryFrom<ComplexObject> for RemoteStreamOptions {
                 0 => Ok(RemoteStreamOptions::None),
                 1 => Ok(RemoteStreamOptions::AddInvocationInfo),
                 _ => Err(Self::Error::InvalidMessage(format!(
-                    "Invalid RemoteStreamOptions value: {}",
-                    value
+                    "Invalid RemoteStreamOptions value: {value}"
                 ))),
             },
             _ => Err(Self::Error::InvalidMessage(
