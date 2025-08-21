@@ -49,14 +49,16 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 
     // Determine log level based on verbosity using structured filters
     let log_level = match verbose_level {
-        0 => "powershell_sync=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,ureq=error",
-        1 => "powershell_sync=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error,[network]=trace,[user]=trace",
-        2 => "powershell_sync=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,ureq=warn,[pipeline]=trace,[host_call]=trace",
+        0 => "powershell_sync_client=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,ureq=error",
+        1 => "powershell_sync_client=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error",
+        2 => "powershell_sync_client=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,ureq=warn",
         _ => "trace",
     };
 
+    let env_filter = EnvFilter::new(log_level);
+
     let subscriber = Registry::default()
-        .with(EnvFilter::from_default_env().add_directive(log_level.parse()?))
+        .with(env_filter)
         .with(
             fmt::layer()
                 .with_writer(log_file)

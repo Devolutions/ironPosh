@@ -10,8 +10,16 @@ use tracing::{debug, error, instrument};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
-    PipelineCreated { powershell: PipelineHandle },
-    PipelineFinished { powershell: PipelineHandle },
+    PipelineCreated {
+        powershell: PipelineHandle,
+    },
+    PipelineFinished {
+        powershell: PipelineHandle,
+    },
+    PipelineOutput {
+        output: PipelineOutput,
+        handle: PipelineHandle,
+    },
 }
 
 #[derive(Debug)]
@@ -20,10 +28,6 @@ pub enum ActiveSessionOutput {
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     HostCall(HostCallRequest),
-    PipelineOutput {
-        output: PipelineOutput,
-        handle: PipelineHandle,
-    },
     OperationSuccess,
 }
 
@@ -54,8 +58,7 @@ impl ActiveSessionOutput {
             ActiveSessionOutput::SendBack(_) => 2,
             ActiveSessionOutput::SendBackError(_) => 3,
             ActiveSessionOutput::UserEvent(_) => 4,
-            ActiveSessionOutput::PipelineOutput { .. } => 5,
-            ActiveSessionOutput::OperationSuccess => 6,
+            ActiveSessionOutput::OperationSuccess => 5,
         }
     }
 }
@@ -305,10 +308,10 @@ impl ActiveSession {
                 }
                 AcceptResponsResult::PipelineOutput { output, handle } => {
                     debug!("Pipeline output: {:?}", output);
-                    step_output.push(ActiveSessionOutput::PipelineOutput {
+                    step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
                         output,
                         handle,
-                    });
+                    }));
                 }
             }
         }
