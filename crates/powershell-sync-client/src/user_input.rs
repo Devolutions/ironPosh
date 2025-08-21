@@ -40,18 +40,8 @@ impl UserInputHandler {
         loop {
             // Check for user events
             match self.process_user_events(&mut pipeline) {
-                Some(PipelineOperated::Dead) => {
-                    continue;
-                }
-                Some(PipelineOperated::Created) => {
-                    
-                }
-                None => {
-                    continue;
-                }
-                _ => {
-                    continue;
-                }
+                PipelineOperated::Continue => continue,
+                PipelineOperated::KeepGoing => {}
             }
 
             print!("> ");
@@ -102,16 +92,13 @@ impl UserInputHandler {
     }
 
     #[instrument(skip_all)]
-    fn process_user_events(
-        &mut self,
-        pipeline: &mut Option<PipelineHandle>,
-    ) -> Option<PipelineOperated> {
+    fn process_user_events(&mut self, pipeline: &mut Option<PipelineHandle>) -> PipelineOperated {
         while let Ok(event) = self.user_event_rx.recv_timeout(Duration::from_millis(100)) {
             match event {
                 pwsh_core::connector::active_session::UserEvent::PipelineCreated { powershell } => {
                     info!(pipeline_id = %powershell.id(), "pipeline created");
                     *pipeline = Some(powershell);
-                    return Some(PipelineOperated::Created);
+                    return PipelineOperated::KeepGoing;
                 }
                 pwsh_core::connector::active_session::UserEvent::PipelineFinished {
                     powershell,
@@ -123,7 +110,6 @@ impl UserInputHandler {
                             self.user_request_tx
                                 .send(UserOperation::CreatePipeline)
                                 .expect("Failed to send create pipeline request");
-                            return Some(PipelineOperated::Dead);
                         }
                     }
                 }
@@ -143,12 +129,10 @@ impl UserInputHandler {
                             );
                         }
                     }
-
-                    return Some(PipelineOperated::Outputed);
                 }
             }
         }
-        return None;
+        PipelineOperated::Continue
     }
 }
 
@@ -269,7 +253,6 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
 }
 
 pub enum PipelineOperated {
-    Created,
-    Outputed,
-    Dead,
+    Continue,
+    KeepGoing,
 }

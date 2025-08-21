@@ -193,7 +193,7 @@ impl<'a> Element<'a> {
     pub fn to_xml_string(&self) -> Result<String, crate::XmlError> {
         let mut buf = Vec::new();
         self.ns_write(&mut buf, None)?;
-        Ok(String::from_utf8(buf).map_err(|e| XmlBuilderError::from(e))?)
+        Ok(String::from_utf8(buf).map_err(XmlBuilderError::from)?)
     }
 }
 

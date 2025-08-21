@@ -57,16 +57,14 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 
     let env_filter = EnvFilter::new(log_level);
 
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(
-            fmt::layer()
-                .with_writer(log_file)
-                .with_target(true)
-                .with_line_number(true)
-                .with_file(true)
-                .compact(),
-        );
+    let subscriber = Registry::default().with(env_filter).with(
+        fmt::layer()
+            .with_writer(log_file)
+            .with_target(true)
+            .with_line_number(true)
+            .with_file(true)
+            .compact(),
+    );
 
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(())

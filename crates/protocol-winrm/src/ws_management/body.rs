@@ -1,7 +1,5 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
-use xml::{
-    builder::Element,
-};
+use xml::builder::Element;
 
 use crate::{
     cores::{ResourceURI, SelectorSet, Tag, TagValue, tag_name::*, tag_value::Text},

@@ -45,4 +45,3 @@ impl<'a> Builder<'a> {
         Ok(String::from_utf8(buf).expect("XML must be UTF-8"))
     }
 }
-

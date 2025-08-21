@@ -69,10 +69,12 @@ impl<'a> crate::builder::NamespaceWrite<'a> for Attribute<'a> {
         let ns_alias = if let Some(map) = alias_map {
             self.namespace.as_ref().and_then(|ns| map.get(ns)).copied()
         } else if let Some(ns) = &self.namespace {
-            return Err(crate::builder::XmlBuilderError::MissingAliasMapForAttribute {
-                attr: self.name.to_string(),
-                ns: ns.url.to_string(),
-            });
+            return Err(
+                crate::builder::XmlBuilderError::MissingAliasMapForAttribute {
+                    attr: self.name.to_string(),
+                    ns: ns.url.to_string(),
+                },
+            );
         } else {
             None
         };
