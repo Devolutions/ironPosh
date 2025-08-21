@@ -5,9 +5,9 @@ use std::{
 
 use base64::Engine;
 use protocol_powershell_remoting::{
-    ApartmentState, ApplicationPrivateData, Commands, CreatePipeline, Defragmenter, HostInfo,
-    InitRunspacePool, PSThreadOptions, PipelineOutput, PowerShellPipeline, PsValue,
-    RunspacePoolStateMessage, SessionCapability, fragmentation,
+    ApartmentState, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
+    InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
+    SessionCapability, fragmentation,
 };
 use protocol_winrm::{
     soap::SoapEnvelope,
@@ -20,7 +20,7 @@ use xml::parser::XmlDeserialize;
 use crate::{
     PwshCoreError,
     host::{HostCallRequest, HostCallType},
-    pipeline::{ParameterValue, Pipeline, PipelineCommand},
+    pipeline::{Pipeline, PipelineCommand},
     powershell::{PipelineHandle, PipelineOutputType},
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
@@ -172,7 +172,12 @@ impl RunspacePool {
             application_arguments: self.application_arguments.clone(),
         };
 
-        debug!(session_capability = ?session_capability);
+        debug!(
+            session_capability = ?session_capability,
+            min_runspaces = self.min_runspaces,
+            max_runspaces = self.max_runspaces,
+            "starting runspace pool open"
+        );
         debug!(init_runspace_pool = ?init_runspace_pool);
 
         let request_groups = self.fragmenter.fragment_multiple(
@@ -181,7 +186,12 @@ impl RunspacePool {
             None,
         )?;
 
-        trace!(request_groups = ?request_groups, "Fragmented negotiation requests");
+        trace!(
+            target: "fragmentation",
+            request_groups = ?request_groups,
+            group_count = request_groups.len(),
+            "fragmented negotiation requests"
+        );
 
         self.state = RunspacePoolState::NegotiationSent;
 
@@ -205,7 +215,7 @@ impl RunspacePool {
             .open(&self.connection, Some(option_set), &request);
 
         Ok((
-            result.into().to_string(),
+            result.into().to_xml_string()?,
             super::expect_shell_created::ExpectShellCreated {
                 runspace_pool: self,
             },
@@ -222,36 +232,36 @@ impl RunspacePool {
             .shell
             .fire_receive(&self.connection, desired_streams)
             .into()
-            .to_string())
+            .to_xml_string()?)
     }
 
-    #[instrument(skip(self, soap_envelope))]
+    #[instrument(skip(self, soap_envelope), fields(envelope_length = soap_envelope.len()))]
     pub(crate) fn accept_response(
         &mut self,
         soap_envelope: String,
     ) -> Result<Vec<AcceptResponsResult>, crate::PwshCoreError> {
-        debug!("Parsing SOAP envelope of length: {}", soap_envelope.len());
+        debug!(target: "soap", "parsing SOAP envelope");
 
         let parsed = xml::parser::parse(soap_envelope.as_str()).map_err(|e| {
-            error!("Failed to parse XML: {:#}", e);
+            error!(target: "xml", error = %e, "failed to parse XML");
             e
         })?;
 
         let soap_envelope = SoapEnvelope::from_node(parsed.root_element()).map_err(|e| {
-            error!("Failed to parse SOAP envelope: {:#}", e);
+            error!(target: "soap", error = %e, "failed to parse SOAP envelope");
             crate::PwshCoreError::XmlParsingError(e)
         })?;
 
         let mut result = Vec::new();
 
         if soap_envelope.body.as_ref().receive_response.is_some() {
-            debug!("Processing receive response");
+            debug!(target: "receive", "processing receive response");
 
             let (streams, command_state) = self
                 .shell
                 .accept_receive_response(&soap_envelope)
                 .map_err(|e| {
-                    error!("Failed to accept receive response: {:#}", e);
+                    error!(target: "receive", error = %e, "failed to accept receive response");
                     e
                 })?;
 
@@ -264,25 +274,29 @@ impl RunspacePool {
                 streams.iter().any(|stream| stream.command_id().is_none());
             if is_there_a_stream_has_no_command_id {
                 debug!(
-                    "There is a stream without command_id, it should be the runspace pool stream"
+                    target: "receive",
+                    "stream without command_id found, should be runspace pool stream"
                 );
                 self.runspace_pool_desired_stream_is_pooling = false
             }
 
             debug!(
-                "Processing {} streams with command IDs: {:?}",
-                streams.len(),
-                streams_ids
+                target: "receive",
+                stream_count = streams.len(),
+                stream_command_ids = ?streams_ids,
+                "processing streams"
             );
 
             let handle_pwsh_response = self.handle_pwsh_responses(streams).map_err(|e| {
-                error!("Failed to handle PowerShell responses: {:#}", e);
+                error!(target: "pwsh", error = %e, "failed to handle PowerShell responses");
                 e
             })?;
 
             debug!(
-                names = ?handle_pwsh_response.iter().map(|r| r.name()).collect::<Vec<_>>(),
-                "Handled PowerShell responses"
+                target: "pwsh",
+                response_names = ?handle_pwsh_response.iter().map(|r| r.name()).collect::<Vec<_>>(),
+                response_count = handle_pwsh_response.len(),
+                "handled PowerShell responses"
             );
 
             result.extend(handle_pwsh_response.into_iter().map(|resp| resp.into()));
@@ -291,8 +305,9 @@ impl RunspacePool {
                 && command_state.is_done()
             {
                 debug!(
+                    target: "pipeline",
                     pipeline_id = ?command_state.command_id,
-                    "Command state done is received, removing pipeline",
+                    "command state done received, removing pipeline"
                 );
                 // If command state is done, we can remove the pipeline from the pool
                 let pipeline = self.pipelines.remove(&command_state.command_id);
@@ -322,13 +337,11 @@ impl RunspacePool {
                     .into_iter()
                     .map(|stream| DesiredStream::new("stdout", stream.to_owned().into()))
                     .collect::<Vec<_>>()
+            } else if !self.runspace_pool_desired_stream_is_pooling {
+                self.runspace_pool_desired_stream_is_pooling = true;
+                DesiredStream::runspace_pool_streams()
             } else {
-                if !self.runspace_pool_desired_stream_is_pooling {
-                    self.runspace_pool_desired_stream_is_pooling = true;
-                    DesiredStream::runspace_pool_streams()
-                } else {
-                    vec![]
-                }
+                vec![]
             };
 
             if !desired_streams.is_empty() {
@@ -354,7 +367,12 @@ impl RunspacePool {
             });
         }
 
-        debug!(?result, "Accept response results");
+        debug!(
+            target: "accept_response",
+            result_count = result.len(),
+            result_types = ?result.iter().map(std::mem::discriminant).collect::<Vec<_>>(),
+            "accept response results"
+        );
 
         Ok(result)
     }
@@ -366,90 +384,114 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
-    #[instrument(skip(self, responses))]
+    #[instrument(
+        skip(self, responses),
+        fields(
+            response_count = responses.len(),
+            processed_messages = 0u32
+        )
+    )]
     fn handle_pwsh_responses(
         &mut self,
         responses: Vec<crate::runspace::win_rs::Stream>,
     ) -> Result<Vec<PwshMessageResponse>, crate::PwshCoreError> {
         let mut result = Vec::new();
+        let span = tracing::Span::current();
+        let mut message_count = 0u32;
 
         for (stream_index, stream) in responses.into_iter().enumerate() {
             debug!(
+                target: "stream",
                 stream_index,
                 stream_name = ?stream.name(),
                 pipeline_id = ?stream.command_id(),
-                "Processing stream"
+                "processing stream"
             );
 
             let messages = match self.defragmenter.defragment(stream.value()).map_err(|e| {
-                error!("Failed to defragment stream {}: {:#}", stream_index, e);
+                error!(target: "defragment", stream_index, error = %e, "failed to defragment stream");
                 e
             })? {
                 fragmentation::DefragmentResult::Incomplete => {
-                    debug!("Stream {} incomplete, continuing", stream_index);
+                    debug!(target: "defragment", stream_index, "stream incomplete, continuing");
                     continue;
                 }
                 fragmentation::DefragmentResult::Complete(power_shell_remoting_messages) => {
                     debug!(
-                        "Stream {} complete with {} messages",
+                        target: "defragment",
                         stream_index,
-                        power_shell_remoting_messages.len()
+                        message_count = power_shell_remoting_messages.len(),
+                        "stream complete"
                     );
                     power_shell_remoting_messages
                 }
             };
 
             for (msg_index, message) in messages.into_iter().enumerate() {
+                message_count += 1;
+                span.record("processed_messages", message_count);
+
                 let ps_value = message.parse_ps_message().map_err(|e| {
                     error!(
-                        "Failed to parse PS message {}.{}: {:#}",
-                        stream_index, msg_index, e
+                        target: "ps_message",
+                        stream_index,
+                        msg_index,
+                        error = %e,
+                        "failed to parse PS message"
                     );
                     e
                 })?;
 
-                info!(message_type = ?message.message_type, ?ps_value, "Parsed PS message");
+                info!(
+                    target: "ps_message",
+                    message_type = ?message.message_type,
+                    stream_index,
+                    msg_index,
+                    "parsed PS message"
+                );
 
                 match message.message_type {
                     protocol_powershell_remoting::MessageType::SessionCapability => {
-                        debug!("Handling SessionCapability message");
+                        debug!(target: "session", "handling SessionCapability message");
                         self.handle_session_capability(ps_value).map_err(|e| {
-                            error!("Failed to handle SessionCapability: {:#}", e);
+                            error!(target: "session", error = %e, "failed to handle SessionCapability");
                             e
                         })?;
                     }
                     protocol_powershell_remoting::MessageType::ApplicationPrivateData => {
-                        debug!("Handling ApplicationPrivateData message");
+                        debug!(target: "session", "handling ApplicationPrivateData message");
                         self.handle_application_private_data(ps_value)
                             .map_err(|e| {
-                                error!("Failed to handle ApplicationPrivateData: {:#}", e);
+                                error!(target: "session", error = %e, "failed to handle ApplicationPrivateData");
                                 e
                             })?;
                     }
                     protocol_powershell_remoting::MessageType::RunspacepoolState => {
-                        debug!("Handling RunspacepoolState message");
+                        debug!(target: "runspace", "handling RunspacepoolState message");
                         self.handle_runspacepool_state(ps_value).map_err(|e| {
-                            error!("Failed to handle RunspacepoolState: {:#}", e);
+                            error!(target: "runspace", error = %e, "failed to handle RunspacepoolState");
                             e
                         })?;
                     }
                     protocol_powershell_remoting::MessageType::ProgressRecord => {
                         debug!(
-                            "Handling ProgressRecord message for stream={}, command_id={:?}",
-                            stream.name(),
-                            stream.command_id()
+                            target: "progress",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling ProgressRecord message"
                         );
                         self.handle_progress_record(ps_value, stream.name(), stream.command_id())
                             .map_err(|e| {
-                                error!("Failed to handle ProgressRecord: {:#}", e);
+                                error!(target: "progress", error = %e, "failed to handle ProgressRecord");
                                 e
                             })?;
                     }
                     protocol_powershell_remoting::MessageType::InformationRecord => {
                         debug!(
-                            "Handling InformationRecord message for stream={}, command_id={:?}",
-                            stream.name(),
-                            stream.command_id()
+                            target: "information",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling InformationRecord message"
                         );
                         self.handle_information_record(
                             ps_value,
@@ -457,65 +499,68 @@ impl RunspacePool {
                             stream.command_id(),
                         )
                         .map_err(|e| {
-                            error!("Failed to handle InformationRecord: {:#}", e);
+                            error!(target: "information", error = %e, "failed to handle InformationRecord");
                             e
                         })?;
                     }
                     protocol_powershell_remoting::MessageType::PipelineState => {
                         debug!(
-                            "Handling PipelineState message for stream={}, command_id={:?}",
-                            stream.name(),
-                            stream.command_id()
+                            target: "pipeline",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling PipelineState message"
                         );
                         self.handle_pipeline_state(ps_value, stream.name(), stream.command_id())
                             .map_err(|e| {
-                                error!("Failed to handle PipelineState: {:#}", e);
+                                error!(target: "pipeline", error = %e, "failed to handle PipelineState");
                                 e
                             })?;
                     }
                     protocol_powershell_remoting::MessageType::PipelineHostCall => {
                         debug!(
+                            target: "host_call",
                             stream_name = ?stream.name(),
                             pipeline_id = ?stream.command_id(),
-                            "Handling PipelineHostCall message"
+                            "handling PipelineHostCall message"
                         );
 
                         let host_call = self
                             .handle_pipeline_host_call(ps_value, stream.name(), stream.command_id())
                             .map_err(|e| {
-                                error!("Failed to handle PipelineHostCall: {:#}", e);
+                                error!(target: "host_call", error = %e, "failed to handle PipelineHostCall");
                                 e
                             })?;
-                        debug!(?host_call, "Successfully created host call");
+                        debug!(target: "host_call", host_call = ?host_call, "successfully created host call");
                         result.push(PwshMessageResponse::HostCall(host_call));
-                        debug!(result_len = result.len(), "Pushed HostCall response");
+                        debug!(target: "host_call", result_len = result.len(), "pushed HostCall response");
                     }
                     protocol_powershell_remoting::MessageType::PipelineOutput => {
                         debug!(
-                            "Handling PipelineOutput message for stream={}, command_id={:?}",
-                            stream.name(),
-                            stream.command_id()
+                            target: "pipeline_output",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling PipelineOutput message"
                         );
 
                         let output = self.handle_pipeline_output(ps_value)?;
 
-                        debug!("Successfully handled PipelineOutput: {:?}", output);
+                        debug!(target: "pipeline_output", output = ?output, "successfully handled PipelineOutput");
                         result.push(PwshMessageResponse::PipelineOutput {
                             output,
                             handle: PipelineHandle {
-                                id: stream
-                                    .command_id()
-                                    .ok_or(crate::PwshCoreError::InvalidResponse(
+                                id: *stream.command_id().ok_or(
+                                    crate::PwshCoreError::InvalidResponse(
                                         "PipelineOutput message must have a command_id".into(),
-                                    ))?
-                                    .clone(),
+                                    ),
+                                )?,
                             },
                         });
                     }
                     _ => {
                         error!(
-                            "Received message of type {:?}, but no handler implemented",
-                            message.message_type
+                            target: "ps_message",
+                            message_type = ?message.message_type,
+                            "received message type but no handler implemented"
                         );
                         todo!("Handle other message types as needed");
                     }
@@ -523,11 +568,16 @@ impl RunspacePool {
             }
         }
 
-        info!(?result, "Processed PowerShell responses");
+        info!(
+            target: "pwsh_responses",
+            result_count = result.len(),
+            total_messages_processed = message_count,
+            "processed PowerShell responses"
+        );
         Ok(result)
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, session_capability), fields(protocol_version = tracing::field::Empty, ps_version = tracing::field::Empty))]
     fn handle_session_capability(
         &mut self,
         session_capability: PsValue,
@@ -539,12 +589,22 @@ impl RunspacePool {
         };
 
         let session_capability = SessionCapability::try_from(session_capability)?;
-        debug!(?session_capability, "Received SessionCapability");
+
+        // Record the protocol and PS versions in the span
+        let span = tracing::Span::current();
+        span.record("protocol_version", &session_capability.protocol_version);
+        span.record("ps_version", &session_capability.ps_version);
+
+        debug!(
+            target: "session",
+            capability = ?session_capability,
+            "received SessionCapability"
+        );
         self.session_capability = Some(session_capability);
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, app_data))]
     fn handle_application_private_data(
         &mut self,
         app_data: PsValue,
@@ -556,12 +616,12 @@ impl RunspacePool {
         };
 
         let app_data = ApplicationPrivateData::try_from(app_data)?;
-        trace!(?app_data, "Received ApplicationPrivateData");
+        trace!(target: "session", app_data = ?app_data, "received ApplicationPrivateData");
         self.application_private_data = Some(app_data);
         Ok(())
     }
 
-    #[instrument(skip(self, ps_value))]
+    #[instrument(skip(self, ps_value), fields(runspace_state = tracing::field::Empty))]
     fn handle_runspacepool_state(&mut self, ps_value: PsValue) -> Result<(), crate::PwshCoreError> {
         let PsValue::Object(runspacepool_state) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
@@ -570,14 +630,22 @@ impl RunspacePool {
         };
 
         let runspacepool_state = RunspacePoolStateMessage::try_from(runspacepool_state)?;
-        trace!(?runspacepool_state, "Received RunspacePoolState");
+
+        // Record the state in the span
+        let span = tracing::Span::current();
+        span.record(
+            "runspace_state",
+            format!("{:?}", runspacepool_state.runspace_state),
+        );
+
+        trace!(target: "runspace", state = ?runspacepool_state, "received RunspacePoolState");
 
         self.state = RunspacePoolState::from(&runspacepool_state.runspace_state);
 
         Ok(())
     }
 
-    #[instrument(skip(self, ps_value, stream_name, command_id))]
+    #[instrument(skip(self, ps_value), fields(stream_name, command_id = ?command_id))]
     fn handle_progress_record(
         &mut self,
         ps_value: PsValue,
@@ -601,10 +669,11 @@ impl RunspacePool {
         };
 
         trace!(
-            ?progress_record,
+            target: "progress",
+            progress_record = ?progress_record,
             stream_name = stream_name,
             command_id = ?command_id,
-            "Received ProgressRecord"
+            "received ProgressRecord"
         );
 
         // Find the pipeline by command_id
@@ -780,7 +849,7 @@ impl RunspacePool {
             None,
         )?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     #[instrument(skip_all)]
@@ -846,7 +915,7 @@ impl RunspacePool {
             self.shell
                 .send_data_request(&self.connection, Some(command_id), arguments)?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     /// Send a runspace pool host response to the server
@@ -875,7 +944,7 @@ impl RunspacePool {
             arguments,
         )?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     pub fn handle_pipeline_output(

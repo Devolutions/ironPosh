@@ -88,7 +88,7 @@ async fn run_event_loop(
             },
             user_request = user_request_rx.recv() => {
                 if let Some(user_request) = user_request {
-                    NextStep::UserRequest(user_request)
+                    NextStep::UserRequest(Box::new(user_request))
                 } else {
                     error!("No user request received");
                     return Err(anyhow::anyhow!("No user request received"));
@@ -118,7 +118,7 @@ async fn run_event_loop(
 
                 vec![
                     active_session
-                        .accept_client_operation(user_operation)
+                        .accept_client_operation(*user_operation)
                         .map_err(|e| {
                             error!("Failed to accept user operation: {:#}", e);
                             e
@@ -218,19 +218,17 @@ async fn run_event_loop(
                 ActiveSessionOutput::PipelineOutput {
                     output,
                     handle: _handle,
-                } => {
-                    match format_pipeline_output(&output) {
-                        Ok(formatted) => {
-                            info!("Pipeline output: {}", formatted);
-                            println!("Pipeline output: {}", formatted);
-                        }
-                        Err(e) => {
-                            warn!("Failed to format pipeline output: {}", e);
-                            info!("Pipeline output (raw): {}", output);
-                            println!("Pipeline output (raw): {}", output);
-                        }
+                } => match format_pipeline_output(&output) {
+                    Ok(formatted) => {
+                        info!("Pipeline output: {}", formatted);
+                        println!("Pipeline output: {}", formatted);
                     }
-                }
+                    Err(e) => {
+                        warn!("Failed to format pipeline output: {}", e);
+                        info!("Pipeline output (raw): {}", output);
+                        println!("Pipeline output (raw): {}", output);
+                    }
+                },
             }
         }
     }
@@ -252,16 +250,17 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
     }
 
     // Split with capturing parentheses to include the separator in the resulting array
-    let regex = Regex::new(r"(_x[0-9A-F]{4}_)").map_err(|e| anyhow::anyhow!("Regex error: {}", e))?;
+    let regex =
+        Regex::new(r"(_x[0-9A-F]{4}_)").map_err(|e| anyhow::anyhow!("Regex error: {}", e))?;
     let parts: Vec<&str> = regex.split(input).collect();
-    
+
     if parts.len() <= 1 {
         return Ok(input.to_string());
     }
 
     let mut result = String::new();
     let mut high_surrogate: Option<u16> = None;
-    
+
     // We need to manually handle the split parts and captures
     let mut current_pos = 0;
     for captures in regex.find_iter(input) {
@@ -270,7 +269,7 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
             result.push_str(&input[current_pos..captures.start()]);
             high_surrogate = None;
         }
-        
+
         // Process the escaped sequence
         let escaped = captures.as_str();
         if let Some(hex_str) = escaped.strip_prefix("_x").and_then(|s| s.strip_suffix("_")) {
@@ -280,7 +279,9 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
                         // We have a high surrogate from before, try to form a surrogate pair
                         if (0xDC00..=0xDFFF).contains(&code_unit) {
                             // This is a low surrogate, form the pair
-                            let code_point = 0x10000 + ((high as u32 - 0xD800) << 10) + (code_unit as u32 - 0xDC00);
+                            let code_point = 0x10000
+                                + ((high as u32 - 0xD800) << 10)
+                                + (code_unit as u32 - 0xDC00);
                             if let Some(ch) = char::from_u32(code_point) {
                                 result.push(ch);
                             } else {
@@ -293,7 +294,7 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
                             result.push_str("_x");
                             result.push_str(&format!("{:04X}", high));
                             result.push('_');
-                            
+
                             if (0xD800..=0xDBFF).contains(&code_unit) {
                                 high_surrogate = Some(code_unit);
                             } else {
@@ -330,15 +331,15 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
             result.push_str(escaped);
             high_surrogate = None;
         }
-        
+
         current_pos = captures.end();
     }
-    
+
     // Add any remaining text after the last match
     if current_pos < input.len() {
         result.push_str(&input[current_pos..]);
     }
-    
+
     // If we have an unmatched high surrogate at the end, add it as-is
     if let Some(high) = high_surrogate {
         result.push_str("_x");

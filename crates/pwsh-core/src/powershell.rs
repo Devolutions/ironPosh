@@ -15,7 +15,6 @@ impl PipelineHandle {
     }
 }
 
-
 /// Defines how the output of a pipeline should be handled
 /// This concept is not part of the PWSH protocol, it is used internally
 /// to determine how the output should be processed when invoking a pipeline.

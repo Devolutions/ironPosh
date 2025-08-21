@@ -23,21 +23,19 @@ impl NetworkHandler {
 
     pub fn run(&mut self) {
         let _span = info_span!("NetworkRequestHandler").entered();
-        
+
         while let Ok(request) = self.network_request_rx.recv() {
             let network_response_tx = self.network_response_tx.clone();
-            
+
             // Handle request in a separate thread to avoid blocking
-            thread::spawn(move || {
-                match make_http_request(&request) {
-                    Ok(response) => {
-                        if let Err(e) = network_response_tx.send(response) {
-                            error!("Failed to send network response: {}", e);
-                        }
+            thread::spawn(move || match make_http_request(&request) {
+                Ok(response) => {
+                    if let Err(e) = network_response_tx.send(response) {
+                        error!("Failed to send network response: {}", e);
                     }
-                    Err(e) => {
-                        error!("HTTP request failed: {}", e);
-                    }
+                }
+                Err(e) => {
+                    error!("HTTP request failed: {}", e);
                 }
             });
         }

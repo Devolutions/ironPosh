@@ -67,7 +67,7 @@ fn test_creation_xml_roundtrip() {
         .to_element_as_root()
         .expect("Failed to re-serialize PsValue to XML element");
 
-    let reserialized_xml = reserialized_element.to_string();
+    let reserialized_xml = reserialized_element.to_xml_string().unwrap();
     println!("Re-serialized XML length: {} bytes", reserialized_xml.len());
 
     // Step 4: Deserialize the re-serialized XML
@@ -117,7 +117,7 @@ fn test_creation_xml_roundtrip() {
                         .to_element_as_root()
                         .expect("Failed to re-serialize PsValue to XML element");
 
-                    let reserialized_xml = reserialized_element.to_string();
+                    let reserialized_xml = reserialized_element.to_xml_string().unwrap();
 
                     // Deserialize again
                     let reserialized_doc = xml::parser::parse(&reserialized_xml)

@@ -2,7 +2,11 @@ use std::{borrow::Cow, collections::HashMap};
 
 use tracing::error;
 
-use crate::builder::{Attribute, Namespace, NamespaceFmt};
+use crate::builder::{
+    AliasMap, Attribute, Namespace, NamespaceFmt, NamespaceWrite, XmlBuilderError,
+};
+
+use std::io::Write as _;
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -63,7 +67,7 @@ impl<'a> Element<'a> {
     /// ```
     /// use xml::builder::{Element, Namespace};
     /// let element = Element::new("root")
-    ///     .set_namespace(Namespace::new("name", "http://example.com"));
+    ///     .set_namespace(Namespace::new("http://example.com"));
     /// ```
     pub fn set_namespace(mut self, ns: impl Into<Namespace<'a>>) -> Self {
         self.namespace = Some(ns.into());
@@ -185,13 +189,11 @@ impl<'a> Element<'a> {
         self.content = Content::Text(std::borrow::Cow::Owned(text));
         self
     }
-}
 
-impl std::fmt::Display for Element<'_> {
-    /// Formats the element and its content as an XML string.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.ns_fmt(f, None)
-            .inspect_err(|_| eprintln!("Error formatting XML for element: {}", self.name))
+    pub fn to_xml_string(&self) -> Result<String, crate::XmlError> {
+        let mut buf = Vec::new();
+        self.ns_write(&mut buf, None)?;
+        Ok(String::from_utf8(buf).map_err(|e| XmlBuilderError::from(e))?)
     }
 }
 
@@ -202,6 +204,88 @@ pub enum AliasStatus {
     NamespaceFoundWithoutAlias,
     NamespaceNotFoundInDeclaration,
     NamespaceDeclarationMapMissing,
+}
+
+impl<'a> crate::builder::NamespaceWrite<'a> for Element<'a> {
+    fn ns_write<W: std::io::Write>(
+        &self,
+        w: &mut W,
+        parent_decl_map: Option<&AliasMap<'a>>,
+    ) -> Result<(), XmlBuilderError> {
+        // Merge alias maps (child overrides parent) – same logic as before:
+        let decl_map = match (parent_decl_map, &self.namespaces_declaration) {
+            (None, None) => None,
+            (None, Some(m)) => Some(std::borrow::Cow::Borrowed(m)),
+            (Some(p), None) => Some(std::borrow::Cow::Borrowed(p)),
+            (Some(p), Some(m)) => {
+                let mut merged = std::collections::HashMap::new();
+                merged.extend(p.iter().map(|(ns, a)| (ns.clone(), *a)));
+                merged.extend(m.iter().map(|(ns, a)| (ns.clone(), *a)));
+                Some(std::borrow::Cow::Owned(merged))
+            }
+        };
+
+        // Resolve the element name with namespace/alias
+        let name = match (&self.namespace, &decl_map) {
+            (None, _) => self.name.to_string(),
+            (Some(ns), None) => {
+                return Err(XmlBuilderError::MissingAliasMapForElement {
+                    tag: self.name.to_string(),
+                    ns: ns.url.to_string(),
+                });
+            }
+            (Some(ns), Some(map)) => match map.get(ns) {
+                Some(Some(alias)) => format!("{alias}:{}", self.name),
+                Some(None) => {
+                    return Err(XmlBuilderError::NamespaceHasNoAlias {
+                        tag: self.name.to_string(),
+                        ns: ns.url.to_string(),
+                    })
+                }
+                None => {
+                    return Err(XmlBuilderError::NamespaceNotDeclared {
+                        tag: self.name.to_string(),
+                        ns: ns.url.to_string(),
+                    })
+                }
+            },
+        };
+
+        // Write start tag + namespace declarations (unchanged behavior)
+        w.write_fmt(format_args!("<{name}"))?;
+        if let Some(this_ns) = &self.namespaces_declaration {
+            for (url, alias) in this_ns {
+                if let Some(alias) = alias {
+                    w.write_fmt(format_args!(" xmlns:{alias}=\"{url}\""))?;
+                } else {
+                    w.write_fmt(format_args!(" xmlns=\"{url}\""))?;
+                }
+            }
+        }
+
+        // Attributes
+        for a in &self.attributes {
+            a.ns_write(w, decl_map.as_deref())?;
+        }
+
+        // Content
+        match &self.content {
+            Content::None => {
+                w.write_all(b"/>")?;
+            }
+            Content::Text(t) => {
+                w.write_fmt(format_args!(">{t}</{name}>"))?;
+            }
+            Content::Elements(children) => {
+                w.write_all(b">")?;
+                for c in children {
+                    c.ns_write(w, decl_map.as_deref())?;
+                }
+                w.write_fmt(format_args!("</{name}>"))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl crate::builder::NamespaceFmt for Element<'_> {
@@ -261,15 +345,35 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 format!("{}:{}", alias, self.name)
             }
             AliasStatus::NamespaceFoundWithoutAlias => {
-                error!(alias_status = ?alias, tag_name = self.name, "Element has no alias but namespace is present");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    "element has no alias but namespace is present"
+                );
                 return Err(std::fmt::Error);
             }
             AliasStatus::NamespaceNotFoundInDeclaration => {
-                error!(alias_status = ?alias, tag_name = self.name, expected_namespace = ?self.namespace, ?namespace_declaration_map, self_namespaces_declaration = ?self.namespaces_declaration , "Namespace not found in declaration map for element");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    expected_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    self_namespaces_declaration = ?self.namespaces_declaration,
+                    "namespace not found in declaration map for element"
+                );
                 return Err(std::fmt::Error);
             }
             AliasStatus::NamespaceDeclarationMapMissing => {
-                error!(alias_status = ?alias, tag_name = self.name, missing_namespace =?self.namespace, namespace_declaration_map = ?namespace_declaration_map, "Namespace alias not found for element");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    missing_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    "namespace alias not found for element"
+                );
                 return Err(std::fmt::Error);
             }
         };

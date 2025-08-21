@@ -122,7 +122,8 @@ define_tagname!(Version, None);
 define_tagname!(BA, None);
 
 // PowerShell Serialization Format
-define_tagname!(I32, None); // 32-bit integer
+// define_tagname!(I32, None); // 32-bit integer
+define_custom_tagname!(I32TagName, "I32", None); // 32-bit integer
 define_tagname!(TN, None); // Type Name
 define_tagname!(T, None); // Type
 define_custom_tagname!(ToString, "ToString", None); // ToString representation

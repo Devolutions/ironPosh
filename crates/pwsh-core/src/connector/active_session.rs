@@ -1,7 +1,7 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::{self, HostCallRequest, HostCallType},
-    pipeline::{ParameterValue, PipelineCommand},
+    host::{HostCallRequest, HostCallType},
+    pipeline::PipelineCommand,
     powershell::{PipelineHandle, PipelineOutputType},
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
@@ -307,7 +307,7 @@ impl ActiveSession {
                     debug!("Pipeline output: {:?}", output);
                     step_output.push(ActiveSessionOutput::PipelineOutput {
                         output,
-                        handle: handle.clone(),
+                        handle,
                     });
                 }
             }

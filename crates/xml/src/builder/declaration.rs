@@ -1,3 +1,5 @@
+use std::io::Write as _;
+
 /// Represents an XML declaration.
 pub struct Declaration<'a> {
     /// The XML version.
@@ -46,6 +48,16 @@ impl<'a> Declaration<'a> {
     pub fn with_standalone(mut self, standalone: bool) -> Self {
         self.standalone = Some(standalone);
         self
+    }
+
+    pub fn write<W: std::io::Write>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write_fmt(format_args!("<?xml version=\"{}\" encoding=\"{}\"", self.version, self.encoding))?;
+        if let Some(standalone) = self.standalone {
+            let s = if standalone { "yes" } else { "no" };
+            w.write_fmt(format_args!(" standalone=\"{s}\""))?;
+        }
+        w.write_all(b"?>")?;
+        Ok(())
     }
 }
 

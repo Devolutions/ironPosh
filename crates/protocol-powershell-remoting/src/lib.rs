@@ -13,7 +13,7 @@ pub use ps_value::PsObjectWithType;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PowerShellRemotingError {
     #[error("Invalid PowerShell remoting message: {0}")]
     InvalidMessage(String),
@@ -31,7 +31,7 @@ pub enum PowerShellRemotingError {
     Utf8Error(#[from] Utf8Error),
 
     #[error("Failed to parse XML: {0}")]
-    XmlParseError(#[from] xml::XmlError),
+    XmlError(#[from] xml::XmlError),
 }
 
 impl From<std::io::Error> for PowerShellRemotingError {

@@ -147,7 +147,7 @@ mod tests {
 
         // Create XML builder and convert to string
         let xml_builder = xml::builder::Builder::new(None, element);
-        let xml_string = xml_builder.to_string();
+        let xml_string = xml_builder.to_xml_string().expect("Failed to build XML");
 
         // Assertions to verify the generated XML structure
         assert!(xml_string.contains("s:Envelope"));

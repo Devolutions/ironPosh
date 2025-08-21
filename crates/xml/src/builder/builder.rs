@@ -1,5 +1,4 @@
-use crate::builder::{Declaration, Element, NamespaceFmt};
-use tracing::error;
+use crate::builder::{Declaration, Element, NamespaceWrite, XmlBuilderError};
 
 /// Represents a builder for constructing an XML document.
 pub struct Builder<'a> {
@@ -20,11 +19,10 @@ impl<'a> Builder<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml::builder::{Builder, Declaration, Element, RootElement};
+    /// use xml::builder::{Builder, Declaration, Element};
     /// let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
     /// let element = Element::new("root");
-    /// let root_element = RootElement::new(element);
-    /// let builder = Builder::new(Some(declaration), root_element);
+    /// let builder = Builder::new(Some(declaration), element);
     /// ```
     pub fn new(declaration: Option<Declaration<'a>>, element: Element<'a>) -> Self {
         Builder {
@@ -32,21 +30,19 @@ impl<'a> Builder<'a> {
             element,
         }
     }
-}
 
-impl<'a> std::fmt::Display for Builder<'a> {
-    /// Formats the builder and its content as an XML document string.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(declaration) = &self.declaration {
-            writeln!(f, "{declaration} ")?;
+    pub fn write_to<W: std::io::Write>(&self, mut w: W) -> Result<(), XmlBuilderError> {
+        if let Some(decl) = &self.declaration {
+            decl.write(&mut w)?; // converts to XmlError via From
+            w.write_all(b" \n")?;
         }
+        self.element.ns_write(&mut w, None)
+    }
 
-        match self.element.ns_fmt(f, None) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                error!("Error formatting root element: {:?}", e);
-                Err(e)
-            }
-        }
+    pub fn to_xml_string(&self) -> Result<String, XmlBuilderError> {
+        let mut buf = Vec::new();
+        self.write_to(&mut buf)?;
+        Ok(String::from_utf8(buf).expect("XML must be UTF-8"))
     }
 }
+

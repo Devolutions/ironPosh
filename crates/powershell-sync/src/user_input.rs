@@ -4,8 +4,7 @@ use pwsh_core::powershell::PipelineHandle;
 use pwsh_core::{connector::UserOperation, powershell::PipelineOutputType};
 use std::io::{self, Write};
 use std::sync::mpsc;
-use std::time::Duration;
-use tracing::{error, info, info_span};
+use tracing::{error, info, instrument};
 
 /// Handle user input for PowerShell commands (synchronous)
 pub struct UserInputHandler {
@@ -24,12 +23,13 @@ impl UserInputHandler {
         }
     }
 
+    #[instrument(skip_all, name = "user_input_handler")]
     pub fn run(&mut self) {
-        let _span = info_span!("UserInputHandler").entered();
-        
         let stdin = io::stdin();
         let mut stdout = io::stdout();
         let mut pipeline: Option<PipelineHandle> = None;
+
+        info!("starting user input handler");
 
         loop {
             // Check for user events
@@ -43,18 +43,19 @@ impl UserInputHandler {
                 Ok(_) => {
                     let command = line.trim().to_string();
                     if command.to_lowercase() == "exit" {
-                        info!("Exiting...");
+                        info!("user requested exit");
                         break;
                     }
                     if !command.is_empty() {
                         // Ensure we have a pipeline before executing the command
                         if pipeline.is_none() {
                             println!("Creating pipeline...");
-                            if let Err(e) = self.user_request_tx.send(UserOperation::CreatePipeline) {
-                                error!("Failed to send create pipeline request: {}", e);
+                            if let Err(e) = self.user_request_tx.send(UserOperation::CreatePipeline)
+                            {
+                                error!(error = %e, "failed to send create pipeline request");
                                 break;
                             }
-                            
+
                             // Wait for pipeline creation
                             pipeline = self.wait_for_pipeline_creation();
                             if pipeline.is_none() {
@@ -73,7 +74,7 @@ impl UserInputHandler {
                                     },
                                 })
                             {
-                                error!("Failed to send operation: {}", e);
+                                error!(error = %e, "failed to send operation");
                                 break;
                             }
 
@@ -84,34 +85,33 @@ impl UserInputHandler {
                                     output_type: PipelineOutputType::Streamed,
                                 })
                             {
-                                error!("Failed to send invoke: {}", e);
+                                error!(error = %e, "failed to send invoke");
                                 break;
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    error!("Failed to read input: {}", e);
+                    error!(error = %e, "failed to read input");
                     break;
                 }
             }
         }
     }
 
+    #[instrument(skip_all)]
     fn process_user_events(&mut self, pipeline: &mut Option<PipelineHandle>) {
         while let Ok(event) = self.user_event_rx.try_recv() {
             match event {
-                pwsh_core::connector::active_session::UserEvent::PipelineCreated {
-                    powershell,
-                } => {
-                    info!("Pipeline created: {:?}", powershell);
+                pwsh_core::connector::active_session::UserEvent::PipelineCreated { powershell } => {
+                    info!(pipeline_id = %powershell.id(), "pipeline created");
                     *pipeline = Some(powershell);
                     println!("Pipeline created and ready!");
                 }
                 pwsh_core::connector::active_session::UserEvent::PipelineFinished {
                     powershell,
                 } => {
-                    info!("Pipeline finished: {:?}", powershell);
+                    info!(pipeline_id = %powershell.id(), "pipeline finished");
                     if let Some(current_pipeline) = pipeline {
                         if *current_pipeline == powershell {
                             println!("Current pipeline has finished execution.");
@@ -124,19 +124,20 @@ impl UserInputHandler {
         }
     }
 
+    #[instrument(skip_all)]
     fn wait_for_pipeline_creation(&mut self) -> Option<PipelineHandle> {
         use std::time::{Duration, Instant};
-        
+
         let timeout = Duration::from_secs(10); // 10 second timeout
         let start = Instant::now();
-        
+
         while start.elapsed() < timeout {
             match self.user_event_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(event) => match event {
                     pwsh_core::connector::active_session::UserEvent::PipelineCreated {
                         powershell,
                     } => {
-                        info!("Pipeline created: {:?}", powershell);
+                        info!(pipeline_id = %powershell.id(), "pipeline created after wait");
                         println!("Pipeline created and ready!");
                         return Some(powershell);
                     }
@@ -152,13 +153,13 @@ impl UserInputHandler {
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    error!("User event channel disconnected while waiting for pipeline");
+                    error!("user event channel disconnected while waiting for pipeline");
                     return None;
                 }
             }
         }
-        
-        error!("Timeout waiting for pipeline creation");
+
+        error!("timeout waiting for pipeline creation");
         None
     }
 }

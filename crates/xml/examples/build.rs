@@ -36,5 +36,5 @@ fn main() {
     );
 
     // Print the XML document
-    println!("{}", builder.to_string());
+    println!("{}", builder.to_xml_string().unwrap());
 }

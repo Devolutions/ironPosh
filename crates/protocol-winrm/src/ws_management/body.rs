@@ -1,7 +1,6 @@
 use protocol_macros::{SimpleTagValue, SimpleXmlDeserialize};
 use xml::{
     builder::Element,
-    parser::{XmlDeserialize, XmlVisitor},
 };
 
 use crate::{

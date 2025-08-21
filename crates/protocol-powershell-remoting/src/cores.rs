@@ -222,7 +222,7 @@ impl PowerShellRemotingMessage {
             message_type,
             rpid,
             pid,
-            data: data.to_element_as_root()?.to_string().into_bytes(),
+            data: data.to_element_as_root()?.to_xml_string()?.into_bytes(),
         })
     }
 
