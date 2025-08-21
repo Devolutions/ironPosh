@@ -11,6 +11,7 @@ use tracing::{debug, error, instrument};
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
     PipelineCreated { powershell: PipelineHandle },
+    PipelineFinished { powershell: PipelineHandle },
 }
 
 #[derive(Debug)]
@@ -279,11 +280,19 @@ impl ActiveSession {
                     let response = self.http_builder.post("/wsman", receive_request);
                     step_output.push(ActiveSessionOutput::SendBack(vec![response]));
                 }
-                AcceptResponsResult::NewPipeline(pipeline) => {
-                    debug!("New pipeline created: {:?}", pipeline);
+                AcceptResponsResult::PipelineCreated(pipeline) => {
+                    debug!(?pipeline, "Pipeline created");
                     step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
                         powershell: pipeline,
                     }));
+                }
+                AcceptResponsResult::PipelineFinished(pipeline) => {
+                    debug!(?pipeline, "Pipeline finished");
+                    step_output.push(ActiveSessionOutput::UserEvent(
+                        UserEvent::PipelineFinished {
+                            powershell: pipeline,
+                        },
+                    ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
                     debug!(host_call = ?host_call, "Received host call request");

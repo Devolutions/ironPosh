@@ -86,7 +86,8 @@ pub enum AcceptResponsResult {
     ReceiveResponse {
         desired_streams: Vec<DesiredStream>,
     },
-    NewPipeline(PipelineHandle),
+    PipelineCreated(PipelineHandle),
+    PipelineFinished(PipelineHandle),
     HostCall(HostCallRequest),
     PipelineOutput {
         output: PipelineOutput,
@@ -294,7 +295,12 @@ impl RunspacePool {
                     "Command state done is received, removing pipeline",
                 );
                 // If command state is done, we can remove the pipeline from the pool
-                self.pipelines.remove(&command_state.command_id);
+                let pipeline = self.pipelines.remove(&command_state.command_id);
+                if pipeline.is_some() {
+                    result.push(AcceptResponsResult::PipelineFinished(PipelineHandle {
+                        id: command_state.command_id,
+                    }));
+                }
             }
 
             let desired_streams = if !streams_ids.is_empty() {
@@ -304,8 +310,6 @@ impl RunspacePool {
                         .keys()
                         .any(|pipeline_id| pipeline_id == stream)
                 });
-                
-
 
                 // keep unique stream with the same id
                 let mut stream_set = HashSet::new();
@@ -396,7 +400,6 @@ impl RunspacePool {
             };
 
             for (msg_index, message) in messages.into_iter().enumerate() {
-
                 let ps_value = message.parse_ps_message().map_err(|e| {
                     error!(
                         "Failed to parse PS message {}.{}: {:#}",
