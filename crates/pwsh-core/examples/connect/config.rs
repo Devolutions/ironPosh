@@ -36,6 +36,10 @@ pub fn create_connector_config() -> ConnectorConfig {
         server: (server, port),
         scheme,
         authentication: auth,
-        host_info: protocol_powershell_remoting::HostInfo::enabled_all(),
+        host_info: protocol_powershell_remoting::HostInfo::builder()
+            .is_host_null(false)
+            .is_host_ui_null(true)
+            .is_host_raw_ui_null(true)
+            .build(),
     }
 }

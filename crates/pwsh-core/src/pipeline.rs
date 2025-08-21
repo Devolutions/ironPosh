@@ -54,7 +54,7 @@ impl PipelineCommand {
     }
 
     pub(crate) fn new_output_stream() -> PipelineCommand {
-        PipelineCommand::new_script("Out-String -Stream".to_string())
+        PipelineCommand::new_command("Out-String".to_string())
     }
 }
 

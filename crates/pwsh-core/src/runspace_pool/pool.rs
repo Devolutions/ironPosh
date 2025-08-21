@@ -396,10 +396,6 @@ impl RunspacePool {
             };
 
             for (msg_index, message) in messages.into_iter().enumerate() {
-                debug!(
-                    "Processing message {}.{}: type={:?}",
-                    stream_index, msg_index, message.message_type
-                );
 
                 let ps_value = message.parse_ps_message().map_err(|e| {
                     error!(
