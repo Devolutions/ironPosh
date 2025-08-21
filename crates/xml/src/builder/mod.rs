@@ -15,6 +15,33 @@ pub use self::declaration::*;
 pub use self::element::*;
 pub use self::namespace::*;
 
+pub type AliasMap<'a> = HashMap<Namespace<'a>, Option<&'a str>>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum XmlBuilderError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("UTF-8 error: {0}")]
+    Utf8Error(#[from] std::string::FromUtf8Error),
+    #[error("Missing alias map for element '{tag}' in namespace '{ns}'")]
+    MissingAliasMapForElement { tag: String, ns: String },
+    #[error("Missing alias map for attribute '{attr}' in namespace '{ns}'")]
+    MissingAliasMapForAttribute { attr: String, ns: String },
+    #[error("Namespace '{ns}' not declared for tag '{tag}'")]
+    NamespaceNotDeclared { tag: String, ns: String },
+    #[error("Namespace '{ns}' has no alias for tag '{tag}'")]
+    NamespaceHasNoAlias { tag: String, ns: String },
+}
+
+pub trait NamespaceWrite<'a> {
+    fn ns_write<W: std::io::Write>(
+        &self,
+        w: &mut W,
+        aliases: Option<&AliasMap<'a>>,
+    ) -> Result<(), XmlBuilderError>;
+}
+
+// Keep the old trait for backward compatibility during transition
 pub trait NamespaceFmt {
     fn ns_fmt(
         &self,
@@ -39,7 +66,7 @@ mod tests {
         let element = Element::new("root");
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, "<root/>");
     }
 
@@ -48,7 +75,7 @@ mod tests {
         let element = Element::new("root").add_attribute(Attribute::new("attr1", "value1"));
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, r#"<root attr1="value1"/>"#);
     }
 
@@ -58,7 +85,7 @@ mod tests {
         let element = Element::new("root").add_child(child);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected_xml = "<root><child/></root>";
         compare_xml!(&xml_string, expected_xml);
     }
@@ -70,7 +97,7 @@ mod tests {
             .add_namespace_declaration("http://example.com/ns1", Some("ns1"));
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(
             &xml_string,
             r#"<ns1:root xmlns:ns1="http://example.com/ns1"/>"#
@@ -91,9 +118,11 @@ mod tests {
             .add_child(child);
 
         let builder = Builder::new(Some(declaration), element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // The declaration includes a space after "?>" and before the root element
-        assert!(xml_string.starts_with(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?> "#));
+        assert!(
+            xml_string.starts_with(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?> "#)
+        );
         assert!(xml_string.contains(r#"<ns1:root"#));
         assert!(xml_string.contains(r#"xmlns:ns1="http://example.com/ns1""#));
         assert!(xml_string.contains(r#"xmlns:ns2="http://example.com/ns2""#));
@@ -107,7 +136,7 @@ mod tests {
         let element = Element::new("message").set_text("Hello, world!");
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, "<message>Hello, world!</message>");
     }
 
@@ -118,7 +147,7 @@ mod tests {
             .set_text("Hello, world!");
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, r#"<message lang="en">Hello, world!</message>"#);
     }
 
@@ -130,7 +159,7 @@ mod tests {
             .add_child(child);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected_xml = "<container><item/></container>";
         compare_xml!(&xml_string, expected_xml);
     }
@@ -143,7 +172,7 @@ mod tests {
             .set_text("New text");
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, "<container>New text</container>");
     }
 
@@ -156,7 +185,7 @@ mod tests {
             .add_attribute(Attribute::new("attr3", "value3"));
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(
             &xml_string,
             r#"<root attr1="value1" attr2="value2" attr3="value3"/>"#
@@ -168,12 +197,10 @@ mod tests {
         let grandchild = Element::new("grandchild").set_text("Deep content");
         let child1 = Element::new("child1").add_child(grandchild);
         let child2 = Element::new("child2").set_text("Child 2 content");
-        let element = Element::new("root")
-            .add_child(child1)
-            .add_child(child2);
+        let element = Element::new("root").add_child(child1).add_child(child2);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected_xml = "<root><child1><grandchild>Deep content</grandchild></child1><child2>Child 2 content</child2></root>";
         compare_xml!(&xml_string, expected_xml);
     }
@@ -188,7 +215,7 @@ mod tests {
         let element = Element::new("root").add_children(children);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected_xml = "<root><child1/><child2/><child3/></root>";
         compare_xml!(&xml_string, expected_xml);
     }
@@ -200,7 +227,7 @@ mod tests {
         let element1 = Element::new("test1").set_text_owned(owned_text);
 
         let builder1 = Builder::new(None, element1);
-        let xml_string1 = builder1.to_string();
+        let xml_string1 = builder1.to_xml_string().unwrap();
         assert_eq!(xml_string1, "<test1>Owned text</test1>");
 
         // Test with_text mutable reference method
@@ -208,7 +235,7 @@ mod tests {
         element2.with_text("Borrowed text");
 
         let builder2 = Builder::new(None, element2);
-        let xml_string2 = builder2.to_string();
+        let xml_string2 = builder2.to_xml_string().unwrap();
         assert_eq!(xml_string2, "<test2>Borrowed text</test2>");
 
         // Test with_text_owned mutable reference method
@@ -216,7 +243,7 @@ mod tests {
         element3.with_text_owned(String::from("Owned mutable text"));
 
         let builder3 = Builder::new(None, element3);
-        let xml_string3 = builder3.to_string();
+        let xml_string3 = builder3.to_xml_string().unwrap();
         assert_eq!(xml_string3, "<test3>Owned mutable text</test3>");
     }
 
@@ -228,14 +255,14 @@ mod tests {
             .add_namespace_declaration("http://example.com", Some("ex"));
 
         let builder = Builder::new(None, element_with_ns);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, r#"<ex:test xmlns:ex="http://example.com"/>"#);
 
         // Test with None namespace
         let element_without_ns = Element::new("test").set_namespace_optional(None::<Namespace>);
 
         let builder2 = Builder::new(None, element_without_ns);
-        let xml_string2 = builder2.to_string();
+        let xml_string2 = builder2.to_xml_string().unwrap();
         compare_xml!(&xml_string2, "<test/>");
     }
 
@@ -247,7 +274,7 @@ mod tests {
             .add_namespace_declaration("http://example.com/default", None);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Check that all namespace declarations are present (order may vary due to HashMap)
         assert!(xml_string.contains(r#"xmlns:ns1="http://example.com/ns1""#));
         assert!(xml_string.contains(r#"xmlns:ns2="http://example.com/ns2""#));
@@ -263,7 +290,7 @@ mod tests {
         let element = Element::new("test").add_attribute(attr);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, r#"<test name="borrowed_value"/>"#);
     }
 
@@ -274,7 +301,7 @@ mod tests {
         let element = Element::new("test").add_attribute(attr);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, r#"<test name="owned_value"/>"#);
     }
 
@@ -287,8 +314,11 @@ mod tests {
             .add_namespace_declaration("http://example.com", Some("ex"));
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
-        compare_xml!(&xml_string, r#"<test xmlns:ex="http://example.com" ex:attr="value"/>"#);
+        let xml_string = builder.to_xml_string().unwrap();
+        compare_xml!(
+            &xml_string,
+            r#"<test xmlns:ex="http://example.com" ex:attr="value"/>"#
+        );
     }
 
     #[test]
@@ -300,8 +330,11 @@ mod tests {
             .add_namespace_declaration("http://example.com", Some("ex"));
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
-        compare_xml!(&xml_string, r#"<test xmlns:ex="http://example.com" ex:attr="value"/>"#);
+        let xml_string = builder.to_xml_string().unwrap();
+        compare_xml!(
+            &xml_string,
+            r#"<test xmlns:ex="http://example.com" ex:attr="value"/>"#
+        );
     }
 
     // Namespace tests
@@ -324,11 +357,11 @@ mod tests {
     #[test]
     fn test_namespace_hash() {
         use std::collections::HashMap;
-        
+
         let mut map = HashMap::new();
         let ns1 = Namespace::new("http://example.com");
         let ns2 = Namespace::new("http://example.com");
-        
+
         map.insert(ns1, "value1");
         assert_eq!(map.get(&ns2), Some(&"value1"));
     }
@@ -343,7 +376,10 @@ mod tests {
     #[test]
     fn test_declaration_basic() {
         let declaration = Declaration::new("1.0", "UTF-8");
-        assert_eq!(format!("{}", declaration), r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        assert_eq!(
+            format!("{}", declaration),
+            r#"<?xml version="1.0" encoding="UTF-8"?>"#
+        );
     }
 
     #[test]
@@ -378,7 +414,7 @@ mod tests {
     fn test_builder_without_declaration() {
         let element = Element::new("root").set_text("content");
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, "<root>content</root>");
     }
 
@@ -387,7 +423,7 @@ mod tests {
         let declaration = Declaration::new("1.0", "UTF-8");
         let element = Element::new("root").set_text("content");
         let builder = Builder::new(Some(declaration), element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected = r#"<?xml version="1.0" encoding="UTF-8"?> 
 <root>content</root>"#;
         compare_xml!(&xml_string, expected);
@@ -396,20 +432,20 @@ mod tests {
     // Complex namespace scenarios
     #[test]
     fn test_inherited_namespace_declarations() {
-        let grandchild = Element::new("grandchild")
-            .set_namespace(Namespace::new("http://example.com/ns1"));
-        
+        let grandchild =
+            Element::new("grandchild").set_namespace(Namespace::new("http://example.com/ns1"));
+
         let child = Element::new("child")
             .set_namespace(Namespace::new("http://example.com/ns2"))
             .add_child(grandchild);
-        
+
         let root = Element::new("root")
             .add_namespace_declaration("http://example.com/ns1", Some("ns1"))
             .add_namespace_declaration("http://example.com/ns2", Some("ns2"))
             .add_child(child);
 
         let builder = Builder::new(None, root);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Check components due to HashMap ordering
         assert!(xml_string.starts_with("<root"));
         assert!(xml_string.contains(r#"xmlns:ns1="http://example.com/ns1""#));
@@ -425,13 +461,13 @@ mod tests {
             .set_namespace(Namespace::new("http://example.com/ns2"))
             .add_namespace_declaration("http://example.com/ns1", Some("override"))
             .add_namespace_declaration("http://example.com/ns2", Some("ns2"));
-        
+
         let root = Element::new("root")
             .add_namespace_declaration("http://example.com/ns1", Some("ns1"))
             .add_child(child);
 
         let builder = Builder::new(None, root);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Check key components due to HashMap ordering
         assert!(xml_string.contains(r#"<root xmlns:ns1="http://example.com/ns1""#));
         assert!(xml_string.contains(r#"<ns2:child"#));
@@ -442,11 +478,11 @@ mod tests {
 
     #[test]
     fn test_default_namespace() {
-        let element = Element::new("root")
-            .add_namespace_declaration("http://example.com/default", None);
+        let element =
+            Element::new("root").add_namespace_declaration("http://example.com/default", None);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Test that default namespaces work when no element namespace is set
         compare_xml!(&xml_string, r#"<root xmlns="http://example.com/default"/>"#);
     }
@@ -456,8 +492,8 @@ mod tests {
     fn test_empty_element_name() {
         let element = Element::new("");
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
-        compare_xml!(&xml_string, "</>"); 
+        let xml_string = builder.to_xml_string().unwrap();
+        compare_xml!(&xml_string, "</>");
     }
 
     #[test]
@@ -465,7 +501,7 @@ mod tests {
         let attr = Attribute::new("", "value");
         let element = Element::new("test").add_attribute(attr);
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, r#"<test ="value"/>"#);
     }
 
@@ -474,7 +510,7 @@ mod tests {
         let attr = Attribute::new("name", "");
         let element = Element::new("test").add_attribute(attr);
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, r#"<test name=""/>"#);
     }
 
@@ -482,7 +518,7 @@ mod tests {
     fn test_special_characters_in_text() {
         let element = Element::new("test").set_text("Text with <>&\"' characters");
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Note: This test shows current behavior - proper XML should escape these
         assert_eq!(xml_string, "<test>Text with <>&\"' characters</test>");
     }
@@ -492,7 +528,7 @@ mod tests {
         let attr = Attribute::new("name", "value with <>&\"' characters");
         let element = Element::new("test").add_attribute(attr);
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         // Note: This test shows current behavior - proper XML should escape these
         assert_eq!(xml_string, r#"<test name="value with <>&"' characters"/>"#);
     }
@@ -501,7 +537,7 @@ mod tests {
     fn test_unicode_content() {
         let element = Element::new("test").set_text("Hello 世界 🌍");
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, "<test>Hello 世界 🌍</test>");
     }
 
@@ -510,7 +546,7 @@ mod tests {
         let long_text = "a".repeat(10000);
         let element = Element::new("test").set_text(long_text.clone());
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         assert_eq!(xml_string, format!("<test>{}</test>", long_text));
     }
 
@@ -519,7 +555,7 @@ mod tests {
     fn test_content_none_display() {
         let element = Element::new("empty");
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         compare_xml!(&xml_string, "<empty/>");
     }
 
@@ -528,12 +564,12 @@ mod tests {
         // Start with None, add text
         let mut element = Element::new("test");
         element.with_text("initial text");
-        
+
         // Then add child (should overwrite text)
         let element = element.add_child(Element::new("child"));
-        
+
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected = "<test><child/></test>";
         compare_xml!(&xml_string, expected);
     }
@@ -543,14 +579,14 @@ mod tests {
         let child1 = Element::new("child1").set_text("Text 1");
         let child2 = Element::new("child2");
         let child3 = Element::new("child3").set_text("Text 3");
-        
+
         let element = Element::new("root")
             .add_child(child1)
             .add_child(child2)
             .add_child(child3);
 
         let builder = Builder::new(None, element);
-        let xml_string = builder.to_string();
+        let xml_string = builder.to_xml_string().unwrap();
         let expected = "<root><child1>Text 1</child1><child2/><child3>Text 3</child3></root>";
         compare_xml!(&xml_string, expected);
     }

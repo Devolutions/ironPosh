@@ -3,10 +3,13 @@ use roxmltree::NodeType;
 pub mod builder;
 pub mod parser;
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum XmlError {
     #[error("Invalid XML: {0}")]
     ParserError(#[from] crate::parser::Error),
+
+    #[error("XML Builder error: {0}")]
+    BuilderError(#[from] crate::builder::XmlBuilderError),
 
     #[error("Invalid namespace: expected '{expected}', found '{found:?}'")]
     XmlInvalidNamespace {

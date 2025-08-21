@@ -215,7 +215,7 @@ impl RunspacePool {
             .open(&self.connection, Some(option_set), &request);
 
         Ok((
-            result.into().to_string(),
+            result.into().to_xml_string()?,
             super::expect_shell_created::ExpectShellCreated {
                 runspace_pool: self,
             },
@@ -232,7 +232,7 @@ impl RunspacePool {
             .shell
             .fire_receive(&self.connection, desired_streams)
             .into()
-            .to_string())
+            .to_xml_string()?)
     }
 
     #[instrument(skip(self, soap_envelope), fields(envelope_length = soap_envelope.len()))]
@@ -849,7 +849,7 @@ impl RunspacePool {
             None,
         )?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     #[instrument(skip_all)]
@@ -915,7 +915,7 @@ impl RunspacePool {
             self.shell
                 .send_data_request(&self.connection, Some(command_id), arguments)?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     /// Send a runspace pool host response to the server
@@ -944,7 +944,7 @@ impl RunspacePool {
             arguments,
         )?;
 
-        Ok(request.into().to_string())
+        Ok(request.into().to_xml_string()?)
     }
 
     pub fn handle_pipeline_output(

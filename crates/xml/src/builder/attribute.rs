@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, io::Write as _};
 
 /// Represents an XML attribute with a name and value.
 #[derive(Debug, Clone)]
@@ -57,6 +57,34 @@ impl<'a> Attribute<'a> {
         if let Some(namespace) = &self.namespace {
             namespaces_set.insert(namespace.clone());
         }
+    }
+}
+
+impl<'a> crate::builder::NamespaceWrite<'a> for Attribute<'a> {
+    fn ns_write<W: std::io::Write>(
+        &self,
+        w: &mut W,
+        alias_map: Option<&crate::builder::AliasMap<'a>>,
+    ) -> Result<(), crate::builder::XmlBuilderError> {
+        let ns_alias = if let Some(map) = alias_map {
+            self.namespace.as_ref().and_then(|ns| map.get(ns)).copied()
+        } else if let Some(ns) = &self.namespace {
+            return Err(crate::builder::XmlBuilderError::MissingAliasMapForAttribute {
+                attr: self.name.to_string(),
+                ns: ns.url.to_string(),
+            });
+        } else {
+            None
+        };
+
+        let name = if let Some(Some(alias)) = ns_alias {
+            format!("{alias}:{}", self.name)
+        } else {
+            self.name.to_string()
+        };
+
+        w.write_fmt(format_args!(" {}=\"{}\"", name, self.value))?;
+        Ok(())
     }
 }
 

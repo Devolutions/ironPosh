@@ -1,0 +1,759 @@
+--- File: crates/xml/src/builder/attribute.rs ---
+use std::{borrow::Cow, collections::HashMap};
+
+/// Represents an XML attribute with a name and value.
+#[derive(Debug, Clone)]
+pub struct Attribute<'a> {
+    /// The name of the attribute.
+    name: &'a str,
+    /// The value of the attribute.
+    value: Cow<'a, str>,
+
+    namespace: Option<crate::builder::Namespace<'a>>,
+}
+
+impl<'a> Attribute<'a> {
+    /// Creates a new instance of `Attribute`.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the attribute.
+    /// * `value` - The value of the attribute.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Attribute;
+    /// let attribute = Attribute::new("name", "value");
+    /// ```
+    pub fn new(name: &'a str, value: impl Into<Cow<'a, str>>) -> Self {
+        Attribute {
+            name,
+            value: value.into(),
+            namespace: None,
+        }
+    }
+
+    pub fn new_with_namespace(
+        name: &'a str,
+        value: impl Into<Cow<'a, str>>,
+        namespace: Option<impl Into<crate::builder::Namespace<'a>>>,
+    ) -> Self {
+        Attribute {
+            name,
+            value: value.into(),
+            namespace: namespace.map(|ns| ns.into()),
+        }
+    }
+
+    pub fn set_namespace(mut self, namespace: impl Into<crate::builder::Namespace<'a>>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
+    }
+
+    pub fn get_namespaces(
+        &self,
+        namespaces_set: &mut std::collections::HashSet<crate::builder::Namespace<'a>>,
+    ) {
+        if let Some(namespace) = &self.namespace {
+            namespaces_set.insert(namespace.clone());
+        }
+    }
+}
+
+impl crate::builder::NamespaceFmt for Attribute<'_> {
+    /// Formats the attribute as a string in the format `name="value"`.
+    fn ns_fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        alias_map: Option<&HashMap<super::namespace::Namespace<'_>, Option<&str>>>,
+    ) -> std::fmt::Result {
+        let namespace_alias = if let Some(alias_map) = alias_map {
+            self.namespace
+                .as_ref()
+                .and_then(|ns| alias_map.get(ns))
+                .copied()
+        } else if let Some(ns) = &self.namespace {
+            eprintln!("No namespace alias map provided for attribute: {ns}");
+            return Err(std::fmt::Error);
+        } else {
+            None
+        };
+
+        let name = if let Some(Some(alias)) = namespace_alias {
+            format!("{}:{}", alias, self.name)
+        } else {
+            self.name.to_string()
+        };
+
+        write!(f, " {}=\"{}\"", name, self.value)?;
+        Ok(())
+    }
+}
+
+
+--- File: crates/xml/src/builder/builder.rs ---
+use crate::builder::{Declaration, Element, NamespaceFmt};
+use tracing::error;
+
+/// Represents a builder for constructing an XML document.
+pub struct Builder<'a> {
+    /// The XML declaration.
+    declaration: Option<Declaration<'a>>,
+    /// The root element of the XML document.
+    element: Element<'a>,
+}
+
+impl<'a> Builder<'a> {
+    /// Creates a new instance of `Builder` with the given declaration and root element.
+    ///
+    /// # Arguments
+    ///
+    /// * `declaration` - The XML declaration.
+    /// * `element` - The root element of the XML document.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::{Builder, Declaration, Element, RootElement};
+    /// let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
+    /// let element = Element::new("root");
+    /// let root_element = RootElement::new(element);
+    /// let builder = Builder::new(Some(declaration), root_element);
+    /// ```
+    pub fn new(declaration: Option<Declaration<'a>>, element: Element<'a>) -> Self {
+        Builder {
+            declaration,
+            element,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for Builder<'a> {
+    /// Formats the builder and its content as an XML document string.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(declaration) = &self.declaration {
+            writeln!(f, "{declaration} ")?;
+        }
+
+        match self.element.ns_fmt(f, None) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                error!(target: "xml_format", error = ?e, "error formatting root element");
+                Err(e)
+            }
+        }
+    }
+}
+
+
+--- File: crates/xml/src/builder/declaration.rs ---
+/// Represents an XML declaration.
+pub struct Declaration<'a> {
+    /// The XML version.
+    version: &'a str,
+    /// The encoding used for the XML document.
+    encoding: &'a str,
+    /// The standalone status of the XML document (optional).
+    standalone: Option<bool>,
+}
+
+impl<'a> Declaration<'a> {
+    /// Creates a new instance of `Declaration` with the given version and encoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `version` - The XML version.
+    /// * `encoding` - The encoding used for the XML document.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Declaration;
+    /// let declaration = Declaration::new("1.0", "UTF-8");
+    /// ```
+    pub fn new(version: &'a str, encoding: &'a str) -> Self {
+        Declaration {
+            version,
+            encoding,
+            standalone: None,
+        }
+    }
+
+    /// Sets the standalone status of the XML document and returns a modified `Declaration`.
+    ///
+    /// # Arguments
+    ///
+    /// * `standalone` - The standalone status of the XML document.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Declaration;
+    /// let declaration = Declaration::new("1.0", "UTF-8")
+    ///     .with_standalone(true);
+    /// ```
+    pub fn with_standalone(mut self, standalone: bool) -> Self {
+        self.standalone = Some(standalone);
+        self
+    }
+}
+
+impl<'a> std::fmt::Display for Declaration<'a> {
+    /// Formats the declaration as an XML declaration string.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            r#"<?xml version="{}" encoding="{}""#,
+            self.version, self.encoding
+        )?;
+
+        if let Some(standalone) = self.standalone {
+            let standalone_as_string = if standalone { "yes" } else { "no" };
+
+            write!(f, r#" standalone="{standalone_as_string}""#)?;
+        }
+
+        write!(f, "?>")?;
+        Ok(())
+    }
+}
+
+
+--- File: crates/xml/src/builder/element.rs ---
+use std::{borrow::Cow, collections::HashMap};
+
+use tracing::error;
+
+use crate::builder::{Attribute, Namespace, NamespaceFmt};
+
+#[derive(Debug, Clone)]
+pub enum Content<'a> {
+    /// Represents a text content within an XML element.
+    Text(Cow<'a, str>),
+    /// Represents a child element within an XML element.
+    Elements(Vec<Element<'a>>),
+
+    None,
+}
+
+/// Represents an XML element.
+#[derive(Debug, Clone)]
+pub struct Element<'a> {
+    /// The name of the element.
+    name: &'a str,
+    /// The namespaces associated with the element.
+    namespace: Option<Namespace<'a>>,
+    /// The attributes of the element.
+    attributes: Vec<Attribute<'a>>,
+    /// The child elements of the element.
+    content: Content<'a>,
+    /// The namespaces declaretions for this and child elements.
+    namespaces_declaration: Option<HashMap<Namespace<'a>, Option<&'a str>>>,
+}
+
+impl<'a> Element<'a> {
+    /// Creates a new instance of `Element` with the given name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the element.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Element;
+    /// let element = Element::new("root");
+    /// ```
+    pub fn new(name: &'a str) -> Self {
+        Element {
+            name,
+            namespace: None,
+            attributes: Vec::new(),
+            content: Content::None,
+            namespaces_declaration: None,
+        }
+    }
+
+    /// Adds a namespace to the element and returns a modified `Element`.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace` - The namespace to be added.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::{Element, Namespace};
+    /// let element = Element::new("root")
+    ///     .set_namespace(Namespace::new("name", "http://example.com"));
+    /// ```
+    pub fn set_namespace(mut self, ns: impl Into<Namespace<'a>>) -> Self {
+        self.namespace = Some(ns.into());
+        self
+    }
+
+    pub fn set_namespace_optional(mut self, ns: Option<impl Into<Namespace<'a>>>) -> Self {
+        if let Some(ns) = ns {
+            self.namespace = Some(ns.into());
+        } else {
+            self.namespace = None;
+        }
+        self
+    }
+
+    /// Namespace alias map is used to resolve namespace prefixes.
+    /// for example, if the element has a namespace with a prefix "ns",
+    /// the alias map will contain an entry for "ns" pointing to the namespace URI.
+    ///  <SomeElement xmlns:ns="http://example.com/ns">
+    ///     <ns:SomeChildElement/>
+    ///  </SomeElement>
+    ///
+    pub fn add_namespace_declaration(mut self, namespace: &'a str, alias: Option<&'a str>) -> Self {
+        if self.namespaces_declaration.is_none() {
+            self.namespaces_declaration = Some(HashMap::new());
+        }
+
+        let namespace = Namespace::new(namespace);
+
+        self.namespaces_declaration
+            .as_mut()
+            .expect("Namespaces should be initialized")
+            .insert(namespace.clone(), alias);
+
+        self
+    }
+
+    /// Adds an attribute to the element and returns a modified `Element`.
+    ///
+    /// # Arguments
+    ///
+    /// * `attribute` - The attribute to be added.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::{Element, Attribute};
+    /// let element = Element::new("root")
+    ///     .add_attribute(Attribute::new("attr1", "value1"));
+    /// ```
+    pub fn add_attribute(mut self, attribute: Attribute<'a>) -> Self {
+        self.attributes.push(attribute);
+        self
+    }
+
+    /// Adds a child element to the element and returns a modified `Element`.
+    ///
+    /// # Arguments
+    ///
+    /// * `child` - The child element to be added.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Element;
+    /// let child = Element::new("child");
+    /// let element = Element::new("root")
+    ///     .add_child(child);
+    /// ```
+    pub fn add_child(mut self, child: Element<'a>) -> Self {
+        match self.content {
+            Content::None | Content::Text(_) => {
+                self.content = Content::Elements(vec![child]);
+            }
+            Content::Elements(ref mut children) => {
+                children.push(child);
+            }
+        }
+        self
+    }
+
+    pub fn add_children(mut self, children: Vec<Element<'a>>) -> Self {
+        for child in children {
+            self = self.add_child(child);
+        }
+        self
+    }
+
+    /// Sets the text content of the element and returns a modified `Element`.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text content to be set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Element;   
+    /// let element = Element::new("root")
+    ///    .set_text("This is some text content.");
+    ///     
+    /// ```
+    pub fn set_text(mut self, text: impl Into<Cow<'a, str>>) -> Self {
+        self.content = Content::Text(text.into());
+        self
+    }
+
+    pub fn set_text_owned(mut self, text: String) -> Self {
+        self.content = Content::Text(std::borrow::Cow::Owned(text));
+        self
+    }
+
+    pub fn with_text(&mut self, text: &'a str) -> &mut Self {
+        self.content = Content::Text(std::borrow::Cow::Borrowed(text));
+        self
+    }
+
+    pub fn with_text_owned(&mut self, text: String) -> &mut Self {
+        self.content = Content::Text(std::borrow::Cow::Owned(text));
+        self
+    }
+}
+
+impl std::fmt::Display for Element<'_> {
+    /// Formats the element and its content as an XML string.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ns_fmt(f, None)
+            .inspect_err(|_| eprintln!("Error formatting XML for element: {}", self.name))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AliasStatus {
+    ElementHasNoNamespace,
+    NamespaceFoundWithAlias(String),
+    NamespaceFoundWithoutAlias,
+    NamespaceNotFoundInDeclaration,
+    NamespaceDeclarationMapMissing,
+}
+
+impl crate::builder::NamespaceFmt for Element<'_> {
+    /// Formats the element and its content as an XML string.
+    fn ns_fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        parent_declaration_map: Option<&HashMap<Namespace<'_>, Option<&str>>>,
+    ) -> std::fmt::Result {
+        let namespace_declaration_map = match (parent_declaration_map, &self.namespaces_declaration)
+        {
+            // The case where no declarations are present, and the current element has no namespace declarations.
+            (None, None) => None,
+            // The case where no declarations are present in parent, this should only happen at the root element.
+            (None, Some(my_map)) => Some(Cow::Borrowed(my_map)),
+            // The case where parent declarations are present, and the current element has no namespace declarations.
+            (Some(parent_map), None) => Some(Cow::Borrowed(parent_map)),
+            // The case where both parent and current element have namespace declarations.
+            // We merge the two maps, giving priority to the current element's declarations.
+            (Some(parent_map), Some(my_map)) => Some({
+                let mut merged_namespace = HashMap::new();
+
+                merged_namespace.extend(parent_map.iter().map(|(ns, alias)| (ns.clone(), *alias)));
+                merged_namespace.extend(my_map.iter().map(|(ns, alias)| (ns.clone(), *alias)));
+
+                Cow::Owned(merged_namespace)
+            }),
+        };
+
+        let alias = 'alias: {
+            if let Some(namespace) = &self.namespace {
+                let Some(ref namespaces_map) = namespace_declaration_map else {
+                    break 'alias AliasStatus::NamespaceDeclarationMapMissing;
+                };
+
+                match namespaces_map.get(namespace) {
+                    Some(Some(alias)) => AliasStatus::NamespaceFoundWithAlias(alias.to_string()),
+                    /*
+                    For cases where the namespace is found but no alias is provided. right now this is only used for
+                       <creationXml
+                           xmlns="http://schemas.microsoft.com/powershell/Microsoft.PowerShell">
+                       > ....
+
+                    Notice that it declares a namespace without an alias
+                    */
+                    Some(None) => AliasStatus::NamespaceFoundWithoutAlias,
+                    None => AliasStatus::NamespaceNotFoundInDeclaration,
+                }
+            } else {
+                AliasStatus::ElementHasNoNamespace
+            }
+        };
+
+        let name = match alias {
+            AliasStatus::ElementHasNoNamespace => self.name.to_string(),
+            AliasStatus::NamespaceFoundWithAlias(alias) => {
+                format!("{}:{}", alias, self.name)
+            }
+            AliasStatus::NamespaceFoundWithoutAlias => {
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    "element has no alias but namespace is present"
+                );
+                return Err(std::fmt::Error);
+            }
+            AliasStatus::NamespaceNotFoundInDeclaration => {
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    expected_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    self_namespaces_declaration = ?self.namespaces_declaration,
+                    "namespace not found in declaration map for element"
+                );
+                return Err(std::fmt::Error);
+            }
+            AliasStatus::NamespaceDeclarationMapMissing => {
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    missing_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    "namespace alias not found for element"
+                );
+                return Err(std::fmt::Error);
+            }
+        };
+
+        write!(f, "<{name}")?;
+
+        if let Some(this_namespaces) = &self.namespaces_declaration {
+            for (url, alias) in this_namespaces {
+                if let Some(alias) = alias {
+                    write!(f, " xmlns:{alias}=\"{url}\"")?;
+                } else {
+                    write!(f, " xmlns=\"{url}\"")?;
+                }
+            }
+        }
+
+        for attribute in &self.attributes {
+            attribute.ns_fmt(f, namespace_declaration_map.as_deref())?;
+        }
+
+        match &self.content {
+            Content::None => {
+                write!(f, "/>")?;
+            }
+            Content::Text(value) => {
+                write!(f, ">{value}</{name}>")?;
+            }
+            Content::Elements(children) => {
+                write!(f, ">")?;
+                for child in children {
+                    child.ns_fmt(f, namespace_declaration_map.as_deref())?;
+                }
+                write!(f, "</{name}>")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+
+--- File: crates/xml/src/builder/mod.rs ---
+//! # xml-builder-rs
+//!  A lightweight and intuitive library for generating XML documents in Rust. With an easy-to-use API, it allows you to create well-formed XML structures programmatically. Add elements, attributes, namespaces, and CDATA sections effortlessly.
+//! ```
+mod attribute;
+mod builder;
+mod declaration;
+mod element;
+mod namespace;
+
+use std::collections::HashMap;
+
+pub use self::attribute::*;
+pub use self::builder::*;
+pub use self::declaration::*;
+pub use self::element::*;
+pub use self::namespace::*;
+
+pub trait NamespaceFmt {
+    fn ns_fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        namespaces_alias_map: Option<&HashMap<Namespace<'_>, Option<&str>>>,
+    ) -> std::fmt::Result;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! compare_xml {
+        ($left:expr, $right:expr) => {{
+            let normalize = |s: &str| s.replace('\n', "");
+            assert_eq!(normalize($left), normalize($right));
+        }};
+    }
+
+    #[test]
+    fn test_simple_xml() {
+        let element = Element::new("root");
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        compare_xml!(&xml_string, "<root/>");
+    }
+
+    #[test]
+    fn test_xml_with_attributes() {
+        let element = Element::new("root").add_attribute(Attribute::new("attr1", "value1"));
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        compare_xml!(&xml_string, r#"<root attr1="value1"/>"#);
+    }
+
+    #[test]
+    fn test_xml_with_child_elements() {
+        let child = Element::new("child");
+        let element = Element::new("root").add_child(child);
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        let expected_xml = "<root>
+    <child/>
+</root>";
+        compare_xml!(&xml_string, expected_xml);
+    }
+
+    #[test]
+    fn test_xml_with_namespaces() {
+        let element = Element::new("root").set_namespace(Namespace::new("http://example.com/ns1"));
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        compare_xml!(
+            &xml_string,
+            r#"<ns1:root xmlns:ns1="http://example.com/ns1"/>"#
+        );
+    }
+
+    #[test]
+    fn test_full_xml_document() {
+        let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
+        let child = Element::new("child")
+            .set_namespace(Namespace::new("http://example.com/ns2"))
+            .add_attribute(Attribute::new("attr2", "value2"));
+        let element = Element::new("root")
+            .set_namespace(Namespace::new("http://example.com/ns1"))
+            .add_attribute(Attribute::new("attr1", "value1"))
+            .add_child(child);
+
+        let builder = Builder::new(Some(declaration), element);
+        let xml_string = builder.to_string();
+        let expected_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns1:root xmlns:ns1="http://example.com/ns1" xmlns:ns2="http://example.com/ns2" attr1="value1">
+    <ns2:child attr2="value2"/>
+</ns1:root>"#;
+        compare_xml!(&xml_string, expected_xml);
+    }
+
+    #[test]
+    fn test_element_with_text() {
+        let element = Element::new("message").set_text("Hello, world!");
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        assert_eq!(xml_string, "<message>Hello, world!</message>");
+    }
+
+    #[test]
+    fn test_element_with_text_and_attributes() {
+        let element = Element::new("message")
+            .add_attribute(Attribute::new("lang", "en"))
+            .set_text("Hello, world!");
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        assert_eq!(xml_string, r#"<message lang="en">Hello, world!</message>"#);
+    }
+
+    #[test]
+    fn test_adding_child_overwrites_text() {
+        let child = Element::new("item");
+        let element = Element::new("container")
+            .set_text("Initial text")
+            .add_child(child);
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        let expected_xml = "<container>
+    <item/>
+</container>";
+        assert_eq!(xml_string, expected_xml);
+    }
+
+    #[test]
+    fn test_setting_text_overwrites_children() {
+        let child = Element::new("item");
+        let element = Element::new("container")
+            .add_child(child)
+            .set_text("New text");
+
+        let builder = Builder::new(None, element);
+        let xml_string = builder.to_string();
+        assert_eq!(xml_string, "<container>New text</container>");
+    }
+}
+
+
+--- File: crates/xml/src/builder/namespace.rs ---
+use core::fmt;
+use std::hash::Hash;
+
+/// Represents a namespace in XML.
+#[derive(Debug, Clone, Eq)]
+pub struct Namespace<'a> {
+    pub url: &'a str,
+}
+
+impl<'a> From<&'a str> for Namespace<'a> {
+    fn from(url: &'a str) -> Self {
+        Namespace { url }
+    }
+}
+
+impl PartialEq for Namespace<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+    }
+}
+
+impl fmt::Display for Namespace<'_> {
+    /// Formats the namespace as a string in the format `xmlns:prefix="uri"`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.url.fmt(f)
+    }
+}
+
+impl Hash for Namespace<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.url.hash(state);
+    }
+}
+
+impl<'a> Namespace<'a> {
+    /// Creates a new instance of `Namespace` with the given prefix and URI.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - The prefix for the namespace.
+    /// * `uri` - The URI associated with the namespace.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use xml::builder::Namespace;
+    /// let namespace = Namespace::new("xmlns", "http://example.com");
+    /// ```
+    pub fn new(uri: &'a str) -> Self {
+        Namespace { url: uri }
+    }
+}
+
+

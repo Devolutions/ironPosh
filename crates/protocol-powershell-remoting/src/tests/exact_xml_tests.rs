@@ -60,7 +60,7 @@ fn test_session_capability_message() {
 
     // Generate XML
     let element = complex_obj.to_element_as_root().unwrap();
-    let xml = element.to_string();
+    let xml = element.to_xml_string().unwrap();
 
     println!("Generated XML:");
     println!("{}", xml);
@@ -304,7 +304,7 @@ fn test_runspace_pool_message() {
 
     // Generate XML
     let element = complex_obj.to_element_as_root().unwrap();
-    let xml = element.to_string();
+    let xml = element.to_xml_string().unwrap();
 
     println!("Generated XML:");
     println!("{}", xml);
@@ -558,7 +558,7 @@ fn test_round_trip_session_capability() {
 
     // Step 1: Serialize to XML
     let element = original.to_element_as_root().unwrap();
-    let xml = element.to_string();
+    let xml = element.to_xml_string().unwrap();
 
     println!("Round-trip XML: {}", xml);
 
@@ -615,7 +615,7 @@ fn test_round_trip_enum_object() {
 
     // Serialize
     let element = original.to_element_as_root().unwrap();
-    let xml = element.to_string();
+    let xml = element.to_xml_string().unwrap();
 
     println!("Enum round-trip XML: {}", xml);
 
@@ -672,7 +672,7 @@ fn test_round_trip_dictionary_container() {
 
     // Serialize
     let element = original.to_element_as_root().unwrap();
-    let xml = element.to_string();
+    let xml = element.to_xml_string().unwrap();
 
     println!("Dictionary round-trip XML: {}", xml);
 
@@ -901,7 +901,7 @@ fn test_primitive_values_round_trip() {
 
         // Serialize
         let element = original.to_element_as_root().unwrap();
-        let xml = element.to_string();
+        let xml = element.to_xml_string().expect("Failed to serialize to XML");
 
         println!("  XML: {}", xml);
 
