@@ -1,8 +1,8 @@
 use std::net::IpAddr;
 
 use clap::Parser;
-use pwsh_core::connector::{Authentication, ConnectorConfig, Scheme, http::ServerAddress};
-use tracing_subscriber::EnvFilter;
+use pwsh_core::connector::{http::ServerAddress, Authentication, ConnectorConfig, Scheme};
+use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
 /// PowerShell Remoting Client (Synchronous)
 #[derive(Parser)]
@@ -17,11 +17,21 @@ pub struct Args {
     pub port: u16,
 
     /// Username for authentication
-    #[arg(short, long, default_value = "Administrator", help = "Username for authentication")]
+    #[arg(
+        short,
+        long,
+        default_value = "Administrator",
+        help = "Username for authentication"
+    )]
     pub username: String,
 
     /// Password for authentication
-    #[arg(short = 'P', long, default_value = "DevoLabs123!", help = "Password for authentication")]
+    #[arg(
+        short = 'P',
+        long,
+        default_value = "DevoLabs123!",
+        help = "Password for authentication"
+    )]
     pub password: String,
 
     /// Use HTTPS instead of HTTP
@@ -33,39 +43,41 @@ pub struct Args {
     pub verbose: u8,
 }
 
-/// Initialize logging with file output
+/// Initialize logging with file output and proper structured logging
 pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
     let log_file = std::fs::File::create("winrm_client.log")?;
-    
-    // Determine log level based on verbosity
+
+    // Determine log level based on verbosity using structured filters
     let log_level = match verbose_level {
         0 => "powershell_sync=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,ureq=error",
-        1 => "powershell_sync=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error",
-        2 => "powershell_sync=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,ureq=warn",
+        1 => "powershell_sync=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error,[network]=trace,[user]=trace",
+        2 => "powershell_sync=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,ureq=warn,[pipeline]=trace,[host_call]=trace",
         _ => "trace",
     };
 
-    let max_level = match verbose_level {
-        0 => tracing::Level::INFO,
-        1 => tracing::Level::DEBUG,
-        _ => tracing::Level::TRACE,
-    };
+    let subscriber = Registry::default()
+        .with(EnvFilter::from_default_env().add_directive(log_level.parse()?))
+        .with(
+            fmt::layer()
+                .with_writer(log_file)
+                .with_target(true)
+                .with_line_number(true)
+                .with_file(true)
+                .compact(),
+        );
 
-    tracing_subscriber::fmt::SubscriberBuilder::default()
-        .with_env_filter(EnvFilter::new(log_level))
-        .with_max_level(max_level)
-        .with_target(false)
-        .with_line_number(true)
-        .with_file(true)
-        .with_writer(log_file)
-        .init();
+    tracing::subscriber::set_global_default(subscriber)?;
     Ok(())
 }
 
 /// Create connector configuration from command line arguments
 pub fn create_connector_config(args: &Args) -> ConnectorConfig {
     let server = ServerAddress::Ip(args.server);
-    let scheme = if args.https { Scheme::Https } else { Scheme::Http };
+    let scheme = if args.https {
+        Scheme::Https
+    } else {
+        Scheme::Http
+    };
     let auth = Authentication::Basic {
         username: args.username.clone(),
         password: args.password.clone(),

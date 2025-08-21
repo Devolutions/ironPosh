@@ -103,7 +103,6 @@ impl Default for HostDefaultData {
 }
 
 impl HostDefaultData {
-
     // Convert to the BTreeMap<PsValue, PsValue> format expected by HostInfo DCT
     pub fn to_dictionary(&self) -> BTreeMap<PsValue, PsValue> {
         let mut map = BTreeMap::new();

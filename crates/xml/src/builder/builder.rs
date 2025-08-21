@@ -44,7 +44,7 @@ impl<'a> std::fmt::Display for Builder<'a> {
         match self.element.ns_fmt(f, None) {
             Ok(()) => Ok(()),
             Err(e) => {
-                error!("Error formatting root element: {:?}", e);
+                error!(target: "xml_format", error = ?e, "error formatting root element");
                 Err(e)
             }
         }

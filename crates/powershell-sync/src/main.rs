@@ -21,22 +21,22 @@ use network::NetworkHandler;
 use types::NextStep;
 use user_input::UserInputHandler;
 
+#[instrument(name = "main", level = "info")]
 fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args = Args::parse();
 
     // Initialize logging with the specified verbosity level
     init_logging(args.verbose)?;
-    let _span = tracing::span!(tracing::Level::INFO, "main").entered();
     info!("Starting WinRM PowerShell client (Synchronous)");
 
     // Display connection information
     info!(
-        "Connecting to {}:{} with user '{}' using {}",
-        args.server,
-        args.port,
-        args.username,
-        if args.https { "HTTPS" } else { "HTTP" }
+        server = %args.server,
+        port = args.port,
+        username = %args.username,
+        scheme = %if args.https { "HTTPS" } else { "HTTP" },
+        "connecting to server"
     );
 
     // Create configuration and establish connection
@@ -81,12 +81,11 @@ fn main() -> anyhow::Result<()> {
     // Clean up threads (they will exit when channels are dropped)
     drop(network_handle);
     drop(user_handle);
-    drop(_span);
     Ok(())
 }
 
 /// Main event loop that processes network responses and user requests
-#[instrument(skip_all)]
+#[instrument(level = "info", skip_all, fields(iterations = 0u64))]
 fn run_event_loop(
     mut active_session: pwsh_core::connector::active_session::ActiveSession,
     network_response_rx: mpsc::Receiver<pwsh_core::connector::http::HttpResponse<String>>,
@@ -94,46 +93,61 @@ fn run_event_loop(
     network_request_tx: mpsc::Sender<pwsh_core::connector::http::HttpRequest<String>>,
     user_event_tx: mpsc::Sender<UserEvent>,
 ) -> anyhow::Result<()> {
+    let span = tracing::Span::current();
+    let mut iteration_count = 0u64;
+
     loop {
+        iteration_count += 1;
+        span.record("iterations", iteration_count);
+
         // Use select! equivalent for synchronous channels
         let next_step = select_sync(&network_response_rx, &user_request_rx)?;
 
-        info!("Processing next step: {next_step}");
+        info!(next_step = %next_step, "processing step");
 
         let step_results = match next_step {
             NextStep::NetworkResponse(http_response) => {
                 info!(
-                    "Processing network response with body length: {}",
-                    http_response.body.as_ref().map(|b| b.len()).unwrap_or(0)
+                    target: "network",
+                    body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                    "processing network response"
                 );
 
                 active_session
                     .accept_server_response(http_response)
                     .map_err(|e| {
-                        error!("Failed to accept server response: {:#}", e);
+                        error!(target: "network", error = %e, "failed to accept server response");
                         e
                     })
                     .context("Failed to accept server response")?
             }
             NextStep::UserRequest(user_operation) => {
-                info!("Processing user operation: {:?}", user_operation);
+                info!(target: "user", operation = ?user_operation, "processing user operation");
 
                 vec![active_session
                     .accept_client_operation(user_operation)
                     .map_err(|e| {
-                        error!("Failed to accept user operation: {:#}", e);
+                        error!(target: "user", error = %e, "failed to accept user operation");
                         e
                     })
                     .context("Failed to accept user operation")?]
             }
         };
 
-        info!(?step_results, "Received server response, processing...");
+        info!(
+            step_result_count = step_results.len(),
+            "received server response, processing step results"
+        );
 
         for step_result in step_results {
-            info!(?step_result, "Processing step result");
+            info!(step_result = ?step_result, "processing step result");
             match step_result {
                 ActiveSessionOutput::SendBack(http_requests) => {
+                    info!(
+                        target: "network",
+                        request_count = http_requests.len(),
+                        "sending HTTP requests"
+                    );
                     for http_request in http_requests {
                         network_request_tx
                             .send(http_request)
@@ -141,27 +155,30 @@ fn run_event_loop(
                     }
                 }
                 ActiveSessionOutput::SendBackError(e) => {
-                    error!("Error in session step: {}", e);
+                    error!(target: "session", error = %e, "session step failed");
                     return Err(anyhow::anyhow!("Session step failed: {}", e));
                 }
                 ActiveSessionOutput::UserEvent(event) => {
+                    info!(target: "user", event = ?event, "sending user event");
                     // Send all user events to the UI thread
                     if let Err(e) = user_event_tx.send(event) {
-                        error!("Failed to send user event: {}", e);
+                        error!(target: "user", error = %e, "failed to send user event");
                     }
                 }
                 ActiveSessionOutput::HostCall(host_call) => {
                     info!(
-                        "Received host call: method_name='{}', call_id={}",
-                        host_call.method_name, host_call.call_id
+                        target: "host",
+                        method_name = %host_call.method_name,
+                        call_id = host_call.call_id,
+                        "received host call"
                     );
 
                     let method = host_call.get_param().map_err(|e| {
-                        error!("Failed to parse host call parameters: {:#}", e);
+                        error!(target: "host", error = %e, "failed to parse host call parameters");
                         e
                     })?;
 
-                    info!("Processing host call method: {:?}", method);
+                    info!(target: "host", method = ?method, "processing host call method");
 
                     // Handle the host call and create a response
                     use pwsh_core::host::{HostCallMethodReturn, RawUIMethodReturn};
@@ -171,7 +188,7 @@ fn run_event_loop(
                         pwsh_core::host::HostCallMethodWithParams::RawUIMethod(
                             pwsh_core::host::RawUIMethodParams::GetBufferSize,
                         ) => {
-                            info!("Handling GetBufferSize - returning default console size");
+                            info!(target: "host", method = "GetBufferSize", "returning default console size");
                             HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(
                                 120, 30,
                             ))
@@ -182,8 +199,11 @@ fn run_event_loop(
                             pwsh_core::host::UIMethodParams::WriteProgress(source_id, record),
                         ) => {
                             info!(
-                                "Handling WriteProgress - source_id={}, record={}",
-                                source_id, record
+                                target: "host",
+                                method = "WriteProgress",
+                                source_id = source_id,
+                                record = %record,
+                                "handling write progress"
                             );
                             HostCallMethodReturn::UIMethod(
                                 pwsh_core::host::UIMethodReturn::WriteProgress,
@@ -192,7 +212,7 @@ fn run_event_loop(
 
                         // For other methods, return not implemented error for now
                         other => {
-                            warn!("Host call method not implemented: {:?}", other);
+                            warn!(target: "host", method = ?other, "host call method not implemented");
                             HostCallMethodReturn::Error(pwsh_core::host::HostError::NotImplemented)
                         }
                     };
@@ -200,28 +220,29 @@ fn run_event_loop(
                     // Submit the response
                     let host_response = host_call.submit_result(response);
                     info!(
-                        "Created host call response for call_id={}",
-                        host_response.call_id
+                        target: "host",
+                        call_id = host_response.call_id,
+                        "created host call response"
                     );
 
                     // For now, we're not sending the response back yet - that requires more infrastructure
                     // TODO: Implement sending host call responses back to the server
                 }
                 ActiveSessionOutput::OperationSuccess => {
-                    info!("Operation completed successfully");
+                    info!(target: "session", "operation completed successfully");
                 }
                 ActiveSessionOutput::PipelineOutput {
                     output,
                     handle: _handle,
                 } => match format_pipeline_output(&output) {
                     Ok(formatted) => {
-                        info!("Pipeline output: {}", formatted);
-                        println!("Pipeline output: {}", formatted);
+                        info!(target: "pipeline", output = %formatted, "pipeline output formatted");
+                        println!("Pipeline output: {formatted}");
                     }
                     Err(e) => {
-                        warn!("Failed to format pipeline output: {}", e);
-                        info!("Pipeline output (raw): {}", output);
-                        println!("Pipeline output (raw): {}", output);
+                        warn!(target: "pipeline", error = %e, "failed to format pipeline output");
+                        info!(target: "pipeline", output = %output, "pipeline output (raw)");
+                        println!("Pipeline output (raw): {output}");
                     }
                 },
             }
@@ -319,7 +340,7 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
                         } else {
                             // Not a low surrogate, add the previous high surrogate as-is and process this one
                             result.push_str("_x");
-                            result.push_str(&format!("{:04X}", high));
+                            result.push_str(&format!("{high:04X}"));
                             result.push('_');
 
                             if (0xD800..=0xDBFF).contains(&code_unit) {
@@ -370,7 +391,7 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, anyhow::Error> {
     // If we have an unmatched high surrogate at the end, add it as-is
     if let Some(high) = high_surrogate {
         result.push_str("_x");
-        result.push_str(&format!("{:04X}", high));
+        result.push_str(&format!("{high:04X}"));
         result.push('_');
     }
 

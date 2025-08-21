@@ -261,15 +261,35 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 format!("{}:{}", alias, self.name)
             }
             AliasStatus::NamespaceFoundWithoutAlias => {
-                error!(alias_status = ?alias, tag_name = self.name, "Element has no alias but namespace is present");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    "element has no alias but namespace is present"
+                );
                 return Err(std::fmt::Error);
             }
             AliasStatus::NamespaceNotFoundInDeclaration => {
-                error!(alias_status = ?alias, tag_name = self.name, expected_namespace = ?self.namespace, ?namespace_declaration_map, self_namespaces_declaration = ?self.namespaces_declaration , "Namespace not found in declaration map for element");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    expected_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    self_namespaces_declaration = ?self.namespaces_declaration,
+                    "namespace not found in declaration map for element"
+                );
                 return Err(std::fmt::Error);
             }
             AliasStatus::NamespaceDeclarationMapMissing => {
-                error!(alias_status = ?alias, tag_name = self.name, missing_namespace =?self.namespace, namespace_declaration_map = ?namespace_declaration_map, "Namespace alias not found for element");
+                error!(
+                    target: "xml_namespace",
+                    alias_status = ?alias,
+                    tag_name = self.name,
+                    missing_namespace = ?self.namespace,
+                    namespace_declaration_map = ?namespace_declaration_map,
+                    "namespace alias not found for element"
+                );
                 return Err(std::fmt::Error);
             }
         };
