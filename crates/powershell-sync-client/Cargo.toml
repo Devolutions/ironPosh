@@ -1,5 +1,5 @@
 [[bin]]
-name = "powershell-sync"
+name = "powershell-sync-client"
 path = "src/main.rs"
 
 [package]
