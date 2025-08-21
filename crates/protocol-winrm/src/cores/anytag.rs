@@ -167,7 +167,7 @@ define_any_tag!(
     (Version, Version, Tag<'a, Text<'a>, Version>),
     (BA, BA, Tag<'a, Text<'a>, BA>),
     // PowerShell Serialization Format
-    (I32Tag, I32, Tag<'a, Text<'a>, I32>),
+    (I32TagName, I32TagName, Tag<'a, Text<'a>, I32TagName>), // 32-bit integer
     (TN, TN, Tag<'a, TagList<'a>, TN>),
     (T, T, Tag<'a, Text<'a>, T>),
     (ToString, ToString, Tag<'a, Text<'a>, ToString>),

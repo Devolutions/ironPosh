@@ -6,7 +6,7 @@ use pwsh_core::connector::UserOperation;
 #[derive(Debug)]
 pub enum NextStep {
     NetworkResponse(pwsh_core::connector::http::HttpResponse<String>),
-    UserRequest(UserOperation),
+    UserRequest(Box<UserOperation>),
 }
 
 impl fmt::Display for NextStep {

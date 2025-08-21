@@ -20,6 +20,7 @@ pub struct WinRunspace {
     #[builder(default = "stdout".to_string())]
     output_streams: String,
     #[builder(default, setter(strip_option))]
+    #[allow(dead_code)]
     environment: Option<std::collections::HashMap<String, String>>,
     #[builder(default, setter(strip_option))]
     idle_time_out: Option<f64>,

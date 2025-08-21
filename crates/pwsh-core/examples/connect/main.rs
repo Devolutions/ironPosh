@@ -88,7 +88,7 @@ async fn run_event_loop(
             },
             user_request = user_request_rx.recv() => {
                 if let Some(user_request) = user_request {
-                    NextStep::UserRequest(user_request)
+                    NextStep::UserRequest(Box::new(user_request))
                 } else {
                     error!("No user request received");
                     return Err(anyhow::anyhow!("No user request received"));
@@ -118,7 +118,7 @@ async fn run_event_loop(
 
                 vec![
                     active_session
-                        .accept_client_operation(user_operation)
+                        .accept_client_operation(*user_operation)
                         .map_err(|e| {
                             error!("Failed to accept user operation: {:#}", e);
                             e

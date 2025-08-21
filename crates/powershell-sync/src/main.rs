@@ -125,7 +125,7 @@ fn run_event_loop(
                 info!(target: "user", operation = ?user_operation, "processing user operation");
 
                 vec![active_session
-                    .accept_client_operation(user_operation)
+                    .accept_client_operation(*user_operation)
                     .map_err(|e| {
                         error!(target: "user", error = %e, "failed to accept user operation");
                         e
@@ -264,7 +264,7 @@ fn select_sync(
             Err(TryRecvError::Empty) => {
                 // Try user channel
                 match user_rx.try_recv() {
-                    Ok(request) => return Ok(NextStep::UserRequest(request)),
+                    Ok(request) => return Ok(NextStep::UserRequest(Box::new(request))),
                     Err(TryRecvError::Empty) => {
                         // Both channels empty, wait a bit and try again
                         thread::sleep(std::time::Duration::from_millis(10));

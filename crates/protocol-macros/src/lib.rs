@@ -158,7 +158,7 @@ fn generate_simple_visitor_struct(
     generics: &Generics,
     field_entries: &[SimpleFieldEntry],
 ) -> TokenStream2 {
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (impl_generics, _ty_generics, where_clause) = generics.split_for_impl();
 
     let visitor_fields: Vec<TokenStream2> = field_entries
         .iter()
@@ -215,7 +215,7 @@ fn generate_simple_xml_visitor_impl(
     // Separate required and optional fields for finish method
     let required_fields: Vec<&SimpleFieldEntry> =
         field_entries.iter().filter(|f| !f.is_optional).collect();
-    let optional_fields: Vec<&SimpleFieldEntry> =
+    let _optional_fields: Vec<&SimpleFieldEntry> =
         field_entries.iter().filter(|f| f.is_optional).collect();
 
     // Generate required field checks - use different variable names to avoid conflicts
@@ -253,7 +253,7 @@ fn generate_simple_xml_visitor_impl(
         .collect();
 
     // Generate final field list for struct construction
-    let final_field_list: Vec<&Ident> = field_entries.iter().map(|f| &f.field_name).collect();
+    let _final_field_list: Vec<&Ident> = field_entries.iter().map(|f| &f.field_name).collect();
 
     quote! {
         impl #impl_generics xml::parser::XmlVisitor<'a> for #visitor_name #ty_generics #where_clause {

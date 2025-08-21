@@ -307,7 +307,7 @@ impl ActiveSession {
                     debug!("Pipeline output: {:?}", output);
                     step_output.push(ActiveSessionOutput::PipelineOutput {
                         output,
-                        handle: handle,
+                        handle,
                     });
                 }
             }

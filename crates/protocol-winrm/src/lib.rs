@@ -7,5 +7,3 @@ pub mod soap;
 pub mod test_macro;
 pub mod ws_addressing;
 pub mod ws_management;
-
-pub(crate) type Result<T> = std::result::Result<T, crate::error::ProtocolError>;
