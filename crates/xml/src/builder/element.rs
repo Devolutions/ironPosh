@@ -63,7 +63,7 @@ impl<'a> Element<'a> {
     /// ```
     /// use xml::builder::{Element, Namespace};
     /// let element = Element::new("root")
-    ///     .set_namespace(Namespace::new("name", "http://example.com"));
+    ///     .set_namespace(Namespace::new("http://example.com"));
     /// ```
     pub fn set_namespace(mut self, ns: impl Into<Namespace<'a>>) -> Self {
         self.namespace = Some(ns.into());

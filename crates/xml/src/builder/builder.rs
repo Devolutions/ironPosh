@@ -20,11 +20,10 @@ impl<'a> Builder<'a> {
     /// # Example
     ///
     /// ```
-    /// use xml::builder::{Builder, Declaration, Element, RootElement};
+    /// use xml::builder::{Builder, Declaration, Element};
     /// let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
     /// let element = Element::new("root");
-    /// let root_element = RootElement::new(element);
-    /// let builder = Builder::new(Some(declaration), root_element);
+    /// let builder = Builder::new(Some(declaration), element);
     /// ```
     pub fn new(declaration: Option<Declaration<'a>>, element: Element<'a>) -> Self {
         Builder {

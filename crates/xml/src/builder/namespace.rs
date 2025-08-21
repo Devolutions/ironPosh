@@ -33,18 +33,17 @@ impl Hash for Namespace<'_> {
 }
 
 impl<'a> Namespace<'a> {
-    /// Creates a new instance of `Namespace` with the given prefix and URI.
+    /// Creates a new instance of `Namespace` with the given URI.
     ///
     /// # Arguments
     ///
-    /// * `prefix` - The prefix for the namespace.
     /// * `uri` - The URI associated with the namespace.
     ///
     /// # Example
     ///
     /// ```
     /// use xml::builder::Namespace;
-    /// let namespace = Namespace::new("xmlns", "http://example.com");
+    /// let namespace = Namespace::new("http://example.com");
     /// ```
     pub fn new(uri: &'a str) -> Self {
         Namespace { url: uri }
