@@ -4,6 +4,7 @@ use pwsh_core::pipeline::PipelineCommand;
 use pwsh_core::powershell::PipelineHandle;
 use pwsh_core::{connector::UserOperation, powershell::PipelineOutputType};
 use regex::Regex;
+use uuid::Uuid;
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -34,7 +35,9 @@ impl UserInputHandler {
 
         info!("starting user input handler");
         self.user_request_tx
-            .send(UserOperation::CreatePipeline)
+            .send(UserOperation::CreatePipeline {
+                uuid: uuid::Uuid::new_v4(),
+            })
             .expect("Failed to send create pipeline request");
 
         loop {
@@ -108,7 +111,9 @@ impl UserInputHandler {
                         if *current_pipeline == powershell {
                             *pipeline = None;
                             self.user_request_tx
-                                .send(UserOperation::CreatePipeline)
+                                .send(UserOperation::CreatePipeline {
+                                    uuid: Uuid::new_v4(),
+                                })
                                 .expect("Failed to send create pipeline request");
                         }
                     }
