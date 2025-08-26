@@ -20,7 +20,8 @@
     ],
     "deny": [],
     "additionalDirectories": [
-      "C:\\c\\dev"
+      "C:\\c\\dev",
+      "C:\\c\\dev\\ironwinrm\\crates"
     ]
   }
 }
