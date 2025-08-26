@@ -11,6 +11,7 @@ quick-xml = { version = "0.38.0", features = [
     "serde-types",
     "serialize",
 ] }
+regex = "1.11.2"
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = "2.0.12"
 tracing = "0.1.41"

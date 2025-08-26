@@ -32,6 +32,9 @@ pub enum PowerShellRemotingError {
 
     #[error("Failed to parse XML: {0}")]
     XmlError(#[from] xml::XmlError),
+
+    #[error("Output formatting error: {0}")]
+    OutputFormattingError(&'static str),
 }
 
 impl From<std::io::Error> for PowerShellRemotingError {
