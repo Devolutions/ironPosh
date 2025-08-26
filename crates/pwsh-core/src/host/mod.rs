@@ -12,7 +12,7 @@ use protocol_powershell_remoting::{PipelineHostCall, PsValue};
 #[derive(Debug, Clone)]
 pub struct HostCallRequest {
     /// Type of the host call
-    pub call_type: HostCallType,
+    pub call_type: HostCallScope,
     /// Unique identifier for this host call
     pub call_id: i64,
     /// The host method identifier (enum value)
@@ -25,7 +25,7 @@ pub struct HostCallRequest {
 
 impl HostCallRequest {
     pub fn new(
-        call_type: HostCallType,
+        call_type: HostCallScope,
         call_id: i64,
         method_id: i32,
         method_name: String,
@@ -53,7 +53,7 @@ impl HostCallRequest {
             Err(error) => {
                 // If we can't extract the method, create an error response
                 return HostCallResponse {
-                    call_type: self.call_type,
+                    call_scope: self.call_type,
                     call_id: self.call_id,
                     method_id: self.method_id,
                     method_name: self.method_name,
@@ -79,7 +79,7 @@ impl HostCallRequest {
         };
 
         HostCallResponse {
-            call_type: self.call_type,
+            call_scope: self.call_type,
             call_id: self.call_id,
             method_id: self.method_id,
             method_name: self.method_name,
@@ -101,7 +101,7 @@ impl HostCallRequest {
 #[derive(Debug, Clone)]
 pub struct HostCallResponse {
     /// Type of the host call
-    pub call_type: HostCallType,
+    pub call_scope: HostCallScope,
     /// Unique identifier for this host call
     pub call_id: i64,
     /// The host method identifier (enum value)
@@ -114,8 +114,8 @@ pub struct HostCallResponse {
     pub method_exception: Option<PsValue>,
 }
 
-impl From<(&PipelineHostCall, HostCallType)> for HostCallRequest {
-    fn from((call, call_type): (&PipelineHostCall, HostCallType)) -> Self {
+impl From<(&PipelineHostCall, HostCallScope)> for HostCallRequest {
+    fn from((call, call_type): (&PipelineHostCall, HostCallScope)) -> Self {
         let PipelineHostCall {
             call_id,
             method_id,
