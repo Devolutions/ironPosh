@@ -1,0 +1,12 @@
+[package]
+name = "powershell-async"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+crossbeam = { version = "0.8.4", features = ["crossbeam-channel"] }
+futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
+pwsh-core = { version = "0.1.0", path = "../pwsh-core" }
+tracing = "0.1"
+uuid = "1.0"
