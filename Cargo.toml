@@ -2,6 +2,3 @@
 resolver = "3"
 # Define the members of the workspace. Currently, it includes the main crate.
 members = ["crates/*"]
-
-
-[workspace.dependencies]

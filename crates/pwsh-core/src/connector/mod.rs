@@ -28,6 +28,7 @@ pub enum Scheme {
     Https,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConnectorConfig {
     pub server: (ServerAddress, u16),
     pub scheme: Scheme,

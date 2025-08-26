@@ -215,20 +215,6 @@ async fn run_event_loop(
                 ActiveSessionOutput::OperationSuccess => {
                     info!("Operation completed successfully");
                 }
-                ActiveSessionOutput::PipelineOutput {
-                    output,
-                    handle: _handle,
-                } => match format_pipeline_output(&output) {
-                    Ok(formatted) => {
-                        info!("Pipeline output: {}", formatted);
-                        println!("Pipeline output: {}", formatted);
-                    }
-                    Err(e) => {
-                        warn!("Failed to format pipeline output: {}", e);
-                        info!("Pipeline output (raw): {}", output);
-                        println!("Pipeline output (raw): {}", output);
-                    }
-                },
             }
         }
     }
