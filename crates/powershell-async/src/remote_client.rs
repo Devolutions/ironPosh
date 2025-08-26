@@ -6,7 +6,7 @@ use pwsh_core::{
     connector::{Connector, ConnectorStepResult, UserOperation, http::HttpRequest},
     pipeline::PipelineCommand,
 };
-use tracing::{Instrument, info, info_span, warn};
+use tracing::{info, warn};
 
 use crate::HttpClient;
 
@@ -45,13 +45,11 @@ impl RemoteAsyncPowershellClient {
                     }
                 }
             }
-        }
-        .instrument(tracing::info_span!("NetworkTask"));
+        };
 
         // Session task - handles the main event loop
         let session_task = async move {
             loop {
-
                 // Handle both network responses and user requests like the sync version
                 futures::select! {
                     network_response = network_response_rx.next() => {
@@ -102,7 +100,7 @@ impl RemoteAsyncPowershellClient {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("SessionTask", iterations = 0u64));
+        };
 
         // Use futures::join! to run both tasks concurrently
         let (session_result, _network_result) = futures::join!(session_task, network_task);
@@ -244,7 +242,6 @@ impl RemoteAsyncPowershellClient {
             info!("Created connector, starting connection...");
 
             let mut response = None;
-            let _span = info_span!("ConnectionLoop").entered();
 
             let (active_session, next_request) = loop {
                 let step_result = connector
@@ -270,7 +267,6 @@ impl RemoteAsyncPowershellClient {
                     }
                 }
             };
-            drop(_span);
 
             client.send_request(next_request).await?;
 
@@ -292,7 +288,7 @@ impl RemoteAsyncPowershellClient {
                 user_output_rx,
                 message_cache: std::collections::HashMap::new(),
             },
-            task.instrument(info_span!("OpenTask")),
+            task,
         )
     }
 
@@ -355,7 +351,7 @@ impl RemoteAsyncPowershellClient {
                 } else {
                     self.message_cache
                         .entry(event.pipeline_id())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(event);
                 }
             }
