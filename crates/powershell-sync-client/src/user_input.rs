@@ -4,11 +4,11 @@ use pwsh_core::pipeline::PipelineCommand;
 use pwsh_core::powershell::PipelineHandle;
 use pwsh_core::{connector::UserOperation, powershell::PipelineOutputType};
 use regex::Regex;
-use uuid::Uuid;
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::time::Duration;
 use tracing::{error, info, instrument};
+use uuid::Uuid;
 
 /// Handle user input for PowerShell commands (synchronous)
 pub struct UserInputHandler {
@@ -120,11 +120,11 @@ impl UserInputHandler {
                 }
                 pwsh_core::connector::active_session::UserEvent::PipelineOutput {
                     output,
-                    handle,
+                    powershell,
                 } => {
-                    info!(pipeline_id = %handle.id(), "pipeline output: {:?}", output);
+                    info!(pipeline_id = %powershell.id(), "pipeline output: {:?}", output);
                     if let Some(current_pipeline) = pipeline {
-                        if *current_pipeline == handle {
+                        if *current_pipeline == powershell {
                             println!(
                                 "{}",
                                 format_pipeline_output(&output).unwrap_or_else(|e| {

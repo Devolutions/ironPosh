@@ -19,7 +19,7 @@ use xml::parser::XmlDeserialize;
 
 use crate::{
     PwshCoreError,
-    host::{HostCallRequest, HostCallType},
+    host::{HostCallRequest, HostCallScope},
     pipeline::{Pipeline, PipelineCommand},
     powershell::{PipelineHandle, PipelineOutputType},
     runspace::win_rs::WinRunspace,
@@ -377,10 +377,18 @@ impl RunspacePool {
         Ok(result)
     }
 
-    pub(crate) fn init_pipeline(&mut self) -> PipelineHandle {
-        let pineline_id = uuid::Uuid::new_v4();
-        self.pipelines.insert(pineline_id, Pipeline::new());
-        PipelineHandle { id: pineline_id }
+    pub(crate) fn init_pipeline(
+        &mut self,
+        uuid: Uuid,
+    ) -> Result<PipelineHandle, crate::PwshCoreError> {
+        if let Some(_) = self.pipelines.get(&uuid) {
+            return Err(crate::PwshCoreError::InvalidState(
+                "Pipeline with this UUID already exists",
+            ));
+        }
+
+        self.pipelines.insert(uuid, Pipeline::new());
+        Ok(PipelineHandle { id: uuid })
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
@@ -887,8 +895,8 @@ impl RunspacePool {
 
         Ok(HostCallRequest::from((
             &pipeline_host_call,
-            HostCallType::Pipeline {
-                id: command_id.to_owned(),
+            HostCallScope::Pipeline {
+                command_id: command_id.to_owned(),
             },
         )))
     }

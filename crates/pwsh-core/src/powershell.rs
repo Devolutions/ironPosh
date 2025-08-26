@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 /// A handle to a PowerShell pipeline managed by a `RunspacePool`.
 ///
 /// This struct is a lightweight, copyable identifier for a specific pipeline.
@@ -12,6 +14,10 @@ impl PipelineHandle {
     /// Returns the unique identifier for this PowerShell handle.
     pub fn id(&self) -> uuid::Uuid {
         self.id
+    }
+
+    pub fn new(id: Uuid) -> Self {
+        Self { id }
     }
 }
 

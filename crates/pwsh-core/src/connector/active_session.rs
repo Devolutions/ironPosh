@@ -1,6 +1,6 @@
 use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
-    host::{HostCallRequest, HostCallType},
+    host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
     powershell::{PipelineHandle, PipelineOutputType},
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
@@ -17,9 +17,19 @@ pub enum UserEvent {
         powershell: PipelineHandle,
     },
     PipelineOutput {
+        powershell: PipelineHandle,
         output: PipelineOutput,
-        handle: PipelineHandle,
     },
+}
+
+impl UserEvent {
+    pub fn pipeline_id(&self) -> uuid::Uuid {
+        match self {
+            UserEvent::PipelineCreated { powershell }
+            | UserEvent::PipelineFinished { powershell }
+            | UserEvent::PipelineOutput { powershell, .. } => powershell.id(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -69,24 +79,11 @@ pub enum PowershellOperations {
     AddArgument(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum HostCallScope {
-    Pipeline { command_id: uuid::Uuid },
-    RunspacePool,
-}
-
-impl From<HostCallType> for HostCallScope {
-    fn from(host_call_type: HostCallType) -> Self {
-        match host_call_type {
-            HostCallType::Pipeline { id } => HostCallScope::Pipeline { command_id: id },
-            HostCallType::RunspacePool => HostCallScope::RunspacePool,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum UserOperation {
-    CreatePipeline,
+    CreatePipeline {
+        uuid: uuid::Uuid,
+    },
     OperatePipeline {
         powershell: PipelineHandle,
         operation: PowershellOperations,
@@ -97,12 +94,13 @@ pub enum UserOperation {
     },
     /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
     SubmitHostResponse {
-        scope: HostCallScope,
-        call_id: i64,
-        method_id: i32,
-        method_name: String,
-        result: Option<PsValue>,
-        error: Option<PsValue>,
+        // scope: HostCallScope,
+        // call_id: i64,
+        // method_id: i32,
+        // method_name: String,
+        // result: Option<PsValue>,
+        // error: Option<PsValue>,
+        response: HostCallResponse,
     },
     /// Allow UI to abort a pending prompt cleanly (timeout, user cancelled)
     CancelHostCall {
@@ -136,9 +134,9 @@ impl ActiveSession {
         operation: UserOperation,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
         match operation {
-            UserOperation::CreatePipeline => {
+            UserOperation::CreatePipeline { uuid } => {
                 Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                    powershell: self.runspace_pool.init_pipeline(),
+                    powershell: self.runspace_pool.init_pipeline(uuid)?,
                 }))
             }
             UserOperation::OperatePipeline {
@@ -171,15 +169,18 @@ impl ActiveSession {
                 }
             }
             UserOperation::SubmitHostResponse {
-                scope,
-                call_id,
-                method_id,
-                method_name,
-                result,
-                error,
+                response:
+                    HostCallResponse {
+                        call_scope,
+                        call_id,
+                        method_id,
+                        method_name,
+                        method_result: result,
+                        method_exception: error,
+                    },
             } => {
                 // Validate that this host call is actually pending
-                let key = (scope.clone(), call_id);
+                let key = (call_scope.clone(), call_id);
                 if !self.pending_host_calls.contains_key(&key) {
                     return Err(crate::PwshCoreError::InvalidState(
                         "Host call not found or already completed",
@@ -190,7 +191,7 @@ impl ActiveSession {
                 self.pending_host_calls.remove(&key);
 
                 // Create the appropriate host response message based on scope
-                match scope {
+                match call_scope {
                     HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
                         command_id,
                         call_id,
@@ -310,7 +311,7 @@ impl ActiveSession {
                     debug!("Pipeline output: {:?}", output);
                     step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
                         output,
-                        handle,
+                        powershell: handle,
                     }));
                 }
             }
