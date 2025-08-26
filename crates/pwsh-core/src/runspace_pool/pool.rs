@@ -381,7 +381,7 @@ impl RunspacePool {
         &mut self,
         uuid: Uuid,
     ) -> Result<PipelineHandle, crate::PwshCoreError> {
-        if let Some(_) = self.pipelines.get(&uuid) {
+        if self.pipelines.get(&uuid).is_some() {
             return Err(crate::PwshCoreError::InvalidState(
                 "Pipeline with this UUID already exists",
             ));

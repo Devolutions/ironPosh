@@ -301,7 +301,7 @@ impl ActiveSession {
                 AcceptResponsResult::HostCall(host_call) => {
                     debug!(host_call = ?host_call, "Received host call request");
                     // Track this host call as pending
-                    let scope: HostCallScope = host_call.call_type.clone().into();
+                    let scope: HostCallScope = host_call.call_type.clone();
                     let key = (scope, host_call.call_id);
                     self.pending_host_calls.insert(key, ());
 
