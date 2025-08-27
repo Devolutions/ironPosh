@@ -82,7 +82,8 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
 
     println!("IronPosh Interactive PowerShell Client");
     println!("Enter PowerShell commands or 'exit' to quit");
-    println!("PS> ");
+    let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
+    print!("{prompt} ");
 
     let stdin = io::stdin();
     let reader = BufReader::new(stdin);
@@ -96,7 +97,8 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
         let command = line.trim();
 
         if command.is_empty() {
-            print!("PS> ");
+            let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
+            print!("{prompt} ");
             continue;
         }
 
@@ -120,7 +122,8 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
             }
         }
 
-        print!("PS> ");
+        let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
+        print!("{prompt} ");
     }
 
     Ok(())

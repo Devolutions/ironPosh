@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use crate::{connector::UserOperation, pipeline::PipelineCommand};
+
 /// A handle to a PowerShell pipeline managed by a `RunspacePool`.
 ///
 /// This struct is a lightweight, copyable identifier for a specific pipeline.
@@ -18,6 +20,31 @@ impl PipelineHandle {
 
     pub fn new(id: Uuid) -> Self {
         Self { id }
+    }
+
+    pub fn invoke(&self) -> UserOperation {
+        UserOperation::InvokePipeline {
+            powershell: *self,
+            output_type: PipelineOutputType::Streamed,
+        }
+    }
+
+    pub fn script(&self, script: String) -> UserOperation {
+        UserOperation::OperatePipeline {
+            powershell: *self,
+            operation: crate::connector::active_session::PowershellOperations::AddCommand {
+                command: PipelineCommand::new_script(script),
+            },
+        }
+    }
+
+    pub fn command(&self, command: String) -> UserOperation {
+        UserOperation::OperatePipeline {
+            powershell: *self,
+            operation: crate::connector::active_session::PowershellOperations::AddCommand {
+                command: PipelineCommand::new_command(command),
+            },
+        }
     }
 }
 
