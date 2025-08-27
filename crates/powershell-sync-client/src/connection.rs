@@ -44,5 +44,5 @@ pub fn establish_connection(
     };
 
     drop(_span);
-    Ok((active_session, next_request))
+    Ok((*active_session, next_request))
 }

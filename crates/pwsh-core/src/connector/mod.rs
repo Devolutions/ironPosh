@@ -54,7 +54,8 @@ pub enum ConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
     Connected {
-        active_session: ActiveSession,
+        /// use box to avoid large enum variant
+        active_session: Box<ActiveSession>,
         next_receive_request: HttpRequest<String>,
     },
 }
@@ -251,7 +252,7 @@ impl Connector {
                     (
                         ConnectorState::Connected,
                         ConnectorStepResult::Connected {
-                            active_session,
+                            active_session: Box::new(active_session),
                             next_receive_request: next_http_request,
                         },
                     )

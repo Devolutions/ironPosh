@@ -6,7 +6,7 @@ use crate::{
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 use protocol_powershell_remoting::{PipelineOutput, PsValue};
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
@@ -94,13 +94,7 @@ pub enum UserOperation {
     },
     /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
     SubmitHostResponse {
-        // scope: HostCallScope,
-        // call_id: i64,
-        // method_id: i32,
-        // method_name: String,
-        // result: Option<PsValue>,
-        // error: Option<PsValue>,
-        response: HostCallResponse,
+        response: Box<HostCallResponse>,
     },
     /// Allow UI to abort a pending prompt cleanly (timeout, user cancelled)
     CancelHostCall {
@@ -129,10 +123,13 @@ impl ActiveSession {
     }
 
     /// Handle a client-initiated operation
+    #[instrument(skip_all)]
     pub fn accept_client_operation(
         &mut self,
         operation: UserOperation,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
+        info!(?operation, "Accepting client operation");
+
         match operation {
             UserOperation::CreatePipeline { uuid } => {
                 Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
@@ -168,17 +165,15 @@ impl ActiveSession {
                     Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
                 }
             }
-            UserOperation::SubmitHostResponse {
-                response:
-                    HostCallResponse {
-                        call_scope,
-                        call_id,
-                        method_id,
-                        method_name,
-                        method_result: result,
-                        method_exception: error,
-                    },
-            } => {
+            UserOperation::SubmitHostResponse { response } => {
+                let HostCallResponse {
+                    call_scope,
+                    call_id,
+                    method_id,
+                    method_name,
+                    method_result: result,
+                    method_exception: error,
+                } = *response;
                 // Validate that this host call is actually pending
                 let key = (call_scope.clone(), call_id);
                 if !self.pending_host_calls.contains_key(&key) {
