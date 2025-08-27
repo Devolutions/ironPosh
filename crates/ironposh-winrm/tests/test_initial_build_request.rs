@@ -1,6 +1,6 @@
 use ironposh_winrm::{
-    cores::{Attribute, Tag, TagList, tag_name::*, tag_value::Text},
-    rsp::rsp::ShellValue,
+    cores::{Tag, TagList, tag_name::*, tag_value::Text},
+    rsp::shell_value::ShellValue,
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
     ws_management::header::OptionSetValue,
