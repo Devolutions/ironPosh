@@ -8,6 +8,15 @@ pub enum PsValue {
     Object(ComplexObject),
 }
 
+impl<IntoPrimitive> From<IntoPrimitive> for PsValue
+where
+    IntoPrimitive: Into<PsPrimitiveValue>,
+{
+    fn from(p: IntoPrimitive) -> Self {
+        PsValue::Primitive(p.into())
+    }
+}
+
 impl Display for PsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

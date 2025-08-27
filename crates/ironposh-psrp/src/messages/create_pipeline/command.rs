@@ -2,7 +2,7 @@ use super::{CommandParameter, PipelineResultTypes};
 use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
-use std::{collections::BTreeMap, ops::Index};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct Command {
@@ -63,7 +63,7 @@ impl From<Command> for ComplexObject {
 
         let args_obj = ComplexObject {
             type_def: Some(PsType::array_list()),
-            to_string: None,
+            to_string: cmd_str.clone().into(),
             content: ComplexObjectContent::Container(Container::List(args_values)),
             adapted_properties: BTreeMap::new(),
             extended_properties: BTreeMap::new(),
@@ -256,55 +256,5 @@ impl TryFrom<ComplexObject> for Command {
             merge_verbose,
             merge_warning,
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Commands {
-    cmds: Vec<Command>,
-}
-
-impl Commands {
-    // Garentees to have at least one command
-    pub fn new(cmds: Command) -> Self {
-        Commands { cmds: vec![cmds] }
-    }
-
-    pub fn len(&self) -> usize {
-        self.cmds.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.cmds.is_empty()
-    }
-}
-
-impl Index<usize> for Commands {
-    type Output = Command;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.cmds[index]
-    }
-}
-
-impl IntoIterator for Commands {
-    type Item = Command;
-    type IntoIter = std::vec::IntoIter<Command>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.cmds.into_iter()
-    }
-}
-
-impl TryFrom<Vec<Command>> for Commands {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: Vec<Command>) -> Result<Self, Self::Error> {
-        if value.is_empty() {
-            return Err(crate::PowerShellRemotingError::InvalidMessage(
-                "Commands cannot be empty".to_string(),
-            ));
-        }
-        Ok(Commands { cmds: value })
     }
 }

@@ -1,20 +1,13 @@
-use crate::runspace_pool::PsInvocationState;
+use ironposh_psrp::{CommandParameter, PsValue};
 
-/// Represents a parameter value in business logic terms
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParameterValue {
-    String(String),
-    Integer(i64),
-    Boolean(bool),
-    Array(Vec<ParameterValue>),
-    Null,
-}
+use crate::runspace_pool::PsInvocationState;
 
 /// Represents a single parameter for a command
 #[derive(Debug, Clone, PartialEq)]
-pub struct Parameter {
-    pub name: String,
-    pub value: Option<ParameterValue>,
+pub enum Parameter {
+    Named { name: String, value: PsValue },
+    Positional { value: PsValue },
+    Switch { name: String, value: bool },
 }
 
 /// Represents a single PowerShell command in business logic terms
@@ -42,19 +35,22 @@ impl PipelineCommand {
         }
     }
 
-    pub fn add_parameter(&mut self, name: String, value: ParameterValue) {
-        self.parameters.push(Parameter {
-            name,
-            value: Some(value),
-        });
+    pub fn add_parameter(&mut self, params: Parameter) {
+        self.parameters.push(params);
     }
 
-    pub fn add_switch_parameter(&mut self, name: String) {
-        self.parameters.push(Parameter { name, value: None });
+    pub fn with_parameter(mut self, params: Parameter) -> Self {
+        self.parameters.push(params);
+        self
     }
 
     pub(crate) fn new_output_stream() -> PipelineCommand {
-        PipelineCommand::new_command("Out-String".to_string())
+        let mut command = PipelineCommand::new_command("Out-String".to_string());
+        command.add_parameter(Parameter::Switch {
+            name: "Stream".to_string(),
+            value: true,
+        });
+        command
     }
 }
 
@@ -95,63 +91,13 @@ impl Pipeline {
         self.results.progress_records.push(record);
     }
 
-    pub(crate) fn add_switch_parameter(&mut self, name: String) {
-        if let Some(last_cmd) = self.commands.last_mut() {
-            last_cmd.add_switch_parameter(name);
-        } else {
-            tracing::warn!("Attempted to add a switch parameter with no prior command.");
-        }
-    }
-
     pub(crate) fn add_command(&mut self, command: PipelineCommand) {
         self.commands.push(command);
     }
-}
 
-// Conversion methods to protocol types
-impl From<ParameterValue> for ironposh_psrp::PsValue {
-    fn from(value: ParameterValue) -> Self {
-        use ironposh_psrp::{PsPrimitiveValue, PsValue};
-        match value {
-            ParameterValue::String(s) => PsValue::Primitive(PsPrimitiveValue::Str(s)),
-            ParameterValue::Integer(i) => PsValue::Primitive(PsPrimitiveValue::I64(i)),
-            ParameterValue::Boolean(b) => PsValue::Primitive(PsPrimitiveValue::Bool(b)),
-            ParameterValue::Array(_arr) => {
-                todo!("Convert array to PsValue")
-            }
-            ParameterValue::Null => PsValue::Primitive(PsPrimitiveValue::Nil),
-        }
-    }
-}
-
-impl From<&PipelineCommand> for ironposh_psrp::Command {
-    fn from(cmd: &PipelineCommand) -> Self {
-        use ironposh_psrp::{CommandParameter, PsPrimitiveValue, PsValue};
-
-        // Convert parameters to CommandParameter
-        let mut args = Vec::new();
-        for param in &cmd.parameters {
-            let param_value = match &param.value {
-                Some(value) => value.clone().into(),
-                None => {
-                    // Switch parameter (no value) - use boolean true
-                    PsValue::Primitive(PsPrimitiveValue::Bool(true))
-                }
-            };
-
-            args.push(
-                CommandParameter::builder()
-                    .name(param.name.clone())
-                    .value(param_value)
-                    .build(),
-            );
-        }
-
-        ironposh_psrp::Command::builder()
-            .cmd(&cmd.command_text)
-            .is_script(cmd.is_script)
-            .args(args)
-            .build()
+    pub fn as_stream(&mut self) -> &mut Self {
+        self.commands.push(PipelineCommand::new_output_stream());
+        self
     }
 }
 
@@ -161,20 +107,41 @@ impl Pipeline {
         &self,
     ) -> Result<ironposh_psrp::messages::create_pipeline::PowerShellPipeline, crate::PwshCoreError>
     {
-        use ironposh_psrp::{Command, Commands};
+        use ironposh_psrp::Command;
 
         // Convert all commands to protocol commands
-        let protocol_commands: Vec<Command> = self.commands.iter().map(|cmd| cmd.into()).collect();
-
-        // Use TryFrom to create Commands (handles empty check)
-        let commands = Commands::try_from(protocol_commands)
-            .map_err(crate::PwshCoreError::PowerShellRemotingError)?;
+        let protocol_commands: Vec<Command> = self
+            .commands
+            .iter()
+            .map(|cmd| {
+                ironposh_psrp::Command::builder()
+                    .cmd(cmd.command_text.clone())
+                    .is_script(cmd.is_script)
+                    .args(
+                        cmd.parameters
+                            .iter()
+                            .map(|param| match param {
+                                Parameter::Named { name, value } => {
+                                    CommandParameter::named(name.to_string(), value.clone())
+                                }
+                                Parameter::Positional { value } => {
+                                    CommandParameter::positional(value.clone())
+                                }
+                                Parameter::Switch { name, value } => {
+                                    CommandParameter::named(name.to_string(), *value)
+                                }
+                            })
+                            .collect(),
+                    )
+                    .build()
+            })
+            .collect();
 
         Ok(
             ironposh_psrp::messages::create_pipeline::PowerShellPipeline::builder()
                 .is_nested(false)
                 .redirect_shell_error_output_pipe(true)
-                .cmds(commands)
+                .cmds(protocol_commands)
                 .build(),
         )
     }

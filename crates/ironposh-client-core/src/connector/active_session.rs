@@ -2,7 +2,7 @@ use crate::{
     connector::http::{HttpBuilder, HttpRequest, HttpResponse},
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
-    powershell::{PipelineHandle, PipelineOutputType},
+    powershell::PipelineHandle,
     runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 use ironposh_psrp::{PipelineOutput, PsValue};
@@ -76,7 +76,6 @@ impl ActiveSessionOutput {
 #[derive(Debug)]
 pub enum PowershellOperations {
     AddCommand { command: PipelineCommand },
-    AddArgument(String),
 }
 
 #[derive(Debug)]
@@ -90,7 +89,6 @@ pub enum UserOperation {
     },
     InvokePipeline {
         powershell: PipelineHandle,
-        output_type: PipelineOutputType,
     },
     /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
     SubmitHostResponse {
@@ -144,19 +142,12 @@ impl ActiveSession {
                     PowershellOperations::AddCommand { command } => {
                         self.runspace_pool.add_command(powershell, command)?;
                     }
-                    PowershellOperations::AddArgument(arg) => {
-                        self.runspace_pool.add_switch_parameter(powershell, arg)?;
-                    }
                 }
                 Ok(ActiveSessionOutput::OperationSuccess)
             }
-            UserOperation::InvokePipeline {
-                powershell,
-                output_type,
-            } => {
-                let command_request = self
-                    .runspace_pool
-                    .invoke_pipeline_request(powershell, output_type);
+            UserOperation::InvokePipeline { powershell } => {
+                let command_request = self.runspace_pool.invoke_pipeline_request(powershell);
+
                 match command_request {
                     Ok(request) => {
                         let response = self.http_builder.post("/wsman", request);

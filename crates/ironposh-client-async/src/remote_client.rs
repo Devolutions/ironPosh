@@ -1,11 +1,12 @@
 use anyhow::Context;
 use futures::channel::mpsc;
-use futures::{FutureExt, SinkExt, StreamExt, stream::FuturesUnordered};
+use futures::{SinkExt, StreamExt, stream::FuturesUnordered};
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_client_core::connector::{
     Connector, ConnectorStepResult, UserOperation,
     http::{HttpRequest, HttpResponse},
 };
+use ironposh_client_core::pipeline::Parameter;
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
 use crate::HttpClient;
@@ -352,9 +353,30 @@ impl RemoteAsyncPowershellClient {
         debug!(pipeline_id = %new_pipeline_id, "pipeline created, sending command");
 
         self.user_input_tx
-            .send(powershell.script(command))
+            .send(
+                powershell
+                    .command_builder("Invoke-Expression".to_string())
+                    .with_param(Parameter::Named {
+                        name: "Command".to_string(),
+                        value: command.into(),
+                    })
+                    .build(),
+            )
             .await
             .context("Failed to send add command operation")?;
+
+        self.user_input_tx
+            .send(
+                powershell
+                    .command_builder("Out-String".to_string())
+                    .with_param(Parameter::Switch {
+                        name: "Stream".to_string(),
+                        value: true,
+                    })
+                    .build(),
+            )
+            .await
+            .context("Failed to send invoke pipeline operation")?;
 
         self.user_input_tx
             .send(powershell.invoke())
@@ -391,7 +413,8 @@ impl RemoteAsyncPowershellClient {
 
     #[instrument(skip(self))]
     pub async fn prompt(&mut self) -> anyhow::Result<String> {
-        self.send_command("prompt".to_string()).await
+        let result = self.send_command("prompt".to_string()).await?;
+        Ok(result.trim_end().to_string())
     }
 
     #[instrument(skip(self))]

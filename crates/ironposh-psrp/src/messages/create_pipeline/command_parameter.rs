@@ -1,11 +1,26 @@
 use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandParameter {
-    #[builder(default, setter(into, strip_option))]
-    pub name: Option<String>,
-    pub value: PsValue,
+    name: Option<String>,
+    value: PsValue,
+}
+
+impl CommandParameter {
+    pub fn named(name: String, value: impl Into<PsValue>) -> Self {
+        Self {
+            name: Some(name),
+            value: value.into(),
+        }
+    }
+
+    pub fn positional(value: impl Into<PsValue>) -> Self {
+        Self {
+            name: None,
+            value: value.into(),
+        }
+    }
 }
 
 impl From<CommandParameter> for ComplexObject {

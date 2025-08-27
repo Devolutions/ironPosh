@@ -6,7 +6,7 @@ mod remote_stream_options;
 #[cfg(test)]
 mod test;
 
-pub use command::{Command, Commands};
+pub use command::Command;
 pub use command_parameter::CommandParameter;
 pub use pipeline_result_types::PipelineResultTypes;
 pub use powershell_pipeline::PowerShellPipeline;
@@ -18,6 +18,7 @@ use crate::ps_value::{
     ComplexObject, ComplexObjectContent, PsEnums, PsObjectWithType, PsPrimitiveValue, PsProperty,
     PsType, PsValue,
 };
+use std::vec;
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
@@ -190,40 +191,5 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             power_shell,
             is_nested,
         })
-    }
-}
-
-impl CreatePipeline {
-    pub fn simple_command(command: &str) -> Self {
-        let cmd = Command::builder().cmd(command.to_string()).build();
-
-        let pipeline = PowerShellPipeline::builder()
-            .cmds(Commands::new(cmd))
-            .build();
-
-        let host_info = HostInfo::builder().use_runspace_host(true).build();
-
-        CreatePipeline::builder()
-            .host_info(host_info)
-            .power_shell(pipeline)
-            .build()
-    }
-
-    pub fn script_command(script: &str) -> Self {
-        let cmd = Command::builder()
-            .cmd(script.to_string())
-            .is_script(true)
-            .build();
-
-        let pipeline = PowerShellPipeline::builder()
-            .cmds(Commands::new(cmd))
-            .build();
-
-        let host_info = HostInfo::builder().build();
-
-        CreatePipeline::builder()
-            .host_info(host_info)
-            .power_shell(pipeline)
-            .build()
     }
 }

@@ -34,3 +34,68 @@ impl Display for PsPrimitiveValue {
         }
     }
 }
+
+impl From<()> for PsPrimitiveValue {
+    fn from(_: ()) -> Self {
+        PsPrimitiveValue::Nil
+    }
+}
+
+impl From<uuid::Uuid> for PsPrimitiveValue {
+    fn from(guid: uuid::Uuid) -> Self {
+        PsPrimitiveValue::Guid(guid.to_string().to_uppercase())
+    }
+}
+
+impl From<&str> for PsPrimitiveValue {
+    fn from(s: &str) -> Self {
+        PsPrimitiveValue::Str(s.to_string())
+    }
+}
+
+impl From<String> for PsPrimitiveValue {
+    fn from(s: String) -> Self {
+        PsPrimitiveValue::Str(s)
+    }
+}
+
+impl From<bool> for PsPrimitiveValue {
+    fn from(b: bool) -> Self {
+        PsPrimitiveValue::Bool(b)
+    }
+}
+
+impl From<i32> for PsPrimitiveValue {
+    fn from(i: i32) -> Self {
+        PsPrimitiveValue::I32(i)
+    }
+}
+impl From<u32> for PsPrimitiveValue {
+    fn from(u: u32) -> Self {
+        PsPrimitiveValue::U32(u)
+    }
+}
+
+impl From<i64> for PsPrimitiveValue {
+    fn from(i: i64) -> Self {
+        PsPrimitiveValue::I64(i)
+    }
+}
+
+impl From<u64> for PsPrimitiveValue {
+    fn from(u: u64) -> Self {
+        PsPrimitiveValue::U64(u)
+    }
+}
+
+impl From<Vec<u8>> for PsPrimitiveValue {
+    fn from(bytes: Vec<u8>) -> Self {
+        PsPrimitiveValue::Bytes(bytes)
+    }
+}
+
+impl From<&[u8]> for PsPrimitiveValue {
+    fn from(bytes: &[u8]) -> Self {
+        PsPrimitiveValue::Bytes(bytes.to_vec())
+    }
+}

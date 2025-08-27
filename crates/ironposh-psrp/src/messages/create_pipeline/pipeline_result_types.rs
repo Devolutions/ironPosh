@@ -38,9 +38,20 @@ impl From<i32> for PipelineResultTypes {
 
 impl From<PipelineResultTypes> for ComplexObject {
     fn from(result_type: PipelineResultTypes) -> Self {
+        let to_string_value = match result_type {
+            PipelineResultTypes::None => Some("None".to_string()),
+            PipelineResultTypes::Output => Some("Output".to_string()),
+            PipelineResultTypes::Error => Some("Error".to_string()),
+            PipelineResultTypes::Warning => Some("Warning".to_string()),
+            PipelineResultTypes::Verbose => Some("Verbose".to_string()),
+            PipelineResultTypes::Debug => Some("Debug".to_string()),
+            PipelineResultTypes::All => Some("All".to_string()),
+            PipelineResultTypes::Null => Some("Null".to_string()),
+        };
+
         ComplexObject {
             type_def: Some(PsType::pipeline_result_types()),
-            to_string: None,
+            to_string: to_string_value,
             content: ComplexObjectContent::PsEnums(PsEnums {
                 value: result_type.value(),
             }),

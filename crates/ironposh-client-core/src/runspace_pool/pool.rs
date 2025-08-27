@@ -21,7 +21,7 @@ use crate::{
     PwshCoreError,
     host::{HostCallRequest, HostCallScope},
     pipeline::{Pipeline, PipelineCommand},
-    powershell::{PipelineHandle, PipelineOutputType},
+    powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
 };
@@ -777,31 +777,6 @@ impl RunspacePool {
         Ok(())
     }
 
-    // --- PowerShell Pipeline Management API ---
-    // Note: PowerShell handles are created by the server via fire_create_pipeline/accept_response flow
-    // Users should get handles from the ActiveSession after calling CreatePipeline operation
-
-    /// Adds a switch parameter (no value) to the last command in the specified pipeline.
-    pub fn add_switch_parameter(
-        &mut self,
-        handle: PipelineHandle,
-        name: String,
-    ) -> Result<(), PwshCoreError> {
-        let pipeline = self
-            .pipelines
-            .get_mut(&handle.id())
-            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
-
-        if pipeline.state != PsInvocationState::NotStarted {
-            return Err(PwshCoreError::InvalidState(
-                "Cannot add to a pipeline that has already been started",
-            ));
-        }
-
-        pipeline.add_switch_parameter(name);
-        Ok(())
-    }
-
     /// Invokes the specified pipeline and waits for its completion.
     ///
     /// This method will handle the entire PSRP message exchange:
@@ -813,16 +788,11 @@ impl RunspacePool {
     pub fn invoke_pipeline_request(
         &mut self,
         handle: PipelineHandle,
-        output_type: PipelineOutputType,
     ) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
-
-        if let PipelineOutputType::Streamed = output_type {
-            pipeline.add_command(PipelineCommand::new_output_stream());
-        }
 
         // Set pipeline state to Running
         pipeline.state = PsInvocationState::Running;

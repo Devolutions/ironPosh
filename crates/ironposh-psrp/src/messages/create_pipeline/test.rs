@@ -9,86 +9,120 @@ use crate::{
 
 const REAL_CREATE_PIPELINE: &str = r#"
 <Obj RefId="0">
-   <TN RefId="0">
-      <T>System.Object</T>
-   </TN>
-   <MS>
-      <B N="NoInput">true</B>
-      <Obj RefId="1" N="ApartmentState">
-         <I32>2</I32>
-         <TN RefId="1">
-            <T>System.Threading.ApartmentState</T>
-            <T>System.Enum</T>
-            <T>System.ValueType</T>
-            <T>System.Object</T>
-         </TN>
-         <ToString>Unknown</ToString>
-      </Obj>
-      <Obj RefId="2" N="RemoteStreamOptions">
-         <I32>0</I32>
-         <TN RefId="2">
-            <T>System.Management.Automation.RemoteStreamOptions</T>
-            <T>System.Enum</T>
-            <T>System.ValueType</T>
-            <T>System.Object</T>
-         </TN>
-         <ToString>None</ToString>
-      </Obj>
-      <B N="AddToHistory">false</B>
-      <Obj RefId="3" N="HostInfo">
-         <MS>
-            <B N="_isHostNull">true</B>
-            <B N="_isHostUINull">true</B>
-            <B N="_isHostRawUINull">true</B>
-            <B N="_useRunspaceHost">true</B>
-         </MS>
-      </Obj>
-      <Obj RefId="4" N="PowerShell">
-         <MS>
-            <Obj RefId="5" N="Cmds">
-               <TN RefId="3">
-                  <T>System.Collections.ArrayList</T>
-                  <T>System.Object</T>
-               </TN>
-               <LST>
-                  <Obj RefId="6">
-                     <MS>
-                        <S N="Cmd">Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)"</S>
-                        <Obj RefId="7" N="Args">
-                           <TNRef RefId="3" />
-                           <LST />
-                        </Obj>
-                        <B N="IsScript">true</B>
-                        <Nil N="UseLocalScope" />
-                        <Obj RefId="8" N="MergeMyResult">
-                           <I32>0</I32>
-                           <TN RefId="4">
-                              <T>System.Management.Automation.Runspaces.PipelineResultTypes</T>
-                              <T>System.Enum</T>
-                              <T>System.ValueType</T>
-                              <T>System.Object</T>
-                           </TN>
-                           <ToString>None</ToString>
-                        </Obj>
-                        <Ref RefId="8" N="MergeToResult" />
-                        <Ref RefId="8" N="MergePreviousResults" />
-                        <Ref RefId="8" N="MergeError" />
-                        <Ref RefId="8" N="MergeWarning" />
-                        <Ref RefId="8" N="MergeVerbose" />
-                        <Ref RefId="8" N="MergeDebug" />
-                        <Ref RefId="8" N="MergeInformation" />
-                     </MS>
-                     <ToString>Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)"</ToString>
-                  </Obj>
-               </LST>
-            </Obj>
-            <B N="IsNested">false</B>
-            <Nil N="History" />
-            <B N="RedirectShellErrorOutputPipe">true</B>
-         </MS>
-      </Obj>
-      <B N="IsNested">false</B>
-   </MS>
+	<TN RefId="0">
+		<T>System.Object</T>
+	</TN>
+	<MS>
+		<B N="NoInput">true</B>
+		<Obj RefId="1" N="ApartmentState">
+			<I32>2</I32>
+			<TN RefId="1">
+				<T>System.Threading.ApartmentState</T>
+				<T>System.Enum</T>
+				<T>System.ValueType</T>
+				<T>System.Object</T>
+			</TN>
+			<ToString>Unknown</ToString>
+		</Obj>
+		<Obj RefId="2" N="RemoteStreamOptions">
+			<I32>0</I32>
+			<TN RefId="2">
+				<T>System.Management.Automation.RemoteStreamOptions</T>
+				<T>System.Enum</T>
+				<T>System.ValueType</T>
+				<T>System.Object</T>
+			</TN>
+			<ToString>None</ToString>
+		</Obj>
+		<B N="AddToHistory">false</B>
+		<Obj RefId="3" N="HostInfo">
+			<MS>
+				<B N="_isHostNull">true</B>
+				<B N="_isHostUINull">true</B>
+				<B N="_isHostRawUINull">true</B>
+				<B N="_useRunspaceHost">true</B>
+			</MS>
+		</Obj>
+		<Obj RefId="4" N="PowerShell">
+			<MS>
+				<Obj RefId="5" N="Cmds">
+					<TN RefId="3">
+						<T>System.Collections.ArrayList</T>
+						<T>System.Object</T>
+					</TN>
+					<LST>
+						<Obj RefId="6">
+							<MS>
+								<S N="Cmd">Invoke-Expression</S>
+								<Obj RefId="7" N="Args">
+									<TNRef RefId="3" />
+									<LST>
+										<Obj RefId="8">
+											<MS>
+												<S N="N">Command</S>
+												<S N="V">ls</S>
+											</MS>
+										</Obj>
+									</LST>
+								</Obj>
+								<B N="IsScript">false</B>
+								<Nil N="UseLocalScope" />
+								<Obj RefId="9" N="MergeMyResult">
+									<I32>0</I32>
+									<TN RefId="4">
+										<T>System.Management.Automation.Runspaces.PipelineResultTypes</T>
+										<T>System.Enum</T>
+										<T>System.ValueType</T>
+										<T>System.Object</T>
+									</TN>
+									<ToString>None</ToString>
+								</Obj>
+								<Ref RefId="9" N="MergeToResult" />
+								<Ref RefId="9" N="MergePreviousResults" />
+								<Ref RefId="9" N="MergeError" />
+								<Ref RefId="9" N="MergeWarning" />
+								<Ref RefId="9" N="MergeVerbose" />
+								<Ref RefId="9" N="MergeDebug" />
+								<Ref RefId="9" N="MergeInformation" />
+							</MS>
+							<ToString>Invoke-Expression</ToString>
+						</Obj>
+						<Obj RefId="10">
+							<MS>
+								<S N="Cmd">Out-String</S>
+								<Obj RefId="11" N="Args">
+									<TNRef RefId="3" />
+									<LST>
+										<Obj RefId="12">
+											<MS>
+												<S N="N">Stream</S>
+												<B N="V">true</B>
+											</MS>
+										</Obj>
+									</LST>
+								</Obj>
+								<B N="IsScript">false</B>
+								<Nil N="UseLocalScope" />
+								<Ref RefId="9" N="MergeMyResult" />
+								<Ref RefId="9" N="MergeToResult" />
+								<Ref RefId="9" N="MergePreviousResults" />
+								<Ref RefId="9" N="MergeError" />
+								<Ref RefId="9" N="MergeWarning" />
+								<Ref RefId="9" N="MergeVerbose" />
+								<Ref RefId="9" N="MergeDebug" />
+								<Ref RefId="9" N="MergeInformation" />
+							</MS>
+							<ToString>Out-String</ToString>
+						</Obj>
+					</LST>
+				</Obj>
+				<B N="IsNested">false</B>
+				<Nil N="History" />
+				<B N="RedirectShellErrorOutputPipe">true</B>
+			</MS>
+		</Obj>
+		<B N="IsNested">false</B>
+	</MS>
 </Obj>
     "#;
 

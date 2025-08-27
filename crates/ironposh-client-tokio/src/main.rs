@@ -78,12 +78,16 @@ async fn main() -> anyhow::Result<()> {
 
 /// Run interactive REPL mode
 async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyhow::Result<()> {
+    use std::io::Write;
     use tokio::io::{self, AsyncBufReadExt, BufReader};
 
     println!("IronPosh Interactive PowerShell Client");
     println!("Enter PowerShell commands or 'exit' to quit");
     let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
     print!("{prompt} ");
+    std::io::stdout()
+        .flush()
+        .context("Failed to flush stdout")?;
 
     let stdin = io::stdin();
     let reader = BufReader::new(stdin);
@@ -99,6 +103,9 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
         if command.is_empty() {
             let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
             print!("{prompt} ");
+            std::io::stdout()
+                .flush()
+                .context("Failed to flush stdout")?;
             continue;
         }
 
@@ -124,6 +131,9 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
 
         let prompt = client.prompt().await.unwrap_or_else(|_| "PS> ".to_string());
         print!("{prompt} ");
+        std::io::stdout()
+            .flush()
+            .context("Failed to flush stdout")?;
     }
 
     Ok(())

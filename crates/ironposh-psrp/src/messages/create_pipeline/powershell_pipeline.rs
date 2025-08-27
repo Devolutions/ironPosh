@@ -1,5 +1,4 @@
 use super::command::Command;
-use crate::Commands;
 use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
@@ -9,7 +8,8 @@ use std::collections::BTreeMap;
 pub struct PowerShellPipeline {
     #[builder(default = false)]
     pub is_nested: bool,
-    pub cmds: Commands,
+    #[builder(setter(into))]
+    pub cmds: Vec<Command>,
     #[builder(default)]
     pub history: String,
     #[builder(default = false)]
@@ -144,7 +144,7 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
 
         Ok(PowerShellPipeline {
             is_nested,
-            cmds: Commands::try_from(cmds)?,
+            cmds,
             history,
             redirect_shell_error_output_pipe,
         })
