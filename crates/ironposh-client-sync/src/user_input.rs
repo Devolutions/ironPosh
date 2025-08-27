@@ -1,7 +1,7 @@
 use ironposh_client_core::connector::active_session::PowershellOperations;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use ironposh_client_core::{connector::UserOperation, powershell::PipelineOutputType};
+use ironposh_client_core::connector::UserOperation;
 use ironposh_psrp::PipelineOutput;
 use regex::Regex;
 use std::io::{self, Write};
@@ -79,7 +79,6 @@ impl UserInputHandler {
                         // Invoke the pipeline
                         if let Err(e) = self.user_request_tx.send(UserOperation::InvokePipeline {
                             powershell: pipeline_handle,
-                            output_type: PipelineOutputType::Streamed,
                         }) {
                             error!(error = %e, "failed to send invoke");
                             break;
