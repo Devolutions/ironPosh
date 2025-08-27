@@ -1,5 +1,11 @@
 //! # xml-builder-rs
 //!  A lightweight and intuitive library for generating XML documents in Rust. With an easy-to-use API, it allows you to create well-formed XML structures programmatically. Add elements, attributes, namespaces, and CDATA sections effortlessly.
+//!
+//! ## Open Source Disclaimer
+//! This is a modified copy of the xml-builder-rs crate originally from:
+//! https://github.com/Deaths-Door/xml-builder-rs
+//!
+//! Modifications have been made to support the specific requirements of the IronPosh project.
 //! ```
 mod attribute;
 mod builder_impl;
