@@ -4,6 +4,7 @@ use clap::Parser;
 use ironposh_client_core::connector::{
     http::ServerAddress, Authentication, ConnectorConfig, Scheme,
 };
+use ironposh_psrp::HostDefaultData;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
 /// PowerShell Remoting Client (Async/Tokio)

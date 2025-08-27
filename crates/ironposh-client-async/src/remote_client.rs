@@ -328,7 +328,11 @@ impl RemoteAsyncPowershellClient {
     }
 
     #[instrument(skip(self))]
-    pub async fn send_command(&mut self, command: String) -> anyhow::Result<String> {
+    pub async fn send_command(
+        &mut self,
+        command: String,
+        new_line: bool,
+    ) -> anyhow::Result<String> {
         let new_pipeline_id = uuid::Uuid::new_v4();
 
         self.user_input_tx
@@ -365,16 +369,20 @@ impl RemoteAsyncPowershellClient {
             .await
             .context("Failed to send add command operation")?;
 
+        let builder = powershell.command_builder("Out-String".to_string());
+        let out_string = if new_line {
+            builder
+                .with_param(Parameter::Switch {
+                    name: "Stream".to_string(),
+                    value: true,
+                })
+                .build()
+        } else {
+            builder.build()
+        };
+
         self.user_input_tx
-            .send(
-                powershell
-                    .command_builder("Out-String".to_string())
-                    .with_param(Parameter::Switch {
-                        name: "Stream".to_string(),
-                        value: true,
-                    })
-                    .build(),
-            )
+            .send(out_string)
             .await
             .context("Failed to send invoke pipeline operation")?;
 
@@ -413,7 +421,7 @@ impl RemoteAsyncPowershellClient {
 
     #[instrument(skip(self))]
     pub async fn prompt(&mut self) -> anyhow::Result<String> {
-        let result = self.send_command("prompt".to_string()).await?;
+        let result = self.send_command("prompt".to_string(), false).await?;
         Ok(result.trim_end().to_string())
     }
 

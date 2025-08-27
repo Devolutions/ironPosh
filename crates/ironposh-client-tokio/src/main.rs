@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         // Non-interactive mode: execute command and exit
         info!(command = %command, "executing command in non-interactive mode");
 
-        match client.send_command(command.clone()).await {
+        match client.send_command(command.clone(), false).await {
             Ok(output) => {
                 println!("{output}");
                 info!("Command executed successfully");
@@ -116,7 +116,7 @@ async fn run_interactive_mode(client: &mut RemoteAsyncPowershellClient) -> anyho
 
         info!(command = %command, "executing user command");
 
-        match client.send_command(command.to_string()).await {
+        match client.send_command(command.to_string(), false).await {
             Ok(output) => {
                 print!("{output}");
                 if !output.ends_with('\n') {
