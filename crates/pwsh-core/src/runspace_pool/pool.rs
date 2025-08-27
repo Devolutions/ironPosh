@@ -223,7 +223,7 @@ impl RunspacePool {
     }
 
     // We should accept the pipeline id here, but for now let's ignore it
-    pub(crate) fn fire_receive<'a>(
+    pub(crate) fn fire_receive(
         &mut self,
         desired_streams: Vec<DesiredStream>,
     ) -> Result<String, crate::PwshCoreError> {
@@ -381,7 +381,7 @@ impl RunspacePool {
         &mut self,
         uuid: Uuid,
     ) -> Result<PipelineHandle, crate::PwshCoreError> {
-        if self.pipelines.get(&uuid).is_some() {
+        if self.pipelines.contains_key(&uuid) {
             return Err(crate::PwshCoreError::InvalidState(
                 "Pipeline with this UUID already exists",
             ));

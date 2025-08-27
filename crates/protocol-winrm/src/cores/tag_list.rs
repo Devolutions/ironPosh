@@ -5,6 +5,8 @@ use xml::{
 
 use crate::cores::{TagValue, anytag::AnyTag};
 
+// This is just a temporary struct to hold a list of tags.
+// to replace the actual TagValue going to be implemented for tags
 #[derive(Debug, Clone)]
 pub struct TagList<'a> {
     items: Vec<crate::cores::anytag::AnyTag<'a>>,
@@ -30,8 +32,8 @@ impl<'a> TagList<'a> {
         self
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = AnyTag<'a>> {
-        self.items.into_iter()
+    pub fn inner(self) -> Vec<AnyTag<'a>> {
+        self.items
     }
 }
 
