@@ -5,7 +5,7 @@ use crate::{
     rsp::{
         commandline::CommandLineValue,
         receive::{ReceiveResponseValue, ReceiveValue},
-        rsp::ShellValue,
+        shell_value::ShellValue,
     },
     ws_management::body::ResourceCreatedValue,
 };

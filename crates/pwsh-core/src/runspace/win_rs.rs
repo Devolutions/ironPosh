@@ -4,7 +4,7 @@ use protocol_winrm::{
     rsp::{
         commandline::CommandLineValue,
         receive::{CommandStateValue, ReceiveValue},
-        rsp::ShellValue,
+        shell_value::ShellValue,
     },
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},

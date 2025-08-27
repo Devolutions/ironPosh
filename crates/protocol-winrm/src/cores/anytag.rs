@@ -2,7 +2,7 @@ use xml::parser::{XmlDeserialize, XmlVisitor};
 
 use crate::{
     cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text},
-    rsp::{receive::ReceiveValue, rsp::ShellValue},
+    rsp::{receive::ReceiveValue, shell_value::ShellValue},
 };
 
 #[macro_export]
