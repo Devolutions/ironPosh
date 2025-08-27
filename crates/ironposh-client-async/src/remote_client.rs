@@ -10,22 +10,11 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
 use crate::HttpClient;
 
-#[derive(Debug, Clone, Copy)]
-enum ReqKind {
-    LongPoll,
-    OneShot,
-}
-
-type BoxRespFut = core::pin::Pin<
-    Box<dyn core::future::Future<Output = anyhow::Result<HttpResponse<String>>> + Send>,
->;
-
 fn launch<C: HttpClient>(
     client: &C,
-    kind: ReqKind,
     req: HttpRequest<String>,
-) -> impl core::future::Future<Output = (ReqKind, anyhow::Result<HttpResponse<String>>)> + Send {
-    client.send_request(req).map(move |r| (kind, r))
+) -> impl core::future::Future<Output = anyhow::Result<HttpResponse<String>>> + Send {
+    client.send_request(req)
 }
 
 pub struct RemoteAsyncPowershellClient {
@@ -52,9 +41,9 @@ impl RemoteAsyncPowershellClient {
         // pending HTTP requests
         let mut inflight: FuturesUnordered<_> = FuturesUnordered::new();
 
-        // kick off the long-poll
+        // kick off the initial polling request
         let initial_poll_req = runspace_polling_request.clone();
-        inflight.push(launch(&client, ReqKind::LongPoll, initial_poll_req));
+        inflight.push(launch(&client, initial_poll_req));
 
         info!("Starting single-loop active session");
 
@@ -63,13 +52,11 @@ impl RemoteAsyncPowershellClient {
             futures::select! {
                 // 1) any HTTP finishes
                 ready = inflight.select_next_some() => {
-                    let (kind, res) = ready;
-                    match res {
+                    match ready {
                         Ok(http_response) => {
                             info!(
                                 target: "network",
                                 body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
-                                kind = ?kind,
                                 "processing successful network response"
                             );
 
@@ -92,7 +79,7 @@ impl RemoteAsyncPowershellClient {
                                         );
                                         // launch all new HTTPs in parallel
                                         for r in reqs {
-                                            inflight.push(launch(&client, ReqKind::OneShot, r));
+                                            inflight.push(launch(&client, r));
                                         }
                                     }
                                     ActiveSessionOutput::SendBackError(e) => {
@@ -105,32 +92,11 @@ impl RemoteAsyncPowershellClient {
                                     }
                                 }
                             }
-
-                            // Re-arm long-poll
-                            if matches!(kind, ReqKind::LongPoll) {
-                                info!(target: "network", "re-arming long-poll request");
-                                // TODO: In a real implementation, we'd get this from active_session
-                                // For now, we'll create a new polling request similar to the original one
-                                // This is a simplification - in practice you'd need to get the proper
-                                // next polling request from the active session
-                                let poll_req = runspace_polling_request.clone();
-                                inflight.push(launch(&client, ReqKind::LongPoll, poll_req));
-                            }
                         }
                         Err(e) => {
-                            // Transport-level error: if it was the long-poll, re-try; else fail the session
-                            match kind {
-                                ReqKind::LongPoll => {
-                                    warn!(target: "network", error = %e, "long-poll failed, retrying");
-                                    // Re-try the long-poll (with optional backoff in a real implementation)
-                                    let poll_req = runspace_polling_request.clone();
-                                    inflight.push(launch(&client, ReqKind::LongPoll, poll_req));
-                                }
-                                ReqKind::OneShot => {
-                                    error!(target: "network", error = %e, "one-shot HTTP request failed");
-                                    return Err(anyhow::anyhow!("HTTP error: {e:#}"));
-                                }
-                            }
+                            // Any HTTP error terminates the session
+                            error!(target: "network", error = %e, "HTTP request failed");
+                            return Err(anyhow::anyhow!("HTTP error: {e:#}"));
                         }
                     }
                 }
@@ -158,7 +124,7 @@ impl RemoteAsyncPowershellClient {
                                         "launching HTTP requests from user operation"
                                     );
                                     for r in reqs {
-                                        inflight.push(launch(&client, ReqKind::OneShot, r));
+                                        inflight.push(launch(&client, r));
                                     }
                                 }
                                 _ => Self::process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx).await?,
