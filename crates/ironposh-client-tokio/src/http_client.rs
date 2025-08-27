@@ -95,18 +95,4 @@ impl HttpClient for ReqwestHttpClient {
     ) -> anyhow::Result<HttpResponse<String>> {
         Self::send_with_client(self.client.clone(), request).await
     }
-
-    fn send_request_with_channel(
-        &self,
-        request: HttpRequest<String>,
-        mut tx: futures::channel::mpsc::Sender<anyhow::Result<HttpResponse<String>>>,
-    ) {
-        let client = self.client.clone();
-        tokio::spawn(async move {
-            let result = Self::send_with_client(client, request).await;
-            if let Err(e) = tx.send(result).await {
-                tracing::error!("Failed to send HTTP response through channel: {}", e);
-            }
-        });
-    }
 }

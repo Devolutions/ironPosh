@@ -1,13 +1,32 @@
 use anyhow::Context;
 use futures::channel::mpsc;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt, stream::FuturesUnordered};
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_client_core::connector::{
-    Connector, ConnectorStepResult, UserOperation, http::HttpRequest,
+    Connector, ConnectorStepResult, UserOperation,
+    http::{HttpRequest, HttpResponse},
 };
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
 use crate::HttpClient;
+
+#[derive(Debug, Clone, Copy)]
+enum ReqKind {
+    LongPoll,
+    OneShot,
+}
+
+type BoxRespFut = core::pin::Pin<
+    Box<dyn core::future::Future<Output = anyhow::Result<HttpResponse<String>>> + Send>,
+>;
+
+fn launch<C: HttpClient>(
+    client: &C,
+    kind: ReqKind,
+    req: HttpRequest<String>,
+) -> impl core::future::Future<Output = (ReqKind, anyhow::Result<HttpResponse<String>>)> + Send {
+    client.send_request(req).map(move |r| (kind, r))
+}
 
 pub struct RemoteAsyncPowershellClient {
     user_input_tx: mpsc::Sender<UserOperation>,
@@ -27,117 +46,139 @@ impl RemoteAsyncPowershellClient {
         >,
         mut user_input_tx: mpsc::Sender<ironposh_client_core::connector::UserOperation>,
     ) -> anyhow::Result<()> {
+        use ironposh_client_core::connector::active_session::ActiveSessionOutput;
         use tracing::{error, info};
 
-        // Create channels for network request/response handling
-        let (mut network_request_tx, mut network_request_rx) = mpsc::channel(10);
-        let (network_response_tx, mut network_response_rx) = mpsc::channel::<anyhow::Result<HttpResponse<String>>>(10);
+        // pending HTTP requests
+        let mut inflight: FuturesUnordered<_> = FuturesUnordered::new();
 
-        info!("Starting Network task and Active Session task");
-        network_request_tx
-            .send(runspace_polling_request)
-            .await
-            .context("Failed to send initial runspace polling request")?;
+        // kick off the long-poll
+        let initial_poll_req = runspace_polling_request.clone();
+        inflight.push(launch(&client, ReqKind::LongPoll, initial_poll_req));
 
-        // Network task - handles HTTP requests/responses
-        info!("Starting Network task");
-        let network_task = async move {
-            info!("Network task started");
-            while let Some(http_request) = network_request_rx.next().await {
-                info!(
-                    target: "network",
-                    method = ?http_request.method,
-                    url = %http_request.url,
-                    headers_count = http_request.headers.len(),
-                    body_length = http_request.body.as_ref().map(|b| b.len()).unwrap_or(0),
-                    "sending network request"
-                );
+        info!("Starting single-loop active session");
 
-                let network_response_tx_clone = network_response_tx.clone();
-                
-                client.send_request_with_channel(http_request, network_response_tx_clone);
-            }
+        // main single-threaded loop
+        loop {
+            futures::select! {
+                // 1) any HTTP finishes
+                ready = inflight.select_next_some() => {
+                    let (kind, res) = ready;
+                    match res {
+                        Ok(http_response) => {
+                            info!(
+                                target: "network",
+                                body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                                kind = ?kind,
+                                "processing successful network response"
+                            );
 
-            anyhow::Ok(())
-        }
-        .instrument(info_span!("NetworkTask"));
+                            let step_results = active_session
+                                .accept_server_response(http_response)
+                                .map_err(|e| {
+                                    error!(target: "network", error = %e, "failed to accept server response");
+                                    e
+                                })
+                                .context("Failed to accept server response")?;
 
-        info!("Starting Active Session task");
-        // Session task - handles the main event loop
-        let session_task = async move {
-            info!("Active Session task started");
-            loop {
-                // Handle both network responses and user requests like the sync version
-                futures::select! {
-                    network_response = network_response_rx.next() => {
-                        info!(target: "network", "processing network response");
-                        match network_response {
-                            Some(response_result) => {
-                                match response_result {
-                                    Ok(http_response) => {
+                            // Convert ActiveSessionOutput into new HTTPs / UI events
+                            for out in step_results {
+                                match out {
+                                    ActiveSessionOutput::SendBack(reqs) => {
                                         info!(
                                             target: "network",
-                                            body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
-                                            "processing successful network response"
+                                            request_count = reqs.len(),
+                                            "launching HTTP requests in parallel"
                                         );
-
-                                        let step_results = active_session
-                                            .accept_server_response(http_response)
-                                            .map_err(|e| {
-                                                error!(target: "network", error = %e, "failed to accept server response");
-                                                e
-                                            })
-                                            .context("Failed to accept server response")?;
-
-                                        Self::process_session_outputs(step_results, &mut network_request_tx, &mut user_output_tx, &mut user_input_tx).await?;
+                                        // launch all new HTTPs in parallel
+                                        for r in reqs {
+                                            inflight.push(launch(&client, ReqKind::OneShot, r));
+                                        }
                                     }
-                                    Err(e) => {
-                                        error!(target: "network", error = %e, "HTTP request failed, handling in session_task");
-                                        return Err(e.context("HTTP request failed"));
+                                    ActiveSessionOutput::SendBackError(e) => {
+                                        error!(target: "session", error = %e, "session step failed");
+                                        return Err(anyhow::anyhow!("Session step failed: {}", e));
+                                    }
+                                    _ => {
+                                        // unchanged: fan out to UI or user_input
+                                        Self::process_session_outputs(vec![out], &mut user_output_tx, &mut user_input_tx).await?;
                                     }
                                 }
                             }
-                            None => {
-                                error!("Network response channel disconnected");
-                                return Err(anyhow::anyhow!("Network response channel disconnected"));
+
+                            // Re-arm long-poll
+                            if matches!(kind, ReqKind::LongPoll) {
+                                info!(target: "network", "re-arming long-poll request");
+                                // TODO: In a real implementation, we'd get this from active_session
+                                // For now, we'll create a new polling request similar to the original one
+                                // This is a simplification - in practice you'd need to get the proper
+                                // next polling request from the active session
+                                let poll_req = runspace_polling_request.clone();
+                                inflight.push(launch(&client, ReqKind::LongPoll, poll_req));
                             }
                         }
-                    }
-                    user_operation = user_input_rx.next() => {
-                        info!(target: "user", "processing user operation");
-                        match user_operation {
-                            Some(user_operation) => {
-                                info!(target: "user", operation = ?user_operation, "processing user operation");
-
-                                let step_result = active_session
-                                    .accept_client_operation(user_operation)
-                                    .map_err(|e| {
-                                        error!(target: "user", error = %e, "failed to accept user operation");
-                                        e
-                                    })
-                                    .context("Failed to accept user operation")?;
-
-                                Self::process_session_outputs(vec![step_result], &mut network_request_tx, &mut user_output_tx, &mut user_input_tx).await?;
-                            }
-                            None => {
-                                info!("User input channel disconnected");
-                                return Ok(());
+                        Err(e) => {
+                            // Transport-level error: if it was the long-poll, re-try; else fail the session
+                            match kind {
+                                ReqKind::LongPoll => {
+                                    warn!(target: "network", error = %e, "long-poll failed, retrying");
+                                    // Re-try the long-poll (with optional backoff in a real implementation)
+                                    let poll_req = runspace_polling_request.clone();
+                                    inflight.push(launch(&client, ReqKind::LongPoll, poll_req));
+                                }
+                                ReqKind::OneShot => {
+                                    error!(target: "network", error = %e, "one-shot HTTP request failed");
+                                    return Err(anyhow::anyhow!("HTTP error: {e:#}"));
+                                }
                             }
                         }
                     }
                 }
-            }
-        }.instrument(info_span!("ActiveSessionTask"));
 
-        // Use futures::join! to run both tasks concurrently
-        let (session_result, network_result) = futures::join!(session_task, network_task);
-        session_result.and(network_result)
+                // 2) user operations
+                user_op = user_input_rx.next() => {
+                    info!(target: "user", "processing user operation");
+                    match user_op {
+                        Some(user_operation) => {
+                            info!(target: "user", operation = ?user_operation, "processing user operation");
+
+                            let step_result = active_session
+                                .accept_client_operation(user_operation)
+                                .map_err(|e| {
+                                    error!(target: "user", error = %e, "failed to accept user operation");
+                                    e
+                                })
+                                .context("Failed to accept user operation")?;
+
+                            match step_result {
+                                ActiveSessionOutput::SendBack(reqs) => {
+                                    info!(
+                                        target: "network",
+                                        request_count = reqs.len(),
+                                        "launching HTTP requests from user operation"
+                                    );
+                                    for r in reqs {
+                                        inflight.push(launch(&client, ReqKind::OneShot, r));
+                                    }
+                                }
+                                _ => Self::process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx).await?,
+                            }
+                        }
+                        None => {
+                            info!("User input channel disconnected");
+                            break; // UI side closed
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
     async fn process_session_outputs(
         step_results: Vec<ironposh_client_core::connector::active_session::ActiveSessionOutput>,
-        network_request_tx: &mut mpsc::Sender<HttpRequest<String>>,
         user_output_tx: &mut mpsc::Sender<
             ironposh_client_core::connector::active_session::UserEvent,
         >,
@@ -151,21 +192,9 @@ impl RemoteAsyncPowershellClient {
             info!(step_result = ?step_result, "processing step result");
 
             match step_result {
-                ActiveSessionOutput::SendBack(http_requests) => {
-                    info!(
-                        target: "network",
-                        request_count = http_requests.len(),
-                        "sending HTTP requests to network task"
-                    );
-                    for http_request in http_requests {
-                        if let Err(e) = network_request_tx.send(http_request).await {
-                            error!(target: "network", error = %e, "failed to send HTTP request to network task");
-                            return Err(anyhow::anyhow!(
-                                "Failed to send HTTP request to network task: {}",
-                                e
-                            ));
-                        }
-                    }
+                ActiveSessionOutput::SendBack(_) => {
+                    // SendBack is now handled directly in the main loop
+                    warn!("SendBack should not be passed to process_session_outputs anymore");
                 }
                 ActiveSessionOutput::SendBackError(e) => {
                     error!(target: "session", error = %e, "session step failed");
