@@ -18,7 +18,8 @@
       "Bash(mkdir:*)",
       "Bash(rm:*)",
       "Bash(mv:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "additionalDirectories": [
