@@ -2,11 +2,7 @@ use std::{borrow::Cow, collections::HashMap};
 
 use tracing::error;
 
-use crate::builder::{
-    AliasMap, Attribute, Namespace, NamespaceFmt, NamespaceWrite, XmlBuilderError,
-};
-
-use std::io::Write as _;
+use crate::builder::{AliasMap, Attribute, Namespace, NamespaceWrite, XmlBuilderError};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {

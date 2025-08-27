@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, io::Write as _};
+use std::{borrow::Cow, collections::HashMap};
 
 /// Represents an XML attribute with a name and value.
 #[derive(Debug, Clone)]

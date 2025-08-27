@@ -1,5 +1,3 @@
-use std::io::Write as _;
-
 /// Represents an XML declaration.
 pub struct Declaration<'a> {
     /// The XML version.
