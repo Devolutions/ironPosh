@@ -2,9 +2,8 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use ironposh_client_core::connector::active_session::UserEvent;
-use ironposh_client_core::{
-    connector::{Connector, ConnectorStepResult, UserOperation, http::HttpRequest},
-    pipeline::PipelineCommand,
+use ironposh_client_core::connector::{
+    Connector, ConnectorStepResult, UserOperation, http::HttpRequest,
 };
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
@@ -32,7 +31,7 @@ impl RemoteAsyncPowershellClient {
 
         // Create channels for network request/response handling
         let (mut network_request_tx, mut network_request_rx) = mpsc::channel(10);
-        let (network_response_tx, mut network_response_rx) = mpsc::channel(10);
+        let (network_response_tx, mut network_response_rx) = mpsc::channel::<anyhow::Result<HttpResponse<String>>>(10);
 
         info!("Starting Network task and Active Session task");
         network_request_tx
@@ -54,18 +53,9 @@ impl RemoteAsyncPowershellClient {
                     "sending network request"
                 );
 
-                let mut nextwork_response_tx_clone = network_response_tx.clone();
-                client.send_request_callback(http_request, move |result| {
-                    info!(target: "network", "received network response callback");
-                    // TODO: Handle error properly
-                    let Ok(result) = result else {
-                        error!(target: "network", error = %result.unwrap_err(), "HTTP request failed");
-                        return;
-                    };
-                    if let Err(e) = nextwork_response_tx_clone.try_send(result) {
-                        error!(target: "network", error = %e, "failed to send network response");
-                    }
-                });
+                let network_response_tx_clone = network_response_tx.clone();
+                
+                client.send_request_with_channel(http_request, network_response_tx_clone);
             }
 
             anyhow::Ok(())
@@ -82,22 +72,30 @@ impl RemoteAsyncPowershellClient {
                     network_response = network_response_rx.next() => {
                         info!(target: "network", "processing network response");
                         match network_response {
-                            Some(http_response) => {
-                                info!(
-                                    target: "network",
-                                    body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
-                                    "processing network response"
-                                );
+                            Some(response_result) => {
+                                match response_result {
+                                    Ok(http_response) => {
+                                        info!(
+                                            target: "network",
+                                            body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                                            "processing successful network response"
+                                        );
 
-                                let step_results = active_session
-                                    .accept_server_response(http_response)
-                                    .map_err(|e| {
-                                        error!(target: "network", error = %e, "failed to accept server response");
-                                        e
-                                    })
-                                    .context("Failed to accept server response")?;
+                                        let step_results = active_session
+                                            .accept_server_response(http_response)
+                                            .map_err(|e| {
+                                                error!(target: "network", error = %e, "failed to accept server response");
+                                                e
+                                            })
+                                            .context("Failed to accept server response")?;
 
-                                Self::process_session_outputs(step_results, &mut network_request_tx, &mut user_output_tx, &mut user_input_tx).await?;
+                                        Self::process_session_outputs(step_results, &mut network_request_tx, &mut user_output_tx, &mut user_input_tx).await?;
+                                    }
+                                    Err(e) => {
+                                        error!(target: "network", error = %e, "HTTP request failed, handling in session_task");
+                                        return Err(e.context("HTTP request failed"));
+                                    }
+                                }
                             }
                             None => {
                                 error!("Network response channel disconnected");
@@ -345,34 +343,26 @@ impl RemoteAsyncPowershellClient {
             .context("Failed to send create pipeline operation")?;
 
         debug!(pipeline_id = %new_pipeline_id, "waiting for pipeline output");
-        'outer: loop {
+        let powershell = 'outer: loop {
             let events = self.receive_from_pipeline(new_pipeline_id).await?;
             info!(pipeline_id = %new_pipeline_id, event_count = events.len(), "received events from pipeline");
             for event in events {
-                if let UserEvent::PipelineCreated { powershell } = &event {
+                if let UserEvent::PipelineCreated { powershell } = event {
                     // Definatly the same, just check to be sure
                     debug_assert!(powershell.id() == new_pipeline_id);
-                    break 'outer;
+                    break 'outer powershell;
                 }
             }
-        }
+        };
         debug!(pipeline_id = %new_pipeline_id, "pipeline created, sending command");
 
         self.user_input_tx
-            .send(UserOperation::OperatePipeline {
-                powershell: ironposh_client_core::powershell::PipelineHandle::new(new_pipeline_id),
-                operation: ironposh_client_core::connector::active_session::PowershellOperations::AddCommand {
-                    command: PipelineCommand::new_script(command),
-                },
-            })
+            .send(powershell.script(command))
             .await
             .context("Failed to send add command operation")?;
 
         self.user_input_tx
-            .send(UserOperation::InvokePipeline {
-                powershell: ironposh_client_core::powershell::PipelineHandle::new(new_pipeline_id),
-                output_type: ironposh_client_core::powershell::PipelineOutputType::Streamed,
-            })
+            .send(powershell.invoke())
             .await
             .context("Failed to send invoke pipeline operation")?;
 
@@ -402,6 +392,11 @@ impl RemoteAsyncPowershellClient {
         }
 
         Ok(result)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn prompt(&mut self) -> anyhow::Result<String> {
+        self.send_command("prompt".to_string()).await
     }
 
     #[instrument(skip(self))]

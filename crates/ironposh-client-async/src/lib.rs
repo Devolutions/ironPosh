@@ -18,9 +18,11 @@ pub trait HttpClient: Send + Sync + 'static {
         request: HttpRequest<String>,
     ) -> impl Future<Output = anyhow::Result<HttpResponse<String>>> + Send;
 
-    // The reason to use callback style is that
-    // Some HTTP Request is long hanging, we don't want to block the current async task
-    fn send_request_callback<F>(&self, request: HttpRequest<String>, callback: F)
-    where
-        F: FnOnce(anyhow::Result<HttpResponse<String>>) + Send + 'static;
+    // Channel-based method for long-hanging requests
+    // Sends the result over the provided channel when finished
+    fn send_request_with_channel(
+        &self, 
+        request: HttpRequest<String>, 
+        tx: futures::channel::mpsc::Sender<anyhow::Result<HttpResponse<String>>>
+    );
 }
