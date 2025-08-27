@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     // Spawn the connection task (no tracing in spawned task to avoid Send issues)
     let connection_handle = tokio::spawn(async move {
         if let Err(e) = connection_task.await {
-            eprintln!("Connection task failed: {e}");
+            error!(error = %e, "Connection task ended with error");
         }
     });
 
