@@ -12,8 +12,15 @@ pub trait AsyncPowershellClient {
 }
 
 pub trait HttpClient: Send + Sync + 'static {
+    // Asynchronous method to send an HTTP request and receive a response
     fn send_request(
         &self,
         request: HttpRequest<String>,
     ) -> impl Future<Output = anyhow::Result<HttpResponse<String>>> + Send;
+
+    // The reason to use callback style is that
+    // Some HTTP Request is long hanging, we don't want to block the current async task
+    fn send_request_callback<F>(&self, request: HttpRequest<String>, callback: F)
+    where
+        F: FnOnce(anyhow::Result<HttpResponse<String>>) + Send + 'static;
 }

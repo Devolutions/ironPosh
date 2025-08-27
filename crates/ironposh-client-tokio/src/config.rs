@@ -54,7 +54,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
     // Determine log level based on verbosity using structured filters
     let log_level = match verbose_level {
         0 => "ironposh_client_tokio=info,powershell_async=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,reqwest=error",
-        1 => "ironposh_client_tokio=debug,powershell_async=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,reqwest=error",
+        1 => "ironposh_client_tokio=debug,powershell_async=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=debug,reqwest=error",
         2 => "ironposh_client_tokio=trace,powershell_async=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,reqwest=warn",
         _ => "trace",
     };
