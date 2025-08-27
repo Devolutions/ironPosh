@@ -1,6 +1,6 @@
 use anyhow::Context;
-use powershell_async::HttpClient;
-use pwsh_core::connector::http::{HttpRequest, HttpResponse, Method};
+use ironposh_client_async::HttpClient;
+use ironposh_client_core::connector::http::{HttpRequest, HttpResponse, Method};
 use reqwest::Client;
 use tracing::instrument;
 

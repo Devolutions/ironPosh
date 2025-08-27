@@ -775,20 +775,121 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironposh-client-async"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam",
+ "futures",
+ "ironposh-client-core",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "ironposh-client-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "hyper",
+ "ironposh-psrp",
+ "ironposh-winrm",
+ "ironposh-xml",
+ "regex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "typed-builder",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
+name = "ironposh-client-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ironposh-client-core",
+ "ironposh-psrp",
+ "regex",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
 name = "ironposh-client-tokio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "futures",
- "powershell-async",
- "protocol-powershell-remoting",
- "pwsh-core",
+ "ironposh-client-async",
+ "ironposh-client-core",
+ "ironposh-psrp",
  "reqwest",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "ironposh-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "ironposh-psrp"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "byteorder",
+ "ironposh-xml",
+ "quick-xml",
+ "regex",
+ "serde",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+ "typed-builder",
+ "uuid",
+]
+
+[[package]]
+name = "ironposh-winrm"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "byteorder",
+ "hyper",
+ "ironposh-macros",
+ "ironposh-xml",
+ "paste",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-test",
+ "typed-builder",
+ "uuid",
+]
+
+[[package]]
+name = "ironposh-xml"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -1055,104 +1156,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "powershell-async"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossbeam",
- "futures",
- "pwsh-core",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "powershell-sync"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "protocol-powershell-remoting",
- "pwsh-core",
- "regex",
- "tracing",
- "tracing-subscriber",
- "ureq",
- "uuid",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "protocol-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "protocol-powershell-remoting"
-version = "0.1.0"
-dependencies = [
- "base64",
- "byteorder",
- "quick-xml",
- "regex",
- "serde",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
- "typed-builder",
- "uuid",
- "xml",
-]
-
-[[package]]
-name = "protocol-winrm"
-version = "0.1.0"
-dependencies = [
- "base64",
- "byteorder",
- "hyper",
- "paste",
- "protocol-macros",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "tracing-test",
- "typed-builder",
- "uuid",
- "xml",
-]
-
-[[package]]
-name = "pwsh-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "hyper",
- "protocol-powershell-remoting",
- "protocol-winrm",
- "regex",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "typed-builder",
- "ureq",
- "uuid",
- "xml",
 ]
 
 [[package]]
@@ -2250,15 +2259,6 @@ name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
-
-[[package]]
-name = "xml"
-version = "0.1.0"
-dependencies = [
- "roxmltree",
- "thiserror",
- "tracing",
-]
 
 [[package]]
 name = "yoke"

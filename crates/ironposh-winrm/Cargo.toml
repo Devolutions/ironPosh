@@ -1,0 +1,20 @@
+[package]
+name = "ironposh-winrm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hyper = { version = "1.6.0", features = ["http2"] }
+thiserror = "2.0.12"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+typed-builder = "0.21.0"
+ironposh-xml = { path = "../ironposh-xml" }
+ironposh-macros = { path = "../ironposh-macros" }
+byteorder = "1.5.0"
+base64 = "0.22.1"
+paste = "1.0.15"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tracing-test =  {version = "0.2.4", features = ["no-env-filter"] }

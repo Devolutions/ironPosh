@@ -1,17 +1,19 @@
+[[bin]]
+name = "ironposh-client-sync"
+path = "src/main.rs"
+
 [package]
-name = "ironposh-client-tokio"
+name = "ironposh-client-sync"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ironposh-client-async = { version = "0.1.0", path = "../ironposh-client-async" }
 ironposh-client-core = { version = "0.1.0", path = "../ironposh-client-core" }
 ironposh-psrp = { version = "0.1.0", path = "../ironposh-psrp" }
-tokio = { version = "1.0", features = ["full"] }
+ureq = "2.10"
 anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
+regex = "1.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-reqwest = { version = "0.12", features = ["json"] }
+clap = { version = "4.5", features = ["derive"] }
 uuid = { version = "1.18.0", features = ["v4"] }
-futures = "0.3"

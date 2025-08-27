@@ -1,0 +1,15 @@
+[package]
+name = "ironposh-xml"
+version = "0.1.0"
+edition = "2021"
+authors = ["Aarav Shah <aaravaditya51@gmail.com>","Irving Ou <jou@devolutions.com>"]
+description = "A lightweight and intuitive library for generating XML documents in Rust"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["xml", "xml-builder", "xml-generation"]
+
+[dependencies]
+roxmltree = "0.20.0"
+thiserror = "2.0.12"
+tracing = "0.1.41"
+

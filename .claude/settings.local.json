@@ -16,7 +16,9 @@
       "Bash(find:*)",
       "Bash(rg:*)",
       "Bash(mkdir:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(cargo fmt:*)"
     ],
     "deny": [],
     "additionalDirectories": [

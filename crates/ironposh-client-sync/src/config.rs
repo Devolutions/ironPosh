@@ -6,7 +6,7 @@ use ironposh_client_core::connector::{
 };
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
-/// PowerShell Remoting Client (Async/Tokio)
+/// PowerShell Remoting Client (Synchronous)
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Args {
@@ -43,21 +43,17 @@ pub struct Args {
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
     pub verbose: u8,
-
-    /// Command to execute (if provided, runs in non-interactive mode)
-    #[arg(short = 'c', long, help = "Command to execute")]
-    pub command: Option<String>,
 }
 
 /// Initialize logging with file output and proper structured logging
 pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
-    let log_file = std::fs::File::create("ironposh_client.log")?;
+    let log_file = std::fs::File::create("winrm_client.log")?;
 
     // Determine log level based on verbosity using structured filters
     let log_level = match verbose_level {
-        0 => "ironposh_client_tokio=info,powershell_async=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,reqwest=error",
-        1 => "ironposh_client_tokio=debug,powershell_async=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=debug,reqwest=error",
-        2 => "ironposh_client_tokio=trace,powershell_async=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,reqwest=warn",
+        0 => "powershell_sync_client=info,pwsh_core=info,protocol_powershell_remoting=info,protocol_winrm=warn,ureq=error",
+        1 => "powershell_sync_client=debug,pwsh_core=debug,protocol_powershell_remoting=debug,protocol_winrm=info,ureq=error",
+        2 => "powershell_sync_client=trace,pwsh_core=trace,protocol_powershell_remoting=trace,protocol_winrm=debug,ureq=warn",
         _ => "trace",
     };
 

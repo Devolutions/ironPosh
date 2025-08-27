@@ -3,7 +3,7 @@ mod http_client;
 
 use anyhow::Context;
 use clap::Parser;
-use powershell_async::remote_client::RemoteAsyncPowershellClient;
+use ironposh_client_async::remote_client::RemoteAsyncPowershellClient;
 use tracing::{error, info, instrument};
 
 use config::{create_connector_config, init_logging, Args};
