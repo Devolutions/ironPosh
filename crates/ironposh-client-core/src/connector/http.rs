@@ -1,4 +1,3 @@
-use base64::Engine;
 use std::{fmt::Display, net::IpAddr};
 
 #[derive(Debug, Clone)]
@@ -117,7 +116,7 @@ impl HttpBuilder {
             headers.push(("Cookie".to_string(), cookie.clone()));
         }
 
-        headers.extend(self.headers.drain(..));
+        headers.append(&mut self.headers);
 
         headers
     }

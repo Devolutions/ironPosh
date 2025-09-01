@@ -298,6 +298,7 @@ impl RemoteAsyncPowershellClient {
                         break (active_session, next_receive_request);
                     }
                     ConnectorStepResult::Borrowed { mut auth_sequence } => {
+                        info!("Starting authentication sequence");
                         let mut auth_request = None;
                         loop {
                             let auth_step = auth_sequence
@@ -309,13 +310,17 @@ impl RemoteAsyncPowershellClient {
                                     // Make the HTTP request (using ureq for simplicity in example)
                                     auth_request = Some(client.send_request(request).await?)
                                 }
-                                AuthSequenceStepResult::SendToHereAndContinue { request, to } => {
-                                    todo!()
+                                AuthSequenceStepResult::SendToHereAndContinue { .. } => {
+                                    todo!("Handle kerberos here")
                                 }
-                                AuthSequenceStepResult::DestructMe => {
-                                    let (new_connector, _http_builder) =
-                                        auth_sequence.destruct_me();
-                                    todo!()
+                                AuthSequenceStepResult::DestructMe { token } => {
+                                    let (connector, http_builder) = auth_sequence.destruct_me();
+
+                                    let request = connector.authenticate(token, http_builder)?;
+
+                                    response = Some(client.send_request(request).await?);
+
+                                    break;
                                 }
                             }
                         }

@@ -1,11 +1,15 @@
 use std::borrow::Cow;
 
 pub mod connector;
+pub mod credentials;
 pub mod host;
 pub mod pipeline;
 pub mod powershell;
 pub mod runspace;
 pub mod runspace_pool;
+
+pub use connector::authenticator::Authentication;
+pub use credentials::ClientAuthIdentity;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PwshCoreError {
@@ -43,7 +47,7 @@ pub enum PwshCoreError {
     SspiError(#[from] sspi::Error),
 
     #[error("SSPI username error: {0}")]
-    UsernameError(String),
+    UsernameError(&'static str),
 
     #[error("Authentication error: {0}")]
     Auth(&'static str),

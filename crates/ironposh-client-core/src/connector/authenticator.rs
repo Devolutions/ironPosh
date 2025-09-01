@@ -2,11 +2,12 @@ use std::fmt::Debug;
 
 use base64::Engine;
 use sspi::{
-    AuthIdentity, BufferType, ClientRequestFlags, ClientResponseFlags, CredentialUse,
+    BufferType, ClientRequestFlags, CredentialUse,
     DataRepresentation, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
 };
 
-use crate::connector::http::{HttpBuilder, HttpRequest, HttpResponse};
+use crate::connector::http::{HttpRequest, HttpResponse};
+use crate::credentials::ClientAuthIdentity;
 
 #[derive(Debug, Default)]
 pub enum SspiAuthenticatorState<P: Sspi> {
@@ -14,7 +15,7 @@ pub enum SspiAuthenticatorState<P: Sspi> {
     Taken,
     PreAuthentication {
         prov: P,
-        identity: AuthIdentity,
+        identity: ClientAuthIdentity,
     },
     InAuthentication {
         prov: P,
@@ -55,7 +56,7 @@ pub enum AuthenticaterStepResult {
 pub enum Authentication {
     Basic { username: String, password: String },
     // TODO: I should make user have choice of what sspi provider to use
-    Sspi { identity: AuthIdentity },
+    Sspi { identity: ClientAuthIdentity },
 }
 
 // Convenience type aliases
@@ -63,7 +64,7 @@ pub type NtlmAuthenticator = SspiAuthenticator<sspi::ntlm::Ntlm>;
 pub type NegotiateAuthenticator = SspiAuthenticator<sspi::negotiate::Negotiate>;
 
 impl NtlmAuthenticator {
-    pub fn new_ntlm(identity: AuthIdentity) -> Self {
+    pub fn new_ntlm(identity: ClientAuthIdentity) -> Self {
         let provider = Ntlm::new();
         Self {
             state: SspiAuthenticatorState::PreAuthentication {
@@ -76,11 +77,8 @@ impl NtlmAuthenticator {
 
 impl<ISspi> SspiAuthenticator<ISspi>
 where
-    ISspi: Sspi + SspiImpl<AuthenticationData = AuthIdentity>,
+    ISspi: Sspi + SspiImpl<AuthenticationData = sspi::AuthIdentity>,
 {
-    pub(crate) fn is_authenticated(&self) -> bool {
-        true
-    }
 
     pub fn step(
         &mut self,
@@ -105,7 +103,9 @@ where
                     .acquire_credentials_handle()
                     .with_credential_use(CredentialUse::Outbound);
 
-                acq = acq.with_auth_data(&identity);
+                // Convert our ClientAuthIdentity to sspi::AuthIdentity for the SSPI layer
+                let sspi_identity: sspi::AuthIdentity = identity.into_inner();
+                acq = acq.with_auth_data(&sspi_identity);
 
                 let mut cred = acq.execute(&mut prov)?.credentials_handle;
 
@@ -128,7 +128,7 @@ where
                 (
                     next,
                     AuthenticaterStepResult::SendBackAndContinue {
-                        token: format!("Negotiate {}", client_token_b64),
+                        token: format!("Negotiate {client_token_b64}"),
                     },
                 )
             }
@@ -140,7 +140,7 @@ where
                 ))?;
 
                 let server_tok = parse_negotiate_token(&resp.headers)
-                    .ok_or_else(|| crate::PwshCoreError::Auth("no Negotiate token".into()))?;
+                    .ok_or_else(|| crate::PwshCoreError::Auth("no Negotiate token"))?;
 
                 let mut input_buffer = [SecurityBuffer::new(server_tok, BufferType::Token)];
                 let mut output_buffer = [SecurityBuffer::new(Vec::new(), BufferType::Token)];
@@ -167,7 +167,7 @@ where
                         (
                             next,
                             AuthenticaterStepResult::SendBackAndContinue {
-                                token: format!("Negotiate {}", client_token_b64),
+                                token: format!("Negotiate {client_token_b64}"),
                             },
                         )
                     }
@@ -179,7 +179,7 @@ where
                                 token: if output_buffer[0].buffer.is_empty() {
                                     None
                                 } else {
-                                    Some(format!("Negotiate {}", client_token_b64))
+                                    Some(format!("Negotiate {client_token_b64}"))
                                 },
                             },
                         )

@@ -18,7 +18,9 @@ pub enum AuthSequenceStepResult {
         request: super::http::HttpRequest<String>,
         to: String,
     },
-    DestructMe,
+    DestructMe {
+        token: Option<String>,
+    },
 }
 
 impl<'connector> AuthSequence<'connector> {
@@ -40,10 +42,7 @@ impl<'connector> AuthSequence<'connector> {
                 to,
             } => todo!("Handle kerberos here"),
             crate::connector::authenticator::AuthenticaterStepResult::Done { token } => {
-                if let Some(token) = token {
-                    self.http_builder.with_auth_header(token);
-                }
-                AuthSequenceStepResult::DestructMe
+                AuthSequenceStepResult::DestructMe { token }
             }
         };
 

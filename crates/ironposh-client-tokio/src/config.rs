@@ -1,10 +1,10 @@
 use std::net::IpAddr;
 
 use clap::Parser;
-use ironposh_client_core::connector::{
-    http::ServerAddress, Authentication, ConnectorConfig, Scheme,
+use ironposh_client_core::{
+    connector::{http::ServerAddress, ConnectorConfig, Scheme},
+    Authentication,
 };
-use ironposh_psrp::HostDefaultData;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
 /// PowerShell Remoting Client (Async/Tokio)
@@ -36,6 +36,14 @@ pub struct Args {
         help = "Password for authentication"
     )]
     pub password: String,
+
+    #[arg(
+        short = 'd',
+        long,
+        help = "Domain for authentication (if needed)",
+        default_value = ""
+    )]
+    pub domain: Option<String>,
 
     /// Use HTTPS instead of HTTP
     #[arg(long, help = "Use HTTPS (default: HTTP)")]
@@ -85,9 +93,20 @@ pub fn create_connector_config(args: &Args) -> ConnectorConfig {
     } else {
         Scheme::Http
     };
-    let auth = Authentication::Basic {
-        username: args.username.clone(),
-        password: args.password.clone(),
+    // let auth = Authentication::Basic {
+    //     username: args.username.clone(),
+    //     password: args.password.clone(),
+    // };
+
+    let auth = Authentication::Sspi {
+        identity: ironposh_client_core::ClientAuthIdentity::new(
+            ironposh_client_core::credentials::ClientUserName::new(
+                &args.username,
+                None, 
+            )
+            .expect("Invalid username"),
+            args.password.clone().into(),
+        ),
     };
 
     ConnectorConfig {
