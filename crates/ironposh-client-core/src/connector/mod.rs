@@ -5,7 +5,10 @@ use ironposh_winrm::ws_management::WsMan;
 use tracing::{info, instrument, warn};
 
 use crate::{
-    connector::http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
+    connector::{
+        authenticator::{Authentication, NtlmAuthenticator},
+        http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
+    },
     runspace_pool::{
         DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
         pool::AcceptResponsResult,
@@ -14,13 +17,9 @@ use crate::{
 
 pub use active_session::{ActiveSession, ActiveSessionOutput, UserOperation};
 pub mod active_session;
+pub mod auth_sequence;
+pub mod authenticator;
 pub mod http;
-
-#[derive(Debug, Clone)]
-pub enum Authentication {
-    Basic { username: String, password: String },
-    // TODO: Add SSPI
-}
 
 #[derive(Debug, Clone)]
 pub enum Scheme {
@@ -49,10 +48,13 @@ impl ConnectorConfig {
     }
 }
 
-#[derive(Debug)]
-pub enum ConnectorStepResult {
+enum InnerConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
+    Borrowed {
+        authenticator: NtlmAuthenticator,
+        http_builder: HttpBuilder,
+    },
     Connected {
         /// use box to avoid large enum variant
         active_session: Box<ActiveSession>,
@@ -60,22 +62,38 @@ pub enum ConnectorStepResult {
     },
 }
 
-impl ConnectorStepResult {
+#[derive(Debug)]
+pub enum ConnectorStepResult<'a> {
+    SendBack(HttpRequest<String>),
+    SendBackError(crate::PwshCoreError),
+    Borrowed {
+        auth_sequence: auth_sequence::AuthSequence<'a>,
+    },
+    Connected {
+        /// use box to avoid large enum variant
+        active_session: Box<ActiveSession>,
+        next_receive_request: HttpRequest<String>,
+    },
+}
+
+impl<'a> ConnectorStepResult<'a> {
     pub fn name(&self) -> &'static str {
         match self {
             ConnectorStepResult::SendBack(_) => "SendBack",
             ConnectorStepResult::SendBackError(_) => "SendBackError",
             ConnectorStepResult::Connected { .. } => "Connected",
+            ConnectorStepResult::Borrowed { .. } => "Borrowed",
         }
     }
 }
 
-impl ConnectorStepResult {
+impl<'a> ConnectorStepResult<'a> {
     pub fn priority(&self) -> u8 {
         match self {
             ConnectorStepResult::SendBack(_) => 0,
             ConnectorStepResult::SendBackError(_) => 1,
             ConnectorStepResult::Connected { .. } => 2,
+            ConnectorStepResult::Borrowed { .. } => 3,
         }
     }
 }
@@ -85,6 +103,7 @@ pub enum ConnectorState {
     Idle,
     #[default]
     Taken,
+    Authenticate {},
     Connecting {
         expect_shell_created: ExpectShellCreated,
         http_builder: HttpBuilder,
@@ -103,6 +122,7 @@ impl ConnectorState {
             ConnectorState::Idle => "Idle",
             ConnectorState::Taken => "Taken",
             ConnectorState::Connecting { .. } => "Connecting",
+            ConnectorState::Authenticate { .. } => "Authenticate",
             ConnectorState::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
             ConnectorState::Connected => "Connected",
             ConnectorState::Failed => "Failed",
@@ -110,6 +130,7 @@ impl ConnectorState {
     }
 }
 
+#[derive(Debug)]
 pub struct Connector {
     state: ConnectorState,
     config: ConnectorConfig,
@@ -158,33 +179,56 @@ impl Connector {
                     server_response.is_none(),
                     "Request should be None in Idle state"
                 );
-                let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
-                let runspace_pool = RunspacePoolCreator::builder()
-                    .host_info(self.config.host_info.clone())
-                    .build()
-                    .into_runspace_pool(connection);
 
-                let http_builder = HttpBuilder::new(
+                let mut http_builder = HttpBuilder::new(
                     self.config.server.0.clone(),
                     self.config.server.1,
                     self.config.scheme.clone(),
-                    self.config.authentication.clone(),
                 );
 
-                let (xml_body, expect_shell_created) = runspace_pool.open()?;
+                // if matches!(self.config.authentication, Authentication::Basic { .. }) {
+                match &self.config.authentication {
+                    Authentication::Basic { username, password } => {
+                        // let connection =
+                        //     Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
+                        // let runspace_pool = RunspacePoolCreator::builder()
+                        //     .host_info(self.config.host_info.clone())
+                        //     .build()
+                        //     .into_runspace_pool(connection);
 
-                let response = http_builder.post("/wsman", xml_body);
+                        // let (xml_body, expect_shell_created) = runspace_pool.open()?;
 
-                let new_state = ConnectorState::Connecting {
-                    expect_shell_created,
-                    http_builder,
-                };
+                        // let response = http_builder.post("/wsman", xml_body);
 
-                (new_state, ConnectorStepResult::SendBack(response))
+                        // let new_state = ConnectorState::Connecting {
+                        //     expect_shell_created,
+                        //     http_builder,
+                        // };
+
+                        todo!("fix basic auth here")
+                        // (new_state, InnerConnectorStepResult::SendBack(response))
+                    }
+                    Authentication::Sspi { identity } => {
+                        let authenticator =
+                            authenticator::SspiAuthenticator::new_ntlm(identity.clone());
+
+                        (
+                            ConnectorState::Authenticate {},
+                            InnerConnectorStepResult::Borrowed {
+                                authenticator,
+                                http_builder,
+                            },
+                        )
+                    }
+                }
+            }
+            ConnectorState::Authenticate { .. } => {
+                // This is when authentication is in progress, done by AuthSequence
+                todo!()
             }
             ConnectorState::Connecting {
                 expect_shell_created,
-                http_builder,
+                mut http_builder,
             } => {
                 info!("Processing Connecting state");
                 let response = server_response.ok_or({
@@ -207,11 +251,11 @@ impl Connector {
                     http_builder,
                 };
 
-                (new_state, ConnectorStepResult::SendBack(response))
+                (new_state, InnerConnectorStepResult::SendBack(response))
             }
             ConnectorState::ConnectReceiveCycle {
                 mut runspace_pool,
-                http_builder,
+                mut http_builder,
             } => {
                 let response = server_response.ok_or({
                     crate::PwshCoreError::InvalidState(
@@ -243,7 +287,7 @@ impl Connector {
                         runspace_pool,
                         http_builder,
                     };
-                    (new_state, ConnectorStepResult::SendBack(response))
+                    (new_state, InnerConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
                     let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
@@ -251,7 +295,7 @@ impl Connector {
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (
                         ConnectorState::Connected,
-                        ConnectorStepResult::Connected {
+                        InnerConnectorStepResult::Connected {
                             active_session: Box::new(active_session),
                             next_receive_request: next_http_request,
                         },
@@ -260,15 +304,38 @@ impl Connector {
                     warn!("Unexpected RunspacePool state: {:?}", runspace_pool.state);
                     (
                         ConnectorState::Failed,
-                        ConnectorStepResult::SendBackError(crate::PwshCoreError::InvalidState(
-                            "Unexpected RunspacePool state",
-                        )),
+                        InnerConnectorStepResult::SendBackError(
+                            crate::PwshCoreError::InvalidState("Unexpected RunspacePool state"),
+                        ),
                     )
                 }
             }
         };
 
         self.set_state(new_state);
+
+        let response = match response {
+            InnerConnectorStepResult::SendBack(req) => ConnectorStepResult::SendBack(req),
+            InnerConnectorStepResult::SendBackError(err) => ConnectorStepResult::SendBackError(err),
+            InnerConnectorStepResult::Borrowed {
+                authenticator,
+                http_builder,
+            } => ConnectorStepResult::Borrowed {
+                auth_sequence: auth_sequence::AuthSequence {
+                    connector: self,
+                    authenticator,
+                    http_builder,
+                },
+            },
+            InnerConnectorStepResult::Connected {
+                active_session,
+                next_receive_request,
+            } => ConnectorStepResult::Connected {
+                active_session,
+                next_receive_request,
+            },
+        };
+
         Ok(response)
     }
 }

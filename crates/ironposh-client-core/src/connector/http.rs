@@ -52,29 +52,28 @@ pub struct HttpBuilder {
     pub(crate) server: ServerAddress,
     pub(crate) port: u16,
     pub(crate) scheme: crate::connector::Scheme,
-    pub(crate) authentication: crate::connector::Authentication,
+    // pub(crate) authentication: crate::connector::Authentication,
     pub(crate) cookie: Option<String>,
+    pub(crate) headers: Vec<(String, String)>,
 }
 
 impl HttpBuilder {
-    pub fn new(
-        server: ServerAddress,
-        port: u16,
-        scheme: crate::connector::Scheme,
-        authentication: crate::connector::Authentication,
-    ) -> Self {
+    pub fn new(server: ServerAddress, port: u16, scheme: crate::connector::Scheme) -> Self {
         Self {
             server,
             port,
             scheme,
-            authentication,
+            headers: vec![],
             cookie: None,
         }
     }
 
-    pub fn with_cookie(mut self, cookie: String) -> Self {
+    pub fn with_cookie(&mut self, cookie: String) {
         self.cookie = Some(cookie);
-        self
+    }
+
+    pub fn with_auth_header(&mut self, header: String) {
+        self.headers.push(("Authorization".to_string(), header));
     }
 
     fn build_url(&self, path: &str) -> String {
@@ -91,16 +90,6 @@ impl HttpBuilder {
         format!("{}://{}:{}{}", scheme_str, server_str, self.port, path)
     }
 
-    fn build_auth_header(&self) -> String {
-        match &self.authentication {
-            crate::connector::Authentication::Basic { username, password } => {
-                let credentials = format!("{username}:{password}");
-                let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
-                format!("Basic {encoded}")
-            }
-        }
-    }
-
     fn build_host_header(&self) -> String {
         match &self.server {
             ServerAddress::Ip(ip) => format!("{}:{}", ip, self.port),
@@ -108,14 +97,14 @@ impl HttpBuilder {
         }
     }
 
-    fn build_headers(&self, body: Option<&str>) -> Vec<(String, String)> {
+    fn build_headers(&mut self, body: Option<&str>) -> Vec<(String, String)> {
         let mut headers = vec![
             ("Host".to_string(), self.build_host_header()),
             (
                 "Content-Type".to_string(),
                 "application/soap+xml; charset=utf-8".to_string(),
             ),
-            ("Authorization".to_string(), self.build_auth_header()),
+            // ("Authorization".to_string(), self.build_auth_header()),
         ];
 
         if let Some(body_content) = body {
@@ -128,10 +117,12 @@ impl HttpBuilder {
             headers.push(("Cookie".to_string(), cookie.clone()));
         }
 
+        headers.extend(self.headers.drain(..));
+
         headers
     }
 
-    pub fn post(&self, path: &str, body: String) -> HttpRequest<String> {
+    pub fn post(&mut self, path: &str, body: String) -> HttpRequest<String> {
         HttpRequest {
             method: Method::Post,
             url: self.build_url(path),
@@ -141,33 +132,33 @@ impl HttpBuilder {
         }
     }
 
-    pub fn get(&self, path: &str) -> HttpRequest<String> {
-        HttpRequest {
-            method: Method::Get,
-            url: self.build_url(path),
-            headers: self.build_headers(None),
-            body: None,
-            cookie: self.cookie.clone(),
-        }
-    }
+    // pub fn get(&self, path: &str) -> HttpRequest<String> {
+    //     HttpRequest {
+    //         method: Method::Get,
+    //         url: self.build_url(path),
+    //         headers: self.build_headers(None),
+    //         body: None,
+    //         cookie: self.cookie.clone(),
+    //     }
+    // }
 
-    pub fn put(&self, path: &str, body: String) -> HttpRequest<String> {
-        HttpRequest {
-            method: Method::Put,
-            url: self.build_url(path),
-            headers: self.build_headers(Some(&body)),
-            body: Some(body),
-            cookie: self.cookie.clone(),
-        }
-    }
+    // pub fn put(&self, path: &str, body: String) -> HttpRequest<String> {
+    //     HttpRequest {
+    //         method: Method::Put,
+    //         url: self.build_url(path),
+    //         headers: self.build_headers(Some(&body)),
+    //         body: Some(body),
+    //         cookie: self.cookie.clone(),
+    //     }
+    // }
 
-    pub fn delete(&self, path: &str) -> HttpRequest<String> {
-        HttpRequest {
-            method: Method::Delete,
-            url: self.build_url(path),
-            headers: self.build_headers(None),
-            body: None,
-            cookie: self.cookie.clone(),
-        }
-    }
+    // pub fn delete(&self, path: &str) -> HttpRequest<String> {
+    //     HttpRequest {
+    //         method: Method::Delete,
+    //         url: self.build_url(path),
+    //         headers: self.build_headers(None),
+    //         body: None,
+    //         cookie: self.cookie.clone(),
+    //     }
+    // }
 }

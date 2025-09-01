@@ -38,4 +38,13 @@ pub enum PwshCoreError {
 
     #[error("Host error: {0}")]
     HostError(#[from] crate::host::HostError),
+
+    #[error("SSPI error: {0}")]
+    SspiError(#[from] sspi::Error),
+
+    #[error("SSPI username error: {0}")]
+    UsernameError(String),
+
+    #[error("Authentication error: {0}")]
+    Auth(&'static str),
 }

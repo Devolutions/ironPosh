@@ -13,6 +13,7 @@ ironposh-xml = { path = "../ironposh-xml" }
 typed-builder = "0.21.0"
 base64 = "0.22.1"
 tracing = "0.1.41"
+sspi = { version = "0.16.1", features = ["ring"] }
 
 
 [dev-dependencies]
