@@ -7,7 +7,7 @@ use tracing::{info, instrument, warn};
 
 use crate::{
     connector::{
-        authenticator::{Authentication, NtlmAuthenticator},
+        authenticator::{SspiAuthenticator, Token},
         http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
@@ -152,7 +152,7 @@ impl Connector {
 
     pub fn authenticate(
         &mut self,
-        last_token: Option<String>,
+        last_token: Option<Token>,
         mut http_builder: HttpBuilder,
     ) -> Result<HttpRequest<String>, crate::PwshCoreError> {
         match self.state {
@@ -165,7 +165,7 @@ impl Connector {
         };
 
         if let Some(token) = last_token {
-            http_builder.with_auth_header(token);
+            http_builder.with_auth_header(token.0);
         }
 
         let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
