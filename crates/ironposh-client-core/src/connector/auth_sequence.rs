@@ -1,132 +1,156 @@
-use sspi::{NetworkRequest, Sspi};
+use sspi::{NetworkProtocol, NetworkRequest, Sspi};
+use url::Url;
 
-use crate::{
-    connector::{
-        authenticator::{
-            AuthFurniture, AuthenticatorStepResult, SspiAuthenticator, SspiStepRequest, Token,
-        },
-        http::{HttpBuilder, HttpResponse},
-    },
+use crate::connector::{
+    authenticator::{self, AuthFurniture, GeneratorHolder, SspiAuthenticator, Token},
+    http::{HttpBuilder, HttpRequest, HttpResponse},
 };
 
-pub struct AuthSequence<'conn, 'auth, P: Sspi> {
-    pub(crate) connector: &'conn mut super::Connector,
-    pub(crate) authenticator: SspiAuthenticator,
-    pub(crate) http_builder: super::http::HttpBuilder,
-    context: AuthFurniture<'auth, P>,
-    state: AuthSequenceState<'auth>,
+#[derive(Debug)]
+pub struct AuthSequence<'conn> {
+    /// Holding connector to ensure it's not used while auth sequence is active
+    pub(crate) _connector: &'conn mut super::Connector,
 }
 
-// Baiscally, the generator should live as long as the AuthContext, which is owned by AuthSequence
-#[derive(Debug, Default)]
-pub enum AuthSequenceState<'a> {
-    #[default]
-    Initialized,
-    WaitingForGeneratorResponse {
-        generator: SspiStepRequest<'a>,
+impl<'conn> AuthSequence<'conn> {
+    pub(crate) fn new(connector: &'conn mut super::Connector) -> Self {
+        Self {
+            _connector: connector,
+        }
+    }
+}
+
+pub enum KerberoRequestProtocol {
+    Http,
+    Https,
+    Tcp,
+    Udp,
+}
+
+pub struct KerberoRequestPacket {
+    pub protocol: KerberoRequestProtocol,
+    pub url: Url,
+    pub data: Vec<u8>,
+}
+
+impl KerberoRequestPacket {
+    fn new(request: NetworkRequest) -> Self {
+        Self {
+            protocol: match request.protocol {
+                NetworkProtocol::Http => KerberoRequestProtocol::Http,
+                NetworkProtocol::Https => KerberoRequestProtocol::Https,
+                NetworkProtocol::Tcp => KerberoRequestProtocol::Tcp,
+                NetworkProtocol::Udp => KerberoRequestProtocol::Udp,
+            },
+            url: request.url,
+            data: request.data,
+        }
+    }
+}
+
+pub enum TryInitSecContext<'auth> {
+    RunGenerator {
+        packet: KerberoRequestPacket,
+        generator_holder: GeneratorHolder<'auth>,
     },
-    Resumed,
-    Complete,
+    Initialized {
+        init_sec_context_res: authenticator::SecContextInit,
+    },
 }
 
-pub enum AuthSequenceStepResult {
-    Continue,
-    ContinueWithToken { token: Token },
-    NeedsKdcResponse { packet: NetworkRequest },
+pub enum SecContextProcessResult {
+    TryInitAgain { request: HttpRequest<String> },
     Done { token: Option<Token> },
 }
 
-pub enum ResumeResult {
-    NeedsKdcResponse { packet: NetworkRequest },
-    ContinueStep,
+pub enum AnyContext<'a> {
+    Ntlm(AuthFurniture<'a, sspi::ntlm::Ntlm>),
+    Kerberos(AuthFurniture<'a, sspi::kerberos::Kerberos>),
+    Negotiate(AuthFurniture<'a, sspi::negotiate::Negotiate>),
 }
 
-impl<'conn, 'auth, P> AuthSequence<'conn, 'auth, P>
-where
-    P: Sspi,
-{
-    pub fn step(
-        &'auth mut self,
-        server_response: Option<HttpResponse<String>>,
-    ) -> Result<AuthSequenceStepResult, crate::PwshCoreError> {
-        let state = std::mem::take(&mut self.state);
+impl std::fmt::Debug for AnyContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnyContext::Ntlm(_) => write!(f, "AnyContext::Ntlm"),
+            AnyContext::Kerberos(_) => write!(f, "AnyContext::Kerberos"),
+            AnyContext::Negotiate(_) => write!(f, "AnyContext::Negotiate"),
+        }
+    }
+}
 
-        let (next_state, result) = match state {
-            AuthSequenceState::Initialized => {
-                let step_result = self
-                    .authenticator
-                    .try_init_sec_context(server_response.as_ref(), &mut self.context)?;
+impl<'conn, 'auth> AuthSequence<'conn> {
+    pub fn try_init_sec_context(
+        &self,
+        context: &'auth mut AnyContext<'auth>,
+        response: Option<HttpResponse<String>>,
+    ) -> Result<TryInitSecContext<'auth>, crate::PwshCoreError> {
+        let sec_context_init = match context {
+            AnyContext::Ntlm(ctx) => {
+                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
+            }
+            AnyContext::Kerberos(ctx) => {
+                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
+            }
+            AnyContext::Negotiate(ctx) => {
+                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
+            }
+        }?;
 
-                match step_result {
-                    AuthenticatorStepResult::Continue => (
-                        AuthSequenceState::Initialized,
-                        AuthSequenceStepResult::Continue,
-                    ),
-                    AuthenticatorStepResult::ContinueWithToken { token } => (
-                        AuthSequenceState::Initialized,
-                        AuthSequenceStepResult::ContinueWithToken { token },
-                    ),
-                    AuthenticatorStepResult::SendToHereAndContinue {
-                        packet,
-                        generator_holder,
-                    } => (
-                        AuthSequenceState::WaitingForGeneratorResponse {
-                            generator: generator_holder,
-                        },
-                        AuthSequenceStepResult::NeedsKdcResponse { packet },
-                    ),
-                    AuthenticatorStepResult::Done { token } => (
-                        AuthSequenceState::Complete,
-                        AuthSequenceStepResult::Done { token },
-                    ),
-                }
+        match sec_context_init {
+            crate::connector::authenticator::SecContextMaybeInit::RunGenerator {
+                packet,
+                generator_holder,
+            } => Ok(TryInitSecContext::RunGenerator {
+                packet: KerberoRequestPacket::new(packet),
+                generator_holder,
+            }),
+            crate::connector::authenticator::SecContextMaybeInit::Initialized(sec_context_init) => {
+                Ok(TryInitSecContext::Initialized {
+                    init_sec_context_res: sec_context_init,
+                })
             }
-            AuthSequenceState::WaitingForGeneratorResponse { .. } => {
-                return Err(crate::PwshCoreError::InvalidState(
-                    "AuthSequence is already waiting for KDC response, should use resume()",
-                ));
-            }
-            AuthSequenceState::Resumed  => {
-                todo!()   
-            }
-            AuthSequenceState::Complete => {
-                return Err(crate::PwshCoreError::InvalidState(
-                    "AuthSequence is already complete",
-                ));
-            }
-        };
-
-        self.state = next_state;
-
-        Ok(result)
+        }
     }
 
     pub fn resume(
-        &'auth mut self,
+        &self,
         kdc_response: Vec<u8>,
-    ) -> Result<ResumeResult, crate::PwshCoreError> {
-        let state = std::mem::take(&mut self.state);
-        let AuthSequenceState::WaitingForGeneratorResponse { generator } = state else {
-            return Err(crate::PwshCoreError::InvalidState(
-                "AuthSequence is not waiting for KDC response",
-            ));
-        };
-
-        match self.authenticator.resume(generator, kdc_response)? {
-            crate::connector::authenticator::GeneratorResumeResult::DoItAgainBro {
+        generator_holder: GeneratorHolder<'auth>,
+    ) -> Result<TryInitSecContext<'auth>, crate::PwshCoreError> {
+        match SspiAuthenticator::resume(generator_holder, kdc_response)? {
+            authenticator::SecContextMaybeInit::RunGenerator {
                 packet,
                 generator_holder,
-            } => {
-                self.state = AuthSequenceState::WaitingForGeneratorResponse {
-                    generator: generator_holder,
-                };
-                return Ok(ResumeResult::NeedsKdcResponse { packet });
-            }
-            crate::connector::authenticator::GeneratorResumeResult::NahYouGood => {
-                self.state = AuthSequenceState::Resumed;
-                return Ok(ResumeResult::ContinueStep);
+            } => Ok(TryInitSecContext::RunGenerator {
+                packet: KerberoRequestPacket::new(packet),
+                generator_holder,
+            }),
+            authenticator::SecContextMaybeInit::Initialized(init_sec_context_res) => {
+                Ok(TryInitSecContext::Initialized {
+                    init_sec_context_res,
+                })
             }
         }
+    }
+
+    pub fn process_initialized_sec_context<P: Sspi>(
+        &self,
+        context: &'auth mut AnyContext<'auth>,
+        http_builder: &mut HttpBuilder,
+        sec_context_init: authenticator::SecContextInit,
+    ) -> Result<SecContextProcessResult, crate::PwshCoreError> {
+        todo!();
+        // match SspiAuthenticator::process_initialized_sec_context(context, sec_context_init)? {
+        //     authenticator::ActionReqired::TryInitSecContextAgain { token } => {
+        //         http_builder.with_auth_header(token.0.to_owned());
+        //         let request = http_builder.post("/wsman", String::new());
+        //         Ok(SecContextProcessResult::TryInitAgain { request })
+        //     }
+        //     authenticator::ActionReqired::Done { token } => {
+        //         Ok(SecContextProcessResult::Done { token })
+        //     }
+        // }
     }
 
     pub fn destruct_me(self) -> (&'conn mut super::Connector, HttpBuilder) {

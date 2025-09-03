@@ -8,8 +8,8 @@ use sspi::builders::{
 use sspi::generator::{Generator, GeneratorState};
 use sspi::{
     BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation, Error,
-    InitializeSecurityContextResult, Negotiate, NegotiateConfig, NetworkRequest, Ntlm,
-    SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
+    InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate, NegotiateConfig,
+    NetworkRequest, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
 };
 
 use crate::PwshCoreError;
@@ -29,7 +29,7 @@ type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
 /// Holds provider, credential handle, in/out buffers, and the ISC builder for the current round.
 #[derive(Debug)]
 pub struct AuthFurniture<'a, P: Sspi> {
-    pub provider: P,
+    pub(crate) provider: P,
     // Box<T> provides a stable heap address; we keep borrows within the same `AuthFurniture`.
     cred: Box<P::CredentialsHandle>,
     out: [SecurityBuffer; 1],
@@ -39,18 +39,30 @@ pub struct AuthFurniture<'a, P: Sspi> {
 }
 
 impl<'a> AuthFurniture<'a, Ntlm> {
-    pub fn new_ntlm(id: ClientAuthIdentity) -> Result<Self, PwshCoreError> {
+    pub(crate) fn new_ntlm(id: ClientAuthIdentity) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id)
     }
 }
 
 impl<'a> AuthFurniture<'a, Negotiate> {
-    pub fn new_negotiate(
+    pub(crate) fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Negotiate::new_client(config)?,
+            Credentials::AuthIdentity(id.into_inner()),
+        )
+    }
+}
+
+impl<'a> AuthFurniture<'a, Kerberos> {
+    pub(crate) fn new_kerberos(
+        id: ClientAuthIdentity,
+        config: KerberosConfig,
+    ) -> Result<Self, PwshCoreError> {
+        Self::new_with_credential(
+            Kerberos::new_client_from_config(config)?,
             Credentials::AuthIdentity(id.into_inner()),
         )
     }
@@ -126,27 +138,7 @@ where
 }
 
 #[derive(Debug)]
-pub enum SspiAuthenticatorState {
-    /// Kick off or continue an ISC round; may or may not need the generator depending on input.
-    SeeIfNeedsGenerator,
-    /// We yielded a `NetworkRequest` and are waiting for the caller to resume the generator.
-    ResolvingGenerator,
-    /// A round completed; builder still holds `&mut out`. We will extract the token in the next call.
-    ProcessInitializedContextPending {
-        init_sec_context_res: InitializeSecurityContextResult,
-    },
-    /// Finished.
-    Done,
-}
-
-impl Default for SspiAuthenticatorState {
-    fn default() -> Self {
-        SspiAuthenticatorState::SeeIfNeedsGenerator
-    }
-}
-
-#[derive(Debug)]
-pub struct SspiStepRequest<'a> {
+pub struct GeneratorHolder<'a> {
     pub(super) generator: Generator<
         'a,
         NetworkRequest,
@@ -155,141 +147,85 @@ pub struct SspiStepRequest<'a> {
     >,
 }
 
-#[derive(Debug)]
-pub enum GeneratorResumeResult<'a> {
-    DoItAgainBro {
-        packet: NetworkRequest,
-        generator_holder: SspiStepRequest<'a>,
-    },
-    NahYouGood,
-}
+#[derive(Debug, Default)]
+pub struct SspiAuthenticator {}
 
 #[derive(Debug)]
-pub enum AuthenticatorStepResult<'a> {
-    /// Nothing to send this turn (e.g., waiting for a 401 with Negotiate or no token emitted).
-    Continue,
-    /// Send `Authorization: Negotiate <token>` and call `step` again with the server response.
-    ContinueWithToken { token: Token },
-    /// Send the packet (e.g., to a KDC) and call `resolve_generator` with the raw response.
-    SendToHereAndContinue {
+pub struct SecContextInit {
+    init_sec_context_res: InitializeSecurityContextResult,
+}
+
+pub enum SecContextMaybeInit<'a> {
+    RunGenerator {
         packet: NetworkRequest,
-        generator_holder: SspiStepRequest<'a>,
+        generator_holder: GeneratorHolder<'a>,
     },
-    /// Authentication done; may require sending a final token with the last request.
+    Initialized(SecContextInit),
+}
+
+pub enum ActionReqired {
+    TryInitSecContextAgain { token: Token },
     Done { token: Option<Token> },
 }
 
-#[derive(Debug, Default)]
-pub struct SspiAuthenticator {
-    state: SspiAuthenticatorState,
-}
-
 impl SspiAuthenticator {
-    pub fn new() -> Self {
-        Self {
-            state: SspiAuthenticatorState::SeeIfNeedsGenerator,
-        }
-    }
 
     /// Drive one step of the SSPI handshake.
     ///
     /// We mutate `self.state` in place (no `mem::take`), so early returns don't
     /// strand the state as `Taken`. This avoids hard-to-debug invalid-state errors.
-    pub fn step<'a, P>(
-        &mut self,
+    pub(crate) fn try_init_sec_context<'auth, P>(
         response: Option<&HttpResponse<String>>,
-        furniture: &'a mut AuthFurniture<'a, P>,
-    ) -> Result<AuthenticatorStepResult<'a>, PwshCoreError>
+        furniture: &'auth mut AuthFurniture<'auth, P>,
+    ) -> Result<SecContextMaybeInit<'auth>, PwshCoreError>
     where
         P: Sspi + SspiImpl,
     {
-        match &mut self.state {
-            SspiAuthenticatorState::SeeIfNeedsGenerator => {
-                // Starting/continuing an ISC round: clear buffers *now*.
-                furniture.clear_for_next_round();
-                furniture.take_input(response)?;
+        furniture.clear_for_next_round();
+        furniture.take_input(response)?;
 
-                // Build the builder; wire inputs/outputs.
-                let mut isc = furniture
-                    .provider
-                    .initialize_security_context()
-                    .with_credentials_handle(&mut *furniture.cred)
-                    .with_context_requirements(
-                        // TODO: expose these flags to callers for tuning.
-                        ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
-                    )
-                    .with_target_data_representation(DataRepresentation::Native)
-                    .with_output(&mut furniture.out);
+        // Build the builder; wire inputs/outputs.
+        let mut isc = furniture
+            .provider
+            .initialize_security_context()
+            .with_credentials_handle(&mut *furniture.cred)
+            .with_context_requirements(
+                // TODO: expose these flags to callers for tuning.
+                ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
+            )
+            .with_target_data_representation(DataRepresentation::Native)
+            .with_output(&mut furniture.out);
 
-                if let Some(input_buffer) = &mut furniture.inbuf {
-                    isc = isc.with_input(input_buffer);
-                }
-                furniture.isc = Some(isc);
+        if let Some(input_buffer) = &mut furniture.inbuf {
+            isc = isc.with_input(input_buffer);
+        }
+        furniture.isc = Some(isc);
 
-                // Produce the generator for this round.
-                let mut generator = furniture.provider.initialize_security_context_impl(
-                    furniture
-                        .isc
-                        .as_mut()
-                        .expect("If this happens just go code JavaScript :D"),
-                )?;
+        // Produce the generator for this round.
+        let mut generator = furniture.provider.initialize_security_context_impl(
+            furniture
+                .isc
+                .as_mut()
+                .expect("If this happens just go code JavaScript :D"),
+        )?;
 
-                match generator.start() {
-                    GeneratorState::Suspended(request) => {
-                        // We need an external round-trip (e.g., to KDC).
-                        self.state = SspiAuthenticatorState::ResolvingGenerator;
-                        Ok(AuthenticatorStepResult::SendToHereAndContinue {
-                            packet: request,
-                            generator_holder: SspiStepRequest { generator },
-                        })
-                    }
-                    GeneratorState::Completed(init_sec_context_res) => {
-                        // Do NOT touch `out` here; `isc` still holds &mut out.
-                        // Defer token extraction to next call.
-                        let init_sec_context_res = init_sec_context_res?;
-                        self.state = SspiAuthenticatorState::ProcessInitializedContextPending {
-                            init_sec_context_res,
-                        };
-                        Ok(AuthenticatorStepResult::Continue)
-                    }
-                }
+        match generator.start() {
+            GeneratorState::Suspended(request) => {
+                // We have to suspend to send the packet to the server.
+                Ok(SecContextMaybeInit::RunGenerator {
+                    packet: request,
+                    generator_holder: GeneratorHolder { generator },
+                })
             }
-            SspiAuthenticatorState::ResolvingGenerator => Err(PwshCoreError::InvalidState(
-                "Call resolve_generator if you received SendToHereAndContinue",
-            )),
-            SspiAuthenticatorState::ProcessInitializedContextPending {
-                init_sec_context_res,
-            } => {
-                // Now it's safe to drop the builder and read the output token.
-                furniture.isc = None; // releases &mut borrow on `out` inside the builder
+            GeneratorState::Completed(init_sec_context_res) => {
+                // Do NOT touch `out` here; `isc` still holds &mut out.
+                // Defer token extraction to next call.
+                let init_sec_context_res = init_sec_context_res?;
 
-                let produced = std::mem::take(&mut furniture.out[0].buffer);
-                let header = token_header_from(&produced);
-
-                match init_sec_context_res.status {
-                    SecurityStatus::ContinueNeeded => {
-                        // Another round needed; next call will rebuild ISC and clear buffers.
-                        self.state = SspiAuthenticatorState::SeeIfNeedsGenerator;
-                        if let Some(token) = header {
-                            Ok(AuthenticatorStepResult::ContinueWithToken {
-                                token: Token(token),
-                            })
-                        } else {
-                            Ok(AuthenticatorStepResult::Continue)
-                        }
-                    }
-                    SecurityStatus::Ok => {
-                        self.state = SspiAuthenticatorState::Done;
-                        Ok(AuthenticatorStepResult::Done {
-                            token: header.map(Token),
-                        })
-                    }
-                    _ => Err(PwshCoreError::Auth("SSPI InitializeSecurityContext failed")),
-                }
+                Ok(SecContextMaybeInit::Initialized(SecContextInit {
+                    init_sec_context_res,
+                }))
             }
-            SspiAuthenticatorState::Done => Err(PwshCoreError::InvalidState(
-                "Authenticator is already in Done state",
-            )),
         }
     }
 
@@ -298,28 +234,46 @@ impl SspiAuthenticator {
     /// We set the state to `ProcessInitializedContextPending` on completion, and only in the
     /// *next* call to `step` will we drop the builder and extract the token.
     pub fn resume<'a>(
-        &mut self,
-        generator_holder: SspiStepRequest<'a>,
+        generator_holder: GeneratorHolder<'a>,
         kdc_response: Vec<u8>,
-    ) -> Result<GeneratorResumeResult<'a>, PwshCoreError> {
-        debug_assert!(matches!(
-            self.state,
-            SspiAuthenticatorState::ResolvingGenerator
-        ));
+    ) -> Result<SecContextMaybeInit<'a>, PwshCoreError> {
         let mut generator = generator_holder.generator;
 
         match generator.resume(Ok(kdc_response)) {
-            GeneratorState::Suspended(request) => Ok(GeneratorResumeResult::DoItAgainBro {
+            GeneratorState::Suspended(request) => Ok(SecContextMaybeInit::RunGenerator {
                 packet: request,
-                generator_holder: SspiStepRequest { generator },
+                generator_holder: GeneratorHolder { generator },
             }),
+
             GeneratorState::Completed(res) => {
                 let init_sec_context_res = res?;
-                self.state = SspiAuthenticatorState::ProcessInitializedContextPending {
+                Ok(SecContextMaybeInit::Initialized(SecContextInit {
                     init_sec_context_res,
-                };
-                Ok(GeneratorResumeResult::NahYouGood)
+                }))
             }
+        }
+    }
+
+    pub(crate) fn process_initialized_sec_context<'a, P: Sspi>(
+        furniture: &'a mut AuthFurniture<'a, P>,
+        sec_context: SecContextInit,
+    ) -> Result<ActionReqired, PwshCoreError>
+    where
+        P: Sspi + SspiImpl,
+    {
+        let produced = std::mem::take(&mut furniture.out[0].buffer);
+        let token = token_header_from(&produced).map(Token);
+
+        match sec_context.init_sec_context_res.status {
+            SecurityStatus::ContinueNeeded => Ok(ActionReqired::TryInitSecContextAgain {
+                token: token.ok_or(PwshCoreError::Auth(
+                    "SSPI ContinueNeeded but no token produced",
+                ))?,
+            }),
+            SecurityStatus::Ok => Ok(ActionReqired::Done { token }),
+            _ => Err(PwshCoreError::Auth(
+                "SSPI InitializeSecurityContext status needs to be handled",
+            )),
         }
     }
 }
@@ -327,11 +281,6 @@ impl SspiAuthenticator {
 #[derive(Debug, Clone)]
 pub struct Token(pub(crate) String);
 
-impl Token {
-    fn from_string(s: String) -> Self {
-        Token(s)
-    }
-}
 
 /// Create an `Authorization` header value if a token exists.
 fn token_header_from(bytes: &[u8]) -> Option<String> {

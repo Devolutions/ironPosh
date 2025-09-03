@@ -8,7 +8,7 @@ pub mod powershell;
 pub mod runspace;
 pub mod runspace_pool;
 
-pub use connector::authenticator::Authentication;
+pub use connector::config::{Authentication, KerberosConfig, SspiAuthConfig};
 pub use credentials::ClientAuthIdentity;
 
 #[derive(Debug, thiserror::Error)]

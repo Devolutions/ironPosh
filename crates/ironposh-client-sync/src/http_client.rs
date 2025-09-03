@@ -1,4 +1,16 @@
 use tracing::{debug, info};
+use crate::connection::HttpClient;
+
+pub struct UreqHttpClient;
+
+impl HttpClient for UreqHttpClient {
+    fn send_request(
+        &self,
+        request: ironposh_client_core::connector::http::HttpRequest<String>,
+    ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
+        make_http_request(&request)
+    }
+}
 
 /// Make an HTTP request using ureq (synchronous)
 pub fn make_http_request(

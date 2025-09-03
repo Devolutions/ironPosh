@@ -14,10 +14,23 @@ use std::thread;
 use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
-use connection::establish_connection;
+use connection::RemotePowershell;
+use http_client::UreqHttpClient;
 use network::NetworkHandler;
 use types::NextStep;
 use user_input::UserInputHandler;
+
+/// Establish connection to the PowerShell remote server
+fn establish_connection(
+    config: ironposh_client_core::connector::ConnectorConfig,
+) -> anyhow::Result<(
+    ironposh_client_core::connector::active_session::ActiveSession,
+    ironposh_client_core::connector::http::HttpRequest<String>,
+)> {
+    let client = UreqHttpClient;
+    let remote_ps = RemotePowershell::open(config, client)?;
+    Ok(remote_ps.into_components())
+}
 
 #[instrument(name = "main", level = "info")]
 fn main() -> anyhow::Result<()> {

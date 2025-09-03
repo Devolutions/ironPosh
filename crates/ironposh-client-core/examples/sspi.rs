@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use ironposh_client_core::ClientAuthIdentity;
-use ironposh_client_core::connector::authenticator::{AuthenticatorStepResult, SspiAuthenticator};
+use ironposh_client_core::connector::authenticator::{SspiAuthenticator};
 use ironposh_client_core::connector::http::{HttpBuilder, HttpResponse, ServerAddress};
 use ironposh_client_core::credentials::ClientUserName;
 

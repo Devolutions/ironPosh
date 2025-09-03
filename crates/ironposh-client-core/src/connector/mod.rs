@@ -1,18 +1,20 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use base64::Engine;
 use ironposh_psrp::HostInfo;
-use ironposh_winrm::{cores::S, ws_management::WsMan};
+use ironposh_winrm::ws_management::WsMan;
+use sspi::{KerberosConfig, NegotiateConfig, ntlm::NtlmConfig};
 use tracing::{info, instrument, warn};
 
 use crate::{
     connector::{
-        authenticator::{SspiAuthenticator, Token},
+        auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},
+        authenticator::{AuthFurniture, GeneratorHolder, SecContextInit, SspiAuthenticator, Token},
+        config::{Authentication, SspiAuthConfig},
         http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
-        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
-        pool::AcceptResponsResult,
+        pool::AcceptResponsResult, DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState
     },
 };
 
@@ -20,6 +22,7 @@ pub use active_session::{ActiveSession, ActiveSessionOutput, UserOperation};
 pub mod active_session;
 pub mod auth_sequence;
 pub mod authenticator;
+pub mod config;
 pub mod http;
 
 #[derive(Debug, Clone)]
@@ -49,12 +52,78 @@ impl ConnectorConfig {
     }
 }
 
+fn new_ctx_and_seq<'conn, 'auth>(
+    connector: &'conn mut Connector,
+    config: SspiAuthConfig,
+) -> Result<(AnyContext<'auth>, AuthSequence<'conn>), crate::PwshCoreError> {
+    let new = match config {
+        SspiAuthConfig::NTLM { identity } => {
+            let context = AuthFurniture::new_ntlm(identity)?;
+            let sequnece = AuthSequence::new(connector);
+            (AnyContext::Ntlm(context), sequnece)
+        }
+        SspiAuthConfig::Kerberos {
+            identity,
+            kerberos_config,
+        } => {
+            let context = AuthFurniture::new_kerberos(
+                identity.clone(),
+                KerberosConfig {
+                    client_computer_name: kerberos_config.client_computer_name,
+                    kdc_url: kerberos_config.kdc_url,
+                },
+            )?;
+            let sequnece = AuthSequence::new(connector);
+
+            (AnyContext::Kerberos(context), sequnece)
+        }
+        SspiAuthConfig::Negotiate {
+            identity,
+            kerberos_config,
+        } => {
+            let ntlm_config = NtlmConfig::default();
+            let kerberos_config = kerberos_config.clone().map(|k| KerberosConfig {
+                client_computer_name: k.client_computer_name,
+                kdc_url: k.kdc_url,
+            });
+
+            let negotiate_config = match kerberos_config {
+                Some(k) => {
+                    let client_computer_name = k
+                        .client_computer_name
+                        .as_deref()
+                        .unwrap_or("ironposh-client")
+                        .to_string();
+                    NegotiateConfig::from_protocol_config(Box::new(k), client_computer_name)
+                }
+                None => {
+                    let client_computer_name = ntlm_config
+                        .client_computer_name
+                        .as_deref()
+                        .unwrap_or("ironposh-client")
+                        .to_string();
+                    NegotiateConfig::from_protocol_config(
+                        Box::new(ntlm_config),
+                        client_computer_name,
+                    )
+                }
+            };
+
+            let context = AuthFurniture::new_negotiate(identity.clone(), negotiate_config)?;
+            let sequnece = AuthSequence::new(connector);
+            (AnyContext::Negotiate(context), sequnece)
+        }
+    };
+
+    Ok(new)
+}
+
 enum InnerConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
     Borrowed {
-        authenticator: NtlmAuthenticator,
         http_builder: HttpBuilder,
+        sspi_auth: SspiAuthConfig,
     },
     Connected {
         /// use box to avoid large enum variant
@@ -64,11 +133,13 @@ enum InnerConnectorStepResult {
 }
 
 #[derive(Debug)]
-pub enum ConnectorStepResult<'a> {
+pub enum ConnectorStepResult<'conn, 'auth> {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
     Borrowed {
-        auth_sequence: auth_sequence::AuthSequence<'a>,
+        context: AnyContext<'auth>,
+        sequence: AuthSequence<'conn>,
+        http_builder: HttpBuilder,
     },
     Connected {
         /// use box to avoid large enum variant
@@ -77,7 +148,7 @@ pub enum ConnectorStepResult<'a> {
     },
 }
 
-impl<'a> ConnectorStepResult<'a> {
+impl<'conn, 'auth> ConnectorStepResult<'conn, 'auth> {
     pub fn name(&self) -> &'static str {
         match self {
             ConnectorStepResult::SendBack(_) => "SendBack",
@@ -88,7 +159,7 @@ impl<'a> ConnectorStepResult<'a> {
     }
 }
 
-impl<'a> ConnectorStepResult<'a> {
+impl<'conn, 'auth> ConnectorStepResult<'conn, 'auth> {
     pub fn priority(&self) -> u8 {
         match self {
             ConnectorStepResult::SendBack(_) => 0,
@@ -188,10 +259,10 @@ impl Connector {
     }
 
     #[instrument(skip(self, server_response), name = "Connector::step")]
-    pub fn step(
-        &mut self,
+    pub fn step<'conn, 'auth>(
+        &'conn mut self,
         server_response: Option<HttpResponse<String>>,
-    ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
+    ) -> Result<ConnectorStepResult<'conn, 'auth>, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
         let (new_state, response) = match state {
@@ -225,7 +296,7 @@ impl Connector {
                 );
 
                 // if matches!(self.config.authentication, Authentication::Basic { .. }) {
-                match &self.config.authentication {
+                match self.config.authentication.clone() {
                     Authentication::Basic { username, password } => {
                         let auth_header = format!(
                             "Basic {}",
@@ -254,18 +325,13 @@ impl Connector {
 
                         (new_state, InnerConnectorStepResult::SendBack(response))
                     }
-                    Authentication::Sspi { identity } => {
-                        let authenticator =
-                            authenticator::SspiAuthenticator::new_ntlm(identity.clone());
-
-                        (
-                            ConnectorState::AuthenticateInProgress {},
-                            InnerConnectorStepResult::Borrowed {
-                                authenticator,
-                                http_builder,
-                            },
-                        )
-                    }
+                    Authentication::Sspi(sspi_auth) => (
+                        ConnectorState::AuthenticateInProgress {},
+                        InnerConnectorStepResult::Borrowed {
+                            http_builder,
+                            sspi_auth,
+                        },
+                    ),
                 }
             }
             ConnectorState::AuthenticateInProgress { .. } => {
@@ -365,15 +431,17 @@ impl Connector {
             InnerConnectorStepResult::SendBack(req) => ConnectorStepResult::SendBack(req),
             InnerConnectorStepResult::SendBackError(err) => ConnectorStepResult::SendBackError(err),
             InnerConnectorStepResult::Borrowed {
-                authenticator,
                 http_builder,
-            } => ConnectorStepResult::Borrowed {
-                auth_sequence: auth_sequence::AuthSequence {
-                    connector: self,
-                    authenticator,
+                sspi_auth,
+            } => {
+                // Avoid &mut self borrow issue by creating the auth sequence here
+                let (context, sequence) = new_ctx_and_seq(self, sspi_auth)?;
+                ConnectorStepResult::Borrowed {
+                    context,
+                    sequence,
                     http_builder,
-                },
-            },
+                }
+            }
             InnerConnectorStepResult::Connected {
                 active_session,
                 next_receive_request,
