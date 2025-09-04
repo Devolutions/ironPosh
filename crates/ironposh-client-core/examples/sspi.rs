@@ -1,32 +1,75 @@
-// examples/first_step.rs (or wherever you test)
-
 use anyhow::Result;
 use ironposh_client_core::ClientAuthIdentity;
-use ironposh_client_core::connector::authenticator::{SspiAuthenticator};
-use ironposh_client_core::connector::http::{HttpBuilder, HttpResponse, ServerAddress};
+use ironposh_client_core::connector::authenticator::{
+    AuthContext, SecContextInit, SecContextMaybeInit, SspiAuthenticator,
+};
 use ironposh_client_core::credentials::ClientUserName;
+use sspi::Sspi;
 
 fn main() -> Result<()> {
-    // // Build your HTTP builder to the WinRM endpoint
-    // let http = HttpBuilder::new(
-    //     ServerAddress::Ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 10, 0, 3))),
-    //     4453,
-    //     ironposh_client_core::connector::Scheme::Http,
-    // );
+    let username = ClientUserName::new("administrator", None)?;
+    let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
 
-    // let username = ClientUserName::new("administrator", None)?;
+    // Create NTLM context
+    let mut furniture = AuthContext::new_ntlm(identity)?;
 
-    // // Username/password for NTLM (DOMAIN\user or user@realm)
-    // let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
+    // let mut auth_response = None;
 
-    // // Create the authenticator (NTLM) and run step 1
-    // let mut auth: SspiAuthenticator<sspi::Ntlm> = SspiAuthenticator::new_ntlm(identity);
-    // // Authenticator::new_ntlm(Authentication::Sspi, http, Some(identity));
+    // THIS IS THE PROBLEMATIC LOOP PATTERN FROM connection.rs
+    let mut holder = None;
+    loop {
+        // Let's try wrapping EVERYTHING in a block
+        let init = {
+            let result =
+                SspiAuthenticator::try_init_sec_context(None, &mut furniture, &mut holder)?;
+            let init = match result {
+                SecContextMaybeInit::Initialized(sec_context_init) => sec_context_init,
+                SecContextMaybeInit::RunGenerator {
+                    mut packet,
+                    mut generator_holder,
+                } => {
+                    loop {
+                        let response = send(packet)?;
+                        match SspiAuthenticator::resume(generator_holder, response)? {
+                            SecContextMaybeInit::Initialized(sec_context_init) => {
+                                break sec_context_init;
+                            }
+                            SecContextMaybeInit::RunGenerator {
+                                packet: packet2,
+                                generator_holder: generator2,
+                            } => {
+                                // Continue the loop with new packet and generator
+                                packet = packet2;
+                                generator_holder = generator2;
+                            }
+                        }
+                    }
+                }
+            };
 
-    // match auth.step(None)? {
-    //     AuthenticatorStepResult::ContinueWithToken { token } => {}
-    //     other => eprintln!("Unexpected: {:?}", other),
-    // }
+            init
+        }; // The entire borrow scope ends here
+
+        println!("Would process context here and potentially loop again");
+
+        holder = None; // Clear the holder to simulate breaking the loop
+        let action = SspiAuthenticator::process_initialized_sec_context(&mut furniture, init)?;
+
+        match action {
+            ironposh_client_core::connector::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
+                continue;
+
+            },
+            ironposh_client_core::connector::authenticator::ActionReqired::Done { token } => {
+                break token;
+            },
+        }
+    };
 
     Ok(())
+}
+
+pub fn send(packet: sspi::generator::NetworkRequest) -> Result<Vec<u8>> {
+    // send the packet over the network
+    Ok(Vec::new())
 }

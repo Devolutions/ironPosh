@@ -25,27 +25,26 @@ type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     WithOutput,
 >;
 
-/// Caller-owned “furniture” the generator borrows.
+/// Caller-owned "Context" the generator borrows.
 /// Holds provider, credential handle, in/out buffers, and the ISC builder for the current round.
 #[derive(Debug)]
-pub struct AuthFurniture<'a, P: Sspi> {
+pub struct AuthContext<P: Sspi> {
     pub(crate) provider: P,
     // Box<T> provides a stable heap address; we keep borrows within the same `AuthFurniture`.
     cred: Box<P::CredentialsHandle>,
     out: [SecurityBuffer; 1],
     // Keep the builder + input buffer alive for the duration of the suspension (generator borrows them).
     inbuf: Option<[SecurityBuffer; 1]>,
-    isc: Option<SecurityContextBuilder<'a, P>>,
 }
 
-impl<'a> AuthFurniture<'a, Ntlm> {
-    pub(crate) fn new_ntlm(id: ClientAuthIdentity) -> Result<Self, PwshCoreError> {
+impl AuthContext<Ntlm> {
+    pub fn new_ntlm(id: ClientAuthIdentity) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id)
     }
 }
 
-impl<'a> AuthFurniture<'a, Negotiate> {
-    pub(crate) fn new_negotiate(
+impl AuthContext<Negotiate> {
+    pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
     ) -> Result<Self, PwshCoreError> {
@@ -56,8 +55,8 @@ impl<'a> AuthFurniture<'a, Negotiate> {
     }
 }
 
-impl<'a> AuthFurniture<'a, Kerberos> {
-    pub(crate) fn new_kerberos(
+impl AuthContext<Kerberos> {
+    pub fn new_kerberos(
         id: ClientAuthIdentity,
         config: KerberosConfig,
     ) -> Result<Self, PwshCoreError> {
@@ -68,7 +67,7 @@ impl<'a> AuthFurniture<'a, Kerberos> {
     }
 }
 
-impl<'a, P> AuthFurniture<'a, P>
+impl<P> AuthContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
@@ -84,12 +83,11 @@ where
             cred: Box::new(cred),
             out: [SecurityBuffer::new(Vec::new(), BufferType::Token)],
             inbuf: None,
-            isc: None,
         })
     }
 }
 
-impl<'a, P> AuthFurniture<'a, P>
+impl<P> AuthContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::AuthIdentity>,
 {
@@ -109,12 +107,11 @@ where
             cred: Box::new(cred),
             out: [SecurityBuffer::new(Vec::new(), BufferType::Token)],
             inbuf: None,
-            isc: None,
         })
     }
 }
 
-impl<'a, P> AuthFurniture<'a, P>
+impl<P> AuthContext<P>
 where
     P: Sspi,
 {
@@ -123,7 +120,6 @@ where
     fn clear_for_next_round(&mut self) {
         self.inbuf = None;
         self.out[0].buffer.clear();
-        self.isc = None;
     }
 
     /// Parse the server's negotiate token (if present) and set `inbuf`.
@@ -138,9 +134,9 @@ where
 }
 
 #[derive(Debug)]
-pub struct GeneratorHolder<'a> {
+pub struct GeneratorHolder<'g> {
     pub(super) generator: Generator<
-        'a,
+        'g,
         NetworkRequest,
         Result<Vec<u8>, Error>,
         Result<InitializeSecurityContextResult, Error>,
@@ -155,10 +151,10 @@ pub struct SecContextInit {
     init_sec_context_res: InitializeSecurityContextResult,
 }
 
-pub enum SecContextMaybeInit<'a> {
+pub enum SecContextMaybeInit<'g> {
     RunGenerator {
         packet: NetworkRequest,
-        generator_holder: GeneratorHolder<'a>,
+        generator_holder: GeneratorHolder<'g>,
     },
     Initialized(SecContextInit),
 }
@@ -169,45 +165,45 @@ pub enum ActionReqired {
 }
 
 impl SspiAuthenticator {
-
     /// Drive one step of the SSPI handshake.
     ///
     /// We mutate `self.state` in place (no `mem::take`), so early returns don't
     /// strand the state as `Taken`. This avoids hard-to-debug invalid-state errors.
-    pub(crate) fn try_init_sec_context<'auth, P>(
+    pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
         response: Option<&HttpResponse<String>>,
-        furniture: &'auth mut AuthFurniture<'auth, P>,
-    ) -> Result<SecContextMaybeInit<'auth>, PwshCoreError>
+        context: &'ctx mut AuthContext<P>,
+        sec_ctx_holder: &'builder mut Option<SecurityContextBuilder<'ctx, P>>,
+    ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
     where
         P: Sspi + SspiImpl,
+        'ctx: 'builder,
+        'builder: 'generator,
     {
-        furniture.clear_for_next_round();
-        furniture.take_input(response)?;
+        context.clear_for_next_round();
+        context.take_input(response)?;
 
         // Build the builder; wire inputs/outputs.
-        let mut isc = furniture
+        let mut isc: SecurityContextBuilder<P> = context
             .provider
             .initialize_security_context()
-            .with_credentials_handle(&mut *furniture.cred)
+            .with_credentials_handle(&mut *context.cred)
             .with_context_requirements(
                 // TODO: expose these flags to callers for tuning.
                 ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
             )
             .with_target_data_representation(DataRepresentation::Native)
-            .with_output(&mut furniture.out);
+            .with_output(&mut context.out);
 
-        if let Some(input_buffer) = &mut furniture.inbuf {
+        if let Some(input_buffer) = &mut context.inbuf {
             isc = isc.with_input(input_buffer);
         }
-        furniture.isc = Some(isc);
+
+        *sec_ctx_holder = Some(isc);
 
         // Produce the generator for this round.
-        let mut generator = furniture.provider.initialize_security_context_impl(
-            furniture
-                .isc
-                .as_mut()
-                .expect("If this happens just go code JavaScript :D"),
-        )?;
+        let mut generator = context
+            .provider
+            .initialize_security_context_impl(sec_ctx_holder.as_mut().unwrap())?;
 
         match generator.start() {
             GeneratorState::Suspended(request) => {
@@ -254,8 +250,8 @@ impl SspiAuthenticator {
         }
     }
 
-    pub(crate) fn process_initialized_sec_context<'a, P: Sspi>(
-        furniture: &'a mut AuthFurniture<'a, P>,
+    pub fn process_initialized_sec_context<'a, P: Sspi>(
+        furniture: &'a mut AuthContext<P>,
         sec_context: SecContextInit,
     ) -> Result<ActionReqired, PwshCoreError>
     where
@@ -280,7 +276,6 @@ impl SspiAuthenticator {
 
 #[derive(Debug, Clone)]
 pub struct Token(pub(crate) String);
-
 
 /// Create an `Authorization` header value if a token exists.
 fn token_header_from(bytes: &[u8]) -> Option<String> {

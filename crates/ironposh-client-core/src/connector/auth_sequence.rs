@@ -48,10 +48,10 @@ impl KerberoRequestPacket {
     }
 }
 
-pub enum TryInitSecContext<'auth> {
+pub enum TryInitSecContext<'g> {
     RunGenerator {
         packet: KerberoRequestPacket,
-        generator_holder: GeneratorHolder<'auth>,
+        generator_holder: GeneratorHolder<'g>,
     },
     Initialized {
         init_sec_context_res: authenticator::SecContextInit,
@@ -63,13 +63,13 @@ pub enum SecContextProcessResult {
     Done { token: Option<Token> },
 }
 
-pub enum AnyContext<'a> {
-    Ntlm(AuthFurniture<'a, sspi::ntlm::Ntlm>),
-    Kerberos(AuthFurniture<'a, sspi::kerberos::Kerberos>),
-    Negotiate(AuthFurniture<'a, sspi::negotiate::Negotiate>),
+pub enum AnyContext {
+    Ntlm(AuthFurniture<sspi::ntlm::Ntlm>),
+    Kerberos(AuthFurniture<sspi::kerberos::Kerberos>),
+    Negotiate(AuthFurniture<sspi::negotiate::Negotiate>),
 }
 
-impl std::fmt::Debug for AnyContext<'_> {
+impl std::fmt::Debug for AnyContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AnyContext::Ntlm(_) => write!(f, "AnyContext::Ntlm"),
@@ -79,12 +79,16 @@ impl std::fmt::Debug for AnyContext<'_> {
     }
 }
 
-impl<'conn, 'auth> AuthSequence<'conn> {
+impl<'conn, 'ctx, 'builder, 'generator> AuthSequence<'conn>
+where
+    'ctx: 'builder,
+    'builder: 'generator,
+{
     pub fn try_init_sec_context(
         &self,
-        context: &'auth mut AnyContext<'auth>,
+        context: &'ctx mut AnyContext<'builder>,
         response: Option<HttpResponse<String>>,
-    ) -> Result<TryInitSecContext<'auth>, crate::PwshCoreError> {
+    ) -> Result<TryInitSecContext<'generator>, crate::PwshCoreError> {
         let sec_context_init = match context {
             AnyContext::Ntlm(ctx) => {
                 SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
@@ -116,8 +120,8 @@ impl<'conn, 'auth> AuthSequence<'conn> {
     pub fn resume(
         &self,
         kdc_response: Vec<u8>,
-        generator_holder: GeneratorHolder<'auth>,
-    ) -> Result<TryInitSecContext<'auth>, crate::PwshCoreError> {
+        generator_holder: GeneratorHolder<'builder>,
+    ) -> Result<TryInitSecContext<'builder>, crate::PwshCoreError> {
         match SspiAuthenticator::resume(generator_holder, kdc_response)? {
             authenticator::SecContextMaybeInit::RunGenerator {
                 packet,
@@ -134,9 +138,9 @@ impl<'conn, 'auth> AuthSequence<'conn> {
         }
     }
 
-    pub fn process_initialized_sec_context<P: Sspi>(
+    pub fn process_initialized_sec_context(
         &self,
-        context: &'auth mut AnyContext<'auth>,
+        context: &'ctx mut AnyContext<'builder>,
         http_builder: &mut HttpBuilder,
         sec_context_init: authenticator::SecContextInit,
     ) -> Result<SecContextProcessResult, crate::PwshCoreError> {

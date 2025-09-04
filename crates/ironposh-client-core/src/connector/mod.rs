@@ -8,8 +8,8 @@ use tracing::{info, instrument, warn};
 
 use crate::{
     connector::{
-        auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},
-        authenticator::{AuthFurniture, GeneratorHolder, SecContextInit, SspiAuthenticator, Token},
+        // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},
+        authenticator::{/*AuthFurniture, GeneratorHolder, SecContextInit, SspiAuthenticator,*/},
         config::{Authentication, SspiAuthConfig},
         http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
@@ -20,7 +20,7 @@ use crate::{
 
 pub use active_session::{ActiveSession, ActiveSessionOutput, UserOperation};
 pub mod active_session;
-pub mod auth_sequence;
+// pub mod auth_sequence;
 pub mod authenticator;
 pub mod config;
 pub mod http;
@@ -55,67 +55,8 @@ impl ConnectorConfig {
 fn new_ctx_and_seq<'conn, 'auth>(
     connector: &'conn mut Connector,
     config: SspiAuthConfig,
-) -> Result<(AnyContext<'auth>, AuthSequence<'conn>), crate::PwshCoreError> {
-    let new = match config {
-        SspiAuthConfig::NTLM { identity } => {
-            let context = AuthFurniture::new_ntlm(identity)?;
-            let sequnece = AuthSequence::new(connector);
-            (AnyContext::Ntlm(context), sequnece)
-        }
-        SspiAuthConfig::Kerberos {
-            identity,
-            kerberos_config,
-        } => {
-            let context = AuthFurniture::new_kerberos(
-                identity.clone(),
-                KerberosConfig {
-                    client_computer_name: kerberos_config.client_computer_name,
-                    kdc_url: kerberos_config.kdc_url,
-                },
-            )?;
-            let sequnece = AuthSequence::new(connector);
-
-            (AnyContext::Kerberos(context), sequnece)
-        }
-        SspiAuthConfig::Negotiate {
-            identity,
-            kerberos_config,
-        } => {
-            let ntlm_config = NtlmConfig::default();
-            let kerberos_config = kerberos_config.clone().map(|k| KerberosConfig {
-                client_computer_name: k.client_computer_name,
-                kdc_url: k.kdc_url,
-            });
-
-            let negotiate_config = match kerberos_config {
-                Some(k) => {
-                    let client_computer_name = k
-                        .client_computer_name
-                        .as_deref()
-                        .unwrap_or("ironposh-client")
-                        .to_string();
-                    NegotiateConfig::from_protocol_config(Box::new(k), client_computer_name)
-                }
-                None => {
-                    let client_computer_name = ntlm_config
-                        .client_computer_name
-                        .as_deref()
-                        .unwrap_or("ironposh-client")
-                        .to_string();
-                    NegotiateConfig::from_protocol_config(
-                        Box::new(ntlm_config),
-                        client_computer_name,
-                    )
-                }
-            };
-
-            let context = AuthFurniture::new_negotiate(identity.clone(), negotiate_config)?;
-            let sequnece = AuthSequence::new(connector);
-            (AnyContext::Negotiate(context), sequnece)
-        }
-    };
-
-    Ok(new)
+) -> Result<(/*AnyContext<'auth>, AuthSequence<'conn>*/), crate::PwshCoreError> {
+    todo!("new_ctx_and_seq needs to be refactored for new AuthContext separation")
 }
 
 enum InnerConnectorStepResult {
@@ -133,12 +74,12 @@ enum InnerConnectorStepResult {
 }
 
 #[derive(Debug)]
-pub enum ConnectorStepResult<'conn, 'auth> {
+pub enum ConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
     Borrowed {
-        context: AnyContext<'auth>,
-        sequence: AuthSequence<'conn>,
+        // context: AnyContext<'auth>,
+        // sequence: AuthSequence<'conn>,
         http_builder: HttpBuilder,
     },
     Connected {
@@ -148,7 +89,7 @@ pub enum ConnectorStepResult<'conn, 'auth> {
     },
 }
 
-impl<'conn, 'auth> ConnectorStepResult<'conn, 'auth> {
+impl ConnectorStepResult {
     pub fn name(&self) -> &'static str {
         match self {
             ConnectorStepResult::SendBack(_) => "SendBack",
@@ -159,7 +100,7 @@ impl<'conn, 'auth> ConnectorStepResult<'conn, 'auth> {
     }
 }
 
-impl<'conn, 'auth> ConnectorStepResult<'conn, 'auth> {
+impl ConnectorStepResult {
     pub fn priority(&self) -> u8 {
         match self {
             ConnectorStepResult::SendBack(_) => 0,
@@ -223,7 +164,7 @@ impl Connector {
 
     pub fn authenticate(
         &mut self,
-        last_token: Option<Token>,
+        last_token: Option<String>,
         mut http_builder: HttpBuilder,
     ) -> Result<HttpRequest<String>, crate::PwshCoreError> {
         match self.state {
@@ -236,7 +177,7 @@ impl Connector {
         };
 
         if let Some(token) = last_token {
-            http_builder.with_auth_header(token.0);
+            http_builder.with_auth_header(token);
         }
 
         let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
@@ -262,7 +203,7 @@ impl Connector {
     pub fn step<'conn, 'auth>(
         &'conn mut self,
         server_response: Option<HttpResponse<String>>,
-    ) -> Result<ConnectorStepResult<'conn, 'auth>, crate::PwshCoreError> {
+    ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
         let (new_state, response) = match state {
@@ -435,12 +376,13 @@ impl Connector {
                 sspi_auth,
             } => {
                 // Avoid &mut self borrow issue by creating the auth sequence here
-                let (context, sequence) = new_ctx_and_seq(self, sspi_auth)?;
-                ConnectorStepResult::Borrowed {
-                    context,
-                    sequence,
-                    http_builder,
-                }
+                // let (context, sequence) = new_ctx_and_seq(self, sspi_auth)?;
+                todo!("Borrowed case needs refactoring for new AuthContext");
+                // ConnectorStepResult::Borrowed {
+                //     context,
+                //     sequence,
+                //     http_builder,
+                // }
             }
             InnerConnectorStepResult::Connected {
                 active_session,
