@@ -1,163 +1,210 @@
-use sspi::{NetworkProtocol, NetworkRequest, Sspi};
-use url::Url;
+use std::fmt::Debug;
 
-use crate::connector::{
-    authenticator::{self, AuthFurniture, GeneratorHolder, SspiAuthenticator, Token},
-    http::{HttpBuilder, HttpRequest, HttpResponse},
+use sspi::{NegotiateConfig, ntlm::NtlmConfig};
+
+use crate::{
+    PwshCoreError, SspiAuthConfig,
+    connector::{
+        authenticator::{
+            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, Token,
+        },
+        http::{HttpBuilder, HttpRequest, HttpResponse},
+    },
 };
 
-#[derive(Debug)]
-pub struct AuthSequence<'conn> {
-    /// Holding connector to ensure it's not used while auth sequence is active
-    pub(crate) _connector: &'conn mut super::Connector,
+pub enum AnyAuthContext {
+    Ntlm(AuthContext<sspi::ntlm::Ntlm>),
+    Kerberos(AuthContext<sspi::kerberos::Kerberos>),
+    Negotiate(AuthContext<sspi::negotiate::Negotiate>),
 }
 
-impl<'conn> AuthSequence<'conn> {
-    pub(crate) fn new(connector: &'conn mut super::Connector) -> Self {
-        Self {
-            _connector: connector,
+pub struct SecurityContextBuilderHolder<'ctx> {
+    ntlm: Option<SecurityContextBuilder<'ctx, sspi::ntlm::Ntlm>>,
+    kerberos: Option<SecurityContextBuilder<'ctx, sspi::kerberos::Kerberos>>,
+    negotiate: Option<SecurityContextBuilder<'ctx, sspi::negotiate::Negotiate>>,
+}
+
+impl<'ctx> SecurityContextBuilderHolder<'ctx> {
+    pub fn new() -> Self {
+        SecurityContextBuilderHolder {
+            ntlm: None,
+            kerberos: None,
+            negotiate: None,
+        }
+    }
+
+    pub fn as_mut_ntlm(&mut self) -> &mut Option<SecurityContextBuilder<'ctx, sspi::ntlm::Ntlm>> {
+        &mut self.ntlm
+    }
+
+    pub fn as_mut_kerberos(
+        &mut self,
+    ) -> &mut Option<SecurityContextBuilder<'ctx, sspi::kerberos::Kerberos>> {
+        &mut self.kerberos
+    }
+
+    pub fn as_mut_negotiate(
+        &mut self,
+    ) -> &mut Option<SecurityContextBuilder<'ctx, sspi::negotiate::Negotiate>> {
+        &mut self.negotiate
+    }
+
+    pub fn clear(&mut self) {
+        self.ntlm = None;
+        self.kerberos = None;
+        self.negotiate = None;
+    }
+}
+
+impl AnyAuthContext {
+    pub fn new(sspi_config: SspiAuthConfig) -> Result<Self, crate::PwshCoreError> {
+        match &sspi_config {
+            SspiAuthConfig::NTLM { identity, .. } => {
+                AuthContext::new_ntlm(identity.clone(), sspi_config).map(AnyAuthContext::Ntlm)
+            }
+            SspiAuthConfig::Kerberos {
+                identity,
+                kerberos_config,
+                target_name: _,
+            } => AuthContext::new_kerberos(
+                identity.clone(),
+                sspi::KerberosConfig {
+                    kdc_url: kerberos_config.kdc_url.clone(),
+                    client_computer_name: kerberos_config.client_computer_name.clone(),
+                },
+                sspi_config,
+            )
+            .map(AnyAuthContext::Kerberos),
+            SspiAuthConfig::Negotiate {
+                identity,
+                kerberos_config,
+                target_name: _,
+            } => {
+                if let Some(kerberos_config) = kerberos_config {
+                    let client_computer_name = kerberos_config
+                        .client_computer_name
+                        .clone()
+                        .unwrap_or("IronWinRMClient".to_string());
+
+                    AuthContext::new_negotiate(
+                        identity.clone(),
+                        NegotiateConfig::from_protocol_config(
+                            Box::new(sspi::KerberosConfig {
+                                kdc_url: kerberos_config.kdc_url.clone(),
+                                client_computer_name: kerberos_config.client_computer_name.clone(),
+                            }),
+                            client_computer_name,
+                        ),
+                        sspi_config,
+                    )
+                    .map(AnyAuthContext::Negotiate)
+                } else {
+                    let client_computer_name = "IronWinRMClient".to_string();
+                    AuthContext::new_negotiate(
+                        identity.clone(),
+                        NegotiateConfig::from_protocol_config(
+                            Box::new(NtlmConfig::default()),
+                            client_computer_name,
+                        ),
+                        sspi_config,
+                    )
+                    .map(AnyAuthContext::Negotiate)
+                }
+            }
         }
     }
 }
 
-pub enum KerberoRequestProtocol {
-    Http,
-    Https,
-    Tcp,
-    Udp,
+pub struct AuthSequence {
+    context: AnyAuthContext,
+    http_builder: HttpBuilder,
 }
 
-pub struct KerberoRequestPacket {
-    pub protocol: KerberoRequestProtocol,
-    pub url: Url,
-    pub data: Vec<u8>,
+pub enum SecCtxInited {
+    Continue(HttpRequest<String>),
+    Done(Option<Token>),
 }
 
-impl KerberoRequestPacket {
-    fn new(request: NetworkRequest) -> Self {
-        Self {
-            protocol: match request.protocol {
-                NetworkProtocol::Http => KerberoRequestProtocol::Http,
-                NetworkProtocol::Https => KerberoRequestProtocol::Https,
-                NetworkProtocol::Tcp => KerberoRequestProtocol::Tcp,
-                NetworkProtocol::Udp => KerberoRequestProtocol::Udp,
-            },
-            url: request.url,
-            data: request.data,
-        }
-    }
-}
-
-pub enum TryInitSecContext<'g> {
-    RunGenerator {
-        packet: KerberoRequestPacket,
-        generator_holder: GeneratorHolder<'g>,
-    },
-    Initialized {
-        init_sec_context_res: authenticator::SecContextInit,
-    },
-}
-
-pub enum SecContextProcessResult {
-    TryInitAgain { request: HttpRequest<String> },
-    Done { token: Option<Token> },
-}
-
-pub enum AnyContext {
-    Ntlm(AuthFurniture<sspi::ntlm::Ntlm>),
-    Kerberos(AuthFurniture<sspi::kerberos::Kerberos>),
-    Negotiate(AuthFurniture<sspi::negotiate::Negotiate>),
-}
-
-impl std::fmt::Debug for AnyContext {
+impl Debug for AuthSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AnyContext::Ntlm(_) => write!(f, "AnyContext::Ntlm"),
-            AnyContext::Kerberos(_) => write!(f, "AnyContext::Kerberos"),
-            AnyContext::Negotiate(_) => write!(f, "AnyContext::Negotiate"),
-        }
+        f.debug_struct("AuthSequence")
+            .field("context", &"AnyAuthContext { ... }")
+            .field("http_builder", &self.http_builder)
+            .finish()
     }
 }
 
-impl<'conn, 'ctx, 'builder, 'generator> AuthSequence<'conn>
-where
-    'ctx: 'builder,
-    'builder: 'generator,
-{
-    pub fn try_init_sec_context(
-        &self,
-        context: &'ctx mut AnyContext<'builder>,
-        response: Option<HttpResponse<String>>,
-    ) -> Result<TryInitSecContext<'generator>, crate::PwshCoreError> {
-        let sec_context_init = match context {
-            AnyContext::Ntlm(ctx) => {
-                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
-            }
-            AnyContext::Kerberos(ctx) => {
-                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
-            }
-            AnyContext::Negotiate(ctx) => {
-                SspiAuthenticator::try_init_sec_context(response.as_ref(), ctx)
-            }
-        }?;
-
-        match sec_context_init {
-            crate::connector::authenticator::SecContextMaybeInit::RunGenerator {
-                packet,
-                generator_holder,
-            } => Ok(TryInitSecContext::RunGenerator {
-                packet: KerberoRequestPacket::new(packet),
-                generator_holder,
-            }),
-            crate::connector::authenticator::SecContextMaybeInit::Initialized(sec_context_init) => {
-                Ok(TryInitSecContext::Initialized {
-                    init_sec_context_res: sec_context_init,
-                })
-            }
-        }
+impl AuthSequence {
+    pub fn new(
+        sspi_config: SspiAuthConfig,
+        http_builder: HttpBuilder,
+    ) -> Result<Self, crate::PwshCoreError> {
+        let context = AnyAuthContext::new(sspi_config)?;
+        Ok(AuthSequence {
+            context,
+            http_builder,
+        })
     }
 
-    pub fn resume(
-        &self,
+    pub fn try_init_sec_context<'ctx, 'builder, 'generator>(
+        self: &'ctx mut Self,
+        response: Option<&HttpResponse<String>>,
+        sec_ctx_holder: &'builder mut SecurityContextBuilderHolder<'ctx>,
+    ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
+    where
+        'ctx: 'builder,
+        'builder: 'generator,
+    {
+        Ok(match &mut self.context {
+            AnyAuthContext::Ntlm(auth_context) => SspiAuthenticator::try_init_sec_context(
+                response,
+                auth_context,
+                sec_ctx_holder.as_mut_ntlm(),
+            )?,
+            AnyAuthContext::Kerberos(auth_context) => SspiAuthenticator::try_init_sec_context(
+                response,
+                auth_context,
+                sec_ctx_holder.as_mut_kerberos(),
+            )?,
+            AnyAuthContext::Negotiate(auth_context) => SspiAuthenticator::try_init_sec_context(
+                response,
+                auth_context,
+                sec_ctx_holder.as_mut_negotiate(),
+            )?,
+        })
+    }
+
+    pub fn resume<'a>(
+        generator_holder: crate::connector::authenticator::GeneratorHolder<'a>,
         kdc_response: Vec<u8>,
-        generator_holder: GeneratorHolder<'builder>,
-    ) -> Result<TryInitSecContext<'builder>, crate::PwshCoreError> {
-        match SspiAuthenticator::resume(generator_holder, kdc_response)? {
-            authenticator::SecContextMaybeInit::RunGenerator {
-                packet,
-                generator_holder,
-            } => Ok(TryInitSecContext::RunGenerator {
-                packet: KerberoRequestPacket::new(packet),
-                generator_holder,
-            }),
-            authenticator::SecContextMaybeInit::Initialized(init_sec_context_res) => {
-                Ok(TryInitSecContext::Initialized {
-                    init_sec_context_res,
-                })
-            }
-        }
+    ) -> Result<SecContextMaybeInit<'a>, PwshCoreError> {
+        SspiAuthenticator::resume(generator_holder, kdc_response)
     }
 
     pub fn process_initialized_sec_context(
-        &self,
-        context: &'ctx mut AnyContext<'builder>,
-        http_builder: &mut HttpBuilder,
-        sec_context_init: authenticator::SecContextInit,
-    ) -> Result<SecContextProcessResult, crate::PwshCoreError> {
-        todo!();
-        // match SspiAuthenticator::process_initialized_sec_context(context, sec_context_init)? {
-        //     authenticator::ActionReqired::TryInitSecContextAgain { token } => {
-        //         http_builder.with_auth_header(token.0.to_owned());
-        //         let request = http_builder.post("/wsman", String::new());
-        //         Ok(SecContextProcessResult::TryInitAgain { request })
-        //     }
-        //     authenticator::ActionReqired::Done { token } => {
-        //         Ok(SecContextProcessResult::Done { token })
-        //     }
-        // }
-    }
+        &mut self,
+        sec_context: crate::connector::authenticator::SecContextInit,
+    ) -> Result<SecCtxInited, PwshCoreError> {
+        let res = match &mut self.context {
+            AnyAuthContext::Ntlm(auth_context) => {
+                SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
+            }
+            AnyAuthContext::Kerberos(auth_context) => {
+                SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
+            }
+            AnyAuthContext::Negotiate(auth_context) => {
+                SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
+            }
+        }?;
 
-    pub fn destruct_me(self) -> (&'conn mut super::Connector, HttpBuilder) {
-        todo!()
+        match res {
+            super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
+                self.http_builder.with_auth_header(token.0);
+                Ok(SecCtxInited::Continue(
+                    self.http_builder.post("/wsman", String::new()),
+                ))
+            }
+            super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
+        }
     }
 }

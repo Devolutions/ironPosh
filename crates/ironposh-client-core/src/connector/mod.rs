@@ -3,24 +3,28 @@ use std::{fmt::Debug, sync::Arc};
 use base64::Engine;
 use ironposh_psrp::HostInfo;
 use ironposh_winrm::ws_management::WsMan;
-use sspi::{KerberosConfig, NegotiateConfig, ntlm::NtlmConfig};
+
+// I'm lasy for now, just re-export from sspi
+pub use sspi::{generator::NetworkRequest, network_client::NetworkProtocol};
+
 use tracing::{info, instrument, warn};
 
 use crate::{
     connector::{
-        // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},
-        authenticator::{/*AuthFurniture, GeneratorHolder, SecContextInit, SspiAuthenticator,*/},
+        // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
+        auth_sequence::AuthSequence,
         config::{Authentication, SspiAuthConfig},
         http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
-        pool::AcceptResponsResult, DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState
+        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
+        pool::AcceptResponsResult,
     },
 };
 
 pub use active_session::{ActiveSession, ActiveSessionOutput, UserOperation};
 pub mod active_session;
-// pub mod auth_sequence;
+pub mod auth_sequence;
 pub mod authenticator;
 pub mod config;
 pub mod http;
@@ -52,35 +56,12 @@ impl ConnectorConfig {
     }
 }
 
-fn new_ctx_and_seq<'conn, 'auth>(
-    connector: &'conn mut Connector,
-    config: SspiAuthConfig,
-) -> Result<(/*AnyContext<'auth>, AuthSequence<'conn>*/), crate::PwshCoreError> {
-    todo!("new_ctx_and_seq needs to be refactored for new AuthContext separation")
-}
-
-enum InnerConnectorStepResult {
-    SendBack(HttpRequest<String>),
-    SendBackError(crate::PwshCoreError),
-    Borrowed {
-        http_builder: HttpBuilder,
-        sspi_auth: SspiAuthConfig,
-    },
-    Connected {
-        /// use box to avoid large enum variant
-        active_session: Box<ActiveSession>,
-        next_receive_request: HttpRequest<String>,
-    },
-}
-
 #[derive(Debug)]
 pub enum ConnectorStepResult {
     SendBack(HttpRequest<String>),
     SendBackError(crate::PwshCoreError),
-    Borrowed {
-        // context: AnyContext<'auth>,
-        // sequence: AuthSequence<'conn>,
-        http_builder: HttpBuilder,
+    Auth {
+        sequence: AuthSequence,
     },
     Connected {
         /// use box to avoid large enum variant
@@ -95,7 +76,7 @@ impl ConnectorStepResult {
             ConnectorStepResult::SendBack(_) => "SendBack",
             ConnectorStepResult::SendBackError(_) => "SendBackError",
             ConnectorStepResult::Connected { .. } => "Connected",
-            ConnectorStepResult::Borrowed { .. } => "Borrowed",
+            ConnectorStepResult::Auth { .. } => "Auth",
         }
     }
 }
@@ -103,10 +84,10 @@ impl ConnectorStepResult {
 impl ConnectorStepResult {
     pub fn priority(&self) -> u8 {
         match self {
-            ConnectorStepResult::SendBack(_) => 0,
-            ConnectorStepResult::SendBackError(_) => 1,
-            ConnectorStepResult::Connected { .. } => 2,
-            ConnectorStepResult::Borrowed { .. } => 3,
+            ConnectorStepResult::Auth { .. } => 0,
+            ConnectorStepResult::SendBack(_) => 1,
+            ConnectorStepResult::SendBackError(_) => 2,
+            ConnectorStepResult::Connected { .. } => 3,
         }
     }
 }
@@ -264,13 +245,12 @@ impl Connector {
                             http_builder,
                         };
 
-                        (new_state, InnerConnectorStepResult::SendBack(response))
+                        (new_state, ConnectorStepResult::SendBack(response))
                     }
                     Authentication::Sspi(sspi_auth) => (
                         ConnectorState::AuthenticateInProgress {},
-                        InnerConnectorStepResult::Borrowed {
-                            http_builder,
-                            sspi_auth,
+                        ConnectorStepResult::Auth {
+                            sequence: AuthSequence::new(sspi_auth, http_builder)?,
                         },
                     ),
                 }
@@ -305,7 +285,7 @@ impl Connector {
                     http_builder,
                 };
 
-                (new_state, InnerConnectorStepResult::SendBack(response))
+                (new_state, ConnectorStepResult::SendBack(response))
             }
             ConnectorState::ConnectReceiveCycle {
                 mut runspace_pool,
@@ -341,7 +321,7 @@ impl Connector {
                         runspace_pool,
                         http_builder,
                     };
-                    (new_state, InnerConnectorStepResult::SendBack(response))
+                    (new_state, ConnectorStepResult::SendBack(response))
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
                     let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
@@ -349,7 +329,7 @@ impl Connector {
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (
                         ConnectorState::Connected,
-                        InnerConnectorStepResult::Connected {
+                        ConnectorStepResult::Connected {
                             active_session: Box::new(active_session),
                             next_receive_request: next_http_request,
                         },
@@ -358,40 +338,15 @@ impl Connector {
                     warn!("Unexpected RunspacePool state: {:?}", runspace_pool.state);
                     (
                         ConnectorState::Failed,
-                        InnerConnectorStepResult::SendBackError(
-                            crate::PwshCoreError::InvalidState("Unexpected RunspacePool state"),
-                        ),
+                        ConnectorStepResult::SendBackError(crate::PwshCoreError::InvalidState(
+                            "Unexpected RunspacePool state",
+                        )),
                     )
                 }
             }
         };
 
         self.set_state(new_state);
-
-        let response = match response {
-            InnerConnectorStepResult::SendBack(req) => ConnectorStepResult::SendBack(req),
-            InnerConnectorStepResult::SendBackError(err) => ConnectorStepResult::SendBackError(err),
-            InnerConnectorStepResult::Borrowed {
-                http_builder,
-                sspi_auth,
-            } => {
-                // Avoid &mut self borrow issue by creating the auth sequence here
-                // let (context, sequence) = new_ctx_and_seq(self, sspi_auth)?;
-                todo!("Borrowed case needs refactoring for new AuthContext");
-                // ConnectorStepResult::Borrowed {
-                //     context,
-                //     sequence,
-                //     http_builder,
-                // }
-            }
-            InnerConnectorStepResult::Connected {
-                active_session,
-                next_receive_request,
-            } => ConnectorStepResult::Connected {
-                active_session,
-                next_receive_request,
-            },
-        };
 
         Ok(response)
     }

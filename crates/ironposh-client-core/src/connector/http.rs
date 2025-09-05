@@ -6,6 +6,21 @@ pub enum ServerAddress {
     Domain(String),
 }
 
+impl ServerAddress {
+    pub fn parse(value: &str) -> Result<Self, crate::PwshCoreError> {
+        if let Ok(ip) = value.parse::<IpAddr>() {
+            Ok(ServerAddress::Ip(ip))
+        } else if !value.trim().is_empty() {
+            Ok(ServerAddress::Domain(value.to_string()))
+        } else {
+            Err(crate::PwshCoreError::InvalidServerAddress(
+                "server address cannot be empty",
+            ))
+        }
+    }
+    
+}
+
 impl Display for ServerAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

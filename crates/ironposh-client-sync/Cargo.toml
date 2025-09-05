@@ -17,3 +17,6 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 clap = { version = "4.5", features = ["derive"] }
 uuid = { version = "1.18.0", features = ["v4"] }
+tracing-appender = "0.2"
+tracing-log = "0.2"
+

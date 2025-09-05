@@ -37,8 +37,27 @@ fn main() -> anyhow::Result<()> {
     // Parse command line arguments
     let args = Args::parse();
 
-    // Initialize logging with the specified verbosity level
-    init_logging(args.verbose)?;
+    // Initialize logging. If it fails, we can't log, so just print and exit.
+    if let Err(e) = init_logging(args.verbose) {
+        eprintln!("Failed to initialize logging: {}", e);
+        // Exit with a non-zero status code to indicate failure
+        std::process::exit(1);
+    }
+
+    // Run the actual application logic and handle any errors
+    if let Err(e) = run_app(&args) {
+        // Log the error before exiting. This is crucial.
+        error!("Application failed to run: {:?}", e);
+        
+        // The program will now exit, and the log buffer should be flushed upon exit.
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// The main application logic, extracted to a separate function.
+fn run_app(args: &Args) -> anyhow::Result<()> {
     info!("Starting WinRM PowerShell client (Synchronous)");
 
     // Display connection information
@@ -51,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Create configuration and establish connection
-    let config = create_connector_config(&args);
+    let config = create_connector_config(args)?;
     let (active_session, next_request) = establish_connection(config)?;
     info!("Runspace pool is now open and ready for operations!");
 

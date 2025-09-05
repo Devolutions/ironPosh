@@ -1,5 +1,5 @@
-use tracing::{debug, info};
 use crate::connection::HttpClient;
+use tracing::{debug, info};
 
 pub struct UreqHttpClient;
 
@@ -42,20 +42,56 @@ pub fn make_http_request(
     }
 
     // Make the request
-    let response = if let Some(body) = &request.body {
-        ureq_request.send_string(body)?
+    let response_result = if let Some(body) = &request.body {
+        ureq_request.send_string(body)
     } else {
-        ureq_request.call()?
+        ureq_request.call()
     };
 
-    // Read response
-    let response_body = response.into_string()?;
+    // Handle the response, including potential 401 authentication challenges
+    let (status_code, headers, response_body) = match response_result {
+        Ok(response) => {
+            let status = response.status();
+            let headers: Vec<(String, String)> = response
+                .headers_names()
+                .iter()
+                .filter_map(|name| {
+                    response
+                        .header(name)
+                        .map(|value| (name.clone(), value.to_string()))
+                })
+                .collect();
+            let body = response.into_string()?;
+            (status, headers, body)
+        }
+        Err(ureq::Error::Status(status, response)) => {
+            // Handle status codes like 401 which are expected in authentication flows
+            let headers: Vec<(String, String)> = response
+                .headers_names()
+                .iter()
+                .filter_map(|name| {
+                    response
+                        .header(name)
+                        .map(|value| (name.clone(), value.to_string()))
+                })
+                .collect();
+            let body = response.into_string().unwrap_or_default();
+            (status, headers, body)
+        }
+        Err(e) => {
+            // For other errors (network issues, etc.), propagate them
+            return Err(e.into());
+        }
+    };
+
+    debug!("Response status: {}", status_code);
+    debug!("Response headers: {:?}", headers);
     debug!("Response body length: {}", response_body.len());
 
-    // Return as HttpResponse with proper response format
+    // Return as HttpResponse with actual response data
     Ok(ironposh_client_core::connector::http::HttpResponse {
-        status_code: 200,
-        headers: vec![],
+        status_code: status_code as u16,
+        headers,
         body: Some(response_body),
     })
 }

@@ -11,17 +11,23 @@ fn main() -> Result<()> {
     let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
 
     // Create NTLM context
-    let mut furniture = AuthContext::new_ntlm(identity)?;
+    let mut context = AuthContext::new_ntlm(
+        identity,
+        ironposh_client_core::SspiAuthConfig::Negotiate {
+            target_name: (),
+            identity: (),
+            kerberos_config: (),
+        },
+    )?;
 
     // let mut auth_response = None;
 
     // THIS IS THE PROBLEMATIC LOOP PATTERN FROM connection.rs
     let mut holder = None;
-    loop {
+    let final_token = loop {
         // Let's try wrapping EVERYTHING in a block
         let init = {
-            let result =
-                SspiAuthenticator::try_init_sec_context(None, &mut furniture, &mut holder)?;
+            let result = SspiAuthenticator::try_init_sec_context(None, &mut context, &mut holder)?;
             let init = match result {
                 SecContextMaybeInit::Initialized(sec_context_init) => sec_context_init,
                 SecContextMaybeInit::RunGenerator {
@@ -53,7 +59,7 @@ fn main() -> Result<()> {
         println!("Would process context here and potentially loop again");
 
         holder = None; // Clear the holder to simulate breaking the loop
-        let action = SspiAuthenticator::process_initialized_sec_context(&mut furniture, init)?;
+        let action = SspiAuthenticator::process_initialized_sec_context(&mut context, init)?;
 
         match action {
             ironposh_client_core::connector::authenticator::ActionReqired::TryInitSecContextAgain { token } => {

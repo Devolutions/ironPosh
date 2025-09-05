@@ -7,19 +7,20 @@ edition = "2024"
 hyper = "1.6.0"
 thiserror = "2.0.12"
 uuid = { version = "1.17.0", features = ["v4"] }
-ironposh-winrm = {path = "../ironposh-winrm"}
-ironposh-psrp = {path = "../ironposh-psrp"}
+ironposh-winrm = { path = "../ironposh-winrm" }
+ironposh-psrp = { path = "../ironposh-psrp" }
 ironposh-xml = { path = "../ironposh-xml" }
 typed-builder = "0.21.0"
 base64 = "0.22.1"
 tracing = "0.1.41"
-sspi = { version = "0.16.1", features = ["ring"] }
+sspi = { path = "C:\\dev\\sspi-rs", features = ["ring"] }
 url = "2.5.7"
+# sspi = { version = "0.16.1", features = ["ring"] }
 
 
 [dev-dependencies]
 ureq = "2"
-tracing-subscriber = {version = "0.3.19", features = ["env-filter"]}
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 regex = "1"

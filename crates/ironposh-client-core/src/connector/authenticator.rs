@@ -6,17 +6,18 @@ use sspi::builders::{
     WithTargetDataRepresentation,
 };
 use sspi::generator::{Generator, GeneratorState};
+use sspi::kerberos::config;
 use sspi::{
     BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation, Error,
     InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate, NegotiateConfig,
     NetworkRequest, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
 };
 
-use crate::PwshCoreError;
 use crate::connector::http::HttpResponse;
 use crate::credentials::ClientAuthIdentity;
+use crate::{PwshCoreError, SspiAuthConfig};
 
-type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
+pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     'a,
     <P as SspiImpl>::CredentialsHandle,
     WithCredentialsHandle,
@@ -35,11 +36,12 @@ pub struct AuthContext<P: Sspi> {
     out: [SecurityBuffer; 1],
     // Keep the builder + input buffer alive for the duration of the suspension (generator borrows them).
     inbuf: Option<[SecurityBuffer; 1]>,
+    sspi_auth_config: SspiAuthConfig,
 }
 
 impl AuthContext<Ntlm> {
-    pub fn new_ntlm(id: ClientAuthIdentity) -> Result<Self, PwshCoreError> {
-        Self::new_with_identity(Ntlm::new(), id)
+    pub fn new_ntlm(id: ClientAuthIdentity, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
+        Self::new_with_identity(Ntlm::new(), id, config)
     }
 }
 
@@ -47,10 +49,12 @@ impl AuthContext<Negotiate> {
     pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
+        sspi_config: SspiAuthConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Negotiate::new_client(config)?,
             Credentials::AuthIdentity(id.into_inner()),
+            sspi_config,
         )
     }
 }
@@ -59,10 +63,12 @@ impl AuthContext<Kerberos> {
     pub fn new_kerberos(
         id: ClientAuthIdentity,
         config: KerberosConfig,
+        sspi_config: SspiAuthConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Kerberos::new_client_from_config(config)?,
             Credentials::AuthIdentity(id.into_inner()),
+            sspi_config,
         )
     }
 }
@@ -71,7 +77,7 @@ impl<P> AuthContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
-    pub fn new_with_credential(mut provider: P, id: Credentials) -> Result<Self, PwshCoreError> {
+    pub fn new_with_credential(mut provider: P, id: Credentials, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
         let acq = provider
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
@@ -83,6 +89,7 @@ where
             cred: Box::new(cred),
             out: [SecurityBuffer::new(Vec::new(), BufferType::Token)],
             inbuf: None,
+            sspi_auth_config: config,
         })
     }
 }
@@ -94,6 +101,7 @@ where
     pub fn new_with_identity(
         mut provider: P,
         id: ClientAuthIdentity,
+        config: SspiAuthConfig,
     ) -> Result<Self, PwshCoreError> {
         let id: sspi::AuthIdentity = id.into_inner();
         let acq = provider
@@ -107,6 +115,7 @@ where
             cred: Box::new(cred),
             out: [SecurityBuffer::new(Vec::new(), BufferType::Token)],
             inbuf: None,
+            sspi_auth_config: config,
         })
     }
 }
@@ -187,6 +196,7 @@ impl SspiAuthenticator {
             .provider
             .initialize_security_context()
             .with_credentials_handle(&mut *context.cred)
+            .with_target_name(context.sspi_auth_config.target_name())
             .with_context_requirements(
                 // TODO: expose these flags to callers for tuning.
                 ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,

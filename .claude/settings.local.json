@@ -19,7 +19,8 @@
       "Bash(rm:*)",
       "Bash(mv:*)",
       "Bash(cargo fmt:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Read(C:\\dev\\sspi-rs\\src/**)"
     ],
     "deny": [],
     "additionalDirectories": [
