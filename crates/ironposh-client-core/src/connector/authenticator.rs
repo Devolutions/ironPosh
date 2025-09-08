@@ -6,16 +6,16 @@ use sspi::builders::{
     WithTargetDataRepresentation,
 };
 use sspi::generator::{Generator, GeneratorState};
-use sspi::kerberos::config;
 use sspi::{
     BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation, Error,
     InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate, NegotiateConfig,
     NetworkRequest, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
 };
+use tracing::{debug, instrument};
 
+use crate::PwshCoreError;
 use crate::connector::http::HttpResponse;
 use crate::credentials::ClientAuthIdentity;
-use crate::{PwshCoreError, SspiAuthConfig};
 
 pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     'a,
@@ -26,8 +26,34 @@ pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     WithOutput,
 >;
 
+#[derive(Debug)]
+pub struct SspiConfig {
+    target_name: String,
+}
+
+impl SspiConfig {
+    pub fn new(target: String) -> Self {
+        if target.trim().starts_with("HTTP/") {
+            // OK
+        } else {
+            // Assume it's a bare hostname, prepend "HTTP/"
+            let target = format!("HTTP/{}", target);
+            return SspiConfig {
+                target_name: target,
+            };
+        };
+
+        SspiConfig {
+            target_name: target,
+        }
+    }
+}
+
 /// Caller-owned "Context" the generator borrows.
 /// Holds provider, credential handle, in/out buffers, and the ISC builder for the current round.
+/// The reason we need to hold the builder is that, during the generator suspension, the generator holds
+/// a mutable borrow to the future that holds both the builder and the mut ref of provider, and we need to keep the
+/// context around during the suspension.
 #[derive(Debug)]
 pub struct AuthContext<P: Sspi> {
     pub(crate) provider: P,
@@ -36,11 +62,11 @@ pub struct AuthContext<P: Sspi> {
     out: [SecurityBuffer; 1],
     // Keep the builder + input buffer alive for the duration of the suspension (generator borrows them).
     inbuf: Option<[SecurityBuffer; 1]>,
-    sspi_auth_config: SspiAuthConfig,
+    sspi_auth_config: SspiConfig,
 }
 
 impl AuthContext<Ntlm> {
-    pub fn new_ntlm(id: ClientAuthIdentity, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
+    pub fn new_ntlm(id: ClientAuthIdentity, config: SspiConfig) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id, config)
     }
 }
@@ -49,7 +75,7 @@ impl AuthContext<Negotiate> {
     pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
-        sspi_config: SspiAuthConfig,
+        sspi_config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Negotiate::new_client(config)?,
@@ -62,11 +88,11 @@ impl AuthContext<Negotiate> {
 impl AuthContext<Kerberos> {
     pub fn new_kerberos(
         id: ClientAuthIdentity,
-        config: KerberosConfig,
-        sspi_config: SspiAuthConfig,
+        kerberos_config: KerberosConfig,
+        sspi_config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
-            Kerberos::new_client_from_config(config)?,
+            Kerberos::new_client_from_config(kerberos_config)?,
             Credentials::AuthIdentity(id.into_inner()),
             sspi_config,
         )
@@ -77,7 +103,11 @@ impl<P> AuthContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
-    pub fn new_with_credential(mut provider: P, id: Credentials, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
+    pub fn new_with_credential(
+        mut provider: P,
+        id: Credentials,
+        config: SspiConfig,
+    ) -> Result<Self, PwshCoreError> {
         let acq = provider
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
@@ -101,7 +131,7 @@ where
     pub fn new_with_identity(
         mut provider: P,
         id: ClientAuthIdentity,
-        config: SspiAuthConfig,
+        config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         let id: sspi::AuthIdentity = id.into_inner();
         let acq = provider
@@ -178,6 +208,7 @@ impl SspiAuthenticator {
     ///
     /// We mutate `self.state` in place (no `mem::take`), so early returns don't
     /// strand the state as `Taken`. This avoids hard-to-debug invalid-state errors.
+    #[instrument(skip(context, sec_ctx_holder))]
     pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
         response: Option<&HttpResponse<String>>,
         context: &'ctx mut AuthContext<P>,
@@ -187,6 +218,7 @@ impl SspiAuthenticator {
         P: Sspi + SspiImpl,
         'ctx: 'builder,
         'builder: 'generator,
+        <P as SspiImpl>::CredentialsHandle: Debug,
     {
         context.clear_for_next_round();
         context.take_input(response)?;
@@ -196,17 +228,19 @@ impl SspiAuthenticator {
             .provider
             .initialize_security_context()
             .with_credentials_handle(&mut *context.cred)
-            .with_target_name(context.sspi_auth_config.target_name())
             .with_context_requirements(
                 // TODO: expose these flags to callers for tuning.
-                ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
+                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH,
             )
             .with_target_data_representation(DataRepresentation::Native)
+            .with_target_name(&context.sspi_auth_config.target_name)
             .with_output(&mut context.out);
 
         if let Some(input_buffer) = &mut context.inbuf {
             isc = isc.with_input(input_buffer);
         }
+
+        debug!(?isc, "calling SSPI InitializeSecurityContext");
 
         *sec_ctx_holder = Some(isc);
 
@@ -217,6 +251,7 @@ impl SspiAuthenticator {
 
         match generator.start() {
             GeneratorState::Suspended(request) => {
+                debug!("SSPI generator suspended, need to send packet to server");
                 // We have to suspend to send the packet to the server.
                 Ok(SecContextMaybeInit::RunGenerator {
                     packet: request,
@@ -224,6 +259,7 @@ impl SspiAuthenticator {
                 })
             }
             GeneratorState::Completed(init_sec_context_res) => {
+                debug!("SSPI InitializeSecurityContext completed immediately");
                 // Do NOT touch `out` here; `isc` still holds &mut out.
                 // Defer token extraction to next call.
                 let init_sec_context_res = init_sec_context_res?;
@@ -239,11 +275,17 @@ impl SspiAuthenticator {
     ///
     /// We set the state to `ProcessInitializedContextPending` on completion, and only in the
     /// *next* call to `step` will we drop the builder and extract the token.
+    #[instrument(skip_all)]
     pub fn resume<'a>(
         generator_holder: GeneratorHolder<'a>,
         kdc_response: Vec<u8>,
     ) -> Result<SecContextMaybeInit<'a>, PwshCoreError> {
         let mut generator = generator_holder.generator;
+
+        debug!(
+            kdc_response_length = kdc_response.len(),
+            "resuming SSPI generator with KDC response"
+        );
 
         match generator.resume(Ok(kdc_response)) {
             GeneratorState::Suspended(request) => Ok(SecContextMaybeInit::RunGenerator {
@@ -260,6 +302,7 @@ impl SspiAuthenticator {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn process_initialized_sec_context<'a, P: Sspi>(
         furniture: &'a mut AuthContext<P>,
         sec_context: SecContextInit,
@@ -269,6 +312,8 @@ impl SspiAuthenticator {
     {
         let produced = std::mem::take(&mut furniture.out[0].buffer);
         let token = token_header_from(&produced).map(Token);
+
+        debug!(status=?sec_context.init_sec_context_res.status, "SSPI InitializeSecurityContext completed");
 
         match sec_context.init_sec_context_res.status {
             SecurityStatus::ContinueNeeded => Ok(ActionReqired::TryInitSecContextAgain {

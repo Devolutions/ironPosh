@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
-use sspi::{NegotiateConfig, ntlm::NtlmConfig};
+use sspi::{NegotiateConfig, kerberos, ntlm::NtlmConfig};
 
 use crate::{
     PwshCoreError, SspiAuthConfig,
     connector::{
         authenticator::{
-            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, Token,
+            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
+            SspiConfig, Token,
         },
         http::{HttpBuilder, HttpRequest, HttpResponse},
     },
@@ -58,58 +59,60 @@ impl<'ctx> SecurityContextBuilderHolder<'ctx> {
 
 impl AnyAuthContext {
     pub fn new(sspi_config: SspiAuthConfig) -> Result<Self, crate::PwshCoreError> {
-        match &sspi_config {
-            SspiAuthConfig::NTLM { identity, .. } => {
-                AuthContext::new_ntlm(identity.clone(), sspi_config).map(AnyAuthContext::Ntlm)
-            }
+        match sspi_config {
+            SspiAuthConfig::NTLM {
+                identity,
+                target: target_name,
+            } => AuthContext::new_ntlm(identity, SspiConfig::new(target_name))
+                .map(AnyAuthContext::Ntlm),
+
             SspiAuthConfig::Kerberos {
                 identity,
                 kerberos_config,
-                target_name: _,
+                target: target_name,
             } => AuthContext::new_kerberos(
-                identity.clone(),
-                sspi::KerberosConfig {
-                    kdc_url: kerberos_config.kdc_url.clone(),
-                    client_computer_name: kerberos_config.client_computer_name.clone(),
-                },
-                sspi_config,
+                identity,
+                kerberos_config.into(),
+                SspiConfig::new(target_name),
             )
             .map(AnyAuthContext::Kerberos),
+
             SspiAuthConfig::Negotiate {
                 identity,
                 kerberos_config,
-                target_name: _,
+                target: target_name,
             } => {
-                if let Some(kerberos_config) = kerberos_config {
-                    let client_computer_name = kerberos_config
-                        .client_computer_name
-                        .clone()
-                        .unwrap_or("IronWinRMClient".to_string());
+                let sspi_config = SspiConfig::new(target_name);
 
-                    AuthContext::new_negotiate(
-                        identity.clone(),
+                let client_computer_name = whoami::fallible::hostname().map_err(|e| {
+                    crate::PwshCoreError::InternalError(format!(
+                        "Failed to get local hostname: {}",
+                        e
+                    ))
+                })?;
+
+                let config = match kerberos_config {
+                    Some(kerberos_config) => {
+                        let kerberos_config: sspi::kerberos::config::KerberosConfig =
+                            kerberos_config.into();
+
                         NegotiateConfig::from_protocol_config(
-                            Box::new(sspi::KerberosConfig {
-                                kdc_url: kerberos_config.kdc_url.clone(),
-                                client_computer_name: kerberos_config.client_computer_name.clone(),
-                            }),
+                            Box::new(kerberos_config),
                             client_computer_name,
-                        ),
-                        sspi_config,
-                    )
-                    .map(AnyAuthContext::Negotiate)
-                } else {
-                    let client_computer_name = "IronWinRMClient".to_string();
-                    AuthContext::new_negotiate(
-                        identity.clone(),
+                        )
+                    }
+                    None => {
+                        let ntlm_config = NtlmConfig::new(client_computer_name.clone());
+
                         NegotiateConfig::from_protocol_config(
-                            Box::new(NtlmConfig::default()),
+                            Box::new(ntlm_config),
                             client_computer_name,
-                        ),
-                        sspi_config,
-                    )
+                        )
+                    }
+                };
+
+                AuthContext::new_negotiate(identity, config, sspi_config)
                     .map(AnyAuthContext::Negotiate)
-                }
             }
         }
     }
@@ -207,4 +210,18 @@ impl AuthSequence {
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
         }
     }
+
+    pub fn destruct_for_next_step(self) -> (Decryptor, HttpBuilder) {
+        let decryptor = Decryptor {
+            context: self.context,
+        };
+        (decryptor, self.http_builder)
+    }
+
+
+}
+
+
+pub struct Decryptor {
+    context: AnyAuthContext,
 }

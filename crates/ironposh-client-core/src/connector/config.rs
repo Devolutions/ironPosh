@@ -6,37 +6,34 @@ pub struct KerberosConfig {
     pub kdc_url: Option<Url>,
 
     /// Optional client computer name. If not set, the local computer name will be used.
-    pub client_computer_name: Option<String>,
+    pub client_computer_name: String,
+}
+
+impl Into<sspi::KerberosConfig> for KerberosConfig {
+    fn into(self) -> sspi::KerberosConfig {
+        sspi::KerberosConfig {
+            kdc_url: self.kdc_url,
+            client_computer_name: Some(self.client_computer_name),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum SspiAuthConfig {
     NTLM {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
     },
     Kerberos {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
         kerberos_config: KerberosConfig,
     },
     Negotiate {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
         kerberos_config: Option<KerberosConfig>,
     },
-}
-
-impl SspiAuthConfig {
-
-    pub(crate) fn target_name(&self) -> &str {
-        match self {
-            SspiAuthConfig::NTLM { target_name, .. } => target_name,
-            SspiAuthConfig::Kerberos { target_name, .. } => target_name,
-            SspiAuthConfig::Negotiate { target_name, .. } => target_name,
-        }
-    }
-    
 }
 
 #[derive(Debug, Clone)]

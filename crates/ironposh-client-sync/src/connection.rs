@@ -1,14 +1,24 @@
+use anyhow::Context;
+use byteorder::{BigEndian, ReadBytesExt};
 use ironposh_client_core::connector::{
     auth_sequence::{AuthSequence, SecurityContextBuilderHolder},
     authenticator::SecContextMaybeInit,
     http::{HttpRequest, HttpResponse},
     Connector, ConnectorConfig, ConnectorStepResult,
 };
+use tracing::{info, instrument};
+
+#[derive(Debug)]
+pub enum KeepAlive {
+    Must,
+    NotNecessary,
+}
 
 pub trait HttpClient {
     fn send_request(
         &self,
         request: HttpRequest<String>,
+        keep_alive: KeepAlive,
     ) -> Result<HttpResponse<String>, anyhow::Error>;
 }
 
@@ -26,13 +36,14 @@ impl RemotePowershell {
     ) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);
         let mut response = None;
+        let mut decryptor = None;
 
         let (active_session, next_request) = loop {
             let step_result = connector.step(response.take())?;
 
             match step_result {
                 ConnectorStepResult::SendBack(http_request) => {
-                    response = Some(client.send_request(http_request)?);
+                    response = Some(client.send_request(http_request, KeepAlive::NotNecessary)?);
                 }
                 ConnectorStepResult::SendBackError(e) => {
                     anyhow::bail!("Connection failed: {}", e);
@@ -44,12 +55,13 @@ impl RemotePowershell {
                     break (*active_session, next_receive_request);
                 }
                 ConnectorStepResult::Auth { mut sequence } => {
+                    let mut auth_response = None;
                     // Authentication sequence handling - mimic auth_sequence.rs pattern
-                    let _final_token = loop {
+                    let final_token = loop {
                         let sec_ctx_init = {
                             let mut holder = SecurityContextBuilderHolder::new();
-                            let result =
-                                sequence.try_init_sec_context(response.as_ref(), &mut holder)?;
+                            let result = sequence
+                                .try_init_sec_context(auth_response.as_ref(), &mut holder)?;
 
                             match result {
                                 SecContextMaybeInit::Initialized(sec_context_init) => {
@@ -80,7 +92,7 @@ impl RemotePowershell {
 
                         match action {
                             ironposh_client_core::connector::auth_sequence::SecCtxInited::Continue(http_request) => {
-                                response = Some(client.send_request(http_request)?);
+                                auth_response = Some(client.send_request(http_request,KeepAlive::Must)?);
                             }
                             ironposh_client_core::connector::auth_sequence::SecCtxInited::Done(token) => {
                                 break token;
@@ -88,8 +100,11 @@ impl RemotePowershell {
                         }
                     };
 
-                    // After authentication is complete, continue with the connector step
-                    response = None; // Reset response for next iteration
+                    let (decryptor_inner, http_builder) = sequence.destruct_for_next_step();
+
+                    decryptor = Some(decryptor_inner);
+                    let request = connector.authenticate(None, http_builder)?;
+                    response = Some(client.send_request(request, KeepAlive::Must)?);
                 }
             }
         };
@@ -112,6 +127,17 @@ impl RemotePowershell {
     }
 }
 
+pub struct KerberosPacketSender {
+    stream: Option<std::net::TcpStream>,
+}
+
+impl KerberosPacketSender {
+    pub fn new() -> Self {
+        Self { stream: None }
+    }
+}
+
+#[instrument]
 fn send_packet(
     packet: ironposh_client_core::connector::NetworkRequest,
 ) -> Result<Vec<u8>, anyhow::Error> {
@@ -119,121 +145,58 @@ fn send_packet(
     use std::net::{TcpStream, UdpSocket};
     use std::time::Duration;
 
+    info!(protocol = ?packet.protocol, url = %packet.url, len = packet.data.len(), "Sending packet to KDC");
+
     match packet.protocol {
         ironposh_client_core::connector::NetworkProtocol::Tcp => {
             // TCP implementation for Kerberos KDC communication
-            let host = packet.url.host_str()
+            let host = packet
+                .url
+                .host_str()
                 .ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?;
-            let port = packet.url.port()
+            let port = packet
+                .url
+                .port()
                 .ok_or_else(|| anyhow::anyhow!("Missing port in URL"))?;
 
             // Establish TCP connection to the KDC
             let mut stream = TcpStream::connect((host, port))
-                .map_err(|e| anyhow::anyhow!("Failed to connect to KDC at {}:{}: {}", host, port, e))?;
+                .context("trying to establish TCP connection to KDC")?;
 
-            // Set timeouts for the connection
-            stream.set_read_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set read timeout: {}", e))?;
-            stream.set_write_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set write timeout: {}", e))?;
-
-            // For Kerberos TCP transport (RFC 4120), the packet is prefixed with a 4-byte length field
-            // in network byte order (big-endian)
-            let packet_len = packet.data.len() as u32;
-            let length_prefix = packet_len.to_be_bytes();
-
-            // Send the length prefix followed by the packet data
-            stream.write_all(&length_prefix)
-                .map_err(|e| anyhow::anyhow!("Failed to write packet length: {}", e))?;
-            stream.write_all(&packet.data)
+            stream
+                .write_all(&packet.data)
                 .map_err(|e| anyhow::anyhow!("Failed to write packet data: {}", e))?;
-            stream.flush()
+
+            stream
+                .flush()
                 .map_err(|e| anyhow::anyhow!("Failed to flush stream: {}", e))?;
 
             // Read the response length (4 bytes, big-endian)
-            let mut length_buf = [0u8; 4];
-            stream.read_exact(&mut length_buf)
+            let response_len = stream
+                .read_u32::<BigEndian>()
                 .map_err(|e| anyhow::anyhow!("Failed to read response length: {}", e))?;
 
-            let response_len = u32::from_be_bytes(length_buf) as usize;
-
-            // Validate response length to prevent excessive memory allocation
-            if response_len > 65536 {  // 64KB max response size
-                return Err(anyhow::anyhow!("Response too large: {} bytes", response_len));
-            }
-
             // Read the response data
-            let mut response_data = vec![0u8; response_len];
-            stream.read_exact(&mut response_data)
+            let mut response_data = vec![0u8; response_len as usize + 4];
+            response_data[..4].copy_from_slice(&response_len.to_be_bytes()); // include length prefix in re
+
+            stream
+                .read_exact(&mut response_data[4..])
                 .map_err(|e| anyhow::anyhow!("Failed to read response data: {}", e))?;
 
             Ok(response_data)
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Udp => {
-            // UDP implementation for Kerberos KDC communication
-            let host = packet.url.host_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?;
-            let port = packet.url.port()
-                .ok_or_else(|| anyhow::anyhow!("Missing port in URL"))?;
-
-            // Create UDP socket
-            let socket = UdpSocket::bind("0.0.0.0:0")
-                .map_err(|e| anyhow::anyhow!("Failed to bind UDP socket: {}", e))?;
-
-            // Set timeout for UDP operations
-            socket.set_read_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set UDP read timeout: {}", e))?;
-            socket.set_write_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set UDP write timeout: {}", e))?;
-
-            // Connect to the KDC
-            socket.connect((host, port))
-                .map_err(|e| anyhow::anyhow!("Failed to connect UDP socket to {}:{}: {}", host, port, e))?;
-
-            // For UDP, send packet data directly (no length prefix like TCP)
-            socket.send(&packet.data)
-                .map_err(|e| anyhow::anyhow!("Failed to send UDP packet: {}", e))?;
-
-            // Read the response
-            let mut response_data = vec![0u8; 65536]; // Max UDP packet size
-            let bytes_received = socket.recv(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to receive UDP response: {}", e))?;
-
-            response_data.truncate(bytes_received);
-            Ok(response_data)
+            todo!()
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Http => {
-            // HTTP implementation for potential web-based authentication
-            let request = ureq::post(packet.url.as_str())
-                .set("Content-Type", "application/octet-stream")
-                .set("User-Agent", "ironposh-client/1.0");
-
-            let response = request.send_bytes(&packet.data)
-                .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
-
-            let mut response_data = Vec::new();
-            response.into_reader().read_to_end(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to read HTTP response: {}", e))?;
-
-            Ok(response_data)
+            todo!()
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Https => {
-            // HTTPS implementation for secure web-based authentication
-            let request = ureq::post(packet.url.as_str())
-                .set("Content-Type", "application/octet-stream")
-                .set("User-Agent", "ironposh-client/1.0");
-
-            let response = request.send_bytes(&packet.data)
-                .map_err(|e| anyhow::anyhow!("HTTPS request failed: {}", e))?;
-
-            let mut response_data = Vec::new();
-            response.into_reader().read_to_end(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to read HTTPS response: {}", e))?;
-
-            Ok(response_data)
+            todo!()
         }
     }
 }

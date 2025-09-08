@@ -38,7 +38,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        default_value = "Administrator",
+        default_value = "Administrator@ad.it-help.ninja",
         help = "Username for authentication"
     )]
     pub username: String,
@@ -56,7 +56,7 @@ pub struct Args {
         short,
         long,
         help = "Optional domain for authentication",
-        default_value = "ad.it-help.ninja"
+        default_value = ""
     )]
     pub domain: String,
 
@@ -66,7 +66,7 @@ pub struct Args {
     /// Optional KDC URL for Kerberos authentication
     #[arg(
         long,
-        help = "KDC URL for Kerberos authentication (e.g., ldap://dc.domain.com:389)"
+        help = "KDC URL for Kerberos authentication (e.g., IT-HELP-DC.ad.it-help.ninja)"
     )]
     pub kdc_url: Option<String>,
 
@@ -177,7 +177,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
                 args.password.clone(),
             );
             Authentication::Sspi(SspiAuthConfig::NTLM {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
             })
         }
@@ -186,16 +186,22 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
                 &args.username,
                 domain.as_deref(),
             )?;
+
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
-                client_username,
+                client_username.clone(),
                 args.password.clone(),
             );
+
+            let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
+
             Authentication::Sspi(SspiAuthConfig::Kerberos {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
                 kerberos_config: KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().and_then(|url| url.parse().ok()),
-                    client_computer_name: args.client_computer_name.clone(),
+                    kdc_url,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+                    }),
                 },
             })
         }
@@ -209,11 +215,13 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
                 args.password.clone(),
             );
             Authentication::Sspi(SspiAuthConfig::Negotiate {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
                 kerberos_config: Some(KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().and_then(|url| url.parse().ok()),
-                    client_computer_name: args.client_computer_name.clone(),
+                    kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+                    }),
                 }),
             })
         }

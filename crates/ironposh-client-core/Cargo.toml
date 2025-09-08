@@ -15,6 +15,7 @@ base64 = "0.22.1"
 tracing = "0.1.41"
 sspi = { path = "C:\\dev\\sspi-rs", features = ["ring"] }
 url = "2.5.7"
+whoami = "1.6.1"
 # sspi = { version = "0.16.1", features = ["ring"] }
 
 

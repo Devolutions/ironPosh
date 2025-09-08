@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let username = ClientUserName::new("administrator", None)?;
     let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
     let sspi_config = SspiAuthConfig::Kerberos {
-        target_name: "HTTP/IT-HELP.DC.ad.it-help.ninja".into(),
+        target: "HTTP/IT-HELP.DC.ad.it-help.ninja".into(),
         identity,
         kerberos_config: KerberosConfig {
             kdc_url: Some(Url::parse("tcp://IT-HELP.DC.ad.it-help.ninja:88")?),

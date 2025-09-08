@@ -12,13 +12,10 @@ use tracing::{info, instrument, warn};
 use crate::{
     connector::{
         // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
-        auth_sequence::AuthSequence,
-        config::{Authentication, SspiAuthConfig},
-        http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
+        auth_sequence::AuthSequence, authenticator::Token, config::{Authentication, SspiAuthConfig}, http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress}
     },
     runspace_pool::{
-        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
-        pool::AcceptResponsResult,
+        pool::AcceptResponsResult, DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState
     },
 };
 
@@ -145,7 +142,7 @@ impl Connector {
 
     pub fn authenticate(
         &mut self,
-        last_token: Option<String>,
+        last_token: Option<Token>,
         mut http_builder: HttpBuilder,
     ) -> Result<HttpRequest<String>, crate::PwshCoreError> {
         match self.state {
@@ -158,7 +155,7 @@ impl Connector {
         };
 
         if let Some(token) = last_token {
-            http_builder.with_auth_header(token);
+            http_builder.with_auth_header(token.0);
         }
 
         let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());

@@ -55,4 +55,7 @@ pub enum PwshCoreError {
 
     #[error("Invalid server address: {0}")]
     InvalidServerAddress(&'static str),
+    
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }

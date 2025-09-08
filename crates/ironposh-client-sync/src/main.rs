@@ -27,7 +27,7 @@ fn establish_connection(
     ironposh_client_core::connector::active_session::ActiveSession,
     ironposh_client_core::connector::http::HttpRequest<String>,
 )> {
-    let client = UreqHttpClient;
+    let client = UreqHttpClient::new();
     let remote_ps = RemotePowershell::open(config, client)?;
     Ok(remote_ps.into_components())
 }

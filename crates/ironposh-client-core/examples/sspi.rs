@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let mut context = AuthContext::new_ntlm(
         identity,
         ironposh_client_core::SspiAuthConfig::Negotiate {
-            target_name: (),
+            target: (),
             identity: (),
             kerberos_config: (),
         },
