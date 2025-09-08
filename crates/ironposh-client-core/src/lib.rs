@@ -51,11 +51,10 @@ pub enum PwshCoreError {
 
     #[error("Authentication error: {0}")]
     Auth(&'static str),
-    
 
     #[error("Invalid server address: {0}")]
     InvalidServerAddress(&'static str),
-    
+
     #[error("Internal error: {0}")]
     InternalError(String),
 }

@@ -305,9 +305,7 @@ impl RemoteAsyncPowershellClient {
                                 TryInitSecContext::RunGenerator {
                                     packet,
                                     generator_holder,
-                                } => {
-                                    
-                                }
+                                } => {}
                                 TryInitSecContext::Initialized {
                                     init_sec_context_res,
                                 } => todo!(),

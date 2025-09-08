@@ -37,7 +37,7 @@ impl SspiConfig {
             // OK
         } else {
             // Assume it's a bare hostname, prepend "HTTP/"
-            let target = format!("HTTP/{}", target);
+            let target = format!("HTTP/{target}");
             return SspiConfig {
                 target_name: target,
             };
@@ -165,7 +165,7 @@ where
     fn take_input(&mut self, response: Option<&HttpResponse<String>>) -> Result<(), PwshCoreError> {
         if let Some(resp) = response {
             let server_token = parse_negotiate_token(&resp.headers)
-                .ok_or_else(|| PwshCoreError::Auth("no Negotiate token"))?;
+                .ok_or(PwshCoreError::Auth("no Negotiate token"))?;
             self.inbuf = Some([SecurityBuffer::new(server_token, BufferType::Token)]);
         }
         Ok(())
@@ -303,8 +303,8 @@ impl SspiAuthenticator {
     }
 
     #[instrument(skip_all)]
-    pub fn process_initialized_sec_context<'a, P: Sspi>(
-        furniture: &'a mut AuthContext<P>,
+    pub fn process_initialized_sec_context<P: Sspi>(
+        furniture: &mut AuthContext<P>,
         sec_context: SecContextInit,
     ) -> Result<ActionReqired, PwshCoreError>
     where
@@ -354,11 +354,9 @@ fn parse_negotiate_token(headers: &[(String, String)]) -> Option<Vec<u8>> {
             if let Some(rest) = value
                 .strip_prefix("Negotiate ")
                 .or_else(|| value.strip_prefix("negotiate "))
-            {
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) {
+                && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) {
                     return Some(bytes);
                 }
-            }
         }
     }
     None

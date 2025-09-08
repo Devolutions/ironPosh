@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize logging. If it fails, we can't log, so just print and exit.
     if let Err(e) = init_logging(args.verbose) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
         // Exit with a non-zero status code to indicate failure
         std::process::exit(1);
     }
@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     if let Err(e) = run_app(&args) {
         // Log the error before exiting. This is crucial.
         error!("Application failed to run: {:?}", e);
-        
+
         // The program will now exit, and the log buffer should be flushed upon exit.
         return Err(e);
     }

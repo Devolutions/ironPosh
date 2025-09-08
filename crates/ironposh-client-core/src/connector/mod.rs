@@ -12,10 +12,14 @@ use tracing::{info, instrument, warn};
 use crate::{
     connector::{
         // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
-        auth_sequence::AuthSequence, authenticator::Token, config::{Authentication, SspiAuthConfig}, http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress}
+        auth_sequence::AuthSequence,
+        authenticator::Token,
+        config::Authentication,
+        http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
-        pool::AcceptResponsResult, DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState
+        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
+        pool::AcceptResponsResult,
     },
 };
 
@@ -178,8 +182,8 @@ impl Connector {
     }
 
     #[instrument(skip(self, server_response), name = "Connector::step")]
-    pub fn step<'conn, 'auth>(
-        &'conn mut self,
+    pub fn step<'auth>(
+        &mut self,
         server_response: Option<HttpResponse<String>>,
     ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
@@ -220,7 +224,7 @@ impl Connector {
                         let auth_header = format!(
                             "Basic {}",
                             base64::engine::general_purpose::STANDARD
-                                .encode(format!("{}:{}", username, password))
+                                .encode(format!("{username}:{password}"))
                         );
 
                         http_builder.with_auth_header(auth_header);

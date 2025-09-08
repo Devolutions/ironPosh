@@ -8,11 +8,11 @@ pub struct UreqHttpClient {
 
 impl UreqHttpClient {
     pub fn new() -> Self {
-        UreqHttpClient { 
-            client: RefCell::new(None) 
+        UreqHttpClient {
+            client: RefCell::new(None),
         }
     }
-    
+
     fn get_or_create_client(&self) -> ureq::Agent {
         let mut client_ref = self.client.borrow_mut();
         if let Some(agent) = client_ref.as_ref() {
@@ -26,7 +26,7 @@ impl UreqHttpClient {
             agent
         }
     }
-    
+
     fn make_request_with_agent(
         &self,
         agent: &ureq::Agent,
@@ -34,9 +34,9 @@ impl UreqHttpClient {
     ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
         let span = info_span!("http.request", method=?request.method, url=%request.url);
         let _enter = span.enter();
-        
+
         info!("sending request");
-        
+
         // Build the HTTP client request
         let mut ureq_request = match request.method {
             ironposh_client_core::connector::http::Method::Post => agent.post(&request.url),
@@ -44,28 +44,32 @@ impl UreqHttpClient {
             ironposh_client_core::connector::http::Method::Put => agent.put(&request.url),
             ironposh_client_core::connector::http::Method::Delete => agent.delete(&request.url),
         };
-        
+
         // Add headers
         for (name, value) in &request.headers {
             ureq_request = ureq_request.set(name, value);
         }
-        
+
         // Add cookie if present
         if let Some(cookie) = &request.cookie {
             ureq_request = ureq_request.set("Cookie", cookie);
         }
-        
-        debug!(headers_count=request.headers.len(), has_cookie=request.cookie.is_some(), "request configured");
-        
+
+        debug!(
+            headers_count = request.headers.len(),
+            has_cookie = request.cookie.is_some(),
+            "request configured"
+        );
+
         // Make the request
         let response_result = if let Some(body) = &request.body {
-            debug!(body_length=body.len(), "sending with body");
+            debug!(body_length = body.len(), "sending with body");
             ureq_request.send_string(body)
         } else {
             debug!("sending without body");
             ureq_request.call()
         };
-        
+
         // Handle the response, including potential 401 authentication challenges
         let (status_code, headers, response_body) = match response_result {
             Ok(response) => {
@@ -105,12 +109,12 @@ impl UreqHttpClient {
                 return Err(e.into());
             }
         };
-        
+
         info!(status_code=%status_code, response_body_length=response_body.len(), "response received");
-        
+
         // Return as HttpResponse with actual response data
         Ok(ironposh_client_core::connector::http::HttpResponse {
-            status_code: status_code as u16,
+            status_code: status_code,
             headers,
             body: Some(response_body),
         })
@@ -163,11 +167,15 @@ pub fn make_http_request(
         ureq_request = ureq_request.set("Cookie", cookie);
     }
 
-    debug!(headers_count=request.headers.len(), has_cookie=request.cookie.is_some(), "request configured");
+    debug!(
+        headers_count = request.headers.len(),
+        has_cookie = request.cookie.is_some(),
+        "request configured"
+    );
 
     // Make the request
     let response_result = if let Some(body) = &request.body {
-        debug!(body_length=body.len(), "sending with body");
+        debug!(body_length = body.len(), "sending with body");
         ureq_request.send_string(body)
     } else {
         debug!("sending without body");
@@ -218,7 +226,7 @@ pub fn make_http_request(
 
     // Return as HttpResponse with actual response data
     Ok(ironposh_client_core::connector::http::HttpResponse {
-        status_code: status_code as u16,
+        status_code: status_code,
         headers,
         body: Some(response_body),
     })

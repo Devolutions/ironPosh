@@ -170,7 +170,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         AuthMethod::Ntlm => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,
@@ -184,7 +184,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         AuthMethod::Kerberos => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
 
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
@@ -208,7 +208,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         AuthMethod::Negotiate => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,

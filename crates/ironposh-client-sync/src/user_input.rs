@@ -1,7 +1,7 @@
 use ironposh_client_core::connector::active_session::PowershellOperations;
+use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use ironposh_client_core::connector::UserOperation;
 use ironposh_psrp::PipelineOutput;
 use regex::Regex;
 use std::io::{self, Write};

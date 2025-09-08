@@ -142,8 +142,8 @@ fn send_packet(
     packet: ironposh_client_core::connector::NetworkRequest,
 ) -> Result<Vec<u8>, anyhow::Error> {
     use std::io::{Read, Write};
-    use std::net::{TcpStream, UdpSocket};
-    use std::time::Duration;
+    use std::net::TcpStream;
+    
 
     info!(protocol = ?packet.protocol, url = %packet.url, len = packet.data.len(), "Sending packet to KDC");
 

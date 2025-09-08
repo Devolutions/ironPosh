@@ -9,11 +9,11 @@ pub struct KerberosConfig {
     pub client_computer_name: String,
 }
 
-impl Into<sspi::KerberosConfig> for KerberosConfig {
-    fn into(self) -> sspi::KerberosConfig {
+impl From<KerberosConfig> for sspi::KerberosConfig {
+    fn from(val: KerberosConfig) -> Self {
         sspi::KerberosConfig {
-            kdc_url: self.kdc_url,
-            client_computer_name: Some(self.client_computer_name),
+            kdc_url: val.kdc_url,
+            client_computer_name: Some(val.client_computer_name),
         }
     }
 }

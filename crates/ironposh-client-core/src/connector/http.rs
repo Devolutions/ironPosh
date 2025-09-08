@@ -18,7 +18,6 @@ impl ServerAddress {
             ))
         }
     }
-    
 }
 
 impl Display for ServerAddress {

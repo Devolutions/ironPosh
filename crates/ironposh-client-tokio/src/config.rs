@@ -100,11 +100,8 @@ pub fn create_connector_config(args: &Args) -> ConnectorConfig {
 
     let auth = Authentication::Sspi {
         identity: ironposh_client_core::ClientAuthIdentity::new(
-            ironposh_client_core::credentials::ClientUserName::new(
-                &args.username,
-                None, 
-            )
-            .expect("Invalid username"),
+            ironposh_client_core::credentials::ClientUserName::new(&args.username, None)
+                .expect("Invalid username"),
             args.password.clone().into(),
         ),
     };

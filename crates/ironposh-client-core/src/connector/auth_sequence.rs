@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use sspi::{NegotiateConfig, kerberos, ntlm::NtlmConfig};
+use sspi::{NegotiateConfig, ntlm::NtlmConfig};
 
 use crate::{
     PwshCoreError, SspiAuthConfig,
@@ -23,6 +23,12 @@ pub struct SecurityContextBuilderHolder<'ctx> {
     ntlm: Option<SecurityContextBuilder<'ctx, sspi::ntlm::Ntlm>>,
     kerberos: Option<SecurityContextBuilder<'ctx, sspi::kerberos::Kerberos>>,
     negotiate: Option<SecurityContextBuilder<'ctx, sspi::negotiate::Negotiate>>,
+}
+
+impl<'ctx> Default for SecurityContextBuilderHolder<'ctx> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'ctx> SecurityContextBuilderHolder<'ctx> {
@@ -86,8 +92,7 @@ impl AnyAuthContext {
 
                 let client_computer_name = whoami::fallible::hostname().map_err(|e| {
                     crate::PwshCoreError::InternalError(format!(
-                        "Failed to get local hostname: {}",
-                        e
+                        "Failed to get local hostname: {e}"
                     ))
                 })?;
 
@@ -150,7 +155,7 @@ impl AuthSequence {
     }
 
     pub fn try_init_sec_context<'ctx, 'builder, 'generator>(
-        self: &'ctx mut Self,
+        &'ctx mut self,
         response: Option<&HttpResponse<String>>,
         sec_ctx_holder: &'builder mut SecurityContextBuilderHolder<'ctx>,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
@@ -217,10 +222,7 @@ impl AuthSequence {
         };
         (decryptor, self.http_builder)
     }
-
-
 }
-
 
 pub struct Decryptor {
     context: AnyAuthContext,
