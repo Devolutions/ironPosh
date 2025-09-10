@@ -78,6 +78,9 @@ pub struct Args {
     #[arg(long, help = "Use HTTPS (default: HTTP)")]
     pub https: bool,
 
+    #[arg(long, help = "No sspi encrypted session", default_value_t = false)]
+    pub no_encryption: bool,
+
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
     pub verbose: u8,
@@ -136,6 +139,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
             .with_target(true)
             .with_line_number(true)
             .with_file(true)
+            .with_ansi(false)
             .compact(),
     );
 
@@ -168,10 +172,8 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
             password: args.password.clone(),
         },
         AuthMethod::Ntlm => {
-            let client_username = ironposh_client_core::credentials::ClientUserName::new(
-                &args.username,
-                domain,
-            )?;
+            let client_username =
+                ironposh_client_core::credentials::ClientUserName::new(&args.username, domain)?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,
                 args.password.clone(),
@@ -182,10 +184,8 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
             })
         }
         AuthMethod::Kerberos => {
-            let client_username = ironposh_client_core::credentials::ClientUserName::new(
-                &args.username,
-                domain,
-            )?;
+            let client_username =
+                ironposh_client_core::credentials::ClientUserName::new(&args.username, domain)?;
 
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username.clone(),
@@ -206,10 +206,8 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
             })
         }
         AuthMethod::Negotiate => {
-            let client_username = ironposh_client_core::credentials::ClientUserName::new(
-                &args.username,
-                domain,
-            )?;
+            let client_username =
+                ironposh_client_core::credentials::ClientUserName::new(&args.username, domain)?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,
                 args.password.clone(),
@@ -231,6 +229,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         server: (server, args.port),
         scheme,
         authentication: auth,
+        require_encryption: !args.no_encryption,
         host_info: ironposh_psrp::HostInfo::builder()
             .is_host_null(false)
             .is_host_ui_null(true)

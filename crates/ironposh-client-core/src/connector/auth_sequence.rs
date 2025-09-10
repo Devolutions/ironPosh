@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use sspi::{NegotiateConfig, ntlm::NtlmConfig};
+use tracing::debug;
 
 use crate::{
     PwshCoreError, SspiAuthConfig,
@@ -9,7 +10,7 @@ use crate::{
             AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
             SspiConfig, Token,
         },
-        http::{HttpBuilder, HttpRequest, HttpResponse, HttpBody},
+        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
 };
 
@@ -124,9 +125,16 @@ impl AnyAuthContext {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AuthConfig {
+    pub require_encryption: bool,
+    pub sspi_config: SspiAuthConfig,
+}
+
 pub struct AuthSequence {
     context: AnyAuthContext,
     http_builder: HttpBuilder,
+    require_encryption: bool,
 }
 
 pub enum SecCtxInited {
@@ -145,13 +153,19 @@ impl Debug for AuthSequence {
 
 impl AuthSequence {
     pub fn new(
-        sspi_config: SspiAuthConfig,
+        auth_config: AuthConfig,
         http_builder: HttpBuilder,
     ) -> Result<Self, crate::PwshCoreError> {
+        let AuthConfig {
+            sspi_config,
+            require_encryption,
+        } = auth_config;
+
         let context = AnyAuthContext::new(sspi_config)?;
         Ok(AuthSequence {
             context,
             http_builder,
+            require_encryption,
         })
     }
 
@@ -169,16 +183,19 @@ impl AuthSequence {
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_ntlm(),
+                self.require_encryption,
             )?,
             AnyAuthContext::Kerberos(auth_context) => SspiAuthenticator::try_init_sec_context(
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_kerberos(),
+                self.require_encryption,
             )?,
             AnyAuthContext::Negotiate(auth_context) => SspiAuthenticator::try_init_sec_context(
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_negotiate(),
+                self.require_encryption,
             )?,
         })
     }
@@ -220,6 +237,7 @@ impl AuthSequence {
     pub fn destruct_for_next_step(self) -> (EncryptionProvider, HttpBuilder) {
         let decryptor = EncryptionProvider {
             context: self.context,
+            require_encryption: self.require_encryption,
         };
         (decryptor, self.http_builder)
     }
@@ -228,6 +246,19 @@ impl AuthSequence {
 #[derive(Debug)]
 pub struct EncryptionProvider {
     context: AnyAuthContext,
+    require_encryption: bool,
+}
+
+#[derive(Debug)]
+pub enum EncryptionResult {
+    Encrypted { token: Vec<u8> },
+    EncryptionNotPerformed,
+}
+
+#[derive(Debug)]
+pub enum DecryptionResult {
+    Decrypted(Vec<u8>),
+    DecryptionNotPerformed,
 }
 
 impl EncryptionProvider {
@@ -235,8 +266,13 @@ impl EncryptionProvider {
         &mut self,
         data: &mut [u8],
         sequence_number: u32,
-    ) -> Result<Vec<u8>, PwshCoreError> {
-        match &mut self.context {
+    ) -> Result<EncryptionResult, PwshCoreError> {
+        if !self.require_encryption {
+            debug!("Encryption not required, skipping wrap");
+            return Ok(EncryptionResult::EncryptionNotPerformed);
+        }
+
+        let token = match &mut self.context {
             AnyAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
@@ -246,15 +282,22 @@ impl EncryptionProvider {
             AnyAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
-        }
+        }?;
+
+        Ok(EncryptionResult::Encrypted { token })
     }
 
     pub fn unwrap(
         &mut self,
         data: &mut [u8],
         sequence_number: u32,
-    ) -> Result<Vec<u8>, PwshCoreError> {
-        match &mut self.context {
+    ) -> Result<DecryptionResult, PwshCoreError> {
+        if !self.require_encryption {
+            debug!("Decryption not required, skipping unwrap");
+            return Ok(DecryptionResult::DecryptionNotPerformed);
+        }
+
+        let decrypted = match &mut self.context {
             AnyAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
             }
@@ -264,6 +307,8 @@ impl EncryptionProvider {
             AnyAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
             }
-        }
+        }?;
+
+        Ok(DecryptionResult::Decrypted(decrypted))
     }
 }

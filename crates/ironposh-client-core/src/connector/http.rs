@@ -1,7 +1,7 @@
 use std::{fmt::Display, net::IpAddr};
 
 
-pub const ENCRYPTION_BUNDARY: &'static str = "Encrypted Boundary";
+pub const ENCRYPTION_BOUNDARY: &'static str = "Encrypted Boundary";
 
 #[derive(Debug, Clone)]
 pub enum ServerAddress {

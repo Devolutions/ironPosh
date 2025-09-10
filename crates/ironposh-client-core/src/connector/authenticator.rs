@@ -214,6 +214,7 @@ impl SspiAuthenticator {
         response: Option<&HttpResponse>,
         context: &'ctx mut AuthContext<P>,
         sec_ctx_holder: &'builder mut Option<SecurityContextBuilder<'ctx, P>>,
+        require_encryption: bool,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
     where
         P: Sspi + SspiImpl,
@@ -224,19 +225,21 @@ impl SspiAuthenticator {
         context.clear_for_next_round();
         context.take_input(response)?;
 
+        let flag = if require_encryption {
+            debug!("encryption required for this session");
+            ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::INTEGRITY
+        } else {
+            debug!("encryption NOT required for this session");
+            ClientRequestFlags::empty()
+        };
+
         // Build the builder; wire inputs/outputs.
         let mut isc: SecurityContextBuilder<P> = context
             .provider
             .initialize_security_context()
             .with_credentials_handle(&mut *context.cred)
             .with_context_requirements(
-                // Request signing + sealing so WinRM permits session encryption.
-                ClientRequestFlags::ALLOCATE_MEMORY
-                    | ClientRequestFlags::MUTUAL_AUTH
-                    | ClientRequestFlags::INTEGRITY
-                    | ClientRequestFlags::CONFIDENTIALITY
-                    | ClientRequestFlags::REPLAY_DETECT
-                    | ClientRequestFlags::SEQUENCE_DETECT,
+                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH | flag,
             )
             .with_target_data_representation(DataRepresentation::Native)
             .with_target_name(&context.sspi_auth_config.target_name)
