@@ -230,9 +230,13 @@ impl SspiAuthenticator {
             .initialize_security_context()
             .with_credentials_handle(&mut *context.cred)
             .with_context_requirements(
-                // TODO: expose these flags to callers for tuning.
-                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH, // | ClientRequestFlags::CONFIDENTIALITY
-                                                                                       // | ClientRequestFlags::IDENTIFY,
+                // Request signing + sealing so WinRM permits session encryption.
+                ClientRequestFlags::ALLOCATE_MEMORY
+                    | ClientRequestFlags::MUTUAL_AUTH
+                    | ClientRequestFlags::INTEGRITY
+                    | ClientRequestFlags::CONFIDENTIALITY
+                    | ClientRequestFlags::REPLAY_DETECT
+                    | ClientRequestFlags::SEQUENCE_DETECT,
             )
             .with_target_data_representation(DataRepresentation::Native)
             .with_target_name(&context.sspi_auth_config.target_name)

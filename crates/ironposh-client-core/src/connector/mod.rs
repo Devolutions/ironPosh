@@ -453,7 +453,6 @@ impl Connector {
 
         let mut body = Vec::new();
         // Part 1 (metadata only)
-        // Part 1 (metadata only)
         body.extend_from_slice(format!("--{}\r\n", ENCRYPTION_BUNDARY).as_bytes());
         body.extend_from_slice(b"\tContent-Type: application/HTTP-SPNEGO-session-encrypted\r\n");
         body.extend_from_slice(
@@ -463,10 +462,13 @@ impl Connector {
             )
             .as_bytes(),
         );
+        // End of headers for part 1
+        body.extend_from_slice(b"\r\n");
 
         // Part 2 (binary)
-        body.extend_from_slice(b"--Encrypted Boundary\r\n");
+        body.extend_from_slice(format!("--{}\r\n", ENCRYPTION_BUNDARY).as_bytes());
         body.extend_from_slice(b"\tContent-Type: application/octet-stream\r\n");
+        // End of headers for part 2
         body.extend_from_slice(b"\r\n");
 
         // GSS wrap: 4‑byte LE length + token + sealed payload
@@ -474,7 +476,7 @@ impl Connector {
         body.extend_from_slice(&token);
         body.extend_from_slice(&data_bytes);
 
-        body.extend_from_slice(b"--Encrypted Boundary--\r\n");
+        body.extend_from_slice(format!("--{}--\r\n", ENCRYPTION_BUNDARY).as_bytes());
 
         Ok(HttpBody::Encrypted(body))
     }
