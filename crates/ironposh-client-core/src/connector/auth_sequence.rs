@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use sspi::{NegotiateConfig, ntlm::NtlmConfig};
-use tracing::debug;
 
 use crate::{
     PwshCoreError, SspiAuthConfig,
@@ -10,6 +9,7 @@ use crate::{
             AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
             SspiConfig, Token,
         },
+        encryption::EncryptionProvider,
         http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
 };
@@ -235,80 +235,8 @@ impl AuthSequence {
     }
 
     pub fn destruct_for_next_step(self) -> (EncryptionProvider, HttpBuilder) {
-        let decryptor = EncryptionProvider {
-            context: self.context,
-            require_encryption: self.require_encryption,
-        };
+        let decryptor = EncryptionProvider::new(self.context, self.require_encryption);
         (decryptor, self.http_builder)
     }
 }
 
-#[derive(Debug)]
-pub struct EncryptionProvider {
-    context: AnyAuthContext,
-    require_encryption: bool,
-}
-
-#[derive(Debug)]
-pub enum EncryptionResult {
-    Encrypted { token: Vec<u8> },
-    EncryptionNotPerformed,
-}
-
-#[derive(Debug)]
-pub enum DecryptionResult {
-    Decrypted(Vec<u8>),
-    DecryptionNotPerformed,
-}
-
-impl EncryptionProvider {
-    pub fn wrap(
-        &mut self,
-        data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<EncryptionResult, PwshCoreError> {
-        if !self.require_encryption {
-            debug!("Encryption not required, skipping wrap");
-            return Ok(EncryptionResult::EncryptionNotPerformed);
-        }
-
-        let token = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
-            }
-            AnyAuthContext::Kerberos(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
-            }
-            AnyAuthContext::Negotiate(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
-            }
-        }?;
-
-        Ok(EncryptionResult::Encrypted { token })
-    }
-
-    pub fn unwrap(
-        &mut self,
-        data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<DecryptionResult, PwshCoreError> {
-        if !self.require_encryption {
-            debug!("Decryption not required, skipping unwrap");
-            return Ok(DecryptionResult::DecryptionNotPerformed);
-        }
-
-        let decrypted = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
-            }
-            AnyAuthContext::Kerberos(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
-            }
-            AnyAuthContext::Negotiate(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
-            }
-        }?;
-
-        Ok(DecryptionResult::Decrypted(decrypted))
-    }
-}

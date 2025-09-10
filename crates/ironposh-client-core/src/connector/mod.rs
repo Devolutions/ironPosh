@@ -13,12 +13,11 @@ use crate::{
     PwshCoreError,
     connector::{
         // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
-        auth_sequence::{AuthConfig, AuthSequence, EncryptionProvider},
+        auth_sequence::{AuthConfig, AuthSequence},
         authenticator::Token,
         config::Authentication,
-        http::{
-            ENCRYPTION_BOUNDARY, HttpBody, HttpBuilder, HttpRequest, HttpResponse, ServerAddress,
-        },
+        encryption::EncryptionProvider,
+        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
         DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
@@ -31,6 +30,7 @@ pub mod active_session;
 pub mod auth_sequence;
 pub mod authenticator;
 pub mod config;
+pub mod encryption;
 pub mod http;
 
 #[derive(Debug, Clone)]
@@ -293,11 +293,23 @@ impl Connector {
                     crate::PwshCoreError::InvalidState("Expected a response in Connecting state")
                 })?;
 
+                debug!(
+                    status_code = response.status_code,
+                    headers_count = response.headers.len(),
+                    "Received response in Connecting state"
+                );
+
                 let body = response.body.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a body in Connecting state")
                 })?;
 
+                debug!(
+                    body_type = ?body,
+                    "Processing response body"
+                );
+
                 let body_string = self.decrypt_if_necessary(body)?;
+                debug!(decrypted_body = %body_string, "Decrypted body");
 
                 let mut runspace_pool = expect_shell_created.accept(body_string)?;
 
@@ -356,8 +368,8 @@ impl Connector {
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
                     let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
-                    let next_http_request =
-                        http_builder.post("/wsman", HttpBody::Xml(next_receive_request));
+                    let body = self.encrypt_if_necessary(next_receive_request)?;
+                    let next_http_request = http_builder.post("/wsman", body);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (
                         ConnectorState::Connected,
@@ -389,105 +401,45 @@ impl Connector {
             crate::PwshCoreError::InvalidState("No encryption provider available")
         })?;
 
-        // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
-        let plain_len = data.as_bytes().len();
-
-        debug!(
-            xml_to_encrypt = data.as_str(),
-            data_len = plain_len,
-            "Encrypting XML body"
-        );
-
-        // Keep `data` intact so we can return it if wrap is skipped; encrypt a copy of the bytes
-        let mut sealed_bytes = data.as_bytes().to_vec();
-
-        // Perform SSPI/NTLM sealing
-        let token = match enc.wrap(&mut sealed_bytes, next_sequence_number)? {
-            auth_sequence::EncryptionResult::Encrypted { token } => token,
-            auth_sequence::EncryptionResult::EncryptionNotPerformed => {
-                debug!("Encryption not performed, returning original XML body");
-                return Ok(HttpBody::Xml(data));
-            }
-        };
-
-        // 4-byte little-endian length prefix for the verifier token
-        let token_len_le = (token.len() as u32).to_le_bytes();
-
-        // (Capacity hint only)
-        let body_len = 128 + 64 + token.len() + sealed_bytes.len() + ENCRYPTION_BOUNDARY.len() * 4;
-
-        debug!(
-            encrypted_len = sealed_bytes.len(),
-            token_len = token.len(),
-            body_len,
-            "Assembling encrypted HTTP body"
-        );
-
-        // Assemble the multipart/encrypted body EXACTLY (CRLF everywhere)
-        let mut body: Vec<u8> = Vec::with_capacity(body_len);
-
-        // Part 1 — metadata only
-        write_str(&mut body, "--");
-        write_str(&mut body, ENCRYPTION_BOUNDARY);
-        write_crlf(&mut body);
-        write_str(
-            &mut body,
-            "Content-Type: application/HTTP-SPNEGO-session-encrypted",
-        );
-        write_crlf(&mut body);
-        write_str(
-            &mut body,
-            "OriginalContent: type=application/soap+xml;charset=UTF-8;Length=",
-        );
-        write_str(&mut body, &plain_len.to_string());
-        write_crlf(&mut body); // end of headers for part 1 (no body)
-
-        // Part 2 — binary payload (security trailer + ciphertext)
-        write_str(&mut body, "--");
-        write_str(&mut body, ENCRYPTION_BOUNDARY);
-        write_crlf(&mut body);
-        write_str(&mut body, "Content-Type: application/octet-stream");
-        // IMPORTANT: do NOT add Content-Transfer-Encoding
-        write_crlf(&mut body); // end of headers for part 2
-
-        // 4-byte length + token + sealed data
-        body.extend_from_slice(&token_len_le);
-        body.extend_from_slice(&token);
-        body.extend_from_slice(&sealed_bytes);
-
-        // Closing boundary (no extra CRLF before it)
-        write_str(&mut body, "--");
-        write_str(&mut body, ENCRYPTION_BOUNDARY);
-        write_str(&mut body, "--");
-        write_crlf(&mut body);
-
-        Ok(HttpBody::Encrypted(body))
+        enc.encrypt(data, next_sequence_number)
     }
 
+    #[instrument(skip(self, data), fields(sequence_number))]
     fn decrypt_if_necessary(&mut self, data: HttpBody) -> Result<String, crate::PwshCoreError> {
-        let mut to_decrypt = match data {
-            HttpBody::Encrypted(to_decrypt) => to_decrypt,
-            _ => return Ok(data.as_str()?.to_owned()),
-        };
         let next_sequence_number = self.next_sequence_number();
-        let Some(decryptor) = &mut self.encryption_provider else {
-            return Err(crate::PwshCoreError::InvalidState(
-                "No decryptor available for decryption",
-            ));
-        };
+        tracing::Span::current().record("sequence_number", next_sequence_number);
 
-        match decryptor.unwrap(&mut to_decrypt, next_sequence_number)? {
-            auth_sequence::DecryptionResult::Decrypted(items) => {
-                String::from_utf8(items).map_err(|e| {
-                    crate::PwshCoreError::InternalError(format!("Failed to decode body: {}", e))
-                })
+        debug!(
+            body_type = ?data,
+            sequence_number = next_sequence_number,
+            "Starting decryption process"
+        );
+
+        let decryptor =
+            self.encryption_provider
+                .as_mut()
+                .ok_or(crate::PwshCoreError::InvalidState(
+                    "No decryptor available for decryption",
+                ))?;
+
+        let result = decryptor.decrypt(data, next_sequence_number);
+
+        match &result {
+            Ok(decrypted) => {
+                debug!(
+                    decrypted_len = decrypted.len(),
+                    "Decryption completed successfully"
+                );
             }
-            auth_sequence::DecryptionResult::DecryptionNotPerformed => {
-                return Err(crate::PwshCoreError::InvalidState(
-                    "Decryption was not performed",
-                ));
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    "Decryption failed"
+                );
             }
         }
+
+        result
     }
 
     fn next_sequence_number(&mut self) -> u32 {
@@ -496,13 +448,4 @@ impl Connector {
         self.sequence_number += 1;
         result
     }
-}
-
-#[inline]
-fn write_str(buf: &mut Vec<u8>, s: &str) {
-    buf.extend_from_slice(s.as_bytes());
-}
-#[inline]
-fn write_crlf(buf: &mut Vec<u8>) {
-    buf.extend_from_slice(b"\r\n");
 }

@@ -9,8 +9,8 @@ use sspi::generator::{Generator, GeneratorState};
 use sspi::{
     BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation,
     EncryptionFlags, Error, InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate,
-    NegotiateConfig, NetworkRequest, Ntlm, SecurityBuffer, SecurityBufferRef, SecurityStatus, Sspi,
-    SspiImpl,
+    NegotiateConfig, NetworkRequest, Ntlm, SecurityBuffer, SecurityBufferFlags, SecurityBufferRef,
+    SecurityStatus, Sspi, SspiImpl,
 };
 use tracing::{debug, instrument};
 
@@ -347,7 +347,8 @@ impl SspiAuthenticator {
         debug!(?size_result, "SSPI QueryContextSizes");
         let mut token_buffer = vec![0u8; size_result.security_trailer as usize];
         let sec_token_buffer = SecurityBufferRef::token_buf(&mut token_buffer);
-        let sec_data_buffer = SecurityBufferRef::data_buf(data);
+        let sec_data_buffer =
+            SecurityBufferRef::data_buf(data).with_flags(SecurityBufferFlags::NONE);
 
         let mut buffers = [sec_token_buffer, sec_data_buffer];
 
@@ -363,21 +364,89 @@ impl SspiAuthenticator {
         Ok(token_buffer)
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip(provider, encrypted_data), fields(data_len = encrypted_data.len(), sequence_number = sequence_number))]
     pub fn unwrap<P: Sspi + SspiImpl>(
         provider: &mut P,
         encrypted_data: &mut [u8],
         sequence_number: u32,
     ) -> Result<Vec<u8>, PwshCoreError> {
+        debug!("SSPI unwrap called with stream buffer only (legacy mode)");
+        let mut to_be_unwrapped = Vec::new();
         let sec_data_buffer = SecurityBufferRef::stream_buf(encrypted_data);
+        let data_buffer = SecurityBufferRef::data_buf(to_be_unwrapped.as_mut_slice());
+        let mut buffers = [sec_data_buffer, data_buffer];
 
-        let mut buffers = [sec_data_buffer];
+        debug!(
+            buffer_count = buffers.len(),
+            buffer_type = ?buffers[0].buffer_type(),
+            "Calling SSPI decrypt_message with buffers"
+        );
 
-        let _ = provider.decrypt_message(&mut buffers, sequence_number)?;
+        let result = provider.decrypt_message(&mut buffers, sequence_number);
 
-        let decrypted_buffer = buffers[0].data().to_vec();
+        match result {
+            Ok(_) => {
+                let decrypted_buffer = buffers[1].data().to_vec();
+                debug!(
+                    decrypted_len = decrypted_buffer.len(),
+                    "SSPI decrypt_message succeeded"
+                );
+                Ok(decrypted_buffer)
+            }
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    "SSPI decrypt_message failed"
+                );
+                Err(e.into())
+            }
+        }
+    }
 
-        return Ok(decrypted_buffer);
+    #[instrument(skip(provider, token, encrypted_data), fields(token_len = token.len(), data_len = encrypted_data.len(), sequence_number = sequence_number))]
+    pub fn unwrap_with_token<P: Sspi + SspiImpl>(
+        provider: &mut P,
+        token: &[u8],
+        encrypted_data: &mut [u8],
+        sequence_number: u32,
+    ) -> Result<Vec<u8>, PwshCoreError> {
+        debug!("SSPI unwrap called with separate token and data buffers");
+
+        // Create a mutable copy of the token for the security buffer
+        let mut token_buffer = token.to_vec();
+
+        // Create security buffers: one for the token (signature) and one for the data
+        let sec_token_buffer = SecurityBufferRef::token_buf(&mut token_buffer);
+        let sec_data_buffer = SecurityBufferRef::data_buf(encrypted_data);
+
+        let mut buffers = [sec_token_buffer, sec_data_buffer];
+
+        debug!(
+            buffer_count = buffers.len(),
+            token_buffer_type = ?buffers[0].buffer_type(),
+            data_buffer_type = ?buffers[1].buffer_type(),
+            "Calling SSPI decrypt_message with token and data buffers"
+        );
+
+        let result = provider.decrypt_message(&mut buffers, sequence_number);
+
+        match result {
+            Ok(_) => {
+                let decrypted_buffer = buffers[1].data().to_vec();
+                debug!(
+                    decrypted_len = decrypted_buffer.len(),
+                    "SSPI decrypt_message succeeded with token/data buffers"
+                );
+                Ok(decrypted_buffer)
+            }
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    "SSPI decrypt_message failed with token/data buffers"
+                );
+                Err(e.into())
+            }
+        }
     }
 }
 
