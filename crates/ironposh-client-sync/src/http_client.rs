@@ -1,7 +1,51 @@
 use crate::connection::{HttpClient, KeepAlive};
 use ironposh_client_core::connector::http::HttpBody;
 use std::cell::RefCell;
+use std::io::Read;
 use tracing::{debug, error, info, info_span, instrument};
+
+/// Determine the appropriate HttpBody variant based on the response Content-Type header
+fn determine_body_type_from_headers(headers: &[(String, String)]) -> fn(ureq::Response) -> Result<HttpBody, anyhow::Error> {
+    // Find the content-type header
+    let content_type = headers
+        .iter()
+        .find(|(name, _)| name.to_lowercase() == "content-type")
+        .map(|(_, value)| value.to_lowercase())
+        .unwrap_or_default();
+
+    if content_type.contains("multipart/encrypted") {
+        // Encrypted response - read as binary
+        |response| {
+            debug!("reading encrypted response as binary data");
+            let mut bytes = Vec::new();
+            response.into_reader().read_to_end(&mut bytes).map_err(|e| {
+                error!(error=%e, "failed to read binary response body");
+                anyhow::Error::from(e)
+            })?;
+            Ok(HttpBody::Encrypted(bytes))
+        }
+    } else if content_type.contains("application/soap+xml") {
+        // XML response - read as text
+        |response| {
+            debug!("reading XML response as text");
+            let text = response.into_string().map_err(|e| {
+                error!(error=%e, "failed to read XML response body");
+                anyhow::Error::from(e)
+            })?;
+            Ok(HttpBody::Xml(text))
+        }
+    } else {
+        // Default to text
+        |response| {
+            debug!("reading response as text");
+            let text = response.into_string().map_err(|e| {
+                error!(error=%e, "failed to read text response body");
+                anyhow::Error::from(e)
+            })?;
+            Ok(HttpBody::Text(text))
+        }
+    }
+}
 
 pub struct UreqHttpClient {
     client: RefCell<Option<ureq::Agent>>,
@@ -90,10 +134,10 @@ impl UreqHttpClient {
                             .map(|value| (name.clone(), value.to_string()))
                     })
                     .collect();
-                let body = response.into_string().map_err(|e| {
-                    error!(error=%e, "failed to read response body");
-                    e
-                })?;
+                
+                // Determine body type from headers and read accordingly
+                let body_reader = determine_body_type_from_headers(&headers);
+                let body = body_reader(response)?;
                 (status, headers, body)
             }
             Err(ureq::Error::Status(status, response)) => {
@@ -108,7 +152,10 @@ impl UreqHttpClient {
                             .map(|value| (name.clone(), value.to_string()))
                     })
                     .collect();
-                let body = response.into_string().unwrap_or_default();
+                
+                // Determine body type from headers and read accordingly
+                let body_reader = determine_body_type_from_headers(&headers);
+                let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
                 (status, headers, body)
             }
             Err(e) => {
@@ -123,9 +170,7 @@ impl UreqHttpClient {
         Ok(ironposh_client_core::connector::http::HttpResponse {
             status_code: status_code,
             headers,
-            body: Some(ironposh_client_core::connector::http::HttpBody::Text(
-                response_body,
-            )),
+            body: Some(response_body),
         })
     }
 }
@@ -207,10 +252,10 @@ pub fn make_http_request(
                         .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect();
-            let body = response.into_string().map_err(|e| {
-                error!(error=%e, "failed to read response body");
-                e
-            })?;
+            
+            // Determine body type from headers and read accordingly
+            let body_reader = determine_body_type_from_headers(&headers);
+            let body = body_reader(response)?;
             (status, headers, body)
         }
         Err(ureq::Error::Status(status, response)) => {
@@ -225,7 +270,10 @@ pub fn make_http_request(
                         .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect();
-            let body = response.into_string().unwrap_or_default();
+            
+            // Determine body type from headers and read accordingly
+            let body_reader = determine_body_type_from_headers(&headers);
+            let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
             (status, headers, body)
         }
         Err(e) => {
@@ -240,8 +288,6 @@ pub fn make_http_request(
     Ok(ironposh_client_core::connector::http::HttpResponse {
         status_code: status_code,
         headers,
-        body: Some(ironposh_client_core::connector::http::HttpBody::Text(
-            response_body,
-        )),
+        body: Some(response_body),
     })
 }
