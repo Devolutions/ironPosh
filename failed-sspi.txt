@@ -16,6 +16,7 @@ base64 = "0.22.1"
 tracing = "0.1.41"
 sspi = { path = "C:\\dev\\sspi-rs", features = ["ring"] }
 url = "2.5.7"
+whoami = "1.6.1"
 # sspi = { version = "0.16.1", features = ["ring"] }
 
 
@@ -44,7 +45,7 @@ fn main() -> Result<()> {
     let username = ClientUserName::new("administrator", None)?;
     let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
     let sspi_config = SspiAuthConfig::Kerberos {
-        target_name: "HTTP/IT-HELP.DC.ad.it-help.ninja".into(),
+        target: "HTTP/IT-HELP.DC.ad.it-help.ninja".into(),
         identity,
         kerberos_config: KerberosConfig {
             kdc_url: Some(Url::parse("tcp://IT-HELP.DC.ad.it-help.ninja:88")?),
@@ -119,6 +120,155 @@ pub fn send(packet: sspi::generator::NetworkRequest) -> Result<Vec<u8>> {
     Ok(Vec::new())
 }
 
+
+--- File: crates/ironposh-client-core/examples/borrow_diagram.md ---
+# Borrow Checker Issue Diagram
+
+## The Lifetime and Borrow Relationships
+
+```
+LOOP ITERATION 1:
+================
+
+Stack Frame                    Heap
+-----------                    ----
+
+┌─────────────────┐
+│ context         │───────────▶ ┌──────────────┐
+│ (owns data)     │             │ Vec<u8>      │
+└─────────────────┘             │ [1, 2, 3]    │
+         ▲                      └──────────────┘
+         │ &'a mut                      ▲
+         │                              │
+┌─────────────────┐                     │ &'a mut
+│ holder          │                     │
+│ Option<Builder> │───────▶ ┌──────────────────┐
+└─────────────────┘         │ Builder<'a>      │
+         ▲                  │ ┌──────────────┐ │
+         │ &'b mut          │ │ _data: ──────┼─┘
+         │                  │ └──────────────┘ │
+         │                  └──────────────────┘
+         │                           ▲
+         │                           │ &'a mut
+┌─────────────────┐                  │
+│ _gen            │         ┌──────────────────┐
+│ Generator<'a>   │────────▶│ Generator<'a>    │
+└─────────────────┘         │ ┌──────────────┐ │
+                            │ │ _builder_ref:─┼─┘
+                            │ └──────────────┘ │
+                            └──────────────────┘
+
+Lifetimes:
+- 'a: tied to &mut context borrow
+- 'b: tied to &mut holder borrow  
+- constraint: 'b: 'a (holder outlives context borrow)
+
+PROBLEM: _gen has type Generator<'a>, so Rust thinks:
+- The 'a lifetime (from &mut context) is still "in use"
+- Even though we don't access _gen, its mere existence keeps the borrow alive
+
+
+LOOP ITERATION 2 (ATTEMPTING):
+===============================
+
+┌─────────────────┐
+│ context         │ ← ❌ Can't borrow again! Previous 'a still "active"
+└─────────────────┘    
+
+┌─────────────────┐
+│ holder          │ ← ❌ Can't borrow again! Previous 'b still "active"
+└─────────────────┘    
+
+The compiler sees:
+- _gen from iteration 1 has lifetime 'a (tied to context borrow)
+- _gen is still in scope (even if unused)
+- Therefore, can't create new borrows of context or holder
+```
+
+## Why the Lifetime Persists
+
+```rust
+// Simplified view of what the compiler sees:
+
+loop {
+    // Iteration 1
+    let _gen: Generator<'a> = {
+        // 'a begins here (borrowing context)
+        let builder = Builder { _data: &mut context.data };
+        *holder = Some(builder);
+        Generator { _builder_ref: holder.as_mut().unwrap() }
+    };
+    // 'a is STILL ACTIVE here because _gen: Generator<'a> exists
+    
+    // Iteration 2
+    let _gen2 = create_generator(&mut context, &mut holder);
+    //                           ^^^^^^^^^^^^  ^^^^^^^^^^^ 
+    //                           ERROR: already borrowed in iteration 1!
+}
+```
+
+## The Working Pattern (Immediate Consumption)
+
+```
+┌─────────────────┐
+│ context         │───────▶ data
+└─────────────────┘
+         ▲
+         │ &mut (temporary)
+         │
+    ┌────▼──────┐
+    │ builder   │ (created)
+    └────┬──────┘
+         │
+    ┌────▼──────┐
+    │ generator │ (created)
+    └────┬──────┘
+         │
+    ┌────▼──────────────┐
+    │ resolve_to_result │ (CONSUMES generator)
+    └────┬──────────────┘
+         │
+    ┌────▼──────┐
+    │   Result  │ (owned data, no borrows!)
+    └───────────┘
+    
+All borrows released! ✓
+Next iteration can borrow freely
+```
+
+## The Problem Pattern (Suspended Generator)
+
+```
+┌─────────────────┐
+│ context         │───────▶ data
+└─────────────────┘
+         ▲
+         │ &mut (PERSISTENT via 'a)
+         │
+    ┌────▼──────┐
+    │ builder   │ (stored in holder)
+    └────┬──────┘
+         │
+    ┌────▼──────┐
+    │ generator │ (returned, NOT consumed)
+    └───────────┘
+         │
+         ▼
+    "Lifetime 'a persists..."
+    "Can't borrow context again!"
+```
+
+## Summary
+
+The issue is that:
+1. **Generator<'a>** type carries the lifetime 'a
+2. Lifetime 'a is tied to the **&mut context** borrow
+3. Even if unused, the generator's existence keeps 'a "alive"
+4. Rust won't allow new mutable borrows while 'a is active
+5. This prevents the next loop iteration from borrowing context
+
+The working example avoids this by immediately consuming the generator,
+which releases all borrows before the next iteration.
 
 --- File: crates/ironposh-client-core/examples/borrow_issue.rs ---
 struct Builder<'a> {
@@ -206,7 +356,7 @@ fn main() -> Result<()> {
     let mut context = AuthContext::new_ntlm(
         identity,
         ironposh_client_core::SspiAuthConfig::Negotiate {
-            target_name: (),
+            target: (),
             identity: (),
             kerberos_config: (),
         },
@@ -682,7 +832,8 @@ use crate::{
     PwshCoreError, SspiAuthConfig,
     connector::{
         authenticator::{
-            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, Token,
+            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
+            SspiConfig, Token,
         },
         http::{HttpBuilder, HttpRequest, HttpResponse},
     },
@@ -698,6 +849,12 @@ pub struct SecurityContextBuilderHolder<'ctx> {
     ntlm: Option<SecurityContextBuilder<'ctx, sspi::ntlm::Ntlm>>,
     kerberos: Option<SecurityContextBuilder<'ctx, sspi::kerberos::Kerberos>>,
     negotiate: Option<SecurityContextBuilder<'ctx, sspi::negotiate::Negotiate>>,
+}
+
+impl<'ctx> Default for SecurityContextBuilderHolder<'ctx> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'ctx> SecurityContextBuilderHolder<'ctx> {
@@ -734,58 +891,59 @@ impl<'ctx> SecurityContextBuilderHolder<'ctx> {
 
 impl AnyAuthContext {
     pub fn new(sspi_config: SspiAuthConfig) -> Result<Self, crate::PwshCoreError> {
-        match &sspi_config {
-            SspiAuthConfig::NTLM { identity, .. } => {
-                AuthContext::new_ntlm(identity.clone(), sspi_config).map(AnyAuthContext::Ntlm)
-            }
+        match sspi_config {
+            SspiAuthConfig::NTLM {
+                identity,
+                target: target_name,
+            } => AuthContext::new_ntlm(identity, SspiConfig::new(target_name))
+                .map(AnyAuthContext::Ntlm),
+
             SspiAuthConfig::Kerberos {
                 identity,
                 kerberos_config,
-                target_name: _,
+                target: target_name,
             } => AuthContext::new_kerberos(
-                identity.clone(),
-                sspi::KerberosConfig {
-                    kdc_url: kerberos_config.kdc_url.clone(),
-                    client_computer_name: kerberos_config.client_computer_name.clone(),
-                },
-                sspi_config,
+                identity,
+                kerberos_config.into(),
+                SspiConfig::new(target_name),
             )
             .map(AnyAuthContext::Kerberos),
+
             SspiAuthConfig::Negotiate {
                 identity,
                 kerberos_config,
-                target_name: _,
+                target: target_name,
             } => {
-                if let Some(kerberos_config) = kerberos_config {
-                    let client_computer_name = kerberos_config
-                        .client_computer_name
-                        .clone()
-                        .unwrap_or("IronWinRMClient".to_string());
+                let sspi_config = SspiConfig::new(target_name);
 
-                    AuthContext::new_negotiate(
-                        identity.clone(),
+                let client_computer_name = whoami::fallible::hostname().map_err(|e| {
+                    crate::PwshCoreError::InternalError(format!(
+                        "Failed to get local hostname: {e}"
+                    ))
+                })?;
+
+                let config = match kerberos_config {
+                    Some(kerberos_config) => {
+                        let kerberos_config: sspi::kerberos::config::KerberosConfig =
+                            kerberos_config.into();
+
                         NegotiateConfig::from_protocol_config(
-                            Box::new(sspi::KerberosConfig {
-                                kdc_url: kerberos_config.kdc_url.clone(),
-                                client_computer_name: kerberos_config.client_computer_name.clone(),
-                            }),
+                            Box::new(kerberos_config),
                             client_computer_name,
-                        ),
-                        sspi_config,
-                    )
-                    .map(AnyAuthContext::Negotiate)
-                } else {
-                    let client_computer_name = "IronWinRMClient".to_string();
-                    AuthContext::new_negotiate(
-                        identity.clone(),
+                        )
+                    }
+                    None => {
+                        let ntlm_config = NtlmConfig::new(client_computer_name.clone());
+
                         NegotiateConfig::from_protocol_config(
-                            Box::new(NtlmConfig::default()),
+                            Box::new(ntlm_config),
                             client_computer_name,
-                        ),
-                        sspi_config,
-                    )
+                        )
+                    }
+                };
+
+                AuthContext::new_negotiate(identity, config, sspi_config)
                     .map(AnyAuthContext::Negotiate)
-                }
             }
         }
     }
@@ -823,7 +981,7 @@ impl AuthSequence {
     }
 
     pub fn try_init_sec_context<'ctx, 'builder, 'generator>(
-        self: &'ctx mut Self,
+        &'ctx mut self,
         response: Option<&HttpResponse<String>>,
         sec_ctx_holder: &'builder mut SecurityContextBuilderHolder<'ctx>,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
@@ -883,6 +1041,17 @@ impl AuthSequence {
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
         }
     }
+
+    pub fn destruct_for_next_step(self) -> (Decryptor, HttpBuilder) {
+        let decryptor = Decryptor {
+            context: self.context,
+        };
+        (decryptor, self.http_builder)
+    }
+}
+
+pub struct Decryptor {
+    context: AnyAuthContext,
 }
 
 
@@ -895,16 +1064,16 @@ use sspi::builders::{
     WithTargetDataRepresentation,
 };
 use sspi::generator::{Generator, GeneratorState};
-use sspi::kerberos::config;
 use sspi::{
     BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation, Error,
     InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate, NegotiateConfig,
     NetworkRequest, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
 };
+use tracing::{debug, instrument};
 
+use crate::PwshCoreError;
 use crate::connector::http::HttpResponse;
 use crate::credentials::ClientAuthIdentity;
-use crate::{PwshCoreError, SspiAuthConfig};
 
 pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     'a,
@@ -915,8 +1084,34 @@ pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     WithOutput,
 >;
 
+#[derive(Debug)]
+pub struct SspiConfig {
+    target_name: String,
+}
+
+impl SspiConfig {
+    pub fn new(target: String) -> Self {
+        if target.trim().starts_with("HTTP/") {
+            // OK
+        } else {
+            // Assume it's a bare hostname, prepend "HTTP/"
+            let target = format!("HTTP/{target}");
+            return SspiConfig {
+                target_name: target,
+            };
+        };
+
+        SspiConfig {
+            target_name: target,
+        }
+    }
+}
+
 /// Caller-owned "Context" the generator borrows.
 /// Holds provider, credential handle, in/out buffers, and the ISC builder for the current round.
+/// The reason we need to hold the builder is that, during the generator suspension, the generator holds
+/// a mutable borrow to the future that holds both the builder and the mut ref of provider, and we need to keep the
+/// context around during the suspension.
 #[derive(Debug)]
 pub struct AuthContext<P: Sspi> {
     pub(crate) provider: P,
@@ -925,11 +1120,11 @@ pub struct AuthContext<P: Sspi> {
     out: [SecurityBuffer; 1],
     // Keep the builder + input buffer alive for the duration of the suspension (generator borrows them).
     inbuf: Option<[SecurityBuffer; 1]>,
-    sspi_auth_config: SspiAuthConfig,
+    sspi_auth_config: SspiConfig,
 }
 
 impl AuthContext<Ntlm> {
-    pub fn new_ntlm(id: ClientAuthIdentity, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
+    pub fn new_ntlm(id: ClientAuthIdentity, config: SspiConfig) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id, config)
     }
 }
@@ -938,7 +1133,7 @@ impl AuthContext<Negotiate> {
     pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
-        sspi_config: SspiAuthConfig,
+        sspi_config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Negotiate::new_client(config)?,
@@ -951,11 +1146,11 @@ impl AuthContext<Negotiate> {
 impl AuthContext<Kerberos> {
     pub fn new_kerberos(
         id: ClientAuthIdentity,
-        config: KerberosConfig,
-        sspi_config: SspiAuthConfig,
+        kerberos_config: KerberosConfig,
+        sspi_config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
-            Kerberos::new_client_from_config(config)?,
+            Kerberos::new_client_from_config(kerberos_config)?,
             Credentials::AuthIdentity(id.into_inner()),
             sspi_config,
         )
@@ -966,7 +1161,11 @@ impl<P> AuthContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
-    pub fn new_with_credential(mut provider: P, id: Credentials, config: SspiAuthConfig) -> Result<Self, PwshCoreError> {
+    pub fn new_with_credential(
+        mut provider: P,
+        id: Credentials,
+        config: SspiConfig,
+    ) -> Result<Self, PwshCoreError> {
         let acq = provider
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
@@ -990,7 +1189,7 @@ where
     pub fn new_with_identity(
         mut provider: P,
         id: ClientAuthIdentity,
-        config: SspiAuthConfig,
+        config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         let id: sspi::AuthIdentity = id.into_inner();
         let acq = provider
@@ -1024,7 +1223,7 @@ where
     fn take_input(&mut self, response: Option<&HttpResponse<String>>) -> Result<(), PwshCoreError> {
         if let Some(resp) = response {
             let server_token = parse_negotiate_token(&resp.headers)
-                .ok_or_else(|| PwshCoreError::Auth("no Negotiate token"))?;
+                .ok_or(PwshCoreError::Auth("no Negotiate token"))?;
             self.inbuf = Some([SecurityBuffer::new(server_token, BufferType::Token)]);
         }
         Ok(())
@@ -1067,6 +1266,7 @@ impl SspiAuthenticator {
     ///
     /// We mutate `self.state` in place (no `mem::take`), so early returns don't
     /// strand the state as `Taken`. This avoids hard-to-debug invalid-state errors.
+    #[instrument(skip(context, sec_ctx_holder))]
     pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
         response: Option<&HttpResponse<String>>,
         context: &'ctx mut AuthContext<P>,
@@ -1076,6 +1276,7 @@ impl SspiAuthenticator {
         P: Sspi + SspiImpl,
         'ctx: 'builder,
         'builder: 'generator,
+        <P as SspiImpl>::CredentialsHandle: Debug,
     {
         context.clear_for_next_round();
         context.take_input(response)?;
@@ -1085,17 +1286,19 @@ impl SspiAuthenticator {
             .provider
             .initialize_security_context()
             .with_credentials_handle(&mut *context.cred)
-            .with_target_name(context.sspi_auth_config.target_name())
             .with_context_requirements(
                 // TODO: expose these flags to callers for tuning.
-                ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
+                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH,
             )
             .with_target_data_representation(DataRepresentation::Native)
+            .with_target_name(&context.sspi_auth_config.target_name)
             .with_output(&mut context.out);
 
         if let Some(input_buffer) = &mut context.inbuf {
             isc = isc.with_input(input_buffer);
         }
+
+        debug!(?isc, "calling SSPI InitializeSecurityContext");
 
         *sec_ctx_holder = Some(isc);
 
@@ -1106,6 +1309,7 @@ impl SspiAuthenticator {
 
         match generator.start() {
             GeneratorState::Suspended(request) => {
+                debug!("SSPI generator suspended, need to send packet to server");
                 // We have to suspend to send the packet to the server.
                 Ok(SecContextMaybeInit::RunGenerator {
                     packet: request,
@@ -1113,6 +1317,7 @@ impl SspiAuthenticator {
                 })
             }
             GeneratorState::Completed(init_sec_context_res) => {
+                debug!("SSPI InitializeSecurityContext completed immediately");
                 // Do NOT touch `out` here; `isc` still holds &mut out.
                 // Defer token extraction to next call.
                 let init_sec_context_res = init_sec_context_res?;
@@ -1128,11 +1333,17 @@ impl SspiAuthenticator {
     ///
     /// We set the state to `ProcessInitializedContextPending` on completion, and only in the
     /// *next* call to `step` will we drop the builder and extract the token.
+    #[instrument(skip_all)]
     pub fn resume<'a>(
         generator_holder: GeneratorHolder<'a>,
         kdc_response: Vec<u8>,
     ) -> Result<SecContextMaybeInit<'a>, PwshCoreError> {
         let mut generator = generator_holder.generator;
+
+        debug!(
+            kdc_response_length = kdc_response.len(),
+            "resuming SSPI generator with KDC response"
+        );
 
         match generator.resume(Ok(kdc_response)) {
             GeneratorState::Suspended(request) => Ok(SecContextMaybeInit::RunGenerator {
@@ -1149,8 +1360,9 @@ impl SspiAuthenticator {
         }
     }
 
-    pub fn process_initialized_sec_context<'a, P: Sspi>(
-        furniture: &'a mut AuthContext<P>,
+    #[instrument(skip_all)]
+    pub fn process_initialized_sec_context<P: Sspi>(
+        furniture: &mut AuthContext<P>,
         sec_context: SecContextInit,
     ) -> Result<ActionReqired, PwshCoreError>
     where
@@ -1158,6 +1370,8 @@ impl SspiAuthenticator {
     {
         let produced = std::mem::take(&mut furniture.out[0].buffer);
         let token = token_header_from(&produced).map(Token);
+
+        debug!(status=?sec_context.init_sec_context_res.status, "SSPI InitializeSecurityContext completed");
 
         match sec_context.init_sec_context_res.status {
             SecurityStatus::ContinueNeeded => Ok(ActionReqired::TryInitSecContextAgain {
@@ -1198,11 +1412,9 @@ fn parse_negotiate_token(headers: &[(String, String)]) -> Option<Vec<u8>> {
             if let Some(rest) = value
                 .strip_prefix("Negotiate ")
                 .or_else(|| value.strip_prefix("negotiate "))
-            {
-                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) {
+                && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) {
                     return Some(bytes);
                 }
-            }
         }
     }
     None
@@ -1218,37 +1430,34 @@ pub struct KerberosConfig {
     pub kdc_url: Option<Url>,
 
     /// Optional client computer name. If not set, the local computer name will be used.
-    pub client_computer_name: Option<String>,
+    pub client_computer_name: String,
+}
+
+impl From<KerberosConfig> for sspi::KerberosConfig {
+    fn from(val: KerberosConfig) -> Self {
+        sspi::KerberosConfig {
+            kdc_url: val.kdc_url,
+            client_computer_name: Some(val.client_computer_name),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum SspiAuthConfig {
     NTLM {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
     },
     Kerberos {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
         kerberos_config: KerberosConfig,
     },
     Negotiate {
-        target_name: String,
+        target: String,
         identity: crate::credentials::ClientAuthIdentity,
         kerberos_config: Option<KerberosConfig>,
     },
-}
-
-impl SspiAuthConfig {
-
-    pub(crate) fn target_name(&self) -> &str {
-        match self {
-            SspiAuthConfig::NTLM { target_name, .. } => target_name,
-            SspiAuthConfig::Kerberos { target_name, .. } => target_name,
-            SspiAuthConfig::Negotiate { target_name, .. } => target_name,
-        }
-    }
-    
 }
 
 #[derive(Debug, Clone)]
@@ -1280,7 +1489,6 @@ impl ServerAddress {
             ))
         }
     }
-    
 }
 
 impl Display for ServerAddress {
@@ -1456,7 +1664,8 @@ use crate::{
     connector::{
         // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
         auth_sequence::AuthSequence,
-        config::{Authentication, SspiAuthConfig},
+        authenticator::Token,
+        config::Authentication,
         http::{HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
     },
     runspace_pool::{
@@ -1588,7 +1797,7 @@ impl Connector {
 
     pub fn authenticate(
         &mut self,
-        last_token: Option<String>,
+        last_token: Option<Token>,
         mut http_builder: HttpBuilder,
     ) -> Result<HttpRequest<String>, crate::PwshCoreError> {
         match self.state {
@@ -1601,7 +1810,7 @@ impl Connector {
         };
 
         if let Some(token) = last_token {
-            http_builder.with_auth_header(token);
+            http_builder.with_auth_header(token.0);
         }
 
         let connection = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
@@ -1624,8 +1833,8 @@ impl Connector {
     }
 
     #[instrument(skip(self, server_response), name = "Connector::step")]
-    pub fn step<'conn, 'auth>(
-        &'conn mut self,
+    pub fn step<'auth>(
+        &mut self,
         server_response: Option<HttpResponse<String>>,
     ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
@@ -1666,7 +1875,7 @@ impl Connector {
                         let auth_header = format!(
                             "Basic {}",
                             base64::engine::general_purpose::STANDARD
-                                .encode(format!("{}:{}", username, password))
+                                .encode(format!("{username}:{password}"))
                         );
 
                         http_builder.with_auth_header(auth_header);
@@ -3108,10 +3317,12 @@ pub enum PwshCoreError {
 
     #[error("Authentication error: {0}")]
     Auth(&'static str),
-    
 
     #[error("Invalid server address: {0}")]
     InvalidServerAddress(&'static str),
+
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 
@@ -5015,6 +5226,8 @@ clap = { version = "4.5", features = ["derive"] }
 uuid = { version = "1.18.0", features = ["v4"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
+byteorder = "1.5.0"
+whoami = "1.6.1"
 
 
 
@@ -5059,7 +5272,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        default_value = "Administrator",
+        default_value = "Administrator@ad.it-help.ninja",
         help = "Username for authentication"
     )]
     pub username: String,
@@ -5077,7 +5290,7 @@ pub struct Args {
         short,
         long,
         help = "Optional domain for authentication",
-        default_value = "ad.it-help.ninja"
+        default_value = ""
     )]
     pub domain: String,
 
@@ -5087,7 +5300,7 @@ pub struct Args {
     /// Optional KDC URL for Kerberos authentication
     #[arg(
         long,
-        help = "KDC URL for Kerberos authentication (e.g., ldap://dc.domain.com:389)"
+        help = "KDC URL for Kerberos authentication (e.g., IT-HELP-DC.ad.it-help.ninja)"
     )]
     pub kdc_url: Option<String>,
 
@@ -5191,50 +5404,58 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         AuthMethod::Ntlm => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,
                 args.password.clone(),
             );
             Authentication::Sspi(SspiAuthConfig::NTLM {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
             })
         }
         AuthMethod::Kerberos => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
+
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
-                client_username,
+                client_username.clone(),
                 args.password.clone(),
             );
+
+            let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
+
             Authentication::Sspi(SspiAuthConfig::Kerberos {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
                 kerberos_config: KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().and_then(|url| url.parse().ok()),
-                    client_computer_name: args.client_computer_name.clone(),
+                    kdc_url,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+                    }),
                 },
             })
         }
         AuthMethod::Negotiate => {
             let client_username = ironposh_client_core::credentials::ClientUserName::new(
                 &args.username,
-                domain.as_deref(),
+                domain,
             )?;
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
                 client_username,
                 args.password.clone(),
             );
             Authentication::Sspi(SspiAuthConfig::Negotiate {
-                target_name: args.server.clone(),
+                target: args.server.clone(),
                 identity,
                 kerberos_config: Some(KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().and_then(|url| url.parse().ok()),
-                    client_computer_name: args.client_computer_name.clone(),
+                    kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+                    }),
                 }),
             })
         }
@@ -5254,17 +5475,27 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
 
 
 --- File: crates/ironposh-client-sync/src/connection.rs ---
+use anyhow::Context;
+use byteorder::{BigEndian, ReadBytesExt};
 use ironposh_client_core::connector::{
     auth_sequence::{AuthSequence, SecurityContextBuilderHolder},
     authenticator::SecContextMaybeInit,
     http::{HttpRequest, HttpResponse},
     Connector, ConnectorConfig, ConnectorStepResult,
 };
+use tracing::{info, instrument};
+
+#[derive(Debug)]
+pub enum KeepAlive {
+    Must,
+    NotNecessary,
+}
 
 pub trait HttpClient {
     fn send_request(
         &self,
         request: HttpRequest<String>,
+        keep_alive: KeepAlive,
     ) -> Result<HttpResponse<String>, anyhow::Error>;
 }
 
@@ -5282,13 +5513,14 @@ impl RemotePowershell {
     ) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);
         let mut response = None;
+        let mut decryptor = None;
 
         let (active_session, next_request) = loop {
             let step_result = connector.step(response.take())?;
 
             match step_result {
                 ConnectorStepResult::SendBack(http_request) => {
-                    response = Some(client.send_request(http_request)?);
+                    response = Some(client.send_request(http_request, KeepAlive::NotNecessary)?);
                 }
                 ConnectorStepResult::SendBackError(e) => {
                     anyhow::bail!("Connection failed: {}", e);
@@ -5300,12 +5532,13 @@ impl RemotePowershell {
                     break (*active_session, next_receive_request);
                 }
                 ConnectorStepResult::Auth { mut sequence } => {
+                    let mut auth_response = None;
                     // Authentication sequence handling - mimic auth_sequence.rs pattern
-                    let _final_token = loop {
+                    let final_token = loop {
                         let sec_ctx_init = {
                             let mut holder = SecurityContextBuilderHolder::new();
-                            let result =
-                                sequence.try_init_sec_context(response.as_ref(), &mut holder)?;
+                            let result = sequence
+                                .try_init_sec_context(auth_response.as_ref(), &mut holder)?;
 
                             match result {
                                 SecContextMaybeInit::Initialized(sec_context_init) => {
@@ -5336,7 +5569,7 @@ impl RemotePowershell {
 
                         match action {
                             ironposh_client_core::connector::auth_sequence::SecCtxInited::Continue(http_request) => {
-                                response = Some(client.send_request(http_request)?);
+                                auth_response = Some(client.send_request(http_request,KeepAlive::Must)?);
                             }
                             ironposh_client_core::connector::auth_sequence::SecCtxInited::Done(token) => {
                                 break token;
@@ -5344,8 +5577,11 @@ impl RemotePowershell {
                         }
                     };
 
-                    // After authentication is complete, continue with the connector step
-                    response = None; // Reset response for next iteration
+                    let (decryptor_inner, http_builder) = sequence.destruct_for_next_step();
+
+                    decryptor = Some(decryptor_inner);
+                    let request = connector.authenticate(None, http_builder)?;
+                    response = Some(client.send_request(request, KeepAlive::Must)?);
                 }
             }
         };
@@ -5368,158 +5604,232 @@ impl RemotePowershell {
     }
 }
 
+pub struct KerberosPacketSender {
+    stream: Option<std::net::TcpStream>,
+}
+
+impl KerberosPacketSender {
+    pub fn new() -> Self {
+        Self { stream: None }
+    }
+}
+
+#[instrument]
 fn send_packet(
     packet: ironposh_client_core::connector::NetworkRequest,
 ) -> Result<Vec<u8>, anyhow::Error> {
     use std::io::{Read, Write};
-    use std::net::{TcpStream, UdpSocket};
-    use std::time::Duration;
+    use std::net::TcpStream;
+    
+
+    info!(protocol = ?packet.protocol, url = %packet.url, len = packet.data.len(), "Sending packet to KDC");
 
     match packet.protocol {
         ironposh_client_core::connector::NetworkProtocol::Tcp => {
             // TCP implementation for Kerberos KDC communication
-            let host = packet.url.host_str()
+            let host = packet
+                .url
+                .host_str()
                 .ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?;
-            let port = packet.url.port()
+            let port = packet
+                .url
+                .port()
                 .ok_or_else(|| anyhow::anyhow!("Missing port in URL"))?;
 
             // Establish TCP connection to the KDC
             let mut stream = TcpStream::connect((host, port))
-                .map_err(|e| anyhow::anyhow!("Failed to connect to KDC at {}:{}: {}", host, port, e))?;
+                .context("trying to establish TCP connection to KDC")?;
 
-            // Set timeouts for the connection
-            stream.set_read_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set read timeout: {}", e))?;
-            stream.set_write_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set write timeout: {}", e))?;
-
-            // For Kerberos TCP transport (RFC 4120), the packet is prefixed with a 4-byte length field
-            // in network byte order (big-endian)
-            let packet_len = packet.data.len() as u32;
-            let length_prefix = packet_len.to_be_bytes();
-
-            // Send the length prefix followed by the packet data
-            stream.write_all(&length_prefix)
-                .map_err(|e| anyhow::anyhow!("Failed to write packet length: {}", e))?;
-            stream.write_all(&packet.data)
+            stream
+                .write_all(&packet.data)
                 .map_err(|e| anyhow::anyhow!("Failed to write packet data: {}", e))?;
-            stream.flush()
+
+            stream
+                .flush()
                 .map_err(|e| anyhow::anyhow!("Failed to flush stream: {}", e))?;
 
             // Read the response length (4 bytes, big-endian)
-            let mut length_buf = [0u8; 4];
-            stream.read_exact(&mut length_buf)
+            let response_len = stream
+                .read_u32::<BigEndian>()
                 .map_err(|e| anyhow::anyhow!("Failed to read response length: {}", e))?;
 
-            let response_len = u32::from_be_bytes(length_buf) as usize;
-
-            // Validate response length to prevent excessive memory allocation
-            if response_len > 65536 {  // 64KB max response size
-                return Err(anyhow::anyhow!("Response too large: {} bytes", response_len));
-            }
-
             // Read the response data
-            let mut response_data = vec![0u8; response_len];
-            stream.read_exact(&mut response_data)
+            let mut response_data = vec![0u8; response_len as usize + 4];
+            response_data[..4].copy_from_slice(&response_len.to_be_bytes()); // include length prefix in re
+
+            stream
+                .read_exact(&mut response_data[4..])
                 .map_err(|e| anyhow::anyhow!("Failed to read response data: {}", e))?;
 
             Ok(response_data)
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Udp => {
-            // UDP implementation for Kerberos KDC communication
-            let host = packet.url.host_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing host in URL"))?;
-            let port = packet.url.port()
-                .ok_or_else(|| anyhow::anyhow!("Missing port in URL"))?;
-
-            // Create UDP socket
-            let socket = UdpSocket::bind("0.0.0.0:0")
-                .map_err(|e| anyhow::anyhow!("Failed to bind UDP socket: {}", e))?;
-
-            // Set timeout for UDP operations
-            socket.set_read_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set UDP read timeout: {}", e))?;
-            socket.set_write_timeout(Some(Duration::from_secs(30)))
-                .map_err(|e| anyhow::anyhow!("Failed to set UDP write timeout: {}", e))?;
-
-            // Connect to the KDC
-            socket.connect((host, port))
-                .map_err(|e| anyhow::anyhow!("Failed to connect UDP socket to {}:{}: {}", host, port, e))?;
-
-            // For UDP, send packet data directly (no length prefix like TCP)
-            socket.send(&packet.data)
-                .map_err(|e| anyhow::anyhow!("Failed to send UDP packet: {}", e))?;
-
-            // Read the response
-            let mut response_data = vec![0u8; 65536]; // Max UDP packet size
-            let bytes_received = socket.recv(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to receive UDP response: {}", e))?;
-
-            response_data.truncate(bytes_received);
-            Ok(response_data)
+            todo!()
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Http => {
-            // HTTP implementation for potential web-based authentication
-            let request = ureq::post(packet.url.as_str())
-                .set("Content-Type", "application/octet-stream")
-                .set("User-Agent", "ironposh-client/1.0");
-
-            let response = request.send_bytes(&packet.data)
-                .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
-
-            let mut response_data = Vec::new();
-            response.into_reader().read_to_end(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to read HTTP response: {}", e))?;
-
-            Ok(response_data)
+            todo!()
         }
-        
+
         ironposh_client_core::connector::NetworkProtocol::Https => {
-            // HTTPS implementation for secure web-based authentication
-            let request = ureq::post(packet.url.as_str())
-                .set("Content-Type", "application/octet-stream")
-                .set("User-Agent", "ironposh-client/1.0");
-
-            let response = request.send_bytes(&packet.data)
-                .map_err(|e| anyhow::anyhow!("HTTPS request failed: {}", e))?;
-
-            let mut response_data = Vec::new();
-            response.into_reader().read_to_end(&mut response_data)
-                .map_err(|e| anyhow::anyhow!("Failed to read HTTPS response: {}", e))?;
-
-            Ok(response_data)
+            todo!()
         }
     }
 }
 
 
 --- File: crates/ironposh-client-sync/src/http_client.rs ---
-use crate::connection::HttpClient;
-use tracing::{debug, info};
+use crate::connection::{HttpClient, KeepAlive};
+use std::cell::RefCell;
+use tracing::{debug, error, info, info_span, instrument};
 
-pub struct UreqHttpClient;
+pub struct UreqHttpClient {
+    client: RefCell<Option<ureq::Agent>>,
+}
+
+impl UreqHttpClient {
+    pub fn new() -> Self {
+        UreqHttpClient {
+            client: RefCell::new(None),
+        }
+    }
+
+    fn get_or_create_client(&self) -> ureq::Agent {
+        let mut client_ref = self.client.borrow_mut();
+        if let Some(agent) = client_ref.as_ref() {
+            agent.clone()
+        } else {
+            let agent = ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(30))
+                .timeout_read(std::time::Duration::from_secs(60))
+                .build();
+            *client_ref = Some(agent.clone());
+            agent
+        }
+    }
+
+    fn make_request_with_agent(
+        &self,
+        agent: &ureq::Agent,
+        request: &ironposh_client_core::connector::http::HttpRequest<String>,
+    ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
+        let span = info_span!("http.request", method=?request.method, url=%request.url);
+        let _enter = span.enter();
+
+        info!("sending request");
+
+        // Build the HTTP client request
+        let mut ureq_request = match request.method {
+            ironposh_client_core::connector::http::Method::Post => agent.post(&request.url),
+            ironposh_client_core::connector::http::Method::Get => agent.get(&request.url),
+            ironposh_client_core::connector::http::Method::Put => agent.put(&request.url),
+            ironposh_client_core::connector::http::Method::Delete => agent.delete(&request.url),
+        };
+
+        // Add headers
+        for (name, value) in &request.headers {
+            ureq_request = ureq_request.set(name, value);
+        }
+
+        // Add cookie if present
+        if let Some(cookie) = &request.cookie {
+            ureq_request = ureq_request.set("Cookie", cookie);
+        }
+
+        debug!(
+            headers_count = request.headers.len(),
+            has_cookie = request.cookie.is_some(),
+            "request configured"
+        );
+
+        // Make the request
+        let response_result = if let Some(body) = &request.body {
+            debug!(body_length = body.len(), "sending with body");
+            ureq_request.send_string(body)
+        } else {
+            debug!("sending without body");
+            ureq_request.call()
+        };
+
+        // Handle the response, including potential 401 authentication challenges
+        let (status_code, headers, response_body) = match response_result {
+            Ok(response) => {
+                let status = response.status();
+                let headers: Vec<(String, String)> = response
+                    .headers_names()
+                    .iter()
+                    .filter_map(|name| {
+                        response
+                            .header(name)
+                            .map(|value| (name.clone(), value.to_string()))
+                    })
+                    .collect();
+                let body = response.into_string().map_err(|e| {
+                    error!(error=%e, "failed to read response body");
+                    e
+                })?;
+                (status, headers, body)
+            }
+            Err(ureq::Error::Status(status, response)) => {
+                // Handle status codes like 401 which are expected in authentication flows
+                debug!(status=%status, "received status response");
+                let headers: Vec<(String, String)> = response
+                    .headers_names()
+                    .iter()
+                    .filter_map(|name| {
+                        response
+                            .header(name)
+                            .map(|value| (name.clone(), value.to_string()))
+                    })
+                    .collect();
+                let body = response.into_string().unwrap_or_default();
+                (status, headers, body)
+            }
+            Err(e) => {
+                error!(error=%e, "request failed");
+                return Err(e.into());
+            }
+        };
+
+        info!(status_code=%status_code, response_body_length=response_body.len(), "response received");
+
+        // Return as HttpResponse with actual response data
+        Ok(ironposh_client_core::connector::http::HttpResponse {
+            status_code: status_code,
+            headers,
+            body: Some(response_body),
+        })
+    }
+}
 
 impl HttpClient for UreqHttpClient {
+    #[instrument(name="http_client.send_request", level="info", skip(self, request), fields(method=?request.method, url=%request.url, keep_alive=?keep_alive), err)]
     fn send_request(
         &self,
         request: ironposh_client_core::connector::http::HttpRequest<String>,
+        keep_alive: KeepAlive,
     ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
-        make_http_request(&request)
+        match keep_alive {
+            KeepAlive::Must => {
+                info!("using persistent client");
+                let agent = self.get_or_create_client();
+                self.make_request_with_agent(&agent, &request)
+            }
+            KeepAlive::NotNecessary => {
+                info!("using one-time client");
+                make_http_request(&request)
+            }
+        }
     }
 }
 
 /// Make an HTTP request using ureq (synchronous)
+#[instrument(name="http.request_oneshot", level="info", skip(request), fields(method=?request.method, url=%request.url), err)]
 pub fn make_http_request(
     request: &ironposh_client_core::connector::http::HttpRequest<String>,
 ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
-    info!("Making HTTP request to: {}", request.url);
-    debug!("Request headers: {:?}", request.headers);
-    debug!(
-        "Request body length: {:?}",
-        request.body.as_ref().map(|b| b.len())
-    );
+    info!("sending one-time request");
 
     // Build the HTTP client request
     let mut ureq_request = match request.method {
@@ -5539,10 +5849,18 @@ pub fn make_http_request(
         ureq_request = ureq_request.set("Cookie", cookie);
     }
 
+    debug!(
+        headers_count = request.headers.len(),
+        has_cookie = request.cookie.is_some(),
+        "request configured"
+    );
+
     // Make the request
     let response_result = if let Some(body) = &request.body {
+        debug!(body_length = body.len(), "sending with body");
         ureq_request.send_string(body)
     } else {
+        debug!("sending without body");
         ureq_request.call()
     };
 
@@ -5559,11 +5877,15 @@ pub fn make_http_request(
                         .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect();
-            let body = response.into_string()?;
+            let body = response.into_string().map_err(|e| {
+                error!(error=%e, "failed to read response body");
+                e
+            })?;
             (status, headers, body)
         }
         Err(ureq::Error::Status(status, response)) => {
             // Handle status codes like 401 which are expected in authentication flows
+            debug!(status=%status, "received status response");
             let headers: Vec<(String, String)> = response
                 .headers_names()
                 .iter()
@@ -5577,18 +5899,16 @@ pub fn make_http_request(
             (status, headers, body)
         }
         Err(e) => {
-            // For other errors (network issues, etc.), propagate them
+            error!(error=%e, "request failed");
             return Err(e.into());
         }
     };
 
-    debug!("Response status: {}", status_code);
-    debug!("Response headers: {:?}", headers);
-    debug!("Response body length: {}", response_body.len());
+    info!(status_code=%status_code, response_body_length=response_body.len(), "response received");
 
     // Return as HttpResponse with actual response data
     Ok(ironposh_client_core::connector::http::HttpResponse {
-        status_code: status_code as u16,
+        status_code: status_code,
         headers,
         body: Some(response_body),
     })
@@ -5625,7 +5945,7 @@ fn establish_connection(
     ironposh_client_core::connector::active_session::ActiveSession,
     ironposh_client_core::connector::http::HttpRequest<String>,
 )> {
-    let client = UreqHttpClient;
+    let client = UreqHttpClient::new();
     let remote_ps = RemotePowershell::open(config, client)?;
     Ok(remote_ps.into_components())
 }
@@ -5637,7 +5957,7 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize logging. If it fails, we can't log, so just print and exit.
     if let Err(e) = init_logging(args.verbose) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
         // Exit with a non-zero status code to indicate failure
         std::process::exit(1);
     }
@@ -5646,7 +5966,7 @@ fn main() -> anyhow::Result<()> {
     if let Err(e) = run_app(&args) {
         // Log the error before exiting. This is crucial.
         error!("Application failed to run: {:?}", e);
-        
+
         // The program will now exit, and the log buffer should be flushed upon exit.
         return Err(e);
     }
@@ -5978,9 +6298,9 @@ impl fmt::Display for NextStep {
 
 --- File: crates/ironposh-client-sync/src/user_input.rs ---
 use ironposh_client_core::connector::active_session::PowershellOperations;
+use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use ironposh_client_core::connector::UserOperation;
 use ironposh_psrp::PipelineOutput;
 use regex::Regex;
 use std::io::{self, Write};

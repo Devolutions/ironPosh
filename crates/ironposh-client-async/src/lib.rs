@@ -14,6 +14,6 @@ pub trait AsyncPowershellClient {
 pub trait HttpClient: Send + Sync + 'static {
     fn send_request(
         &self,
-        request: HttpRequest<String>,
-    ) -> impl Future<Output = anyhow::Result<HttpResponse<String>>> + Send;
+        request: HttpRequest,
+    ) -> impl Future<Output = anyhow::Result<HttpResponse>> + Send;
 }

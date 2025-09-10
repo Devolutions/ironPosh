@@ -5,7 +5,7 @@ use ironposh_client_core::connector::UserOperation;
 /// Represents the next step in the event loop
 #[derive(Debug)]
 pub enum NextStep {
-    NetworkResponse(ironposh_client_core::connector::http::HttpResponse<String>),
+    NetworkResponse(ironposh_client_core::connector::http::HttpResponse),
     UserRequest(Box<UserOperation>),
 }
 

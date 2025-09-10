@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, stream::FuturesUnordered};
 use ironposh_client_core::connector::active_session::UserEvent;
-use ironposh_client_core::connector::auth_sequence::TryInitSecContext;
+
 use ironposh_client_core::connector::{
     Connector, ConnectorStepResult, UserOperation,
     http::{HttpRequest, HttpResponse},
@@ -14,8 +14,8 @@ use crate::HttpClient;
 
 fn launch<C: HttpClient>(
     client: &C,
-    req: HttpRequest<String>,
-) -> impl core::future::Future<Output = anyhow::Result<HttpResponse<String>>> + Send {
+    req: HttpRequest,
+) -> impl core::future::Future<Output = anyhow::Result<HttpResponse>> + Send {
     client.send_request(req)
 }
 
@@ -28,7 +28,7 @@ pub struct RemoteAsyncPowershellClient {
 impl RemoteAsyncPowershellClient {
     #[instrument(skip_all)]
     async fn start_active_session_loop(
-        runspace_polling_request: ironposh_client_core::connector::http::HttpRequest<String>,
+        runspace_polling_request: ironposh_client_core::connector::http::HttpRequest,
         mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
         client: impl HttpClient,
         mut user_input_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
@@ -297,42 +297,10 @@ impl RemoteAsyncPowershellClient {
                     } => {
                         break (active_session, next_receive_request);
                     }
-                    ConnectorStepResult::Borrowed { mut auth_sequence } => {
+                    ConnectorStepResult::Auth { sequence: _ } => {
                         info!("Starting authentication sequence");
-                        let mut auth_request = None;
-                        loop {
-                            match auth_sequence.try_init_sec_context(auth_request.take())? {
-                                TryInitSecContext::RunGenerator {
-                                    packet,
-                                    generator_holder,
-                                } => {}
-                                TryInitSecContext::Initialized {
-                                    init_sec_context_res,
-                                } => todo!(),
-                            }
-                            // let auth_step = auth_sequence
-                            //     .step(auth_request)
-                            //     .context("Failed to step through auth sequence")?;
-
-                            // match auth_step {
-                            //     AuthSequenceStepResult::SendBackAndContinue { request } => {
-                            //         // Make the HTTP request (using ureq for simplicity in example)
-                            //         auth_request = Some(client.send_request(request).await?)
-                            //     }
-                            //     AuthSequenceStepResult::SendToHereAndContinue { .. } => {
-                            //         todo!("Handle kerberos here")
-                            //     }
-                            //     AuthSequenceStepResult::DestructMe { token } => {
-                            //         let (connector, http_builder) = auth_sequence.destruct_me();
-
-                            //         let request = connector.authenticate(token, http_builder)?;
-
-                            //         response = Some(client.send_request(request).await?);
-
-                            //         break;
-                            //     }
-                            // }
-                        }
+                        // TODO: Fix this pattern - need proper implementation
+                        todo!("Fix auth sequence handling");
                     }
                 }
             };

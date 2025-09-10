@@ -1,4 +1,5 @@
 use crate::connection::{HttpClient, KeepAlive};
+use ironposh_client_core::connector::http::HttpBody;
 use std::cell::RefCell;
 use tracing::{debug, error, info, info_span, instrument};
 
@@ -30,8 +31,8 @@ impl UreqHttpClient {
     fn make_request_with_agent(
         &self,
         agent: &ureq::Agent,
-        request: &ironposh_client_core::connector::http::HttpRequest<String>,
-    ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
+        request: &ironposh_client_core::connector::http::HttpRequest,
+    ) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
         let span = info_span!("http.request", method=?request.method, url=%request.url);
         let _enter = span.enter();
 
@@ -50,6 +51,8 @@ impl UreqHttpClient {
             ureq_request = ureq_request.set(name, value);
         }
 
+        ureq_request = ureq_request.set("Connection", "Keep-Alive");
+
         // Add cookie if present
         if let Some(cookie) = &request.cookie {
             ureq_request = ureq_request.set("Cookie", cookie);
@@ -64,7 +67,11 @@ impl UreqHttpClient {
         // Make the request
         let response_result = if let Some(body) = &request.body {
             debug!(body_length = body.len(), "sending with body");
-            ureq_request.send_string(body)
+
+            match body {
+                HttpBody::Encrypted(bytes) => ureq_request.send_bytes(&bytes),
+                _ => ureq_request.send_string(body.as_str()?),
+            }
         } else {
             debug!("sending without body");
             ureq_request.call()
@@ -116,7 +123,9 @@ impl UreqHttpClient {
         Ok(ironposh_client_core::connector::http::HttpResponse {
             status_code: status_code,
             headers,
-            body: Some(response_body),
+            body: Some(ironposh_client_core::connector::http::HttpBody::Text(
+                response_body,
+            )),
         })
     }
 }
@@ -125,9 +134,9 @@ impl HttpClient for UreqHttpClient {
     #[instrument(name="http_client.send_request", level="info", skip(self, request), fields(method=?request.method, url=%request.url, keep_alive=?keep_alive), err)]
     fn send_request(
         &self,
-        request: ironposh_client_core::connector::http::HttpRequest<String>,
+        request: ironposh_client_core::connector::http::HttpRequest,
         keep_alive: KeepAlive,
-    ) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
+    ) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
         match keep_alive {
             KeepAlive::Must => {
                 info!("using persistent client");
@@ -145,8 +154,8 @@ impl HttpClient for UreqHttpClient {
 /// Make an HTTP request using ureq (synchronous)
 #[instrument(name="http.request_oneshot", level="info", skip(request), fields(method=?request.method, url=%request.url), err)]
 pub fn make_http_request(
-    request: &ironposh_client_core::connector::http::HttpRequest<String>,
-) -> Result<ironposh_client_core::connector::http::HttpResponse<String>, anyhow::Error> {
+    request: &ironposh_client_core::connector::http::HttpRequest,
+) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
     info!("sending one-time request");
 
     // Build the HTTP client request
@@ -176,7 +185,10 @@ pub fn make_http_request(
     // Make the request
     let response_result = if let Some(body) = &request.body {
         debug!(body_length = body.len(), "sending with body");
-        ureq_request.send_string(body)
+        match body {
+            HttpBody::Encrypted(bytes) => ureq_request.send_bytes(&bytes),
+            _ => ureq_request.send_string(body.as_str()?),
+        }
     } else {
         debug!("sending without body");
         ureq_request.call()
@@ -228,6 +240,8 @@ pub fn make_http_request(
     Ok(ironposh_client_core::connector::http::HttpResponse {
         status_code: status_code,
         headers,
-        body: Some(response_body),
+        body: Some(ironposh_client_core::connector::http::HttpBody::Text(
+            response_body,
+        )),
     })
 }

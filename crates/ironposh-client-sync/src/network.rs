@@ -6,17 +6,17 @@ use crate::http_client::make_http_request;
 
 /// Network request handler (synchronous)
 pub struct NetworkHandler {
-    network_request_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpRequest<String>>,
-    network_response_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpResponse<String>>,
+    network_request_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpRequest>,
+    network_response_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpResponse>,
 }
 
 impl NetworkHandler {
     pub fn new(
         network_request_rx: mpsc::Receiver<
-            ironposh_client_core::connector::http::HttpRequest<String>,
+            ironposh_client_core::connector::http::HttpRequest,
         >,
         network_response_tx: mpsc::Sender<
-            ironposh_client_core::connector::http::HttpResponse<String>,
+            ironposh_client_core::connector::http::HttpResponse,
         >,
     ) -> Self {
         Self {

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use ironposh_client_async::HttpClient;
-use ironposh_client_core::connector::http::{HttpRequest, HttpResponse, Method};
+use ironposh_client_core::connector::http::{HttpBody, HttpRequest, HttpResponse, Method};
 use reqwest::Client;
 use tracing::instrument;
 
@@ -23,8 +23,8 @@ impl ReqwestHttpClient {
 impl ReqwestHttpClient {
     async fn send_with_client(
         client: Client,
-        request: HttpRequest<String>,
-    ) -> anyhow::Result<HttpResponse<String>> {
+        request: HttpRequest,
+    ) -> anyhow::Result<HttpResponse> {
         tracing::info!(
             method = ?request.method,
             url = %request.url,
@@ -47,7 +47,7 @@ impl ReqwestHttpClient {
 
         // Add body if present
         if let Some(body) = &request.body {
-            req_builder = req_builder.body(body.clone());
+            req_builder = req_builder.body(body.as_str().to_string());
         }
 
         tracing::info!("Sending HTTP request to server");
@@ -82,17 +82,14 @@ impl ReqwestHttpClient {
         Ok(HttpResponse {
             status_code,
             headers,
-            body: Some(body),
+            body: Some(HttpBody::Text(body)),
         })
     }
 }
 
 impl HttpClient for ReqwestHttpClient {
     #[instrument(name = "http_request", level = "debug", skip(self, request))]
-    async fn send_request(
-        &self,
-        request: HttpRequest<String>,
-    ) -> anyhow::Result<HttpResponse<String>> {
+    async fn send_request(&self, request: HttpRequest) -> anyhow::Result<HttpResponse> {
         Self::send_with_client(self.client.clone(), request).await
     }
 }

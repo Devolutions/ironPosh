@@ -1,5 +1,5 @@
 use crate::{
-    connector::http::{HttpBuilder, HttpRequest, HttpResponse},
+    connector::http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
     powershell::PipelineHandle,
@@ -34,7 +34,7 @@ impl UserEvent {
 
 #[derive(Debug)]
 pub enum ActiveSessionOutput {
-    SendBack(Vec<HttpRequest<String>>),
+    SendBack(Vec<HttpRequest>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     HostCall(HostCallRequest),
@@ -150,7 +150,7 @@ impl ActiveSession {
 
                 match command_request {
                     Ok(request) => {
-                        let response = self.http_builder.post("/wsman", request);
+                        let response = self.http_builder.post("/wsman", HttpBody::Xml(request));
                         Ok(ActiveSessionOutput::SendBack(vec![response]))
                     }
                     Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
@@ -235,7 +235,7 @@ impl ActiveSession {
     #[instrument(skip(self, response))]
     pub fn accept_server_response(
         &mut self,
-        response: HttpResponse<String>,
+        response: HttpResponse,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
         let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
             "Expected a body in server response",
@@ -243,7 +243,13 @@ impl ActiveSession {
 
         debug!("Response body length: {}", body.len());
 
-        let results = self.runspace_pool.accept_response(body).map_err(|e| {
+        let xml_body: String = if let HttpBody::Encrypted(_) = body {
+            todo!("Implement decryption of encrypted body");
+        } else {
+            todo!("Handle non-encrypted body in accept_server_response");
+        };
+
+        let results = self.runspace_pool.accept_response(xml_body).map_err(|e| {
             error!("RunspacePool.accept_response failed: {:#}", e);
             e
         })?;
@@ -267,7 +273,9 @@ impl ActiveSession {
                             error!("Failed to create receive request: {:#}", e);
                             e
                         })?;
-                    let response = self.http_builder.post("/wsman", receive_request);
+                    let response = self
+                        .http_builder
+                        .post("/wsman", HttpBody::Xml(receive_request));
                     step_output.push(ActiveSessionOutput::SendBack(vec![response]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
@@ -338,13 +346,15 @@ impl ActiveSession {
         let request = self
             .runspace_pool
             .send_pipeline_host_response(command_id, host_response)?;
-        let http_response = self.http_builder.post("/wsman", request);
+        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
 
         // Queue a receive after sending the response
         let receive_request = self.runspace_pool.fire_receive(
             crate::runspace_pool::DesiredStream::pipeline_streams(command_id),
         )?;
-        let receive_http_response = self.http_builder.post("/wsman", receive_request);
+        let receive_http_response = self
+            .http_builder
+            .post("/wsman", HttpBody::Xml(receive_request));
 
         Ok(ActiveSessionOutput::SendBack(vec![
             http_response,
@@ -381,13 +391,15 @@ impl ActiveSession {
         let request = self
             .runspace_pool
             .send_runspace_pool_host_response(host_response)?;
-        let http_response = self.http_builder.post("/wsman", request);
+        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
 
         // Queue a receive after sending the response
         let receive_request = self
             .runspace_pool
             .fire_receive(crate::runspace_pool::DesiredStream::runspace_pool_streams())?;
-        let receive_http_response = self.http_builder.post("/wsman", receive_request);
+        let receive_http_response = self
+            .http_builder
+            .post("/wsman", HttpBody::Xml(receive_request));
 
         Ok(ActiveSessionOutput::SendBack(vec![
             http_response,

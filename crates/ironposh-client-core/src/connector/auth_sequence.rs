@@ -9,10 +9,11 @@ use crate::{
             AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
             SspiConfig, Token,
         },
-        http::{HttpBuilder, HttpRequest, HttpResponse},
+        http::{HttpBuilder, HttpRequest, HttpResponse, HttpBody},
     },
 };
 
+#[derive(Debug)]
 pub enum AnyAuthContext {
     Ntlm(AuthContext<sspi::ntlm::Ntlm>),
     Kerberos(AuthContext<sspi::kerberos::Kerberos>),
@@ -129,7 +130,7 @@ pub struct AuthSequence {
 }
 
 pub enum SecCtxInited {
-    Continue(HttpRequest<String>),
+    Continue(HttpRequest),
     Done(Option<Token>),
 }
 
@@ -156,7 +157,7 @@ impl AuthSequence {
 
     pub fn try_init_sec_context<'ctx, 'builder, 'generator>(
         &'ctx mut self,
-        response: Option<&HttpResponse<String>>,
+        response: Option<&HttpResponse>,
         sec_ctx_holder: &'builder mut SecurityContextBuilderHolder<'ctx>,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
     where
@@ -209,21 +210,60 @@ impl AuthSequence {
             super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
                 self.http_builder.with_auth_header(token.0);
                 Ok(SecCtxInited::Continue(
-                    self.http_builder.post("/wsman", String::new()),
+                    self.http_builder.post("/wsman", HttpBody::None),
                 ))
             }
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
         }
     }
 
-    pub fn destruct_for_next_step(self) -> (Decryptor, HttpBuilder) {
-        let decryptor = Decryptor {
+    pub fn destruct_for_next_step(self) -> (EncryptionProvider, HttpBuilder) {
+        let decryptor = EncryptionProvider {
             context: self.context,
         };
         (decryptor, self.http_builder)
     }
 }
 
-pub struct Decryptor {
+#[derive(Debug)]
+pub struct EncryptionProvider {
     context: AnyAuthContext,
+}
+
+impl EncryptionProvider {
+    pub fn wrap(
+        &mut self,
+        data: &mut [u8],
+        sequence_number: u32,
+    ) -> Result<Vec<u8>, PwshCoreError> {
+        match &mut self.context {
+            AnyAuthContext::Ntlm(auth_context) => {
+                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+            }
+            AnyAuthContext::Kerberos(auth_context) => {
+                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+            }
+            AnyAuthContext::Negotiate(auth_context) => {
+                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+            }
+        }
+    }
+
+    pub fn unwrap(
+        &mut self,
+        data: &mut [u8],
+        sequence_number: u32,
+    ) -> Result<Vec<u8>, PwshCoreError> {
+        match &mut self.context {
+            AnyAuthContext::Ntlm(auth_context) => {
+                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+            }
+            AnyAuthContext::Kerberos(auth_context) => {
+                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+            }
+            AnyAuthContext::Negotiate(auth_context) => {
+                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+            }
+        }
+    }
 }

@@ -25,7 +25,7 @@ fn establish_connection(
     config: ironposh_client_core::connector::ConnectorConfig,
 ) -> anyhow::Result<(
     ironposh_client_core::connector::active_session::ActiveSession,
-    ironposh_client_core::connector::http::HttpRequest<String>,
+    ironposh_client_core::connector::http::HttpRequest,
 )> {
     let client = UreqHttpClient::new();
     let remote_ps = RemotePowershell::open(config, client)?;
@@ -119,10 +119,10 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
     network_response_rx: mpsc::Receiver<
-        ironposh_client_core::connector::http::HttpResponse<String>,
+        ironposh_client_core::connector::http::HttpResponse,
     >,
     user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
-    network_request_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpRequest<String>>,
+    network_request_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpRequest>,
     user_event_tx: mpsc::Sender<UserEvent>,
 ) -> anyhow::Result<()> {
     let span = tracing::Span::current();
@@ -275,7 +275,7 @@ fn run_event_loop(
 
 /// Synchronous select equivalent for two receivers
 fn select_sync(
-    network_rx: &mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse<String>>,
+    network_rx: &mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
     user_rx: &mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
 ) -> anyhow::Result<NextStep> {
     use std::sync::mpsc::TryRecvError;

@@ -17,15 +17,15 @@ pub enum KeepAlive {
 pub trait HttpClient {
     fn send_request(
         &self,
-        request: HttpRequest<String>,
+        request: HttpRequest,
         keep_alive: KeepAlive,
-    ) -> Result<HttpResponse<String>, anyhow::Error>;
+    ) -> Result<HttpResponse, anyhow::Error>;
 }
 
 pub struct RemotePowershell {
     active_session: ironposh_client_core::connector::active_session::ActiveSession,
     client: Box<dyn HttpClient>,
-    next_request: ironposh_client_core::connector::http::HttpRequest<String>,
+    next_request: ironposh_client_core::connector::http::HttpRequest,
 }
 
 impl RemotePowershell {
@@ -36,7 +36,6 @@ impl RemotePowershell {
     ) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);
         let mut response = None;
-        let mut decryptor = None;
 
         let (active_session, next_request) = loop {
             let step_result = connector.step(response.take())?;
@@ -57,7 +56,7 @@ impl RemotePowershell {
                 ConnectorStepResult::Auth { mut sequence } => {
                     let mut auth_response = None;
                     // Authentication sequence handling - mimic auth_sequence.rs pattern
-                    let final_token = loop {
+                    let last_token = loop {
                         let sec_ctx_init = {
                             let mut holder = SecurityContextBuilderHolder::new();
                             let result = sequence
@@ -100,10 +99,9 @@ impl RemotePowershell {
                         }
                     };
 
-                    let (decryptor_inner, http_builder) = sequence.destruct_for_next_step();
+                    let (decryptor, http_builder) = sequence.destruct_for_next_step();
 
-                    decryptor = Some(decryptor_inner);
-                    let request = connector.authenticate(None, http_builder)?;
+                    let request = connector.authenticate(last_token, http_builder, decryptor)?;
                     response = Some(client.send_request(request, KeepAlive::Must)?);
                 }
             }
@@ -121,7 +119,7 @@ impl RemotePowershell {
         self,
     ) -> (
         ironposh_client_core::connector::active_session::ActiveSession,
-        ironposh_client_core::connector::http::HttpRequest<String>,
+        ironposh_client_core::connector::http::HttpRequest,
     ) {
         (self.active_session, self.next_request)
     }
@@ -143,7 +141,6 @@ fn send_packet(
 ) -> Result<Vec<u8>, anyhow::Error> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
-    
 
     info!(protocol = ?packet.protocol, url = %packet.url, len = packet.data.len(), "Sending packet to KDC");
 

@@ -7,9 +7,10 @@ use sspi::builders::{
 };
 use sspi::generator::{Generator, GeneratorState};
 use sspi::{
-    BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation, Error,
-    InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate, NegotiateConfig,
-    NetworkRequest, Ntlm, SecurityBuffer, SecurityStatus, Sspi, SspiImpl,
+    BufferType, ClientRequestFlags, CredentialUse, Credentials, DataRepresentation,
+    EncryptionFlags, Error, InitializeSecurityContextResult, Kerberos, KerberosConfig, Negotiate,
+    NegotiateConfig, NetworkRequest, Ntlm, SecurityBuffer, SecurityBufferRef, SecurityStatus, Sspi,
+    SspiImpl,
 };
 use tracing::{debug, instrument};
 
@@ -162,7 +163,7 @@ where
     }
 
     /// Parse the server's negotiate token (if present) and set `inbuf`.
-    fn take_input(&mut self, response: Option<&HttpResponse<String>>) -> Result<(), PwshCoreError> {
+    fn take_input(&mut self, response: Option<&HttpResponse>) -> Result<(), PwshCoreError> {
         if let Some(resp) = response {
             let server_token = parse_negotiate_token(&resp.headers)
                 .ok_or(PwshCoreError::Auth("no Negotiate token"))?;
@@ -210,7 +211,7 @@ impl SspiAuthenticator {
     /// strand the state as `Taken`. This avoids hard-to-debug invalid-state errors.
     #[instrument(skip(context, sec_ctx_holder))]
     pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
-        response: Option<&HttpResponse<String>>,
+        response: Option<&HttpResponse>,
         context: &'ctx mut AuthContext<P>,
         sec_ctx_holder: &'builder mut Option<SecurityContextBuilder<'ctx, P>>,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
@@ -230,7 +231,8 @@ impl SspiAuthenticator {
             .with_credentials_handle(&mut *context.cred)
             .with_context_requirements(
                 // TODO: expose these flags to callers for tuning.
-                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH,
+                ClientRequestFlags::ALLOCATE_MEMORY | ClientRequestFlags::MUTUAL_AUTH, // | ClientRequestFlags::CONFIDENTIALITY
+                                                                                       // | ClientRequestFlags::IDENTIFY,
             )
             .with_target_data_representation(DataRepresentation::Native)
             .with_target_name(&context.sspi_auth_config.target_name)
@@ -327,6 +329,49 @@ impl SspiAuthenticator {
             )),
         }
     }
+
+    #[instrument(skip_all)]
+    pub fn wrap<P: Sspi + SspiImpl>(
+        provider: &mut P,
+        data: &mut [u8],
+        sequence_number: u32,
+    ) -> Result<Vec<u8>, PwshCoreError> {
+        let size_result = provider.query_context_sizes()?;
+        debug!(?size_result, "SSPI QueryContextSizes");
+        let mut token_buffer = vec![0u8; size_result.security_trailer as usize];
+        let sec_token_buffer = SecurityBufferRef::token_buf(&mut token_buffer);
+        let sec_data_buffer = SecurityBufferRef::data_buf(data);
+
+        let mut buffers = [sec_token_buffer, sec_data_buffer];
+
+        let res =
+            provider.encrypt_message(EncryptionFlags::empty(), &mut buffers, sequence_number)?;
+
+        debug!(token=?buffers[0],token_len=?buffers[0].buf_len(), data_len=?buffers[1].buf_len(), "SSPI EncryptMessage");
+
+        if res != SecurityStatus::Ok {
+            return Err(PwshCoreError::Auth("SSPI EncryptMessage failed"));
+        }
+
+        Ok(token_buffer)
+    }
+
+    #[instrument(skip_all)]
+    pub fn unwrap<P: Sspi + SspiImpl>(
+        provider: &mut P,
+        encrypted_data: &mut [u8],
+        sequence_number: u32,
+    ) -> Result<Vec<u8>, PwshCoreError> {
+        let sec_data_buffer = SecurityBufferRef::stream_buf(encrypted_data);
+
+        let mut buffers = [sec_data_buffer];
+
+        let _ = provider.decrypt_message(&mut buffers, sequence_number)?;
+
+        let decrypted_buffer = buffers[0].data().to_vec();
+
+        return Ok(decrypted_buffer);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -354,9 +399,10 @@ fn parse_negotiate_token(headers: &[(String, String)]) -> Option<Vec<u8>> {
             if let Some(rest) = value
                 .strip_prefix("Negotiate ")
                 .or_else(|| value.strip_prefix("negotiate "))
-                && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim()) {
-                    return Some(bytes);
-                }
+                && let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(rest.trim())
+            {
+                return Some(bytes);
+            }
         }
     }
     None
