@@ -9,9 +9,8 @@ use crate::{
             SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
             Token,
         },
-        conntion_pool::ConnectionPool,
         encryption::{self, EncryptionProvider},
-        http::{HttpBody, HttpBuilder, HttpRequestAction, HttpResponse},
+        http::{HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse},
     },
 };
 
@@ -136,11 +135,10 @@ pub struct AuthSequence {
     context: AuthContext,
     http_builder: HttpBuilder,
     require_encryption: bool,
-    connection_pool: ConnectionPool,
 }
 
 pub enum SecCtxInited {
-    Continue(HttpRequestAction),
+    Continue(HttpRequest),
     Done(Option<Token>),
 }
 
@@ -157,7 +155,6 @@ impl AuthSequence {
     pub fn new(
         auth_config: AuthConfig,
         http_builder: HttpBuilder,
-        connection_pool: ConnectionPool,
     ) -> Result<Self, crate::PwshCoreError> {
         let AuthConfig {
             sspi_config,
@@ -169,7 +166,6 @@ impl AuthSequence {
             context,
             http_builder,
             require_encryption,
-            connection_pool,
         })
     }
 
@@ -231,10 +227,7 @@ impl AuthSequence {
             super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
                 self.http_builder.with_auth_header(token.0);
                 Ok(SecCtxInited::Continue(
-                    HttpRequestAction {
-                        connection_id: self.connection_pool.get_idle_or_new_connection(),
-                        request: self.http_builder.post("/wsman", HttpBody::None),
-                    }, // self.http_builder.post("/wsman", HttpBody::None),
+                    self.http_builder.post(HttpBody::empty()),
                 ))
             }
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
@@ -245,14 +238,12 @@ impl AuthSequence {
         let AuthSequence {
             context,
             http_builder,
-            connection_pool,
             require_encryption,
         } = self;
 
         Authenticated {
             decryptor: EncryptionProvider::new(context, require_encryption),
             http_builder,
-            connection_pool,
         }
     }
 }
@@ -260,5 +251,4 @@ impl AuthSequence {
 pub struct Authenticated {
     pub(crate) decryptor: EncryptionProvider,
     pub(crate) http_builder: HttpBuilder,
-    pub(crate) connection_pool: ConnectionPool,
 }

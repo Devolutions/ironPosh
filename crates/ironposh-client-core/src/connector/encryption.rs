@@ -13,11 +13,20 @@ use crate::{
 
 #[derive(Debug)]
 pub struct EncryptionProvider {
+    id: uuid::Uuid,
     context: AuthContext,
     sequence_number: u32,
     recv_sequence_number: u32,
     require_encryption: bool,
 }
+
+impl PartialEq for EncryptionProvider {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for EncryptionProvider {}
 
 #[derive(Debug)]
 pub enum EncryptionResult {
@@ -34,6 +43,7 @@ pub enum DecryptionResult {
 impl EncryptionProvider {
     pub fn new(context: AuthContext, require_encryption: bool) -> Self {
         Self {
+            id: uuid::Uuid::new_v4(),
             context,
             sequence_number: 0,
             recv_sequence_number: 0,
@@ -55,13 +65,13 @@ impl EncryptionProvider {
 
     /// High-level method to encrypt a string into an HttpBody
     #[instrument(skip(self, data))]
-    pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
+    pub fn encrypt(&mut self, data: &str) -> Result<HttpBody, PwshCoreError> {
         let sequence_number = self.next_sequence_number();
         // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
         let plain_len = data.len();
 
         debug!(
-            xml_to_encrypt = data.as_str(),
+            xml_to_encrypt = data,
             data_len = plain_len,
             "Encrypting XML body"
         );
@@ -74,7 +84,7 @@ impl EncryptionProvider {
             EncryptionResult::Encrypted { token } => token,
             EncryptionResult::EncryptionNotPerformed => {
                 debug!("Encryption not performed, returning original XML body");
-                return Ok(HttpBody::Xml(data));
+                return Ok(HttpBody::Xml(data.to_owned()));
             }
         };
 

@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use clap::Parser;
 use ironposh_client_core::{
-    connector::{http::ServerAddress, ConnectorConfig, Scheme},
+    connector::{http::ServerAddress, WinRmConfig, Scheme},
     Authentication, SspiAuthConfig,
 };
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
@@ -86,7 +86,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-pub fn create_connector_config(args: &Args) -> ConnectorConfig {
+pub fn create_connector_config(args: &Args) -> WinRmConfig {
     let server = ServerAddress::Ip(args.server);
     let scheme = if args.https {
         Scheme::Https
@@ -108,7 +108,7 @@ pub fn create_connector_config(args: &Args) -> ConnectorConfig {
         kerberos_config: None,
     });
 
-    ConnectorConfig {
+    WinRmConfig {
         server: (server, args.port),
         scheme,
         authentication: auth,

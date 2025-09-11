@@ -4,7 +4,7 @@ use ironposh_client_core::connector::{
     auth_sequence::{AuthSequence, SecurityContextBuilderHolder},
     authenticator::SecContextMaybeInit,
     http::{HttpRequest, HttpRequestAction, HttpResponse},
-    Connector, ConnectorConfig, ConnectorStepResult,
+    Connector, WinRmConfig, ConnectorStepResult,
 };
 use tracing::{info, instrument};
 
@@ -25,7 +25,7 @@ pub struct RemotePowershell {
 impl RemotePowershell {
     /// Establish connection to the PowerShell remote server
     pub fn open(
-        config: ConnectorConfig,
+        config: WinRmConfig,
         client: impl HttpClient + 'static,
     ) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);

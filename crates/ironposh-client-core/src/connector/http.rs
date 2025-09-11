@@ -53,6 +53,10 @@ impl HttpBody {
     pub fn is_encrypted(&self) -> bool {
         matches!(self, HttpBody::Encrypted(_))
     }
+    
+    pub(crate) fn empty() -> HttpBody {
+        HttpBody::None
+    }
 }
 
 impl HttpBody {
@@ -98,7 +102,6 @@ impl HttpBody {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct HttpRequestAction {
@@ -205,7 +208,7 @@ impl HttpBuilder {
         self.headers.push(("Authorization".to_string(), header));
     }
 
-    fn build_url(&self, path: &str) -> String {
+    fn build_url(&self) -> String {
         let scheme_str = match self.scheme {
             crate::connector::Scheme::Http => "http",
             crate::connector::Scheme::Https => "https",
@@ -218,7 +221,7 @@ impl HttpBuilder {
 
         format!(
             "{}://{}:{}{}?PSVersion=7.4.11",
-            scheme_str, server_str, self.port, path
+            scheme_str, server_str, self.port, "/wsman"
         )
     }
 
@@ -249,10 +252,10 @@ impl HttpBuilder {
         headers
     }
 
-    pub fn post(&mut self, path: &str, body: HttpBody) -> HttpRequest {
+    pub fn post(&mut self, body: HttpBody) -> HttpRequest {
         HttpRequest {
             method: Method::Post,
-            url: self.build_url(path),
+            url: self.build_url(),
             headers: self.build_headers(Some(&body)),
             body: Some(body),
             cookie: self.cookie.clone(),

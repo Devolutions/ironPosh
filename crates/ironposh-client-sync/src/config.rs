@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, ConnectorConfig, Scheme},
+    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig, Scheme},
     Authentication, SspiAuthConfig,
 };
 use std::sync::OnceLock;
@@ -152,7 +152,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::Error> {
+pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error> {
     let server = ServerAddress::parse(&args.server)?;
     let scheme = if args.https {
         Scheme::Https
@@ -225,7 +225,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
         }
     };
 
-    Ok(ConnectorConfig {
+    Ok(WinRmConfig {
         server: (server, args.port),
         scheme,
         authentication: auth,

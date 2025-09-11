@@ -259,7 +259,7 @@ impl RemoteAsyncPowershellClient {
 
 impl RemoteAsyncPowershellClient {
     pub fn open_task(
-        config: ironposh_client_core::connector::ConnectorConfig,
+        config: ironposh_client_core::connector::WinRmConfig,
         client: impl HttpClient,
     ) -> (Self, impl std::future::Future<Output = anyhow::Result<()>>)
     where

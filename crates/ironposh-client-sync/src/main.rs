@@ -22,7 +22,7 @@ use user_input::UserInputHandler;
 
 /// Establish connection to the PowerShell remote server
 fn establish_connection(
-    config: ironposh_client_core::connector::ConnectorConfig,
+    config: ironposh_client_core::connector::WinRmConfig,
 ) -> anyhow::Result<(
     ironposh_client_core::connector::active_session::ActiveSession,
     ironposh_client_core::connector::http::HttpRequest,

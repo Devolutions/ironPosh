@@ -1,9 +1,12 @@
 use crate::{
-    connector::{conntion_pool::ConnectionPool, http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse}},
+    connector::{
+        conntion_pool::ConnectionPool,
+        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
+    },
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
     powershell::PipelineHandle,
-    runspace_pool::{pool::AcceptResponsResult, RunspacePool},
+    runspace_pool::{RunspacePool, pool::AcceptResponsResult},
 };
 use ironposh_psrp::{PipelineOutput, PsValue};
 use tracing::{debug, error, info, instrument};
@@ -109,14 +112,20 @@ pub struct ActiveSession {
     http_builder: HttpBuilder,
     /// Tracks pending host calls by (scope, call_id) to validate responses
     pending_host_calls: std::collections::HashMap<(HostCallScope, i64), ()>,
+    connection_pool: ConnectionPool,
 }
 
 impl ActiveSession {
-    pub fn new(runspace_pool: RunspacePool, http_builder: HttpBuilder, connection_pool: ConnectionPool) -> Self {
+    pub(crate) fn new(
+        runspace_pool: RunspacePool,
+        http_builder: HttpBuilder,
+        connection_pool: ConnectionPool,
+    ) -> Self {
         Self {
             runspace_pool,
             http_builder,
             pending_host_calls: std::collections::HashMap::new(),
+            connection_pool,
         }
     }
 
