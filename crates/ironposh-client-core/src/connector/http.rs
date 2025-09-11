@@ -1,7 +1,6 @@
 use std::{fmt::Display, net::IpAddr};
 
-
-pub const ENCRYPTION_BOUNDARY: &'static str = "Encrypted Boundary";
+pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 
 #[derive(Debug, Clone)]
 pub enum ServerAddress {
@@ -90,9 +89,9 @@ impl HttpBody {
         match self {
             HttpBody::Xml(content) => Ok(content),
             HttpBody::Encrypted(_) => {
-                return Err(crate::PwshCoreError::InternalError(
+                Err(crate::PwshCoreError::InternalError(
                     "Cannot convert binary encrypted content to &str".to_owned(),
-                ));
+                ))
             }
             HttpBody::Text(content) => Ok(content),
             HttpBody::None => Ok(""),

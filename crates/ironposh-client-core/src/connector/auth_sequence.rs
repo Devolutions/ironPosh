@@ -239,4 +239,3 @@ impl AuthSequence {
         (decryptor, self.http_builder)
     }
 }
-

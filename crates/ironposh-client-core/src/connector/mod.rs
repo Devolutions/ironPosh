@@ -396,7 +396,7 @@ impl Connector {
     #[instrument(skip(self, data))]
     pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
         debug!(to_be_encrypted = data, "Starting encryption process");
-        let enc = self.encryption_provider.as_mut().ok_or_else(|| {
+        let enc = self.encryption_provider.as_mut().ok_or({
             crate::PwshCoreError::InvalidState("No encryption provider available")
         })?;
 

@@ -5,7 +5,9 @@ use std::io::Read;
 use tracing::{debug, error, info, info_span, instrument};
 
 /// Determine the appropriate HttpBody variant based on the response Content-Type header
-fn determine_body_type_from_headers(headers: &[(String, String)]) -> fn(ureq::Response) -> Result<HttpBody, anyhow::Error> {
+fn determine_body_type_from_headers(
+    headers: &[(String, String)],
+) -> fn(ureq::Response) -> Result<HttpBody, anyhow::Error> {
     // Find the content-type header
     let content_type = headers
         .iter()
@@ -18,10 +20,13 @@ fn determine_body_type_from_headers(headers: &[(String, String)]) -> fn(ureq::Re
         |response| {
             debug!("reading encrypted response as binary data");
             let mut bytes = Vec::new();
-            response.into_reader().read_to_end(&mut bytes).map_err(|e| {
-                error!(error=%e, "failed to read binary response body");
-                anyhow::Error::from(e)
-            })?;
+            response
+                .into_reader()
+                .read_to_end(&mut bytes)
+                .map_err(|e| {
+                    error!(error=%e, "failed to read binary response body");
+                    anyhow::Error::from(e)
+                })?;
             Ok(HttpBody::Encrypted(bytes))
         }
     } else if content_type.contains("application/soap+xml") {
@@ -113,7 +118,7 @@ impl UreqHttpClient {
             debug!(body_length = body.len(), "sending with body");
 
             match body {
-                HttpBody::Encrypted(bytes) => ureq_request.send_bytes(&bytes),
+                HttpBody::Encrypted(bytes) => ureq_request.send_bytes(bytes),
                 _ => ureq_request.send_string(body.as_str()?),
             }
         } else {
@@ -134,7 +139,7 @@ impl UreqHttpClient {
                             .map(|value| (name.clone(), value.to_string()))
                     })
                     .collect();
-                
+
                 // Determine body type from headers and read accordingly
                 let body_reader = determine_body_type_from_headers(&headers);
                 let body = body_reader(response)?;
@@ -152,7 +157,7 @@ impl UreqHttpClient {
                             .map(|value| (name.clone(), value.to_string()))
                     })
                     .collect();
-                
+
                 // Determine body type from headers and read accordingly
                 let body_reader = determine_body_type_from_headers(&headers);
                 let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
@@ -168,7 +173,7 @@ impl UreqHttpClient {
 
         // Return as HttpResponse with actual response data
         Ok(ironposh_client_core::connector::http::HttpResponse {
-            status_code: status_code,
+            status_code,
             headers,
             body: Some(response_body),
         })
@@ -231,7 +236,7 @@ pub fn make_http_request(
     let response_result = if let Some(body) = &request.body {
         debug!(body_length = body.len(), "sending with body");
         match body {
-            HttpBody::Encrypted(bytes) => ureq_request.send_bytes(&bytes),
+            HttpBody::Encrypted(bytes) => ureq_request.send_bytes(bytes),
             _ => ureq_request.send_string(body.as_str()?),
         }
     } else {
@@ -252,7 +257,7 @@ pub fn make_http_request(
                         .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect();
-            
+
             // Determine body type from headers and read accordingly
             let body_reader = determine_body_type_from_headers(&headers);
             let body = body_reader(response)?;
@@ -270,7 +275,7 @@ pub fn make_http_request(
                         .map(|value| (name.clone(), value.to_string()))
                 })
                 .collect();
-            
+
             // Determine body type from headers and read accordingly
             let body_reader = determine_body_type_from_headers(&headers);
             let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
@@ -286,7 +291,7 @@ pub fn make_http_request(
 
     // Return as HttpResponse with actual response data
     Ok(ironposh_client_core::connector::http::HttpResponse {
-        status_code: status_code,
+        status_code,
         headers,
         body: Some(response_body),
     })

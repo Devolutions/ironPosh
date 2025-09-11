@@ -118,9 +118,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 #[instrument(level = "info", skip_all, fields(iterations = 0u64))]
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
-    network_response_rx: mpsc::Receiver<
-        ironposh_client_core::connector::http::HttpResponse,
-    >,
+    network_response_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
     user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
     network_request_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpRequest>,
     user_event_tx: mpsc::Sender<UserEvent>,

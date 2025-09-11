@@ -58,7 +58,7 @@ impl EncryptionProvider {
     pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
         let sequence_number = self.next_sequence_number();
         // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
-        let plain_len = data.as_bytes().len();
+        let plain_len = data.len();
 
         debug!(
             xml_to_encrypt = data.as_str(),
@@ -191,7 +191,7 @@ impl EncryptionProvider {
         let token = &binary_payload[4..4 + token_len];
         debug!(
             token_len = token.len(),
-            token_bytes = ?&token[..token.len().min(16)].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>(),
+            token_bytes = ?&token[..token.len().min(16)].iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>(),
             "Extracted security token"
         );
 
@@ -205,15 +205,15 @@ impl EncryptionProvider {
             "Extracted encrypted data for decryption"
         );
 
-        match self.unwrap(&token, &mut encrypted_data, sequence_number)? {
+        match self.unwrap(token, &mut encrypted_data, sequence_number)? {
             DecryptionResult::Decrypted(items) => {
                 let decrypted = String::from_utf8(items).map_err(|e| {
-                    PwshCoreError::InternalError(format!("Failed to decode decrypted body: {}", e))
+                    PwshCoreError::InternalError(format!("Failed to decode decrypted body: {e}"))
                 })?;
 
                 debug!(
                     xml_decrypted = decrypted.as_str(),
-                    decrypted_len = decrypted.as_bytes().len(),
+                    decrypted_len = decrypted.len(),
                     "Successfully decrypted XML body"
                 );
 
@@ -223,26 +223,6 @@ impl EncryptionProvider {
                 Err(PwshCoreError::InvalidState("Decryption was not performed"))
             }
         }
-
-        // Decrypt the data using SSPI
-        // match self.unwrap_with_token(&token, &mut encrypted_data, sequence_number)? {
-        //     DecryptionResult::Decrypted(decrypted_bytes) => {
-        //         let decrypted = String::from_utf8(decrypted_bytes).map_err(|e| {
-        //             PwshCoreError::InternalError(format!("Failed to decode decrypted body: {}", e))
-        //         })?;
-
-        //         debug!(
-        //             xml_decrypted = decrypted.as_str(),
-        //             decrypted_len = decrypted.as_bytes().len(),
-        //             "Successfully decrypted XML body"
-        //         );
-
-        //         Ok(decrypted)
-        //     }
-        //     DecryptionResult::DecryptionNotPerformed => {
-        //         Err(PwshCoreError::InvalidState("Decryption was not performed"))
-        //     }
-        // }
     }
 
     /// Extract the binary payload from a multipart/encrypted HTTP body
@@ -339,9 +319,9 @@ fn extract_binary_payload(data: &[u8]) -> Result<Vec<u8>, PwshCoreError> {
         binary_start += "\r\n".len(); // CRLF after header
 
         // Find the next boundary to determine where the binary data ends
-        let boundary = format!("--{}", ENCRYPTION_BOUNDARY);
+        let boundary = format!("--{ENCRYPTION_BOUNDARY}");
         let boundary_bytes = boundary.as_bytes();
-        let closing_boundary = format!("--{}--", ENCRYPTION_BOUNDARY);
+        let closing_boundary = format!("--{ENCRYPTION_BOUNDARY}--");
         let closing_boundary_bytes = closing_boundary.as_bytes();
 
         debug!(
@@ -404,13 +384,7 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         return None;
     }
 
-    for i in 0..=(haystack.len() - needle.len()) {
-        if haystack[i..i + needle.len()] == *needle {
-            return Some(i);
-        }
-    }
-
-    None
+    (0..=(haystack.len() - needle.len())).find(|&i| haystack[i..i + needle.len()] == *needle)
 }
 
 #[cfg(test)]

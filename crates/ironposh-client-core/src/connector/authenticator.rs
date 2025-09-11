@@ -364,7 +364,6 @@ impl SspiAuthenticator {
         Ok(token_buffer)
     }
 
-
     #[instrument(skip(provider, token, encrypted_data), fields(token_len = token.len(), data_len = encrypted_data.len(), sequence_number = sequence_number))]
     pub fn unwrap<P: Sspi + SspiImpl>(
         provider: &mut P,

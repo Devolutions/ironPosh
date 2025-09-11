@@ -12,12 +12,8 @@ pub struct NetworkHandler {
 
 impl NetworkHandler {
     pub fn new(
-        network_request_rx: mpsc::Receiver<
-            ironposh_client_core::connector::http::HttpRequest,
-        >,
-        network_response_tx: mpsc::Sender<
-            ironposh_client_core::connector::http::HttpResponse,
-        >,
+        network_request_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpRequest>,
+        network_response_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpResponse>,
     ) -> Self {
         Self {
             network_request_rx,
