@@ -1,9 +1,9 @@
 use crate::{
-    connector::http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
+    connector::{conntion_pool::ConnectionPool, http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse}},
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
     powershell::PipelineHandle,
-    runspace_pool::{RunspacePool, pool::AcceptResponsResult},
+    runspace_pool::{pool::AcceptResponsResult, RunspacePool},
 };
 use ironposh_psrp::{PipelineOutput, PsValue};
 use tracing::{debug, error, info, instrument};
@@ -112,7 +112,7 @@ pub struct ActiveSession {
 }
 
 impl ActiveSession {
-    pub fn new(runspace_pool: RunspacePool, http_builder: HttpBuilder) -> Self {
+    pub fn new(runspace_pool: RunspacePool, http_builder: HttpBuilder, connection_pool: ConnectionPool) -> Self {
         Self {
             runspace_pool,
             http_builder,

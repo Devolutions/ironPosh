@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use base64::Engine;
 use ironposh_psrp::HostInfo;
@@ -12,11 +12,14 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     PwshCoreError,
     connector::{
-        auth_sequence::{AuthConfig, AuthSequence},
+        auth_sequence::{AuthConfig, AuthSequence, Authenticated},
         authenticator::Token,
         config::Authentication,
+        conntion_pool::{ConnectionId, ConnectionPool},
         encryption::EncryptionProvider,
-        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse, ServerAddress},
+        http::{
+            HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse, ServerAddress,
+        },
     },
     runspace_pool::{
         DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
@@ -29,6 +32,7 @@ pub mod active_session;
 pub mod auth_sequence;
 pub mod authenticator;
 pub mod config;
+pub mod conntion_pool;
 pub mod encryption;
 pub mod http;
 
@@ -62,23 +66,23 @@ impl ConnectorConfig {
 
 #[derive(Debug)]
 pub enum ConnectorStepResult {
-    SendBack(HttpRequest),
-    SendBackError(crate::PwshCoreError),
+    SendBack {
+        request: HttpRequestAction,
+    },
     Auth {
         sequence: AuthSequence,
     },
     Connected {
         /// use box to avoid large enum variant
         active_session: Box<ActiveSession>,
-        next_receive_request: HttpRequest,
+        next_receive_request: HttpRequestAction,
     },
 }
 
 impl ConnectorStepResult {
     pub fn name(&self) -> &'static str {
         match self {
-            ConnectorStepResult::SendBack(_) => "SendBack",
-            ConnectorStepResult::SendBackError(_) => "SendBackError",
+            ConnectorStepResult::SendBack { .. } => "SendBack",
             ConnectorStepResult::Connected { .. } => "Connected",
             ConnectorStepResult::Auth { .. } => "Auth",
         }
@@ -89,8 +93,7 @@ impl ConnectorStepResult {
     pub fn priority(&self) -> u8 {
         match self {
             ConnectorStepResult::Auth { .. } => 0,
-            ConnectorStepResult::SendBack(_) => 1,
-            ConnectorStepResult::SendBackError(_) => 2,
+            ConnectorStepResult::SendBack { .. } => 1,
             ConnectorStepResult::Connected { .. } => 3,
         }
     }
@@ -105,10 +108,12 @@ pub enum ConnectorState {
     Connecting {
         expect_shell_created: ExpectShellCreated,
         http_builder: HttpBuilder,
+        connection_pool: ConnectionPool,
     },
     ConnectReceiveCycle {
         runspace_pool: RunspacePool,
         http_builder: HttpBuilder,
+        connection_pool: ConnectionPool,
     },
     Connected,
     Failed,
@@ -152,8 +157,11 @@ impl Connector {
     pub fn authenticate(
         &mut self,
         last_token: Option<Token>,
-        mut http_builder: HttpBuilder,
-        decryptor: EncryptionProvider,
+        Authenticated {
+            decryptor,
+            mut http_builder,
+            connection_pool,
+        }: Authenticated,
     ) -> Result<HttpRequest, crate::PwshCoreError> {
         match self.state {
             ConnectorState::AuthenticateInProgress {} => {}
@@ -189,6 +197,7 @@ impl Connector {
         self.set_state(ConnectorState::Connecting {
             expect_shell_created,
             http_builder,
+            connection_pool,
         });
 
         Ok(request)
@@ -197,26 +206,14 @@ impl Connector {
     #[instrument(skip(self, server_response), name = "Connector::step")]
     pub fn step(
         &mut self,
-        server_response: Option<HttpResponse>,
+        server_response: Option<(HttpResponse, ConnectionId)>,
     ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
         let (new_state, response) = match state {
-            ConnectorState::Taken => {
-                return Err(crate::PwshCoreError::UnlikelyToHappen(
-                    "Connector should not be in Taken state when stepping",
-                ));
-            }
-            ConnectorState::Failed => {
-                warn!("Connector is in Failed state, cannot proceed");
+            ConnectorState::Taken | ConnectorState::Failed | ConnectorState::Connected => {
                 return Err(crate::PwshCoreError::InvalidState(
-                    "Connector is in Failed state",
-                ));
-            }
-            ConnectorState::Connected => {
-                warn!("Connector is already connected, cannot step further");
-                return Err(crate::PwshCoreError::InvalidState(
-                    "Connector is already connected",
+                    "Connector is in invalid state for step()",
                 ));
             }
             ConnectorState::Idle => {
@@ -230,6 +227,8 @@ impl Connector {
                     self.config.server.1,
                     self.config.scheme.clone(),
                 );
+
+                let mut connection_pool = ConnectionPool::default();
 
                 match self.config.authentication.clone() {
                     Authentication::Basic { username, password } => {
@@ -251,14 +250,24 @@ impl Connector {
 
                         let (xml_body, expect_shell_created) = runspace_pool.open()?;
 
-                        let response = http_builder.post("/wsman", HttpBody::Xml(xml_body));
+                        let request = http_builder.post("/wsman", HttpBody::Xml(xml_body));
 
+                        let connection_id = connection_pool.get_idle_or_new_connection();
                         let new_state = ConnectorState::Connecting {
                             expect_shell_created,
                             http_builder,
+                            connection_pool,
                         };
 
-                        (new_state, ConnectorStepResult::SendBack(response))
+                        (
+                            new_state,
+                            ConnectorStepResult::SendBack {
+                                request: HttpRequestAction {
+                                    connection_id,
+                                    request,
+                                },
+                            },
+                        )
                     }
                     Authentication::Sspi(sspi_auth) => (
                         ConnectorState::AuthenticateInProgress {},
@@ -269,6 +278,7 @@ impl Connector {
                                     require_encryption: self.config.require_encryption,
                                 },
                                 http_builder,
+                                connection_pool,
                             )?,
                         },
                     ),
@@ -282,12 +292,15 @@ impl Connector {
             ConnectorState::Connecting {
                 expect_shell_created,
                 mut http_builder,
+                mut connection_pool,
             } => {
                 info!("Processing Connecting state");
 
-                let response = server_response.ok_or({
+                let (response, connection_id) = server_response.ok_or({
                     crate::PwshCoreError::InvalidState("Expected a response in Connecting state")
                 })?;
+
+                connection_pool.mark_connection_idle(&connection_id);
 
                 debug!(
                     status_code = response.status_code,
@@ -314,24 +327,38 @@ impl Connector {
 
                 let body = self.encrypt(receive_request)?;
 
-                let response = http_builder.post("/wsman", body);
+                let request = http_builder.post("/wsman", body);
 
+                let connection_id = connection_pool.get_idle_or_new_connection();
                 let new_state = ConnectorState::ConnectReceiveCycle {
                     runspace_pool,
                     http_builder,
+                    connection_pool,
                 };
 
-                (new_state, ConnectorStepResult::SendBack(response))
+                (
+                    new_state,
+                    ConnectorStepResult::SendBack {
+                        request: HttpRequestAction {
+                            connection_id,
+                            request: request,
+                        },
+                    },
+                )
             }
             ConnectorState::ConnectReceiveCycle {
                 mut runspace_pool,
                 mut http_builder,
+                mut connection_pool,
             } => {
                 let response = server_response.ok_or({
                     crate::PwshCoreError::InvalidState(
                         "Expected a response in ConnectReceiveCycle state",
                     )
                 })?;
+
+                let (response, connection_id) = response;
+                connection_pool.mark_connection_idle(&connection_id);
 
                 let body = response.body.ok_or({
                     crate::PwshCoreError::InvalidState(
@@ -355,33 +382,45 @@ impl Connector {
 
                 if let RunspacePoolState::NegotiationSent = runspace_pool.state {
                     let receive_request = runspace_pool.fire_receive(desired_streams)?;
-                    let response = http_builder.post("/wsman", HttpBody::Xml(receive_request));
+                    let request = http_builder.post("/wsman", HttpBody::Xml(receive_request));
+
+                    let connection_id = connection_pool.get_idle_or_new_connection();
                     let new_state = ConnectorState::ConnectReceiveCycle {
                         runspace_pool,
                         http_builder,
+                        connection_pool,
                     };
-                    (new_state, ConnectorStepResult::SendBack(response))
+                    (
+                        new_state,
+                        ConnectorStepResult::SendBack {
+                            request: HttpRequestAction {
+                                connection_id,
+                                request,
+                            },
+                        },
+                    )
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
                     let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
                     let body = self.encrypt(next_receive_request)?;
                     let next_http_request = http_builder.post("/wsman", body);
-                    let active_session = ActiveSession::new(runspace_pool, http_builder);
+                    let connection_id = connection_pool.get_idle_or_new_connection();
+                    let active_session =
+                        ActiveSession::new(runspace_pool, http_builder, connection_pool);
                     (
                         ConnectorState::Connected,
                         ConnectorStepResult::Connected {
                             active_session: Box::new(active_session),
-                            next_receive_request: next_http_request,
+                            next_receive_request: HttpRequestAction {
+                                connection_id,
+                                request: next_http_request,
+                            },
                         },
                     )
                 } else {
                     warn!("Unexpected RunspacePool state: {:?}", runspace_pool.state);
-                    (
-                        ConnectorState::Failed,
-                        ConnectorStepResult::SendBackError(crate::PwshCoreError::InvalidState(
-                            "Unexpected RunspacePool state",
-                        )),
-                    )
+                    // TODO: handle other states properly
+                    panic!("Unexpected RunspacePool state after AcceptResponse");
                 }
             }
         };

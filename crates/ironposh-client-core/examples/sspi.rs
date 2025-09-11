@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ironposh_client_core::ClientAuthIdentity;
 use ironposh_client_core::connector::authenticator::{
-    AuthContext, SecContextInit, SecContextMaybeInit, SspiAuthenticator,
+    SspiConext, SecContextInit, SecContextMaybeInit, SspiAuthenticator,
 };
 use ironposh_client_core::credentials::ClientUserName;
 use sspi::Sspi;
@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     let identity = ClientAuthIdentity::new(username, "DevoLabs123!".into());
 
     // Create NTLM context
-    let mut context = AuthContext::new_ntlm(
+    let mut context = SspiConext::new_ntlm(
         identity,
         ironposh_client_core::SspiAuthConfig::Negotiate {
             target: (),

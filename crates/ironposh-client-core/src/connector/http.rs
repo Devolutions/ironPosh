@@ -1,5 +1,7 @@
 use std::{fmt::Display, net::IpAddr};
 
+use crate::connector::conntion_pool::ConnectionId;
+
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 
 #[derive(Debug, Clone)]
@@ -95,6 +97,13 @@ impl HttpBody {
             HttpBody::None => Ok(""),
         }
     }
+}
+
+
+#[derive(Debug)]
+pub struct HttpRequestAction {
+    pub connection_id: ConnectionId,
+    pub request: HttpRequest,
 }
 
 #[derive(Debug, Clone)]
@@ -249,5 +258,4 @@ impl HttpBuilder {
             cookie: self.cookie.clone(),
         }
     }
-
 }

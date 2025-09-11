@@ -3,22 +3,16 @@ use byteorder::{BigEndian, ReadBytesExt};
 use ironposh_client_core::connector::{
     auth_sequence::{AuthSequence, SecurityContextBuilderHolder},
     authenticator::SecContextMaybeInit,
-    http::{HttpRequest, HttpResponse},
+    http::{HttpRequest, HttpRequestAction, HttpResponse},
     Connector, ConnectorConfig, ConnectorStepResult,
 };
 use tracing::{info, instrument};
-
-#[derive(Debug)]
-pub enum KeepAlive {
-    Must,
-    NotNecessary,
-}
 
 pub trait HttpClient {
     fn send_request(
         &self,
         request: HttpRequest,
-        keep_alive: KeepAlive,
+        connection_id: u32,
     ) -> Result<HttpResponse, anyhow::Error>;
 }
 
@@ -41,11 +35,13 @@ impl RemotePowershell {
             let step_result = connector.step(response.take())?;
 
             match step_result {
-                ConnectorStepResult::SendBack(http_request) => {
-                    response = Some(client.send_request(http_request, KeepAlive::NotNecessary)?);
-                }
-                ConnectorStepResult::SendBackError(e) => {
-                    anyhow::bail!("Connection failed: {}", e);
+                ConnectorStepResult::SendBack { request } => {
+                    let HttpRequestAction {
+                        connection_id,
+                        request: http_request,
+                    } = request;
+                    let res = client.send_request(http_request, connection_id.inner())?;
+                    response = Some((res, connection_id));
                 }
                 ConnectorStepResult::Connected {
                     active_session,
@@ -90,8 +86,12 @@ impl RemotePowershell {
                         let action = sequence.process_initialized_sec_context(sec_ctx_init)?;
 
                         match action {
-                            ironposh_client_core::connector::auth_sequence::SecCtxInited::Continue(http_request) => {
-                                auth_response = Some(client.send_request(http_request,KeepAlive::Must)?);
+                            ironposh_client_core::connector::auth_sequence::SecCtxInited::Continue(request) => {
+                                let HttpRequestAction {
+                                    connection_id,
+                                    request: http_request,
+                                } = request;
+                                auth_response = client.send_request(http_request,connection_id.inner())?;
                             }
                             ironposh_client_core::connector::auth_sequence::SecCtxInited::Done(token) => {
                                 break token;

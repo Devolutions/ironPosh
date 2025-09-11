@@ -6,19 +6,20 @@ use crate::{
     PwshCoreError, SspiAuthConfig,
     connector::{
         authenticator::{
-            AuthContext, SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator,
-            SspiConfig, Token,
+            SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
+            Token,
         },
-        encryption::EncryptionProvider,
-        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
+        conntion_pool::ConnectionPool,
+        encryption::{self, EncryptionProvider},
+        http::{HttpBody, HttpBuilder, HttpRequestAction, HttpResponse},
     },
 };
 
 #[derive(Debug)]
-pub enum AnyAuthContext {
-    Ntlm(AuthContext<sspi::ntlm::Ntlm>),
-    Kerberos(AuthContext<sspi::kerberos::Kerberos>),
-    Negotiate(AuthContext<sspi::negotiate::Negotiate>),
+pub enum AuthContext {
+    Ntlm(SspiConext<sspi::ntlm::Ntlm>),
+    Kerberos(SspiConext<sspi::kerberos::Kerberos>),
+    Negotiate(SspiConext<sspi::negotiate::Negotiate>),
 }
 
 pub struct SecurityContextBuilderHolder<'ctx> {
@@ -65,25 +66,26 @@ impl<'ctx> SecurityContextBuilderHolder<'ctx> {
     }
 }
 
-impl AnyAuthContext {
+impl AuthContext {
     pub fn new(sspi_config: SspiAuthConfig) -> Result<Self, crate::PwshCoreError> {
         match sspi_config {
             SspiAuthConfig::NTLM {
                 identity,
                 target: target_name,
-            } => AuthContext::new_ntlm(identity, SspiConfig::new(target_name))
-                .map(AnyAuthContext::Ntlm),
+            } => {
+                SspiConext::new_ntlm(identity, SspiConfig::new(target_name)).map(AuthContext::Ntlm)
+            }
 
             SspiAuthConfig::Kerberos {
                 identity,
                 kerberos_config,
                 target: target_name,
-            } => AuthContext::new_kerberos(
+            } => SspiConext::new_kerberos(
                 identity,
                 kerberos_config.into(),
                 SspiConfig::new(target_name),
             )
-            .map(AnyAuthContext::Kerberos),
+            .map(AuthContext::Kerberos),
 
             SspiAuthConfig::Negotiate {
                 identity,
@@ -118,8 +120,7 @@ impl AnyAuthContext {
                     }
                 };
 
-                AuthContext::new_negotiate(identity, config, sspi_config)
-                    .map(AnyAuthContext::Negotiate)
+                SspiConext::new_negotiate(identity, config, sspi_config).map(AuthContext::Negotiate)
             }
         }
     }
@@ -132,13 +133,14 @@ pub struct AuthConfig {
 }
 
 pub struct AuthSequence {
-    context: AnyAuthContext,
+    context: AuthContext,
     http_builder: HttpBuilder,
     require_encryption: bool,
+    connection_pool: ConnectionPool,
 }
 
 pub enum SecCtxInited {
-    Continue(HttpRequest),
+    Continue(HttpRequestAction),
     Done(Option<Token>),
 }
 
@@ -155,17 +157,19 @@ impl AuthSequence {
     pub fn new(
         auth_config: AuthConfig,
         http_builder: HttpBuilder,
+        connection_pool: ConnectionPool,
     ) -> Result<Self, crate::PwshCoreError> {
         let AuthConfig {
             sspi_config,
             require_encryption,
         } = auth_config;
 
-        let context = AnyAuthContext::new(sspi_config)?;
+        let context = AuthContext::new(sspi_config)?;
         Ok(AuthSequence {
             context,
             http_builder,
             require_encryption,
+            connection_pool,
         })
     }
 
@@ -179,19 +183,19 @@ impl AuthSequence {
         'builder: 'generator,
     {
         Ok(match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => SspiAuthenticator::try_init_sec_context(
+            AuthContext::Ntlm(auth_context) => SspiAuthenticator::try_init_sec_context(
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_ntlm(),
                 self.require_encryption,
             )?,
-            AnyAuthContext::Kerberos(auth_context) => SspiAuthenticator::try_init_sec_context(
+            AuthContext::Kerberos(auth_context) => SspiAuthenticator::try_init_sec_context(
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_kerberos(),
                 self.require_encryption,
             )?,
-            AnyAuthContext::Negotiate(auth_context) => SspiAuthenticator::try_init_sec_context(
+            AuthContext::Negotiate(auth_context) => SspiAuthenticator::try_init_sec_context(
                 response,
                 auth_context,
                 sec_ctx_holder.as_mut_negotiate(),
@@ -212,13 +216,13 @@ impl AuthSequence {
         sec_context: crate::connector::authenticator::SecContextInit,
     ) -> Result<SecCtxInited, PwshCoreError> {
         let res = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => {
+            AuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
             }
-            AnyAuthContext::Kerberos(auth_context) => {
+            AuthContext::Kerberos(auth_context) => {
                 SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
             }
-            AnyAuthContext::Negotiate(auth_context) => {
+            AuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::process_initialized_sec_context(auth_context, sec_context)
             }
         }?;
@@ -227,15 +231,34 @@ impl AuthSequence {
             super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
                 self.http_builder.with_auth_header(token.0);
                 Ok(SecCtxInited::Continue(
-                    self.http_builder.post("/wsman", HttpBody::None),
+                    HttpRequestAction {
+                        connection_id: self.connection_pool.get_idle_or_new_connection(),
+                        request: self.http_builder.post("/wsman", HttpBody::None),
+                    }, // self.http_builder.post("/wsman", HttpBody::None),
                 ))
             }
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
         }
     }
 
-    pub fn destruct_for_next_step(self) -> (EncryptionProvider, HttpBuilder) {
-        let decryptor = EncryptionProvider::new(self.context, self.require_encryption);
-        (decryptor, self.http_builder)
+    pub fn when_finish(self) -> Authenticated {
+        let AuthSequence {
+            context,
+            http_builder,
+            connection_pool,
+            require_encryption,
+        } = self;
+
+        Authenticated {
+            decryptor: EncryptionProvider::new(context, require_encryption),
+            http_builder,
+            connection_pool,
+        }
     }
+}
+
+pub struct Authenticated {
+    pub(crate) decryptor: EncryptionProvider,
+    pub(crate) http_builder: HttpBuilder,
+    pub(crate) connection_pool: ConnectionPool,
 }
