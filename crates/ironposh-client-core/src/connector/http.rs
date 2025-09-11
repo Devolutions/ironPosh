@@ -88,11 +88,9 @@ impl HttpBody {
     pub fn as_str(&self) -> Result<&str, crate::PwshCoreError> {
         match self {
             HttpBody::Xml(content) => Ok(content),
-            HttpBody::Encrypted(_) => {
-                Err(crate::PwshCoreError::InternalError(
-                    "Cannot convert binary encrypted content to &str".to_owned(),
-                ))
-            }
+            HttpBody::Encrypted(_) => Err(crate::PwshCoreError::InternalError(
+                "Cannot convert binary encrypted content to &str".to_owned(),
+            )),
             HttpBody::Text(content) => Ok(content),
             HttpBody::None => Ok(""),
         }
@@ -252,43 +250,4 @@ impl HttpBuilder {
         }
     }
 
-    pub fn get(&mut self, path: &str) -> HttpRequest {
-        HttpRequest {
-            method: Method::Get,
-            url: self.build_url(path),
-            headers: self.build_headers(None),
-            body: Some(HttpBody::None),
-            cookie: self.cookie.clone(),
-        }
-    }
-
-    // pub fn get(&self, path: &str) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Get,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(None),
-    //         body: None,
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
-
-    // pub fn put(&self, path: &str, body: String) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Put,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(Some(&body)),
-    //         body: Some(body),
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
-
-    // pub fn delete(&self, path: &str) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Delete,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(None),
-    //         body: None,
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
 }

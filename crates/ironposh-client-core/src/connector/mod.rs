@@ -12,7 +12,6 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     PwshCoreError,
     connector::{
-        // auth_sequence::{AnyContext, AuthSequence, SecContextProcessResult, TryInitSecContext},,
         auth_sequence::{AuthConfig, AuthSequence},
         authenticator::Token,
         config::Authentication,
@@ -232,7 +231,6 @@ impl Connector {
                     self.config.scheme.clone(),
                 );
 
-                // if matches!(self.config.authentication, Authentication::Basic { .. }) {
                 match self.config.authentication.clone() {
                     Authentication::Basic { username, password } => {
                         let auth_header = format!(
@@ -396,9 +394,12 @@ impl Connector {
     #[instrument(skip(self, data))]
     pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
         debug!(to_be_encrypted = data, "Starting encryption process");
-        let enc = self.encryption_provider.as_mut().ok_or({
-            crate::PwshCoreError::InvalidState("No encryption provider available")
-        })?;
+        let enc = self
+            .encryption_provider
+            .as_mut()
+            .ok_or(crate::PwshCoreError::InvalidState(
+                "No encryption provider available",
+            ))?;
 
         enc.encrypt(data)
     }
@@ -417,23 +418,6 @@ impl Connector {
                     "No decryptor available for decryption",
                 ))?;
 
-        let result = decryptor.decrypt(data);
-
-        match &result {
-            Ok(decrypted) => {
-                debug!(
-                    decrypted_len = decrypted.len(),
-                    "Decryption completed successfully"
-                );
-            }
-            Err(e) => {
-                debug!(
-                    error = %e,
-                    "Decryption failed"
-                );
-            }
-        }
-
-        result
+        decryptor.decrypt(data)
     }
 }
