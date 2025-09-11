@@ -14,6 +14,8 @@ use crate::{
 #[derive(Debug)]
 pub struct EncryptionProvider {
     context: AnyAuthContext,
+    sequence_number: u32,
+    recv_sequence_number: u32,
     require_encryption: bool,
 }
 
@@ -33,17 +35,28 @@ impl EncryptionProvider {
     pub fn new(context: AnyAuthContext, require_encryption: bool) -> Self {
         Self {
             context,
+            sequence_number: 0,
+            recv_sequence_number: 0,
             require_encryption,
         }
     }
 
+    fn next_sequence_number(&mut self) -> u32 {
+        let seq = self.sequence_number;
+        self.sequence_number = self.sequence_number.wrapping_add(1);
+        seq
+    }
+
+    fn next_recv_sequence_number(&mut self) -> u32 {
+        let seq = self.recv_sequence_number;
+        self.recv_sequence_number = self.recv_sequence_number.wrapping_add(1);
+        seq
+    }
+
     /// High-level method to encrypt a string into an HttpBody
     #[instrument(skip(self, data))]
-    pub fn encrypt(
-        &mut self,
-        data: String,
-        sequence_number: u32,
-    ) -> Result<HttpBody, PwshCoreError> {
+    pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
+        let sequence_number = self.next_sequence_number();
         // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
         let plain_len = data.as_bytes().len();
 
@@ -120,12 +133,9 @@ impl EncryptionProvider {
     }
 
     /// High-level method to decrypt an HttpBody into a string
-    #[instrument(skip(self, data), fields(sequence_number = sequence_number))]
-    pub fn decrypt(
-        &mut self,
-        data: HttpBody,
-        sequence_number: u32,
-    ) -> Result<String, PwshCoreError> {
+    #[instrument(skip(self, data))]
+    pub fn decrypt(&mut self, data: HttpBody) -> Result<String, PwshCoreError> {
+        let sequence_number = self.next_recv_sequence_number();
         info!(
             body_type = ?data,
             "Decrypting HTTP body if necessary"
@@ -145,57 +155,57 @@ impl EncryptionProvider {
         };
 
         // Parse the multipart/encrypted body to extract the binary payload
-        let mut binary_payload = extract_binary_payload(&encrypted_data)?;
+        let binary_payload = extract_binary_payload(&encrypted_data)?;
 
         debug!(
             payload_len = binary_payload.len(),
             "Extracted binary payload from multipart body"
         );
 
-        // // The binary payload contains: 4-byte length + token + encrypted data
-        // if binary_payload.len() < 4 {
-        //     return Err(PwshCoreError::InternalError(
-        //         "Binary payload too short to contain length prefix".to_string(),
-        //     ));
-        // }
+        // The binary payload contains: 4-byte length + token + encrypted data
+        if binary_payload.len() < 4 {
+            return Err(PwshCoreError::InternalError(
+                "Binary payload too short to contain length prefix".to_string(),
+            ));
+        }
 
-        // // Read the 4-byte little-endian length prefix
-        // let token_len = u32::from_le_bytes([
-        //     binary_payload[0],
-        //     binary_payload[1],
-        //     binary_payload[2],
-        //     binary_payload[3],
-        // ]) as usize;
+        // Read the 4-byte little-endian length prefix
+        let token_len = u32::from_le_bytes([
+            binary_payload[0],
+            binary_payload[1],
+            binary_payload[2],
+            binary_payload[3],
+        ]) as usize;
 
-        // debug!(token_len, "Read token length from binary payload");
+        debug!(token_len, "Read token length from binary payload");
 
-        // if binary_payload.len() < 4 + token_len {
-        //     return Err(PwshCoreError::InternalError(format!(
-        //         "Binary payload too short: expected at least {} bytes, got {}",
-        //         4 + token_len,
-        //         binary_payload.len()
-        //     )));
-        // }
+        if binary_payload.len() < 4 + token_len {
+            return Err(PwshCoreError::InternalError(format!(
+                "Binary payload too short: expected at least {} bytes, got {}",
+                4 + token_len,
+                binary_payload.len()
+            )));
+        }
 
-        // // Extract the token (security trailer)
-        // let token = binary_payload[4..4 + token_len].to_vec();
-        // debug!(
-        //     token_len = token.len(),
-        //     token_bytes = ?&token[..token.len().min(16)],
-        //     "Extracted security token"
-        // );
+        // Extract the token (security trailer)
+        let token = &binary_payload[4..4 + token_len];
+        debug!(
+            token_len = token.len(),
+            token_bytes = ?&token[..token.len().min(16)].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>(),
+            "Extracted security token"
+        );
 
-        // // Extract the encrypted data (skip 4-byte length prefix + token)
-        // let encrypted_data_start = 4 + token_len;
-        // let mut encrypted_data = binary_payload[encrypted_data_start..].to_vec();
+        // Extract the encrypted data (skip 4-byte length prefix + token)
+        let encrypted_data_start = 4 + token_len;
+        let mut encrypted_data = binary_payload[encrypted_data_start..].to_vec();
 
-        // debug!(
-        //     encrypted_data_len = encrypted_data.len(),
-        //     encrypted_bytes = ?&encrypted_data[..encrypted_data.len().min(16)],
-        //     "Extracted encrypted data for decryption"
-        // );
+        debug!(
+            encrypted_data_len = encrypted_data.len(),
+            encrypted_bytes = ?&encrypted_data[..encrypted_data.len().min(16)],
+            "Extracted encrypted data for decryption"
+        );
 
-        match self.unwrap(&mut binary_payload[4..], sequence_number)? {
+        match self.unwrap(&token, &mut encrypted_data, sequence_number)? {
             DecryptionResult::Decrypted(items) => {
                 let decrypted = String::from_utf8(items).map_err(|e| {
                     PwshCoreError::InternalError(format!("Failed to decode decrypted body: {}", e))
@@ -262,7 +272,7 @@ impl EncryptionProvider {
         Ok(EncryptionResult::Encrypted { token })
     }
 
-    fn unwrap_with_token(
+    fn unwrap(
         &mut self,
         token: &[u8],
         data: &mut [u8],
@@ -273,56 +283,15 @@ impl EncryptionProvider {
             return Ok(DecryptionResult::DecryptionNotPerformed);
         }
 
-        debug!(
-            token_len = token.len(),
-            data_len = data.len(),
-            sequence_number = sequence_number,
-            "Calling SSPI unwrap with separate token and data"
-        );
-
-        let decrypted = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => SspiAuthenticator::unwrap_with_token(
-                &mut auth_context.provider,
-                token,
-                data,
-                sequence_number,
-            ),
-            AnyAuthContext::Kerberos(auth_context) => SspiAuthenticator::unwrap_with_token(
-                &mut auth_context.provider,
-                token,
-                data,
-                sequence_number,
-            ),
-            AnyAuthContext::Negotiate(auth_context) => SspiAuthenticator::unwrap_with_token(
-                &mut auth_context.provider,
-                token,
-                data,
-                sequence_number,
-            ),
-        }?;
-
-        Ok(DecryptionResult::Decrypted(decrypted))
-    }
-
-    fn unwrap(
-        &mut self,
-        data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<DecryptionResult, PwshCoreError> {
-        if !self.require_encryption {
-            debug!("Decryption not required, skipping unwrap");
-            return Ok(DecryptionResult::DecryptionNotPerformed);
-        }
-
         let decrypted = match &mut self.context {
             AnyAuthContext::Ntlm(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
             AnyAuthContext::Kerberos(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
             AnyAuthContext::Negotiate(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
         }?;
 

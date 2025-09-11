@@ -134,7 +134,6 @@ pub struct Connector {
     state: ConnectorState,
     config: ConnectorConfig,
     encryption_provider: Option<EncryptionProvider>,
-    sequence_number: u32,
 }
 
 impl Connector {
@@ -143,7 +142,6 @@ impl Connector {
             state: ConnectorState::Idle,
             config,
             encryption_provider: None,
-            sequence_number: 0,
         }
     }
 
@@ -182,7 +180,7 @@ impl Connector {
         let (xml_body, expect_shell_created) = runspace_pool.open()?;
 
         let body = if self.encryption_provider.is_some() {
-            self.encrypt_if_necessary(xml_body)?
+            self.encrypt(xml_body)?
         } else {
             HttpBody::Xml(xml_body)
         };
@@ -308,7 +306,7 @@ impl Connector {
                     "Processing response body"
                 );
 
-                let body_string = self.decrypt_if_necessary(body)?;
+                let body_string = self.decrypt(body)?;
                 debug!(decrypted_body = %body_string, "Decrypted body");
 
                 let mut runspace_pool = expect_shell_created.accept(body_string)?;
@@ -316,7 +314,7 @@ impl Connector {
                 let receive_request =
                     runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
 
-                let body = self.encrypt_if_necessary(receive_request)?;
+                let body = self.encrypt(receive_request)?;
 
                 let response = http_builder.post("/wsman", body);
 
@@ -343,7 +341,7 @@ impl Connector {
                     )
                 })?;
 
-                let soap_xml = self.decrypt_if_necessary(body)?;
+                let soap_xml = self.decrypt(body)?;
 
                 let accept_response_results = runspace_pool.accept_response(soap_xml)?;
 
@@ -368,7 +366,7 @@ impl Connector {
                 } else if let RunspacePoolState::Opened = runspace_pool.state {
                     info!("Connection established successfully - returning ActiveSession");
                     let next_receive_request = runspace_pool.fire_receive(desired_streams)?;
-                    let body = self.encrypt_if_necessary(next_receive_request)?;
+                    let body = self.encrypt(next_receive_request)?;
                     let next_http_request = http_builder.post("/wsman", body);
                     let active_session = ActiveSession::new(runspace_pool, http_builder);
                     (
@@ -395,23 +393,20 @@ impl Connector {
         Ok(response)
     }
 
-    pub fn encrypt_if_necessary(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
-        let next_sequence_number = self.next_sequence_number();
+    #[instrument(skip(self, data))]
+    pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
+        debug!(to_be_encrypted = data, "Starting encryption process");
         let enc = self.encryption_provider.as_mut().ok_or_else(|| {
             crate::PwshCoreError::InvalidState("No encryption provider available")
         })?;
 
-        enc.encrypt(data, next_sequence_number)
+        enc.encrypt(data)
     }
 
-    #[instrument(skip(self, data), fields(sequence_number))]
-    fn decrypt_if_necessary(&mut self, data: HttpBody) -> Result<String, crate::PwshCoreError> {
-        let next_sequence_number = self.next_sequence_number();
-        tracing::Span::current().record("sequence_number", next_sequence_number);
-
+    #[instrument(skip(self, data))]
+    fn decrypt(&mut self, data: HttpBody) -> Result<String, crate::PwshCoreError> {
         debug!(
             body_type = ?data,
-            sequence_number = next_sequence_number,
             "Starting decryption process"
         );
 
@@ -422,7 +417,7 @@ impl Connector {
                     "No decryptor available for decryption",
                 ))?;
 
-        let result = decryptor.decrypt(data, next_sequence_number);
+        let result = decryptor.decrypt(data);
 
         match &result {
             Ok(decrypted) => {
@@ -439,13 +434,6 @@ impl Connector {
             }
         }
 
-        result
-    }
-
-    fn next_sequence_number(&mut self) -> u32 {
-        let result = self.sequence_number;
-        // For now, always return 0
-        self.sequence_number += 1;
         result
     }
 }

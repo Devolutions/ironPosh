@@ -364,47 +364,9 @@ impl SspiAuthenticator {
         Ok(token_buffer)
     }
 
-    #[instrument(skip(provider, encrypted_data), fields(data_len = encrypted_data.len(), sequence_number = sequence_number))]
-    pub fn unwrap<P: Sspi + SspiImpl>(
-        provider: &mut P,
-        encrypted_data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<Vec<u8>, PwshCoreError> {
-        debug!("SSPI unwrap called with stream buffer only (legacy mode)");
-        let mut to_be_unwrapped = Vec::new();
-        let sec_data_buffer = SecurityBufferRef::stream_buf(encrypted_data);
-        let data_buffer = SecurityBufferRef::data_buf(to_be_unwrapped.as_mut_slice());
-        let mut buffers = [sec_data_buffer, data_buffer];
-
-        debug!(
-            buffer_count = buffers.len(),
-            buffer_type = ?buffers[0].buffer_type(),
-            "Calling SSPI decrypt_message with buffers"
-        );
-
-        let result = provider.decrypt_message(&mut buffers, sequence_number);
-
-        match result {
-            Ok(_) => {
-                let decrypted_buffer = buffers[1].data().to_vec();
-                debug!(
-                    decrypted_len = decrypted_buffer.len(),
-                    "SSPI decrypt_message succeeded"
-                );
-                Ok(decrypted_buffer)
-            }
-            Err(e) => {
-                debug!(
-                    error = %e,
-                    "SSPI decrypt_message failed"
-                );
-                Err(e.into())
-            }
-        }
-    }
 
     #[instrument(skip(provider, token, encrypted_data), fields(token_len = token.len(), data_len = encrypted_data.len(), sequence_number = sequence_number))]
-    pub fn unwrap_with_token<P: Sspi + SspiImpl>(
+    pub fn unwrap<P: Sspi + SspiImpl>(
         provider: &mut P,
         token: &[u8],
         encrypted_data: &mut [u8],
