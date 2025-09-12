@@ -1,6 +1,5 @@
 use std::{fmt::Debug, sync::Arc};
 
-use base64::Engine;
 use ironposh_psrp::HostInfo;
 use ironposh_winrm::ws_management::WsMan;
 
@@ -165,6 +164,7 @@ impl Connector {
                     .into_runspace_pool(ws_man);
 
                 let (xml_body, expect_shell_created) = runspace_pool.open()?;
+                info!(shell_creation_xml = %xml_body, "outgoing unencrypted shell creation SOAP");
 
                 let try_send = connection_pool.send(&xml_body)?;
 
@@ -189,6 +189,7 @@ impl Connector {
                 let mut runspace_pool = expect_shell_created.accept(xml)?;
                 let receive_xml =
                     runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
+                info!(connecting_receive_xml = %receive_xml, "outgoing unencrypted connecting receive SOAP");
                 let try_send = connection_pool.send(&receive_xml)?;
 
                 let new_state = ConnectorState::ConnectReceiveCycle {

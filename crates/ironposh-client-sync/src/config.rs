@@ -125,9 +125,9 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 
     // Determine log level based on verbosity using global filters
     let filter_str = match verbose_level {
-        0 => "info,ureq=error",
-        1 => "debug,ureq=warn",
-        2 => "trace,ureq=info",
+        0 => "info,ureq=error,sspi=error",
+        1 => "debug,ureq=warn,sspi=error",
+        2 => "trace,ureq=info,sspi=error",
         _ => "trace",
     };
 

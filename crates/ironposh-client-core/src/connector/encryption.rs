@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::{
     PwshCoreError,
@@ -148,7 +148,7 @@ impl EncryptionProvider {
         let sequence_number = self.next_recv_sequence_number();
         info!(
             body_type = ?data,
-            "Decrypting HTTP body if necessary"
+            "Decrypting HTTP body"
         );
         let encrypted_data = match data {
             HttpBody::Encrypted(encrypted_data) => {
@@ -221,11 +221,24 @@ impl EncryptionProvider {
                     PwshCoreError::InternalError(format!("Failed to decode decrypted body: {e}"))
                 })?;
 
-                debug!(
-                    xml_decrypted = decrypted.as_str(),
-                    decrypted_len = decrypted.len(),
-                    "Successfully decrypted XML body"
-                );
+                // Log the full decrypted content at debug level for all responses
+                // and at info level for error responses to help with debugging
+                if decrypted.contains("<s:Fault")
+                    || decrypted.contains("HTTP 5")
+                    || decrypted.contains("Error")
+                {
+                    warn!(
+                        xml_decrypted = %decrypted,
+                        decrypted_len = decrypted.len(),
+                        "decrypted XML body contains error content"
+                    );
+                } else {
+                    debug!(
+                        xml_decrypted = decrypted.as_str(),
+                        decrypted_len = decrypted.len(),
+                        "Successfully decrypted XML body"
+                    );
+                }
 
                 Ok(decrypted)
             }

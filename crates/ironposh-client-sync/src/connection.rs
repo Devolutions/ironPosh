@@ -1,6 +1,6 @@
 use ironposh_client_core::connector::{
     conntion_pool::TrySend,
-    http::{HttpRequest, HttpResponse, HttpResponseTargeted},
+    http::HttpResponseTargeted,
     Connector, ConnectorStepResult, WinRmConfig,
 };
 

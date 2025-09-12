@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 
 use ironposh_xml::builder::{Attribute, Element};
-use tracing::{debug, trace};
+use tracing::trace;
 
 type Result<T> = std::result::Result<T, crate::PowerShellRemotingError>;
 

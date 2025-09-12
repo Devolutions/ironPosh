@@ -6,17 +6,24 @@ use crate::{
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
     powershell::PipelineHandle,
-    runspace_pool::{RunspacePool, pool::AcceptResponsResult, DesiredStream},
+    runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
 };
-use ironposh_psrp::{PipelineOutput, PsValue, PsPrimitiveValue};
-use tracing::{debug, error, info, instrument};
+use ironposh_psrp::{PipelineOutput, PsPrimitiveValue, PsValue};
 use std::collections::HashMap;
+use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
-    PipelineCreated { powershell: PipelineHandle },
-    PipelineFinished { powershell: PipelineHandle },
-    PipelineOutput { powershell: PipelineHandle, output: PipelineOutput },
+    PipelineCreated {
+        powershell: PipelineHandle,
+    },
+    PipelineFinished {
+        powershell: PipelineHandle,
+    },
+    PipelineOutput {
+        powershell: PipelineHandle,
+        output: PipelineOutput,
+    },
 }
 
 impl UserEvent {
@@ -50,14 +57,20 @@ impl ActiveSessionOutput {
     }
 }
 impl PartialEq for ActiveSessionOutput {
-    fn eq(&self, other: &Self) -> bool { self.priority() == other.priority() }
+    fn eq(&self, other: &Self) -> bool {
+        self.priority() == other.priority()
+    }
 }
 impl Eq for ActiveSessionOutput {}
 impl PartialOrd for ActiveSessionOutput {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for ActiveSessionOutput {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.priority().cmp(&other.priority()) }
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.priority().cmp(&other.priority())
+    }
 }
 
 #[derive(Debug)]
@@ -67,13 +80,26 @@ pub enum PowershellOperations {
 
 #[derive(Debug)]
 pub enum UserOperation {
-    CreatePipeline { uuid: uuid::Uuid },
-    OperatePipeline { powershell: PipelineHandle, operation: PowershellOperations },
-    InvokePipeline { powershell: PipelineHandle },
+    CreatePipeline {
+        uuid: uuid::Uuid,
+    },
+    OperatePipeline {
+        powershell: PipelineHandle,
+        operation: PowershellOperations,
+    },
+    InvokePipeline {
+        powershell: PipelineHandle,
+    },
     /// reply to a server-initiated host call
-    SubmitHostResponse { response: Box<HostCallResponse> },
+    SubmitHostResponse {
+        response: Box<HostCallResponse>,
+    },
     /// cancel a pending host call (timeout / user cancelled)
-    CancelHostCall { scope: HostCallScope, call_id: i64, reason: Option<String> },
+    CancelHostCall {
+        scope: HostCallScope,
+        call_id: i64,
+        reason: Option<String>,
+    },
 }
 
 /// Manages post-connect PSRP operations. Produces `TrySend` for the caller to send.
@@ -97,7 +123,7 @@ impl ActiveSession {
 
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
     #[instrument(skip_all, fields(operation_type = %match &operation {
-        UserOperation::CreatePipeline { uuid } => format!("CreatePipeline({})", uuid),
+        UserOperation::CreatePipeline { uuid } => format!("CreatePipeline({uuid})"),
         UserOperation::OperatePipeline { powershell, .. } => format!("OperatePipeline({})", powershell.id()),
         UserOperation::InvokePipeline { powershell } => format!("InvokePipeline({})", powershell.id()),
         UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse".to_string(),
@@ -113,10 +139,15 @@ impl ActiveSession {
                 info!(pipeline_uuid = %uuid, "creating new pipeline");
                 let handle = self.runspace_pool.init_pipeline(uuid)?;
                 info!(pipeline_id = %handle.id(), "pipeline created successfully");
-                Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated { powershell: handle }))
+                Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
+                    powershell: handle,
+                }))
             }
 
-            UserOperation::OperatePipeline { powershell, operation } => {
+            UserOperation::OperatePipeline {
+                powershell,
+                operation,
+            } => {
                 info!(pipeline_id = %powershell.id(), "operating on pipeline");
                 match operation {
                     PowershellOperations::AddCommand { command } => {
@@ -130,19 +161,25 @@ impl ActiveSession {
 
             UserOperation::InvokePipeline { powershell } => {
                 info!(pipeline_id = %powershell.id(), "invoking pipeline");
-                
+
                 // 1) Build the Invoke request
                 let invoke_xml = self.runspace_pool.invoke_pipeline_request(powershell)?;
                 info!(xml_length = invoke_xml.len(), "built invoke XML request");
+                info!(unencrypted_invoke_xml = %invoke_xml, "outgoing unencrypted invoke SOAP");
 
                 // 2) Send invoke
                 let send_invoke = self.connection_pool.send(&invoke_xml)?;
                 info!(invoke_request = ?send_invoke, "queued invoke request");
 
                 // 3) Queue a receive for the pipeline streams
-                let recv_xml = self.runspace_pool
+                let recv_xml = self
+                    .runspace_pool
                     .fire_receive(DesiredStream::pipeline_streams(powershell.id()))?;
-                info!(recv_xml_length = recv_xml.len(), "built receive XML request");
+                info!(
+                    recv_xml_length = recv_xml.len(),
+                    "built receive XML request"
+                );
+                info!(unencrypted_recv_xml = %recv_xml, "outgoing unencrypted receive SOAP");
                 let send_recv = self.connection_pool.send(&recv_xml)?;
                 info!(recv_request = ?send_recv, "queued receive request");
 
@@ -171,28 +208,50 @@ impl ActiveSession {
 
                 match call_scope {
                     HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
-                        command_id, call_id, method_id, method_name, result, error,
+                        command_id,
+                        call_id,
+                        method_id,
+                        method_name,
+                        result,
+                        error,
                     ),
                     HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
-                        call_id, method_id, method_name, result, error,
+                        call_id,
+                        method_id,
+                        method_name,
+                        result,
+                        error,
                     ),
                 }
             }
 
-            UserOperation::CancelHostCall { scope, call_id, reason: _ } => {
+            UserOperation::CancelHostCall {
+                scope,
+                call_id,
+                reason: _,
+            } => {
                 let key = (scope.clone(), call_id);
                 self.pending_host_calls.remove(&key);
 
                 // send an error response back
-                let err = Some(PsValue::Primitive(PsPrimitiveValue::Str(
-                    format!("Host call {call_id} was cancelled"),
-                )));
+                let err = Some(PsValue::Primitive(PsPrimitiveValue::Str(format!(
+                    "Host call {call_id} was cancelled"
+                ))));
                 match scope {
                     HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
-                        command_id, call_id, 0, "Cancelled".to_string(), None, err,
+                        command_id,
+                        call_id,
+                        0,
+                        "Cancelled".to_string(),
+                        None,
+                        err,
                     ),
                     HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
-                        call_id, 0, "Cancelled".to_string(), None, err,
+                        call_id,
+                        0,
+                        "Cancelled".to_string(),
+                        None,
+                        err,
                     ),
                 }
             }
@@ -211,10 +270,23 @@ impl ActiveSession {
         response: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
         info!("ActiveSession: processing server response");
-        
+
         // 1) Decrypt & state-transition inside the pool, get plaintext SOAP
         let xml_body = self.connection_pool.accept(response)?;
-        info!(decrypted_xml_length = xml_body.len(), "decrypted server response");
+
+        // Log the full decrypted response for error analysis when needed
+        if xml_body.contains("<s:Fault") || xml_body.contains("HTTP 5") || xml_body.len() < 500 {
+            warn!(
+                decrypted_xml = %xml_body,
+                decrypted_xml_length = xml_body.len(),
+                "decrypted server response (full content logged for debugging)"
+            );
+        } else {
+            info!(
+                decrypted_xml_length = xml_body.len(),
+                "decrypted server response"
+            );
+        }
 
         // 2) Feed PSRP
         let results = self.runspace_pool.accept_response(xml_body).map_err(|e| {
@@ -237,11 +309,15 @@ impl ActiveSession {
                 }
                 AcceptResponsResult::PipelineCreated(powershell) => {
                     info!(pipeline_id = %powershell.id(), "pipeline created");
-                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated { powershell }));
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
+                        powershell,
+                    }));
                 }
                 AcceptResponsResult::PipelineFinished(powershell) => {
                     info!(pipeline_id = %powershell.id(), "pipeline finished");
-                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished { powershell }));
+                    outs.push(ActiveSessionOutput::UserEvent(
+                        UserEvent::PipelineFinished { powershell },
+                    ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
                     info!(call_id = host_call.call_id, method = %host_call.method_name, "received host call");
@@ -295,16 +371,21 @@ impl ActiveSession {
             .build();
 
         // 1) Fragment to XML
-        let send_xml = self.runspace_pool.send_pipeline_host_response(command_id, host_resp)?;
+        let send_xml = self
+            .runspace_pool
+            .send_pipeline_host_response(command_id, host_resp)?;
         info!(send_xml_length = send_xml.len(), "built host response XML");
+        info!(unencrypted_host_response_xml = %send_xml, "outgoing unencrypted pipeline host response SOAP");
 
         // 2) Send
         let ts_send = self.connection_pool.send(&send_xml)?;
         info!(send_request = ?ts_send, "queued host response send");
 
         // 3) Queue receive for this pipeline's streams
-        let recv_xml = self.runspace_pool
+        let recv_xml = self
+            .runspace_pool
             .fire_receive(DesiredStream::pipeline_streams(command_id))?;
+        info!(unencrypted_pipeline_recv_xml = %recv_xml, "outgoing unencrypted pipeline receive SOAP");
         let ts_recv = self.connection_pool.send(&recv_xml)?;
         info!(recv_request = ?ts_recv, "queued host response receive");
 
@@ -339,16 +420,24 @@ impl ActiveSession {
             .build();
 
         // 1) Fragment to XML
-        let send_xml = self.runspace_pool.send_runspace_pool_host_response(host_resp)?;
-        info!(send_xml_length = send_xml.len(), "built pool host response XML");
+        let send_xml = self
+            .runspace_pool
+            .send_runspace_pool_host_response(host_resp)?;
+        info!(
+            send_xml_length = send_xml.len(),
+            "built pool host response XML"
+        );
+        info!(unencrypted_pool_host_response_xml = %send_xml, "outgoing unencrypted pool host response SOAP");
 
         // 2) Send
         let ts_send = self.connection_pool.send(&send_xml)?;
         info!(send_request = ?ts_send, "queued pool host response send");
 
         // 3) Queue receive for pool streams
-        let recv_xml = self.runspace_pool
+        let recv_xml = self
+            .runspace_pool
             .fire_receive(DesiredStream::runspace_pool_streams())?;
+        info!(unencrypted_pool_recv_xml = %recv_xml, "outgoing unencrypted pool receive SOAP");
         let ts_recv = self.connection_pool.send(&recv_xml)?;
         info!(recv_request = ?ts_recv, "queued pool host response receive");
 

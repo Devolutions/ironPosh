@@ -27,25 +27,6 @@ pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     WithOutput,
 >;
 
-/*
-// Declare Session and ConnectionPool with session and connection_pool
-let server_response = None;
-loop {
-
-    let server_response = connection_pool.derypt_server_response(server_response)?;
-
-    match session.step(server_response,connection_pool)? {
-
-    }
-
-
-
-
-}
-
-
-*/
-
 #[derive(Debug)]
 pub struct SspiConfig {
     target_name: String,
