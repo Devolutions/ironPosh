@@ -1,6 +1,6 @@
 use ironposh_client_core::connector::{
     conntion_pool::{ConnectionId, TrySend},
-    http::HttpResponse,
+    http::{HttpResponse, HttpResponseTargeted},
 };
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -11,13 +11,13 @@ use crate::{auth_handler::AuthHandler, connection::HttpClient};
 /// Network request handler (synchronous)
 pub struct NetworkHandler {
     network_request_rx: mpsc::Receiver<TrySend>,
-    network_response_tx: mpsc::Sender<(HttpResponse, ConnectionId)>,
+    network_response_tx: mpsc::Sender<HttpResponseTargeted>,
 }
 
 impl NetworkHandler {
     pub fn new(
         network_request_rx: mpsc::Receiver<TrySend>,
-        network_response_tx: mpsc::Sender<(HttpResponse, ConnectionId)>,
+        network_response_tx: mpsc::Sender<HttpResponseTargeted>,
     ) -> Self {
         Self {
             network_request_rx,
@@ -62,22 +62,26 @@ impl NetworkHandler {
 fn make_http_request(
     request: TrySend,
     client: &dyn HttpClient,
-) -> Result<(HttpResponse, ConnectionId), anyhow::Error> {
+) -> Result<HttpResponseTargeted, anyhow::Error> {
     match request {
-        TrySend::JustSend {
-            request: http_request,
-            conn_id,
-        } => {
+        TrySend::JustSend { .. } => {
             // Simple case: just send the HTTP request
-            let response = client.send_request(http_request, conn_id.inner())?;
-            Ok((response, conn_id))
+            let response = client.send_request(request)?;
+            Ok(response)
         }
         TrySend::AuthNeeded { auth_sequence } => {
             // Complex case: handle authentication sequence using the AuthHandler
-            let (authenticated_channel, request) =
+            let (authenticated_channel, auth_request) =
                 AuthHandler::handle_auth_sequence(client, auth_sequence)?;
 
-            todo!();
+            // Create a new TrySend for the authenticated request
+            let auth_try_send = TrySend::JustSend {
+                request: auth_request.request,
+                conn_id: auth_request.connection_id,
+            };
+            
+            let response = client.send_request(auth_try_send)?;
+            Ok(response)
         }
     }
 }

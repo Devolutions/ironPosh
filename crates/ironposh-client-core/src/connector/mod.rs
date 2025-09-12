@@ -21,7 +21,8 @@ use crate::{
         },
         encryption::EncryptionProvider,
         http::{
-            HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse, ServerAddress,
+            HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse,
+            HttpResponseTargeted, ServerAddress,
         },
     },
     runspace_pool::{
@@ -156,22 +157,10 @@ impl Connector {
         self.state = state;
     }
 
-    pub fn accept_authenticated_http_channel(
-        &mut self,
-        channel: AuthenticatedHttpChannel,
-    ) -> Result<(), PwshCoreError> {
-        self.state
-            .mut_connection_pool()
-            .ok_or(PwshCoreError::InvalidState(
-                "Cannot accept authenticated HTTP channel in current state",
-            ))?
-            .mark_authenticated(channel)
-    }
-
     #[instrument(skip(self, server_response), name = "Connector::step")]
     pub fn step(
         &mut self,
-        server_response: Option<(HttpResponse, ConnectionId)>,
+        server_response: Option<HttpResponseTargeted>,
     ) -> Result<ConnectorStepResult, crate::PwshCoreError> {
         let state = std::mem::take(&mut self.state);
 
@@ -215,14 +204,10 @@ impl Connector {
                 mut connection_pool,
             } => {
                 // Expect the response to the OpenShell POST on some conn
-                let (resp, conn_id) = server_response.ok_or(crate::PwshCoreError::InvalidState(
-                    "Expected response in Connecting",
-                ))?;
-                let body = resp.body.ok_or(crate::PwshCoreError::InvalidState(
-                    "Missing body in Connecting",
-                ))?;
-                let xml = connection_pool.decrypt(&conn_id, body)?;
-                connection_pool.on_response_mark_idle(&conn_id);
+                let targeted_response = server_response.ok_or(
+                    crate::PwshCoreError::InvalidState("Expected response in Connecting"),
+                )?;
+                let xml = connection_pool.accept(targeted_response)?;
 
                 // Advance runspace handshake
                 let mut runspace_pool = expect_shell_created.accept(xml)?;
@@ -241,16 +226,12 @@ impl Connector {
                 mut runspace_pool,
                 mut connection_pool,
             } => {
-                let (resp, conn_id) = server_response.ok_or(crate::PwshCoreError::InvalidState(
-                    "Expected response in ConnectReceiveCycle",
-                ))?;
-                let body = resp.body.ok_or(crate::PwshCoreError::InvalidState(
-                    "Missing body in ConnectReceiveCycle",
-                ))?;
-                let soap = connection_pool.decrypt(&conn_id, body)?;
-                connection_pool.on_response_mark_idle(&conn_id);
+                let targeted_response = server_response.ok_or(
+                    crate::PwshCoreError::InvalidState("Expected response in ConnectReceiveCycle"),
+                )?;
+                let xml = connection_pool.accept(targeted_response)?;
 
-                let results = runspace_pool.accept_response(soap)?;
+                let results = runspace_pool.accept_response(xml)?;
                 let Some(AcceptResponsResult::ReceiveResponse { desired_streams }) = results
                     .into_iter()
                     .find(|r| matches!(r, AcceptResponsResult::ReceiveResponse { .. }))

@@ -10,7 +10,10 @@ use crate::{
         },
         authenticator::Token,
         encryption::EncryptionProvider,
-        http::{HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, ServerAddress},
+        http::{
+            HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponseTargeted,
+            ServerAddress,
+        },
     },
 };
 
@@ -169,28 +172,16 @@ impl ConnectionPool {
         })
     }
 
-    /// Mark a connection Pending→Idle after its HTTP response has been fully processed.
-    pub fn on_response_mark_idle(&mut self, id: &ConnectionId) {
-        if let Some(state) = self.connections.remove(id) {
-            if let ConnectionState::Pending {
-                encryption_provider: enc,
-            } = state
-            {
-                self.connections.insert(
-                    *id,
-                    ConnectionState::Idle {
-                        encryption_provider: enc,
-                    },
-                );
-            } else {
-                // keep original if not pending
-                self.connections.insert(*id, state);
-            }
-        }
+    pub fn accept(&mut self, response: HttpResponseTargeted) -> Result<String, PwshCoreError> {
+        todo!()
+        // let conn_id = response.connection_id;
+        // let body = response.response.body;
+
+        // self.decrypt(&conn_id, body)
     }
 
     /// Decrypt a response body using the per-connection provider.
-    pub fn decrypt(&mut self, id: &ConnectionId, body: HttpBody) -> Result<String, PwshCoreError> {
+    fn decrypt(&mut self, id: &ConnectionId, body: HttpBody) -> Result<String, PwshCoreError> {
         match self.connections.get_mut(id) {
             Some(ConnectionState::Idle {
                 encryption_provider: enc,
@@ -205,61 +196,6 @@ impl ConnectionPool {
                 "Closed/unknown connection".into(),
             )),
         }
-    }
-
-    /// After the caller finishes the per-connection auth FSM, install the
-    /// provider and return the first sealed request for this connection.
-    pub fn auth_complete_and_send(
-        &mut self,
-        id: ConnectionId,
-        authenticated: Authenticated, // decryptor + http_builder
-        last_token: Option<Vec<u8>>,  // if your handshake wants an Authorization header
-        xml_to_send: String,
-    ) -> Result<TrySend, PwshCoreError> {
-        // install provider
-        let Authenticated {
-            encryption_provider: decryptor,
-            mut http_builder,
-        } = authenticated;
-        if let Some(tok) = last_token {
-            http_builder.with_auth_header(String::from_utf8_lossy(&tok).to_string());
-        }
-        // mark this connection Pending with its provider
-        self.connections.insert(
-            id,
-            ConnectionState::Pending {
-                encryption_provider: decryptor,
-            },
-        );
-        // seal the queued xml on this connection
-        // (we temporarily borrow the provider to encrypt, then put it back as Pending)
-        let enc = match self.connections.remove(&id) {
-            Some(ConnectionState::Pending {
-                encryption_provider: enc,
-            }) => enc,
-            other => {
-                // unexpected; restore original
-                if let Some(st) = other {
-                    self.connections.insert(id, st);
-                }
-                return Err(PwshCoreError::InvalidState(
-                    "auth_complete_and_send on non-Pending".into(),
-                ));
-            }
-        };
-        let mut enc2 = enc;
-        let body = enc2.encrypt(&xml_to_send)?;
-        let req = http_builder.post(body);
-        self.connections.insert(
-            id,
-            ConnectionState::Pending {
-                encryption_provider: enc2,
-            },
-        );
-        Ok(TrySend::JustSend {
-            request: req,
-            conn_id: id,
-        })
     }
 
     // -------- internals --------
@@ -287,31 +223,6 @@ impl ConnectionPool {
             }
             None => None,
         }
-    }
-
-    pub(crate) fn mark_authenticated(
-        &mut self,
-        AuthenticatedHttpChannel {
-            conn_id,
-            encryption_provider,
-            ..
-        }: AuthenticatedHttpChannel,
-    ) -> Result<(), PwshCoreError> {
-        let Some(state) = self.connections.get_mut(&conn_id) else {
-            return Err(PwshCoreError::InvalidState("unknown connection".into()));
-        };
-
-        if !matches!(state, ConnectionState::PreAuth) {
-            return Err(PwshCoreError::InvalidState(
-                "mark_authenticated on non-PreAuth".into(),
-            ));
-        }
-
-        *state = ConnectionState::Idle {
-            encryption_provider,
-        };
-
-        Ok(())
     }
 }
 

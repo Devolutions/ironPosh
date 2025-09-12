@@ -1,6 +1,6 @@
 use std::{fmt::Display, net::IpAddr};
 
-use crate::connector::conntion_pool::ConnectionId;
+use crate::connector::{conntion_pool::ConnectionId, encryption::EncryptionProvider};
 
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 
@@ -53,7 +53,7 @@ impl HttpBody {
     pub fn is_encrypted(&self) -> bool {
         matches!(self, HttpBody::Encrypted(_))
     }
-    
+
     pub(crate) fn empty() -> HttpBody {
         HttpBody::None
     }
@@ -177,6 +177,42 @@ pub struct HttpResponse {
     pub status_code: u16,
     pub headers: Vec<(String, String)>,
     pub body: Option<HttpBody>,
+}
+
+/// A targeted HTTP response that includes both the response data and the connection it came from.
+/// This struct is opaque and immutable, ensuring type safety for response handling.
+#[derive(Debug)]
+pub struct HttpResponseTargeted {
+    pub(crate) response: HttpResponse,
+    pub(crate) connection_id: ConnectionId,
+    encryption: Option<EncryptionProvider>,
+}
+
+impl HttpResponseTargeted {
+    /// Creates a new HttpResponseTargeted from an HttpResponse and ConnectionId.
+    /// This is the only way to construct this struct, ensuring controlled creation.
+    pub fn new(response: HttpResponse, connection_id: ConnectionId) -> Self {
+        Self {
+            response,
+            connection_id,
+            encryption: None,
+        }
+    }
+
+    /// Gets a reference to the HTTP response data
+    pub fn response(&self) -> &HttpResponse {
+        &self.response
+    }
+
+    /// Gets the connection ID this response came from
+    pub fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
+
+    /// Destructures into the contained response and connection ID
+    pub fn into_parts(self) -> (HttpResponse, ConnectionId) {
+        (self.response, self.connection_id)
+    }
 }
 
 #[derive(Debug)]

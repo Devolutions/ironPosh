@@ -17,10 +17,13 @@ fn determine_body_type_from_headers(
         |response| {
             debug!("reading encrypted response as binary data");
             let mut bytes = Vec::new();
-            response.into_reader().read_to_end(&mut bytes).map_err(|e| {
-                error!(error=%e, "failed to read binary response body");
-                anyhow::Error::from(e)
-            })?;
+            response
+                .into_reader()
+                .read_to_end(&mut bytes)
+                .map_err(|e| {
+                    error!(error=%e, "failed to read binary response body");
+                    anyhow::Error::from(e)
+                })?;
             Ok(HttpBody::Encrypted(bytes))
         }
     } else if content_type.contains("application/soap+xml") {
@@ -154,7 +157,11 @@ impl UreqHttpClient {
             }
         };
 
-        info!(status_code, response_body_length=response_body.len(), "response received");
+        info!(
+            status_code,
+            response_body_length = response_body.len(),
+            "response received"
+        );
 
         Ok(HttpResponse {
             status_code,
@@ -168,17 +175,13 @@ impl HttpClient for UreqHttpClient {
     #[instrument(
         name="http_client.send_request",
         level="info",
-        skip(self, request),
-        fields(conn_id = conn_id, method=?request.method, url=%request.url),
+        skip(self, try_send),
         err
     )]
     fn send_request(
         &self,
-        request: HttpRequest,
-        conn_id: u32,
-    ) -> Result<HttpResponse, anyhow::Error> {
-        let agent = self.get_or_create_agent(conn_id);
-        self.make_request_with_agent(&agent, &request, conn_id)
+        try_send: ironposh_client_core::connector::conntion_pool::TrySend,
+    ) -> Result<ironposh_client_core::connector::http::HttpResponseTargeted, anyhow::Error> {
+        todo!()
     }
 }
-

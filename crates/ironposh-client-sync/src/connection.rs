@@ -1,17 +1,13 @@
 use ironposh_client_core::connector::{
     conntion_pool::TrySend,
-    http::{HttpRequest, HttpResponse},
+    http::{HttpRequest, HttpResponse, HttpResponseTargeted},
     Connector, ConnectorStepResult, WinRmConfig,
 };
 
 use crate::auth_handler::AuthHandler;
 
 pub trait HttpClient {
-    fn send_request(
-        &self,
-        request: HttpRequest,
-        connection_id: u32,
-    ) -> Result<HttpResponse, anyhow::Error>;
+    fn send_request(&self, try_send: TrySend) -> Result<HttpResponseTargeted, anyhow::Error>;
 }
 
 pub struct RemotePowershell {
@@ -34,29 +30,9 @@ impl RemotePowershell {
             let step_result = connector.step(response.take())?;
 
             match step_result {
-                ConnectorStepResult::SendBack { try_send } => match try_send {
-                    ironposh_client_core::connector::conntion_pool::TrySend::JustSend {
-                        request,
-                        conn_id,
-                    } => {
-                        let res = client.send_request(request, conn_id.inner())?;
-                        response = Some((res, conn_id));
-                    }
-
-                    ironposh_client_core::connector::conntion_pool::TrySend::AuthNeeded {
-                        auth_sequence,
-                    } => {
-                        let (http_authenticated, auth_request) =
-                            AuthHandler::handle_auth_sequence(client, auth_sequence)?;
-
-                        authenticate_cert = Some(http_authenticated);
-                        let res = client.send_request(
-                            auth_request.request,
-                            auth_request.connection_id.inner(),
-                        )?;
-                        response = Some((res, auth_request.connection_id));
-                    }
-                },
+                ConnectorStepResult::SendBack { try_send } => {
+                    response = Some(client.send_request(try_send)?);
+                }
                 ConnectorStepResult::Connected {
                     active_session,
                     next_receive_request,
