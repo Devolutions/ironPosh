@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use clap::Parser;
 use ironposh_client_core::{
-    connector::{http::ServerAddress, WinRmConfig, Scheme},
+    connector::{http::ServerAddress, Scheme, WinRmConfig},
     Authentication, SspiAuthConfig,
 };
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};

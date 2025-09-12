@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use base64::Engine;
 use ironposh_psrp::HostInfo;
@@ -7,21 +7,15 @@ use ironposh_winrm::ws_management::WsMan;
 // I'm lasy for now, just re-export from sspi
 pub use sspi::{generator::NetworkRequest, network_client::NetworkProtocol};
 
-use tracing::{debug, info, instrument, warn};
+use tracing::{info, instrument, warn};
 
 use crate::{
-    PwshCoreError,
     connector::{
-        auth_sequence::{AuthConfig as SspiAuthCfg, AuthSequence, Authenticated},
-        authenticator::Token,
         config::Authentication,
         conntion_pool::{
-            AuthenticatedHttpChannel, ConnectionId, ConnectionPool, ConnectionPoolConfig,
-            PostConAuthSequence, TrySend,
+            ConnectionPool, ConnectionPoolConfig, TrySend,
         },
-        encryption::EncryptionProvider,
         http::{
-            HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse,
             HttpResponseTargeted, ServerAddress,
         },
     },

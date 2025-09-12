@@ -40,12 +40,8 @@ impl AuthHandler {
                 SecContextInited::Continue { request, sequence } => {
                     info!("continuing authentication sequence");
                     auth_sequence = sequence;
-                    let HttpRequestAction {
-                        connection_id,
-                        request: http_request,
-                    } = request;
 
-                    auth_response = Some(client.send_request(http_request, connection_id.inner())?);
+                    auth_response = Some(client.send_request(request)?.response().clone());
                 }
                 SecContextInited::SendRequest {
                     request,

@@ -173,8 +173,8 @@ impl UreqHttpClient {
 
 impl HttpClient for UreqHttpClient {
     #[instrument(
-        name="http_client.send_request",
-        level="info",
+        name = "http_client.send_request",
+        level = "info",
         skip(self, try_send),
         err
     )]

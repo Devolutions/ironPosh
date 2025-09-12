@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ironposh_client_core::ClientAuthIdentity;
 use ironposh_client_core::connector::authenticator::{
-    SspiConext, SecContextInit, SecContextMaybeInit, SspiAuthenticator,
+    SecContextInit, SecContextMaybeInit, SspiAuthenticator, SspiConext,
 };
 use ironposh_client_core::credentials::ClientUserName;
 use sspi::Sspi;

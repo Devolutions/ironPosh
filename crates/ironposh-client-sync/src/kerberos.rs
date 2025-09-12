@@ -17,9 +17,7 @@ pub fn send_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {
     info!("sending packet to KDC");
 
     match packet.protocol {
-        ironposh_client_core::connector::NetworkProtocol::Tcp => {
-            send_tcp_packet(packet)
-        }
+        ironposh_client_core::connector::NetworkProtocol::Tcp => send_tcp_packet(packet),
         ironposh_client_core::connector::NetworkProtocol::Udp => {
             todo!("UDP protocol not implemented for Kerberos")
         }
@@ -53,8 +51,8 @@ fn send_tcp_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {
     info!("establishing TCP connection to KDC");
 
     // Establish TCP connection to the KDC
-    let mut stream = TcpStream::connect((host, port))
-        .context("failed to establish TCP connection to KDC")?;
+    let mut stream =
+        TcpStream::connect((host, port)).context("failed to establish TCP connection to KDC")?;
 
     // Send the packet data
     stream
@@ -80,7 +78,10 @@ fn send_tcp_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {
         .read_exact(&mut response_data[4..])
         .context("failed to read response data from KDC")?;
 
-    info!(response_len = response_data.len(), "received response from KDC");
+    info!(
+        response_len = response_data.len(),
+        "received response from KDC"
+    );
 
     Ok(response_data)
 }

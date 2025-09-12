@@ -1,7 +1,7 @@
 use crate::{
     connector::{
-        conntion_pool::{ConnectionId, ConnectionPool, TrySend},
-        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse, HttpResponseTargeted},
+        conntion_pool::{ConnectionPool, TrySend},
+        http::{HttpBody, HttpResponseTargeted},
     },
     host::{HostCallRequest, HostCallResponse, HostCallScope},
     pipeline::PipelineCommand,
@@ -241,9 +241,14 @@ impl ActiveSession {
         &mut self,
         response: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        let body = response.response().body.as_ref().ok_or(crate::PwshCoreError::InvalidState(
-            "Expected a body in server response",
-        ))?.clone();
+        let body = response
+            .response()
+            .body
+            .as_ref()
+            .ok_or(crate::PwshCoreError::InvalidState(
+                "Expected a body in server response",
+            ))?
+            .clone();
 
         debug!("Response body length: {}", body.len());
 

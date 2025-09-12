@@ -27,7 +27,6 @@ pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
     WithOutput,
 >;
 
-
 /*
 // Declare Session and ConnectionPool with session and connection_pool
 let server_response = None;

@@ -9,9 +9,9 @@ use crate::{
             SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
             Token,
         },
-        config::{Authentication, KerberosConfig, SspiAuthConfig},
-        encryption::{self, EncryptionProvider},
-        http::{HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse},
+        config::{Authentication, SspiAuthConfig},
+        encryption::EncryptionProvider,
+        http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
 };
 

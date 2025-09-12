@@ -176,7 +176,7 @@ impl Body for Encrypted {
 pub struct HttpResponse {
     pub status_code: u16,
     pub headers: Vec<(String, String)>,
-    pub body: Option<HttpBody>,
+    pub body: HttpBody,
 }
 
 /// A targeted HTTP response that includes both the response data and the connection it came from.
@@ -185,13 +185,17 @@ pub struct HttpResponse {
 pub struct HttpResponseTargeted {
     pub(crate) response: HttpResponse,
     pub(crate) connection_id: ConnectionId,
-    encryption: Option<EncryptionProvider>,
+    pub(crate) encryption: Option<EncryptionProvider>,
 }
 
 impl HttpResponseTargeted {
     /// Creates a new HttpResponseTargeted from an HttpResponse and ConnectionId.
     /// This is the only way to construct this struct, ensuring controlled creation.
-    pub fn new(response: HttpResponse, connection_id: ConnectionId) -> Self {
+    pub fn new(
+        response: HttpResponse,
+        connection_id: ConnectionId,
+        encryption: Option<EncryptionProvider>,
+    ) -> Self {
         Self {
             response,
             connection_id,

@@ -20,13 +20,8 @@ impl RemotePowershell {
     pub fn open(config: WinRmConfig, client: &mut dyn HttpClient) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);
         let mut response = None;
-        let mut authenticate_cert = None;
 
         let (active_session, next_request) = loop {
-            if let Some(cert) = authenticate_cert.take() {
-                connector.accept_authenticated_http_channel(cert)?;
-            }
-
             let step_result = connector.step(response.take())?;
 
             match step_result {

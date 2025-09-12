@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig, Scheme},
+    connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
     Authentication, SspiAuthConfig,
 };
 use std::sync::OnceLock;

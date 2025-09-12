@@ -5,10 +5,8 @@ use crate::{
     connector::{
         Scheme, WinRmConfig,
         auth_sequence::{
-            self, AuthConfig as SspiAuthCfg, AuthSequence, Authenticated,
-            SecurityContextBuilderHolder,
+            AuthConfig as SspiAuthCfg, AuthSequence, Authenticated, SecurityContextBuilderHolder,
         },
-        authenticator::Token,
         encryption::EncryptionProvider,
         http::{
             HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponseTargeted,
@@ -77,7 +75,7 @@ impl TrySendExt for TrySend {
     fn expect_just_send(self) -> JustSendOut {
         match self {
             TrySend::JustSend { request, conn_id } => JustSendOut { request, conn_id },
-            other => panic!("expected JustSend, got {:?}", other),
+            other => panic!("expected JustSend, got {other:?}"),
         }
     }
 }
@@ -173,11 +171,43 @@ impl ConnectionPool {
     }
 
     pub fn accept(&mut self, response: HttpResponseTargeted) -> Result<String, PwshCoreError> {
-        todo!()
-        // let conn_id = response.connection_id;
-        // let body = response.response.body;
+        let HttpResponseTargeted {
+            response,
+            connection_id,
+            encryption,
+        } = response;
 
-        // self.decrypt(&conn_id, body)
+        let Some(state) = self.connections.get_mut(&connection_id) else {
+            return Err(PwshCoreError::InvalidState("Unknown connection"));
+        };
+
+        let in_progress_state = std::mem::replace(state, ConnectionState::Closed);
+
+        match in_progress_state {
+            ConnectionState::PreAuth => {
+                let mut encryption_provider = encryption.ok_or_else(|| {
+                    PwshCoreError::InvalidState("Expected encryption provider after auth")
+                })?;
+                let body = encryption_provider.decrypt(response.body)?;
+                *state = ConnectionState::Idle {
+                    encryption_provider,
+                };
+                Ok(body)
+            }
+            ConnectionState::Pending {
+                mut encryption_provider,
+            } => {
+                let body = encryption_provider.decrypt(response.body)?;
+                *state = ConnectionState::Idle {
+                    encryption_provider,
+                };
+                Ok(body)
+            }
+            ConnectionState::Closed => {
+                Err(PwshCoreError::InvalidState("Connection already closed"))
+            }
+            ConnectionState::Idle { .. } => Err(PwshCoreError::InvalidState("Connection was idle")),
+        }
     }
 
     /// Decrypt a response body using the per-connection provider.
@@ -189,12 +219,12 @@ impl ConnectionPool {
             Some(ConnectionState::Pending {
                 encryption_provider: enc,
             }) => enc.decrypt(body),
-            Some(ConnectionState::PreAuth) => Err(PwshCoreError::InvalidState(
-                "PreAuth has no decryptor".into(),
-            )),
-            Some(ConnectionState::Closed) | None => Err(PwshCoreError::InvalidState(
-                "Closed/unknown connection".into(),
-            )),
+            Some(ConnectionState::PreAuth) => {
+                Err(PwshCoreError::InvalidState("PreAuth has no decryptor"))
+            }
+            Some(ConnectionState::Closed) | None => {
+                Err(PwshCoreError::InvalidState("Closed/unknown connection"))
+            }
         }
     }
 

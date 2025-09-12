@@ -79,7 +79,7 @@ fn make_http_request(
                 request: auth_request.request,
                 conn_id: auth_request.connection_id,
             };
-            
+
             let response = client.send_request(auth_try_send)?;
             Ok(response)
         }
