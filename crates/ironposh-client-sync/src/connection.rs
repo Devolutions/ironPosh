@@ -1,10 +1,8 @@
-use anyhow::Context;
 use ironposh_client_core::connector::{
     conntion_pool::TrySend,
     http::{HttpRequest, HttpResponse},
     Connector, ConnectorStepResult, WinRmConfig,
 };
-use tracing::{info, instrument};
 
 use crate::auth_handler::AuthHandler;
 
@@ -48,12 +46,15 @@ impl RemotePowershell {
                     ironposh_client_core::connector::conntion_pool::TrySend::AuthNeeded {
                         auth_sequence,
                     } => {
-                        let (http_authenticated, auth_response) = AuthHandler::handle_auth_sequence(client, auth_sequence)?;
-                        
+                        let (http_authenticated, auth_request) =
+                            AuthHandler::handle_auth_sequence(client, auth_sequence)?;
+
                         authenticate_cert = Some(http_authenticated);
-                        if let Some(auth_resp) = auth_response {
-                            response = Some(auth_resp);
-                        }
+                        let res = client.send_request(
+                            auth_request.request,
+                            auth_request.connection_id.inner(),
+                        )?;
+                        response = Some((res, auth_request.connection_id));
                     }
                 },
                 ConnectorStepResult::Connected {

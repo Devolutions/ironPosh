@@ -86,10 +86,9 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     let (user_event_tx, user_event_rx) = mpsc::channel();
 
     // Spawn network handler
-    let mut network_handler =
-        NetworkHandler::new(network_request_rx, network_response_tx, http_client);
+    let mut network_handler = NetworkHandler::new(network_request_rx, network_response_tx);
     let network_handle = thread::spawn(move || {
-        network_handler.run();
+        network_handler.run(http_client);
     });
 
     // Spawn user input/UI handler

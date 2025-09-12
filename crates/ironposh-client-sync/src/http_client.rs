@@ -1,6 +1,6 @@
 use crate::connection::HttpClient;
 use ironposh_client_core::connector::http::{HttpBody, HttpRequest, HttpResponse};
-use std::{cell::RefCell, collections::HashMap, io::Read};
+use std::{collections::HashMap, io::Read, sync::Mutex};
 use tracing::{debug, error, info, info_span, instrument};
 
 /// Decide how to read the body based on Content-Type.
@@ -46,7 +46,7 @@ fn determine_body_type_from_headers(
 
 /// ureq-based implementation that maintains one Agent per `connection_id`.
 pub struct UreqHttpClient {
-    agents: RefCell<HashMap<u32, ureq::Agent>>,
+    agents: Mutex<HashMap<u32, ureq::Agent>>,
     connect_timeout: std::time::Duration,
     read_timeout: std::time::Duration,
 }
@@ -54,22 +54,14 @@ pub struct UreqHttpClient {
 impl UreqHttpClient {
     pub fn new() -> Self {
         Self {
-            agents: RefCell::new(HashMap::new()),
+            agents: Mutex::new(HashMap::new()),
             connect_timeout: std::time::Duration::from_secs(30),
             read_timeout: std::time::Duration::from_secs(60),
         }
     }
 
-    pub fn with_timeouts(connect: std::time::Duration, read: std::time::Duration) -> Self {
-        Self {
-            agents: RefCell::new(HashMap::new()),
-            connect_timeout: connect,
-            read_timeout: read,
-        }
-    }
-
     fn get_or_create_agent(&self, conn_id: u32) -> ureq::Agent {
-        let mut map = self.agents.borrow_mut();
+        let mut map = self.agents.lock().unwrap();
         if let Some(a) = map.get(&conn_id) {
             return a.clone();
         }
