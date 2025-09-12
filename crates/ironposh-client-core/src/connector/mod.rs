@@ -10,7 +10,8 @@ use tracing::{info, instrument, warn};
 
 use crate::{
     connector::{
-        config::Authentication,
+        auth_sequence::AuthSequenceConfig,
+        config::AuthenticatorConfig,
         conntion_pool::{ConnectionPool, ConnectionPoolConfig, TrySend},
         http::{HttpResponseTargeted, ServerAddress},
     },
@@ -39,7 +40,7 @@ pub enum Scheme {
 pub struct WinRmConfig {
     pub server: (ServerAddress, u16),
     pub scheme: Scheme,
-    pub authentication: Authentication,
+    pub authentication: AuthenticatorConfig,
     pub host_info: HostInfo,
     pub require_encryption: bool,
 }
@@ -153,8 +154,10 @@ impl Connector {
 
                 // Create pool with SSPI cfg derived from WinRmConfig
                 let pool_cfg = ConnectionPoolConfig::from(&self.config);
-                let sspi_cfg = self.config.authentication.clone().into();
-                let mut connection_pool = ConnectionPool::new(pool_cfg, sspi_cfg);
+                let authenticator_cfg = self.config.authentication.clone();
+                let auth_sequence_config =
+                    AuthSequenceConfig::new(authenticator_cfg, self.config.require_encryption);
+                let mut connection_pool = ConnectionPool::new(pool_cfg, auth_sequence_config);
 
                 let ws_man = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());
 

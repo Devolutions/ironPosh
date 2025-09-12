@@ -37,7 +37,7 @@ pub enum SspiAuthConfig {
 }
 
 #[derive(Debug, Clone)]
-pub enum Authentication {
+pub enum AuthenticatorConfig {
     Basic { username: String, password: String },
 
     Sspi(SspiAuthConfig),

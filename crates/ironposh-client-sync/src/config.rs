@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
     connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
-    Authentication, SspiAuthConfig,
+    AuthenticatorConfig, SspiAuthConfig,
 };
 use std::sync::OnceLock;
 use tracing_log::LogTracer;
@@ -167,7 +167,7 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
     };
 
     let auth = match args.auth_method {
-        AuthMethod::Basic => Authentication::Basic {
+        AuthMethod::Basic => AuthenticatorConfig::Basic {
             username: args.username.clone(),
             password: args.password.clone(),
         },
@@ -178,7 +178,7 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
                 client_username,
                 args.password.clone(),
             );
-            Authentication::Sspi(SspiAuthConfig::NTLM {
+            AuthenticatorConfig::Sspi(SspiAuthConfig::NTLM {
                 target: args.server.clone(),
                 identity,
             })
@@ -194,7 +194,7 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
 
             let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
 
-            Authentication::Sspi(SspiAuthConfig::Kerberos {
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Kerberos {
                 target: args.server.clone(),
                 identity,
                 kerberos_config: KerberosConfig {
@@ -212,7 +212,7 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
                 client_username,
                 args.password.clone(),
             );
-            Authentication::Sspi(SspiAuthConfig::Negotiate {
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
                 target: args.server.clone(),
                 identity,
                 kerberos_config: Some(KerberosConfig {

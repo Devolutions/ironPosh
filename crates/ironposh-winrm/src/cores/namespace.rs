@@ -93,6 +93,9 @@ define_namespaces! {
     MsWsmanSchema     => { alias: Some("p")   , uri: "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd" },
     DmtfWsmanSchema   => { alias: Some("w")   , uri: "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" },
     WsTransfer2004    => { alias: Some("x")   , uri: "http://schemas.xmlsoap.org/ws/2004/09/transfer" },
+    WsEventing2004    => { alias: Some("e")   , uri: "http://schemas.xmlsoap.org/ws/2004/08/eventing" },
+    WsEnumeration2004 => { alias: Some("n")   , uri: "http://schemas.xmlsoap.org/ws/2004/09/enumeration" },
+    WsmanFault        => { alias: Some("f")   , uri: "http://schemas.microsoft.com/wbem/wsman/1/wsmanfault" },
     PowerShellRemoting=> { alias: None        , uri: "http://schemas.microsoft.com/powershell" },
     XmlSchemaInstance => { alias: Some("xsi") , uri: "http://www.w3.org/2001/XMLSchema-instance" },
 }

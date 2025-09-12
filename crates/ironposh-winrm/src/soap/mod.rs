@@ -1,4 +1,5 @@
 pub mod body;
+pub mod fault;
 pub mod header;
 pub mod parsing;
 

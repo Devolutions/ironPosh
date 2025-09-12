@@ -9,7 +9,7 @@ use crate::{
             SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
             Token,
         },
-        config::{Authentication, SspiAuthConfig},
+        config::{AuthenticatorConfig, SspiAuthConfig},
         encryption::EncryptionProvider,
         http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
@@ -121,24 +121,16 @@ impl AuthContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct AuthConfig {
+pub struct AuthSequenceConfig {
     pub require_encryption: bool,
-    pub sspi_config: SspiAuthConfig,
+    pub authenticator_config: AuthenticatorConfig,
 }
 
-// Add From trait implementation for Authentication -> AuthConfig
-impl From<Authentication> for AuthConfig {
-    fn from(auth: Authentication) -> Self {
-        match auth {
-            Authentication::Basic { .. } => {
-                // For basic auth, we'll use NTLM as a fallback
-                // This is a simplification - in practice you might want to handle this differently
-                todo!("Basic authentication conversion not implemented")
-            }
-            Authentication::Sspi(sspi_config) => AuthConfig {
-                require_encryption: true, // Default to requiring encryption
-                sspi_config,
-            },
+impl AuthSequenceConfig {
+    pub fn new(config: AuthenticatorConfig, require_encryption: bool) -> Self {
+        AuthSequenceConfig {
+            authenticator_config: config,
+            require_encryption,
         }
     }
 }
@@ -165,13 +157,17 @@ impl Debug for AuthSequence {
 
 impl AuthSequence {
     pub(crate) fn new(
-        auth_config: AuthConfig,
+        auth_config: AuthSequenceConfig,
         http_builder: HttpBuilder,
     ) -> Result<Self, crate::PwshCoreError> {
-        let AuthConfig {
-            sspi_config,
+        let AuthSequenceConfig {
             require_encryption,
+            authenticator_config,
         } = auth_config;
+
+        let AuthenticatorConfig::Sspi(sspi_config) = authenticator_config else {
+            todo!("Only sspi authentication is supported now");
+        };
 
         let context = AuthContext::new(sspi_config)?;
         Ok(AuthSequence {

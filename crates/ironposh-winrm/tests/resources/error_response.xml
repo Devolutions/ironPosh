@@ -1,0 +1,55 @@
+<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer"
+    xmlns:e="http://schemas.xmlsoap.org/ws/2004/08/eventing"
+    xmlns:n="http://schemas.xmlsoap.org/ws/2004/09/enumeration"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>
+                http://schemas.dmtf.org/wbem/wsman/1/wsman/fault
+        </a:Action>
+        <a:MessageID>
+                uuid:BB7AF8AE-D64A-422D-B36E-15A04FA17C5C
+        </a:MessageID>
+        <p:OperationID s:mustUnderstand="false">
+                uuid:fc739bfc-7556-4931-b699-677bf2c7d332
+        </p:OperationID>
+        <p:SequenceId>
+                1
+        </p:SequenceId>
+        <a:To>
+                http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous
+        </a:To>
+        <a:RelatesTo>
+                uuid:bead0162-a67d-424d-9e22-4a18b6aefea8
+        </a:RelatesTo>
+    </s:Header>
+    <s:Body>
+        <s:Fault>
+            <s:Code>
+                <s:Value>
+                        s:Sender
+                </s:Value>
+                <s:Subcode>
+                    <s:Value>
+                            w:SchemaValidationError
+                    </s:Value>
+                </s:Subcode>
+            </s:Code>
+            <s:Reason>
+                <s:Text xml:lang="en-US">
+                        The SOAP XML in the message does not match the corresponding XML schema definition. Change the XML and retry. 
+                </s:Text>
+            </s:Reason>
+            <s:Detail>
+                <f:WSManFault xmlns:f="http://schemas.microsoft.com/wbem/wsman/1/wsmanfault" Code="2150858817" Machine="IT-HELP-DC.ad.it-help.ninja">
+                    <f:Message>
+                            The Windows Remote Shell cannot process the request. The SOAP packet contains an element Receive that is invalid. Retry the request with the correct XML element. 
+                    </f:Message>
+                </f:WSManFault>
+            </s:Detail>
+        </s:Fault>
+    </s:Body>
+</s:Envelope>

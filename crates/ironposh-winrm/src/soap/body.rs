@@ -7,6 +7,7 @@ use crate::{
         receive::{ReceiveResponseValue, ReceiveValue},
         shell_value::ShellValue,
     },
+    soap::fault::SoapFaultValue,
     ws_management::body::ResourceCreatedValue,
 };
 
@@ -53,4 +54,8 @@ pub struct SoapBody<'a> {
     pub send: Option<Tag<'a, Text<'a>, Send>>,
     #[builder(default, setter(into, strip_option))]
     pub signal: Option<Tag<'a, TagList<'a>, Signal>>,
+
+    /// SOAP fault handling
+    #[builder(default, setter(into, strip_option))]
+    pub fault: Option<Tag<'a, SoapFaultValue<'a>, Fault>>,
 }

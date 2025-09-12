@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use clap::Parser;
 use ironposh_client_core::{
     connector::{http::ServerAddress, Scheme, WinRmConfig},
-    Authentication, SspiAuthConfig,
+    AuthenticatorConfig, SspiAuthConfig,
 };
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
@@ -98,7 +98,7 @@ pub fn create_connector_config(args: &Args) -> WinRmConfig {
     //     password: args.password.clone(),
     // };
 
-    let auth = Authentication::Sspi(SspiAuthConfig::Negotiate {
+    let auth = AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
         target: format!("{}:{}", args.server, args.port),
         identity: ironposh_client_core::ClientAuthIdentity::new(
             ironposh_client_core::credentials::ClientUserName::new(&args.username, None)

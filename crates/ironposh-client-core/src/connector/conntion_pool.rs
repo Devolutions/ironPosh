@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use tracing::{error, info, instrument};
 
 use crate::{
-    Authentication, PwshCoreError,
+    PwshCoreError,
     connector::{
         Scheme, WinRmConfig,
         auth_sequence::{
-            AuthConfig as SspiAuthCfg, AuthSequence, Authenticated, SecurityContextBuilderHolder,
+            AuthSequence, AuthSequenceConfig, Authenticated, SecurityContextBuilderHolder,
         },
         encryption::EncryptionProvider,
         http::{
@@ -84,10 +84,8 @@ impl TrySendExt for TrySend {
 // ============================== ConnectionPool =============================
 #[derive(Debug, Clone)]
 pub struct ConnectionPoolConfig {
-    pub server: (ServerAddress, u16),
-    pub scheme: Scheme,
-    pub authentication: Authentication,
-    pub require_encryption: bool,
+    server: (ServerAddress, u16),
+    scheme: Scheme,
 }
 
 impl From<&WinRmConfig> for ConnectionPoolConfig {
@@ -95,8 +93,6 @@ impl From<&WinRmConfig> for ConnectionPoolConfig {
         Self {
             server: w.server.clone(),
             scheme: w.scheme.clone(),
-            authentication: w.authentication.clone(),
-            require_encryption: w.require_encryption,
         }
     }
 }
@@ -111,13 +107,13 @@ struct ServerConfig {
 #[derive(Debug)]
 pub struct ConnectionPool {
     connections: HashMap<ConnectionId, ConnectionState>,
-    sspi_cfg: SspiAuthCfg,
+    sspi_cfg: AuthSequenceConfig,
     next_id: u32,
     sever_config: ServerConfig,
 }
 
 impl ConnectionPool {
-    pub fn new(cfg: ConnectionPoolConfig, sspi_cfg: SspiAuthCfg) -> Self {
+    pub fn new(cfg: ConnectionPoolConfig, sspi_cfg: AuthSequenceConfig) -> Self {
         Self {
             connections: HashMap::new(),
             sspi_cfg,
