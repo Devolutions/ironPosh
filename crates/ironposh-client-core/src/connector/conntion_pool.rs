@@ -174,7 +174,7 @@ impl ConnectionPool {
         let HttpResponseTargeted {
             response,
             connection_id,
-            encryption,
+            authenticated: encryption,
         } = response;
 
         let Some(state) = self.connections.get_mut(&connection_id) else {
@@ -185,9 +185,15 @@ impl ConnectionPool {
 
         match in_progress_state {
             ConnectionState::PreAuth => {
-                let mut encryption_provider = encryption.ok_or_else(|| {
+                let encryption_provider = encryption.ok_or_else(|| {
                     PwshCoreError::InvalidState("Expected encryption provider after auth")
                 })?;
+
+                let AuthenticatedHttpChannel {
+                    mut encryption_provider,
+                    conn_id: _,
+                } = encryption_provider;
+
                 let body = encryption_provider.decrypt(response.body)?;
                 *state = ConnectionState::Idle {
                     encryption_provider,
@@ -264,9 +270,22 @@ pub struct PostConAuthSequence {
     conn_id: ConnectionId,
 }
 
+#[derive(Debug)]
 pub struct AuthenticatedHttpChannel {
     pub(crate) encryption_provider: EncryptionProvider,
     pub(crate) conn_id: ConnectionId,
+}
+
+impl AuthenticatedHttpChannel {
+    /// Gets the connection ID for this authenticated channel
+    pub fn connection_id(&self) -> ConnectionId {
+        self.conn_id
+    }
+
+    /// Extracts the encryption provider and connection ID, consuming the channel
+    pub fn into_parts(self) -> (EncryptionProvider, ConnectionId) {
+        (self.encryption_provider, self.conn_id)
+    }
 }
 
 pub enum SecContextInited {

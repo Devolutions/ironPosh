@@ -166,7 +166,7 @@ impl UreqHttpClient {
         Ok(HttpResponse {
             status_code,
             headers,
-            body: Some(response_body),
+            body: response_body,
         })
     }
 }
@@ -182,6 +182,113 @@ impl HttpClient for UreqHttpClient {
         &self,
         try_send: ironposh_client_core::connector::conntion_pool::TrySend,
     ) -> Result<ironposh_client_core::connector::http::HttpResponseTargeted, anyhow::Error> {
-        todo!()
+        use crate::kerberos::send_packet;
+        use anyhow::Context;
+        use ironposh_client_core::connector::{
+            auth_sequence::AuthSequence,
+            authenticator::SecContextMaybeInit,
+            conntion_pool::{SecContextInited, TrySend},
+            http::{HttpRequestAction, HttpResponseTargeted},
+        };
+
+        match try_send {
+            // === Simple path: already have an idle, encrypted channel ===
+            TrySend::JustSend { request, conn_id } => {
+                info!(conn_id = conn_id.inner(), "sending on existing connection");
+                let agent = self.get_or_create_agent(conn_id.inner());
+                let resp = self.make_request_with_agent(&agent, &request, conn_id.inner())?;
+                // No provider attached on steady-state sends
+                Ok(HttpResponseTargeted::new(resp, conn_id, None))
+            }
+
+            // === Auth path: drive the per-connection FSM, then send first sealed request ===
+            TrySend::AuthNeeded { mut auth_sequence } => {
+                info!("starting authentication sequence");
+                let mut auth_response: Option<ironposh_client_core::connector::http::HttpResponse> =
+                    None;
+
+                loop {
+                    // 1) Initialize security context (may require KDC generator)
+                    let (seq, mut holder) = auth_sequence.prepare();
+                    let init =
+                        match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
+                            SecContextMaybeInit::Initialized(sec) => sec,
+                            SecContextMaybeInit::RunGenerator {
+                                mut packet,
+                                mut generator_holder,
+                            } => {
+                                info!("running generator for KDC communication");
+                                loop {
+                                    let kdc_resp = send_packet(packet).context(
+                                        "failed to send packet to KDC during authentication",
+                                    )?;
+                                    match AuthSequence::resume(generator_holder, kdc_resp)? {
+                                        SecContextMaybeInit::RunGenerator {
+                                            packet: p2,
+                                            generator_holder: g2,
+                                        } => {
+                                            packet = p2;
+                                            generator_holder = g2;
+                                        }
+                                        SecContextMaybeInit::Initialized(sec) => break sec,
+                                    }
+                                }
+                            }
+                        };
+
+                    // 2) Process initialized context → either Continue (send another token) or Done
+                    match auth_sequence.process_sec_ctx_init(init)? {
+                        SecContextInited::Continue { request, sequence } => {
+                            info!("continuing authentication sequence");
+                            // send challenge-response step on the same conn_id
+                            let HttpRequestAction {
+                                connection_id,
+                                request,
+                            } = request;
+                            let agent = self.get_or_create_agent(connection_id.inner());
+                            let resp = self.make_request_with_agent(
+                                &agent,
+                                &request,
+                                connection_id.inner(),
+                            )?;
+                            auth_response = Some(resp); // feed back into try_init_sec_context
+                            auth_sequence = sequence; // keep looping
+                        }
+
+                        SecContextInited::SendRequest {
+                            request,
+                            authenticated_http_channel_cert,
+                        } => {
+                            info!(
+                                "authentication sequence complete, sending final encrypted request"
+                            );
+                            // We have: (a) the final encrypted HttpRequest to send, and
+                            // (b) the EncryptionProvider to INSTALL on this conn_id for the *response*.
+                            let HttpRequestAction {
+                                connection_id,
+                                request,
+                            } = request;
+
+                            // 3) Send the final (sealed) request
+                            let agent = self.get_or_create_agent(connection_id.inner());
+                            let resp = self.make_request_with_agent(
+                                &agent,
+                                &request,
+                                connection_id.inner(),
+                            )?;
+
+                            // 4) Return targeted response WITH the provider attached.
+                            //    Pool::accept will install it on PreAuth and decrypt the body.
+                            info!("authentication sequence successful");
+                            return Ok(HttpResponseTargeted::new(
+                                resp,
+                                connection_id,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
     }
 }

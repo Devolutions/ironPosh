@@ -1,7 +1,7 @@
 use std::fmt;
 
-use ironposh_client_core::connector::{conntion_pool::ConnectionId, UserOperation};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
+use ironposh_client_core::connector::{conntion_pool::ConnectionId, UserOperation};
 
 /// Represents the next step in the event loop
 #[derive(Debug)]

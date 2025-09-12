@@ -12,12 +12,8 @@ use tracing::{info, instrument, warn};
 use crate::{
     connector::{
         config::Authentication,
-        conntion_pool::{
-            ConnectionPool, ConnectionPoolConfig, TrySend,
-        },
-        http::{
-            HttpResponseTargeted, ServerAddress,
-        },
+        conntion_pool::{ConnectionPool, ConnectionPoolConfig, TrySend},
+        http::{HttpResponseTargeted, ServerAddress},
     },
     runspace_pool::{
         DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,

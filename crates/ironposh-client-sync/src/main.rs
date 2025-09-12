@@ -1,4 +1,3 @@
-mod auth_handler;
 mod config;
 mod connection;
 mod http_client;
@@ -86,9 +85,10 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     let (user_event_tx, user_event_rx) = mpsc::channel();
 
     // Spawn network handler
-    let mut network_handler = NetworkHandler::new(network_request_rx, network_response_tx);
+    let mut network_handler =
+        NetworkHandler::new(network_request_rx, network_response_tx, http_client);
     let network_handle = thread::spawn(move || {
-        network_handler.run(http_client);
+        network_handler.run();
     });
 
     // Spawn user input/UI handler
@@ -144,7 +144,7 @@ fn run_event_loop(
             NextStep::NetworkResponse(http_response) => {
                 info!(
                     target: "network",
-                    body_length = http_response.response().body.as_ref().map(|b| b.len()).unwrap_or(0),
+                    body_length = http_response.response().body.len(),
                     "processing network response"
                 );
 

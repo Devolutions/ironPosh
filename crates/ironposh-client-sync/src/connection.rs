@@ -4,8 +4,6 @@ use ironposh_client_core::connector::{
     Connector, ConnectorStepResult, WinRmConfig,
 };
 
-use crate::auth_handler::AuthHandler;
-
 pub trait HttpClient {
     fn send_request(&self, try_send: TrySend) -> Result<HttpResponseTargeted, anyhow::Error>;
 }

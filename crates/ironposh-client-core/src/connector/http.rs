@@ -1,6 +1,9 @@
 use std::{fmt::Display, net::IpAddr};
 
-use crate::connector::{conntion_pool::ConnectionId, encryption::EncryptionProvider};
+use crate::connector::{
+    conntion_pool::{AuthenticatedHttpChannel, ConnectionId},
+    encryption::EncryptionProvider,
+};
 
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 
@@ -185,7 +188,7 @@ pub struct HttpResponse {
 pub struct HttpResponseTargeted {
     pub(crate) response: HttpResponse,
     pub(crate) connection_id: ConnectionId,
-    pub(crate) encryption: Option<EncryptionProvider>,
+    pub(crate) authenticated: Option<AuthenticatedHttpChannel>,
 }
 
 impl HttpResponseTargeted {
@@ -194,12 +197,12 @@ impl HttpResponseTargeted {
     pub fn new(
         response: HttpResponse,
         connection_id: ConnectionId,
-        encryption: Option<EncryptionProvider>,
+        authentication_cert: Option<AuthenticatedHttpChannel>,
     ) -> Self {
         Self {
             response,
             connection_id,
-            encryption: None,
+            authenticated: authentication_cert,
         }
     }
 

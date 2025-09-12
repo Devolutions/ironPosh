@@ -1,87 +1,112 @@
-use ironposh_client_core::connector::{
-    conntion_pool::{ConnectionId, TrySend},
-    http::{HttpResponse, HttpResponseTargeted},
-};
-use std::sync::{mpsc, Arc};
-use std::thread;
-use tracing::{error, info_span, instrument};
+use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
+use std::sync::mpsc;
+use tracing::{error, info, instrument};
 
-use crate::{auth_handler::AuthHandler, connection::HttpClient};
+use crate::connection::HttpClient;
 
-/// Network request handler (synchronous)
-pub struct NetworkHandler {
+/// Network request handler that maintains persistent HTTP connections
+/// Processes requests sequentially to ensure proper connection reuse and state management
+pub struct NetworkHandler<T: HttpClient> {
     network_request_rx: mpsc::Receiver<TrySend>,
     network_response_tx: mpsc::Sender<HttpResponseTargeted>,
+    http_client: T,
 }
 
-impl NetworkHandler {
+impl<T: HttpClient> NetworkHandler<T> {
     pub fn new(
         network_request_rx: mpsc::Receiver<TrySend>,
         network_response_tx: mpsc::Sender<HttpResponseTargeted>,
+        http_client: T,
     ) -> Self {
         Self {
             network_request_rx,
             network_response_tx,
+            http_client,
         }
     }
 
-    pub fn run<T: HttpClient + Send + Sync + 'static>(&mut self, http_client: T) {
-        let _span = info_span!("NetworkRequestHandler").entered();
-        let client = Arc::new(http_client);
+    /// Main event loop that processes network requests sequentially
+    /// This ensures proper connection reuse and maintains authentication state
+    #[instrument(
+        name = "network.handler.run",
+        level = "info",
+        skip(self),
+        fields(processed_requests = 0u64)
+    )]
+    pub fn run(&mut self) {
+        let span = tracing::Span::current();
+        let mut processed_requests = 0u64;
+
+        info!("network handler started, waiting for requests");
 
         while let Ok(request) = self.network_request_rx.recv() {
-            let network_response_tx = self.network_response_tx.clone();
-            let client = Arc::clone(&client);
+            processed_requests += 1;
+            span.record("processed_requests", processed_requests);
 
-            // Handle request in a separate thread to avoid blocking
-            thread::spawn(move || match make_http_request(request, &*client) {
+            let request_type = match &request {
+                TrySend::JustSend { conn_id, .. } => {
+                    format!("JustSend(conn_id={})", conn_id.inner())
+                }
+                TrySend::AuthNeeded { .. } => "AuthNeeded".to_string(),
+            };
+
+            info!(
+                request_type = %request_type,
+                request_number = processed_requests,
+                "processing network request"
+            );
+
+            match self.process_request(request) {
                 Ok(response) => {
-                    if let Err(e) = network_response_tx.send(response) {
-                        error!("Failed to send network response: {}", e);
+                    info!(
+                        response_status = response.response().status_code,
+                        response_body_length = response.response().body.len(),
+                        "request processed successfully, sending response"
+                    );
+
+                    if let Err(e) = self.network_response_tx.send(response) {
+                        error!(
+                            error = %e,
+                            "failed to send network response, channel may be disconnected"
+                        );
+                        // If we can't send responses, no point in continuing
+                        break;
                     }
                 }
                 Err(e) => {
-                    error!("HTTP request failed: {}", e);
+                    error!(
+                        error = %e,
+                        request_type = %request_type,
+                        "HTTP request failed"
+                    );
+                    // For now, we continue processing other requests even if one fails
+                    // In the future, we might want to implement retry logic or circuit breakers
                 }
-            });
+            }
         }
+
+        info!(
+            total_processed = processed_requests,
+            "network handler shutting down, request channel closed"
+        );
     }
-}
 
-/// Makes an HTTP request based on a TrySend command, handling both JustSend and AuthNeeded cases
-#[instrument(
-    name = "network.make_http_request",
-    level = "info",
-    skip(request, client),
-    fields(request_type = %match &request {
-        TrySend::JustSend { .. } => "JustSend",
-        TrySend::AuthNeeded { .. } => "AuthNeeded"
-    }),
-    err
-)]
-fn make_http_request(
-    request: TrySend,
-    client: &dyn HttpClient,
-) -> Result<HttpResponseTargeted, anyhow::Error> {
-    match request {
-        TrySend::JustSend { .. } => {
-            // Simple case: just send the HTTP request
-            let response = client.send_request(request)?;
-            Ok(response)
-        }
-        TrySend::AuthNeeded { auth_sequence } => {
-            // Complex case: handle authentication sequence using the AuthHandler
-            let (authenticated_channel, auth_request) =
-                AuthHandler::handle_auth_sequence(client, auth_sequence)?;
-
-            // Create a new TrySend for the authenticated request
-            let auth_try_send = TrySend::JustSend {
-                request: auth_request.request,
-                conn_id: auth_request.connection_id,
-            };
-
-            let response = client.send_request(auth_try_send)?;
-            Ok(response)
-        }
+    /// Process a single network request using the persistent HTTP client
+    #[instrument(
+        name = "network.process_request",
+        level = "info",
+        skip(self, request),
+        fields(
+            request_type = %match &request {
+                TrySend::JustSend { conn_id, .. } => format!("JustSend({})", conn_id.inner()),
+                TrySend::AuthNeeded { .. } => "AuthNeeded".to_string()
+            }
+        ),
+        err
+    )]
+    fn process_request(&mut self, request: TrySend) -> Result<HttpResponseTargeted, anyhow::Error> {
+        // The HTTP client now handles both JustSend and AuthNeeded cases internally
+        // This includes managing authentication sequences, KDC communication, and connection reuse
+        self.http_client.send_request(request)
     }
 }

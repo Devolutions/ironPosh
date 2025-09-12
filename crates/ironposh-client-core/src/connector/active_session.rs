@@ -241,22 +241,7 @@ impl ActiveSession {
         &mut self,
         response: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        let body = response
-            .response()
-            .body
-            .as_ref()
-            .ok_or(crate::PwshCoreError::InvalidState(
-                "Expected a body in server response",
-            ))?
-            .clone();
-
-        debug!("Response body length: {}", body.len());
-
-        let xml_body: String = if let HttpBody::Encrypted(_) = body {
-            todo!("Implement decryption of encrypted body");
-        } else {
-            todo!("Handle non-encrypted body in accept_server_response");
-        };
+        let xml_body = self.connection_pool.accept(response)?;
 
         let results = self.runspace_pool.accept_response(xml_body).map_err(|e| {
             error!("RunspacePool.accept_response failed: {:#}", e);
