@@ -128,13 +128,7 @@ fn run_event_loop(
     network_request_tx: mpsc::Sender<TrySend>,
     user_event_tx: mpsc::Sender<UserEvent>,
 ) -> anyhow::Result<()> {
-    let span = tracing::Span::current();
-    let mut iteration_count = 0u64;
-
     loop {
-        iteration_count += 1;
-        span.record("iterations", iteration_count);
-
         // Use select! equivalent for synchronous channels
         let next_step = select_sync(&network_response_rx, &user_request_rx)?;
 

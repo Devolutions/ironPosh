@@ -1,6 +1,10 @@
 use crate::connection::HttpClient;
 use ironposh_client_core::connector::http::{HttpBody, HttpRequest, HttpResponse};
-use std::{collections::HashMap, io::Read, sync::Mutex};
+use std::{
+    collections::HashMap,
+    io::Read,
+    sync::{Arc, Mutex},
+};
 use tracing::{debug, error, info, info_span, instrument};
 
 /// Decide how to read the body based on Content-Type.
@@ -48,32 +52,50 @@ fn determine_body_type_from_headers(
 }
 
 /// ureq-based implementation that maintains one Agent per `connection_id`.
+#[derive(Clone)]
 pub struct UreqHttpClient {
-    agents: Mutex<HashMap<u32, ureq::Agent>>,
+    agents: Arc<Mutex<HashMap<u32, ureq::Agent>>>,
     connect_timeout: std::time::Duration,
     read_timeout: std::time::Duration,
 }
 
 impl UreqHttpClient {
     pub fn new() -> Self {
+        info!(
+            connect_timeout_secs = 30,
+            read_timeout_secs = 60,
+            "initializing UreqHttpClient with connection pooling"
+        );
         Self {
-            agents: Mutex::new(HashMap::new()),
+            agents: Arc::new(Mutex::new(HashMap::new())),
             connect_timeout: std::time::Duration::from_secs(30),
             read_timeout: std::time::Duration::from_secs(60),
         }
     }
 
+    #[instrument(level = "debug", skip(self), fields(conn_id))]
     fn get_or_create_agent(&self, conn_id: u32) -> ureq::Agent {
         let mut map = self.agents.lock().unwrap();
         if let Some(a) = map.get(&conn_id) {
+            info!(conn_id, "reusing existing HTTP agent for connection");
             return a.clone();
         }
         // New per-connection agent (isolates connection pooling to this conn_id)
+        info!(
+            conn_id,
+            total_agents = map.len(),
+            "creating new HTTP agent for connection"
+        );
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(self.connect_timeout)
             .timeout_read(self.read_timeout)
             .build();
         map.insert(conn_id, agent.clone());
+        info!(
+            conn_id,
+            total_agents = map.len(),
+            "HTTP agent created and cached"
+        );
         agent
     }
 
@@ -86,7 +108,8 @@ impl UreqHttpClient {
         let span = info_span!("http.request", conn_id, method=?request.method, url=%request.url);
         let _enter = span.enter();
 
-        info!("sending request");
+        let agent_pool_size = self.agents.lock().unwrap().len();
+        info!(agent_pool_size, "sending request with pooled agent");
 
         // Build method
         let mut ureq_req = match request.method {

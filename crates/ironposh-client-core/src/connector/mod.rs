@@ -66,7 +66,7 @@ pub enum ConnectorStepResult {
     Connected {
         /// use box to avoid large enum variant
         active_session: Box<ActiveSession>,
-        next_receive_request: TrySend,
+        send_this_one_async_or_you_stuck: TrySend,
     },
 }
 
@@ -101,20 +101,6 @@ pub enum ConnectorState {
         connection_pool: ConnectionPool,
     },
     Connected,
-}
-
-impl ConnectorState {
-    fn mut_connection_pool(&mut self) -> Option<&mut ConnectionPool> {
-        match self {
-            ConnectorState::Connecting {
-                connection_pool, ..
-            } => Some(connection_pool),
-            ConnectorState::ConnectReceiveCycle {
-                connection_pool, ..
-            } => Some(connection_pool),
-            _ => None,
-        }
-    }
 }
 
 impl ConnectorState {
@@ -249,7 +235,7 @@ impl Connector {
                         new_state,
                         ConnectorStepResult::Connected {
                             active_session: Box::new(active_session),
-                            next_receive_request: next_req,
+                            send_this_one_async_or_you_stuck: next_req,
                         },
                     )
                 } else {

@@ -28,7 +28,7 @@ impl RemotePowershell {
                 }
                 ConnectorStepResult::Connected {
                     active_session,
-                    next_receive_request,
+                    send_this_one_async_or_you_stuck: next_receive_request,
                 } => {
                     break (*active_session, next_receive_request);
                 }

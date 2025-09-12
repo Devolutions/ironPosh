@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use tracing::{info, error, instrument};
 
 use crate::{
     Authentication, PwshCoreError,
@@ -139,8 +140,12 @@ impl ConnectionPool {
 
     /// Encrypts and builds a request on an Idle connection, or returns
     /// an AuthNeeded with a per-connection auth sequence for a fresh socket.
+    #[instrument(skip(self, unencrypted_xml), fields(xml_length = unencrypted_xml.len()))]
     pub fn send(&mut self, unencrypted_xml: &str) -> Result<TrySend, PwshCoreError> {
+        info!("ConnectionPool: processing send request");
+        
         if let Some((id, mut enc)) = self.take_idle() {
+            info!(conn_id = id.inner(), "found idle connection, encrypting and sending");
             let body = enc.encrypt(unencrypted_xml)?;
             let req = self.http_builder().post(body);
             self.connections.insert(
@@ -149,6 +154,7 @@ impl ConnectionPool {
                     encryption_provider: enc,
                 },
             );
+            info!(conn_id = id.inner(), "connection moved to Pending state");
             return Ok(TrySend::JustSend {
                 request: req,
                 conn_id: id,
@@ -157,6 +163,7 @@ impl ConnectionPool {
 
         // No idle socket → allocate PreAuth and hand out an auth FSM the caller will drive
         let id = self.alloc_pre_auth();
+        info!(conn_id = id.inner(), "no idle connection, allocated new PreAuth connection for authentication");
         let seq = AuthSequence::new(self.sspi_cfg.clone(), self.http_builder())?;
 
         let post = PostConAuthSequence {
@@ -165,12 +172,21 @@ impl ConnectionPool {
             conn_id: id,
         };
 
+        info!(conn_id = id.inner(), "returning AuthNeeded for new connection");
         Ok(TrySend::AuthNeeded {
             auth_sequence: post,
         })
     }
 
+    #[instrument(skip(self, response), fields(
+        conn_id = response.connection_id.inner(),
+        status_code = response.response.status_code,
+        body_length = response.response.body.len(),
+        has_auth = response.authenticated.is_some()
+    ))]
     pub fn accept(&mut self, response: HttpResponseTargeted) -> Result<String, PwshCoreError> {
+        info!("ConnectionPool: processing server response");
+        
         let HttpResponseTargeted {
             response,
             connection_id,
@@ -178,14 +194,18 @@ impl ConnectionPool {
         } = response;
 
         let Some(state) = self.connections.get_mut(&connection_id) else {
+            error!(conn_id = connection_id.inner(), "unknown connection ID");
             return Err(PwshCoreError::InvalidState("Unknown connection"));
         };
 
         let in_progress_state = std::mem::replace(state, ConnectionState::Closed);
+        info!(conn_id = connection_id.inner(), state = ?in_progress_state, "processing connection state");
 
         match in_progress_state {
             ConnectionState::PreAuth => {
+                info!(conn_id = connection_id.inner(), "handling PreAuth response");
                 let encryption_provider = encryption.ok_or_else(|| {
+                    error!(conn_id = connection_id.inner(), "expected encryption provider after auth but none found");
                     PwshCoreError::InvalidState("Expected encryption provider after auth")
                 })?;
 
@@ -195,6 +215,7 @@ impl ConnectionPool {
                 } = encryption_provider;
 
                 let body = encryption_provider.decrypt(response.body)?;
+                info!(conn_id = connection_id.inner(), decrypted_length = body.len(), "decrypted PreAuth response, moving to Idle");
                 *state = ConnectionState::Idle {
                     encryption_provider,
                 };
@@ -203,16 +224,22 @@ impl ConnectionPool {
             ConnectionState::Pending {
                 mut encryption_provider,
             } => {
+                info!(conn_id = connection_id.inner(), "handling Pending response");
                 let body = encryption_provider.decrypt(response.body)?;
+                info!(conn_id = connection_id.inner(), decrypted_length = body.len(), "decrypted Pending response, moving to Idle");
                 *state = ConnectionState::Idle {
                     encryption_provider,
                 };
                 Ok(body)
             }
             ConnectionState::Closed => {
+                error!(conn_id = connection_id.inner(), "connection already closed");
                 Err(PwshCoreError::InvalidState("Connection already closed"))
             }
-            ConnectionState::Idle { .. } => Err(PwshCoreError::InvalidState("Connection was idle")),
+            ConnectionState::Idle { .. } => {
+                error!(conn_id = connection_id.inner(), "connection was idle when response received");
+                Err(PwshCoreError::InvalidState("Connection was idle"))
+            }
         }
     }
 
@@ -239,6 +266,7 @@ impl ConnectionPool {
         let id = ConnectionId::new(self.next_id);
         self.next_id += 1;
         self.connections.insert(id, ConnectionState::PreAuth);
+        info!(conn_id = id.inner(), total_connections = self.connections.len(), "allocated new PreAuth connection");
         id
     }
 
@@ -252,7 +280,10 @@ impl ConnectionPool {
         match self.connections.remove(&key) {
             Some(ConnectionState::Idle {
                 encryption_provider,
-            }) => Some((key, encryption_provider)),
+            }) => {
+                info!(conn_id = key.inner(), remaining_connections = self.connections.len(), "took idle connection from pool");
+                Some((key, encryption_provider))
+            },
             Some(other) => {
                 self.connections.insert(key, other);
                 None

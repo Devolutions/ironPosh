@@ -107,7 +107,7 @@ impl<'a> PsType {
         if type_maps.contains(self) {
             // If this type has already been serialized, return a reference element.
             let ref_id = type_maps.map.get(self).unwrap();
-            debug!("Creating TNRef for existing type with RefId={}", ref_id);
+            trace!("Creating TNRef for existing type with RefId={}", ref_id);
             return Ok(
                 Element::new("TNRef").add_attribute(Attribute::new("RefId", ref_id.to_string()))
             );
