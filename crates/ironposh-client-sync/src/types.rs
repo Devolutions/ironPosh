@@ -1,11 +1,16 @@
 use std::fmt;
 
-use ironposh_client_core::connector::UserOperation;
+use ironposh_client_core::connector::{conntion_pool::ConnectionId, UserOperation};
 
 /// Represents the next step in the event loop
 #[derive(Debug)]
 pub enum NextStep {
-    NetworkResponse(ironposh_client_core::connector::http::HttpResponse),
+    NetworkResponse(
+        (
+            ironposh_client_core::connector::http::HttpResponse,
+            ConnectionId,
+        ),
+    ),
     UserRequest(Box<UserOperation>),
 }
 

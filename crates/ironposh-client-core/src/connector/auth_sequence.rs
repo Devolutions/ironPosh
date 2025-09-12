@@ -3,12 +3,13 @@ use std::fmt::Debug;
 use sspi::{NegotiateConfig, ntlm::NtlmConfig};
 
 use crate::{
-    PwshCoreError, SspiAuthConfig,
+    PwshCoreError,
     connector::{
         authenticator::{
             SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
             Token,
         },
+        config::{Authentication, KerberosConfig, SspiAuthConfig},
         encryption::{self, EncryptionProvider},
         http::{HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponse},
     },
@@ -27,14 +28,8 @@ pub struct SecurityContextBuilderHolder<'ctx> {
     negotiate: Option<SecurityContextBuilder<'ctx, sspi::negotiate::Negotiate>>,
 }
 
-impl<'ctx> Default for SecurityContextBuilderHolder<'ctx> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<'ctx> SecurityContextBuilderHolder<'ctx> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         SecurityContextBuilderHolder {
             ntlm: None,
             kerberos: None,
@@ -131,6 +126,23 @@ pub struct AuthConfig {
     pub sspi_config: SspiAuthConfig,
 }
 
+// Add From trait implementation for Authentication -> AuthConfig
+impl From<Authentication> for AuthConfig {
+    fn from(auth: Authentication) -> Self {
+        match auth {
+            Authentication::Basic { .. } => {
+                // For basic auth, we'll use NTLM as a fallback
+                // This is a simplification - in practice you might want to handle this differently
+                todo!("Basic authentication conversion not implemented")
+            }
+            Authentication::Sspi(sspi_config) => AuthConfig {
+                require_encryption: true, // Default to requiring encryption
+                sspi_config,
+            },
+        }
+    }
+}
+
 pub struct AuthSequence {
     context: AuthContext,
     http_builder: HttpBuilder,
@@ -152,7 +164,7 @@ impl Debug for AuthSequence {
 }
 
 impl AuthSequence {
-    pub fn new(
+    pub(crate) fn new(
         auth_config: AuthConfig,
         http_builder: HttpBuilder,
     ) -> Result<Self, crate::PwshCoreError> {
@@ -207,7 +219,7 @@ impl AuthSequence {
         SspiAuthenticator::resume(generator_holder, kdc_response)
     }
 
-    pub fn process_initialized_sec_context(
+    pub(crate) fn process_initialized_sec_context(
         &mut self,
         sec_context: crate::connector::authenticator::SecContextInit,
     ) -> Result<SecCtxInited, PwshCoreError> {
@@ -242,13 +254,13 @@ impl AuthSequence {
         } = self;
 
         Authenticated {
-            decryptor: EncryptionProvider::new(context, require_encryption),
+            encryption_provider: EncryptionProvider::new(context, require_encryption),
             http_builder,
         }
     }
 }
 
 pub struct Authenticated {
-    pub(crate) decryptor: EncryptionProvider,
+    pub(crate) encryption_provider: EncryptionProvider,
     pub(crate) http_builder: HttpBuilder,
 }

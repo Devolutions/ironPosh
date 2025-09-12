@@ -1,36 +1,29 @@
-use crate::connection::{HttpClient, KeepAlive};
-use ironposh_client_core::connector::http::HttpBody;
-use std::cell::RefCell;
-use std::io::Read;
+use crate::connection::HttpClient;
+use ironposh_client_core::connector::http::{HttpBody, HttpRequest, HttpResponse};
+use std::{cell::RefCell, collections::HashMap, io::Read};
 use tracing::{debug, error, info, info_span, instrument};
 
-/// Determine the appropriate HttpBody variant based on the response Content-Type header
+/// Decide how to read the body based on Content-Type.
 fn determine_body_type_from_headers(
     headers: &[(String, String)],
 ) -> fn(ureq::Response) -> Result<HttpBody, anyhow::Error> {
-    // Find the content-type header
     let content_type = headers
         .iter()
-        .find(|(name, _)| name.to_lowercase() == "content-type")
-        .map(|(_, value)| value.to_lowercase())
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.to_lowercase())
         .unwrap_or_default();
 
     if content_type.contains("multipart/encrypted") {
-        // Encrypted response - read as binary
         |response| {
             debug!("reading encrypted response as binary data");
             let mut bytes = Vec::new();
-            response
-                .into_reader()
-                .read_to_end(&mut bytes)
-                .map_err(|e| {
-                    error!(error=%e, "failed to read binary response body");
-                    anyhow::Error::from(e)
-                })?;
+            response.into_reader().read_to_end(&mut bytes).map_err(|e| {
+                error!(error=%e, "failed to read binary response body");
+                anyhow::Error::from(e)
+            })?;
             Ok(HttpBody::Encrypted(bytes))
         }
     } else if content_type.contains("application/soap+xml") {
-        // XML response - read as text
         |response| {
             debug!("reading XML response as text");
             let text = response.into_string().map_err(|e| {
@@ -40,7 +33,6 @@ fn determine_body_type_from_headers(
             Ok(HttpBody::Xml(text))
         }
     } else {
-        // Default to text
         |response| {
             debug!("reading response as text");
             let text = response.into_string().map_err(|e| {
@@ -52,59 +44,73 @@ fn determine_body_type_from_headers(
     }
 }
 
+/// ureq-based implementation that maintains one Agent per `connection_id`.
 pub struct UreqHttpClient {
-    client: RefCell<Option<ureq::Agent>>,
+    agents: RefCell<HashMap<u32, ureq::Agent>>,
+    connect_timeout: std::time::Duration,
+    read_timeout: std::time::Duration,
 }
 
 impl UreqHttpClient {
     pub fn new() -> Self {
-        UreqHttpClient {
-            client: RefCell::new(None),
+        Self {
+            agents: RefCell::new(HashMap::new()),
+            connect_timeout: std::time::Duration::from_secs(30),
+            read_timeout: std::time::Duration::from_secs(60),
         }
     }
 
-    fn get_or_create_client(&self) -> ureq::Agent {
-        let mut client_ref = self.client.borrow_mut();
-        if let Some(agent) = client_ref.as_ref() {
-            agent.clone()
-        } else {
-            let agent = ureq::AgentBuilder::new()
-                .timeout_connect(std::time::Duration::from_secs(30))
-                .timeout_read(std::time::Duration::from_secs(60))
-                .build();
-            *client_ref = Some(agent.clone());
-            agent
+    pub fn with_timeouts(connect: std::time::Duration, read: std::time::Duration) -> Self {
+        Self {
+            agents: RefCell::new(HashMap::new()),
+            connect_timeout: connect,
+            read_timeout: read,
         }
+    }
+
+    fn get_or_create_agent(&self, conn_id: u32) -> ureq::Agent {
+        let mut map = self.agents.borrow_mut();
+        if let Some(a) = map.get(&conn_id) {
+            return a.clone();
+        }
+        // New per-connection agent (isolates connection pooling to this conn_id)
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(self.connect_timeout)
+            .timeout_read(self.read_timeout)
+            .build();
+        map.insert(conn_id, agent.clone());
+        agent
     }
 
     fn make_request_with_agent(
         &self,
         agent: &ureq::Agent,
-        request: &ironposh_client_core::connector::http::HttpRequest,
-    ) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
-        let span = info_span!("http.request", method=?request.method, url=%request.url);
+        request: &HttpRequest,
+        conn_id: u32,
+    ) -> Result<HttpResponse, anyhow::Error> {
+        let span = info_span!("http.request", conn_id, method=?request.method, url=%request.url);
         let _enter = span.enter();
 
         info!("sending request");
 
-        // Build the HTTP client request
-        let mut ureq_request = match request.method {
+        // Build method
+        let mut ureq_req = match request.method {
             ironposh_client_core::connector::http::Method::Post => agent.post(&request.url),
             ironposh_client_core::connector::http::Method::Get => agent.get(&request.url),
             ironposh_client_core::connector::http::Method::Put => agent.put(&request.url),
             ironposh_client_core::connector::http::Method::Delete => agent.delete(&request.url),
         };
 
-        // Add headers
+        // Headers
         for (name, value) in &request.headers {
-            ureq_request = ureq_request.set(name, value);
+            ureq_req = ureq_req.set(name, value);
         }
+        // We want persistent connection behavior per conn_id
+        ureq_req = ureq_req.set("Connection", "Keep-Alive");
 
-        ureq_request = ureq_request.set("Connection", "Keep-Alive");
-
-        // Add cookie if present
+        // Cookies if present
         if let Some(cookie) = &request.cookie {
-            ureq_request = ureq_request.set("Cookie", cookie);
+            ureq_req = ureq_req.set("Cookie", cookie);
         }
 
         debug!(
@@ -113,54 +119,41 @@ impl UreqHttpClient {
             "request configured"
         );
 
-        // Make the request
-        let response_result = if let Some(body) = &request.body {
+        // Send
+        let resp_res = if let Some(body) = &request.body {
             debug!(body_length = body.len(), "sending with body");
-
             match body {
-                HttpBody::Encrypted(bytes) => ureq_request.send_bytes(bytes),
-                _ => ureq_request.send_string(body.as_str()?),
+                HttpBody::Encrypted(bytes) => ureq_req.send_bytes(bytes),
+                _ => ureq_req.send_string(body.as_str()?),
             }
         } else {
             debug!("sending without body");
-            ureq_request.call()
+            ureq_req.call()
         };
 
-        // Handle the response, including potential 401 authentication challenges
-        let (status_code, headers, response_body) = match response_result {
-            Ok(response) => {
-                let status = response.status();
-                let headers: Vec<(String, String)> = response
+        // Read response
+        let (status_code, headers, response_body) = match resp_res {
+            Ok(resp) => {
+                let status = resp.status();
+                let headers: Vec<(String, String)> = resp
                     .headers_names()
                     .iter()
-                    .filter_map(|name| {
-                        response
-                            .header(name)
-                            .map(|value| (name.clone(), value.to_string()))
-                    })
+                    .filter_map(|n| resp.header(n).map(|v| (n.clone(), v.to_string())))
                     .collect();
 
-                // Determine body type from headers and read accordingly
-                let body_reader = determine_body_type_from_headers(&headers);
-                let body = body_reader(response)?;
+                let rdr = determine_body_type_from_headers(&headers);
+                let body = rdr(resp)?;
                 (status, headers, body)
             }
-            Err(ureq::Error::Status(status, response)) => {
-                // Handle status codes like 401 which are expected in authentication flows
-                debug!(status=%status, "received status response");
-                let headers: Vec<(String, String)> = response
+            Err(ureq::Error::Status(status, resp)) => {
+                debug!(status, "received status response");
+                let headers: Vec<(String, String)> = resp
                     .headers_names()
                     .iter()
-                    .filter_map(|name| {
-                        response
-                            .header(name)
-                            .map(|value| (name.clone(), value.to_string()))
-                    })
+                    .filter_map(|n| resp.header(n).map(|v| (n.clone(), v.to_string())))
                     .collect();
-
-                // Determine body type from headers and read accordingly
-                let body_reader = determine_body_type_from_headers(&headers);
-                let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
+                let rdr = determine_body_type_from_headers(&headers);
+                let body = rdr(resp).unwrap_or(HttpBody::Text(String::new()));
                 (status, headers, body)
             }
             Err(e) => {
@@ -169,10 +162,9 @@ impl UreqHttpClient {
             }
         };
 
-        info!(status_code=%status_code, response_body_length=response_body.len(), "response received");
+        info!(status_code, response_body_length=response_body.len(), "response received");
 
-        // Return as HttpResponse with actual response data
-        Ok(ironposh_client_core::connector::http::HttpResponse {
+        Ok(HttpResponse {
             status_code,
             headers,
             body: Some(response_body),
@@ -181,118 +173,20 @@ impl UreqHttpClient {
 }
 
 impl HttpClient for UreqHttpClient {
-    #[instrument(name="http_client.send_request", level="info", skip(self, request), fields(method=?request.method, url=%request.url, keep_alive=?keep_alive), err)]
+    #[instrument(
+        name="http_client.send_request",
+        level="info",
+        skip(self, request),
+        fields(conn_id = conn_id, method=?request.method, url=%request.url),
+        err
+    )]
     fn send_request(
         &self,
-        request: ironposh_client_core::connector::http::HttpRequest,
-        keep_alive: KeepAlive,
-    ) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
-        match keep_alive {
-            KeepAlive::Must => {
-                info!("using persistent client");
-                let agent = self.get_or_create_client();
-                self.make_request_with_agent(&agent, &request)
-            }
-            KeepAlive::NotNecessary => {
-                info!("using one-time client");
-                make_http_request(&request)
-            }
-        }
+        request: HttpRequest,
+        conn_id: u32,
+    ) -> Result<HttpResponse, anyhow::Error> {
+        let agent = self.get_or_create_agent(conn_id);
+        self.make_request_with_agent(&agent, &request, conn_id)
     }
 }
 
-/// Make an HTTP request using ureq (synchronous)
-#[instrument(name="http.request_oneshot", level="info", skip(request), fields(method=?request.method, url=%request.url), err)]
-pub fn make_http_request(
-    request: &ironposh_client_core::connector::http::HttpRequest,
-) -> Result<ironposh_client_core::connector::http::HttpResponse, anyhow::Error> {
-    info!("sending one-time request");
-
-    // Build the HTTP client request
-    let mut ureq_request = match request.method {
-        ironposh_client_core::connector::http::Method::Post => ureq::post(&request.url),
-        ironposh_client_core::connector::http::Method::Get => ureq::get(&request.url),
-        ironposh_client_core::connector::http::Method::Put => ureq::put(&request.url),
-        ironposh_client_core::connector::http::Method::Delete => ureq::delete(&request.url),
-    };
-
-    // Add headers
-    for (name, value) in &request.headers {
-        ureq_request = ureq_request.set(name, value);
-    }
-
-    // Add cookie if present
-    if let Some(cookie) = &request.cookie {
-        ureq_request = ureq_request.set("Cookie", cookie);
-    }
-
-    debug!(
-        headers_count = request.headers.len(),
-        has_cookie = request.cookie.is_some(),
-        "request configured"
-    );
-
-    // Make the request
-    let response_result = if let Some(body) = &request.body {
-        debug!(body_length = body.len(), "sending with body");
-        match body {
-            HttpBody::Encrypted(bytes) => ureq_request.send_bytes(bytes),
-            _ => ureq_request.send_string(body.as_str()?),
-        }
-    } else {
-        debug!("sending without body");
-        ureq_request.call()
-    };
-
-    // Handle the response, including potential 401 authentication challenges
-    let (status_code, headers, response_body) = match response_result {
-        Ok(response) => {
-            let status = response.status();
-            let headers: Vec<(String, String)> = response
-                .headers_names()
-                .iter()
-                .filter_map(|name| {
-                    response
-                        .header(name)
-                        .map(|value| (name.clone(), value.to_string()))
-                })
-                .collect();
-
-            // Determine body type from headers and read accordingly
-            let body_reader = determine_body_type_from_headers(&headers);
-            let body = body_reader(response)?;
-            (status, headers, body)
-        }
-        Err(ureq::Error::Status(status, response)) => {
-            // Handle status codes like 401 which are expected in authentication flows
-            debug!(status=%status, "received status response");
-            let headers: Vec<(String, String)> = response
-                .headers_names()
-                .iter()
-                .filter_map(|name| {
-                    response
-                        .header(name)
-                        .map(|value| (name.clone(), value.to_string()))
-                })
-                .collect();
-
-            // Determine body type from headers and read accordingly
-            let body_reader = determine_body_type_from_headers(&headers);
-            let body = body_reader(response).unwrap_or(HttpBody::Text(String::new()));
-            (status, headers, body)
-        }
-        Err(e) => {
-            error!(error=%e, "request failed");
-            return Err(e.into());
-        }
-    };
-
-    info!(status_code=%status_code, response_body_length=response_body.len(), "response received");
-
-    // Return as HttpResponse with actual response data
-    Ok(ironposh_client_core::connector::http::HttpResponse {
-        status_code,
-        headers,
-        body: Some(response_body),
-    })
-}

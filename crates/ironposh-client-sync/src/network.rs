@@ -1,23 +1,30 @@
-use std::sync::mpsc;
+use ironposh_client_core::connector::{
+    conntion_pool::{ConnectionId, TrySend},
+    http::HttpResponse,
+};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use tracing::{error, info_span};
 
-use crate::http_client::make_http_request;
+use crate::connection::HttpClient;
 
 /// Network request handler (synchronous)
 pub struct NetworkHandler {
-    network_request_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpRequest>,
-    network_response_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpResponse>,
+    network_request_rx: mpsc::Receiver<TrySend>,
+    network_response_tx: mpsc::Sender<(HttpResponse, ConnectionId)>,
+    http_client: Arc<dyn HttpClient + Send>,
 }
 
 impl NetworkHandler {
-    pub fn new(
-        network_request_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpRequest>,
-        network_response_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpResponse>,
+    pub fn new<T: HttpClient + Send + 'static>(
+        network_request_rx: mpsc::Receiver<TrySend>,
+        network_response_tx: mpsc::Sender<(HttpResponse, ConnectionId)>,
+        http_client: T,
     ) -> Self {
         Self {
             network_request_rx,
             network_response_tx,
+            http_client: Arc::new(http_client),
         }
     }
 
@@ -28,14 +35,28 @@ impl NetworkHandler {
             let network_response_tx = self.network_response_tx.clone();
 
             // Handle request in a separate thread to avoid blocking
-            thread::spawn(move || match make_http_request(&request) {
-                Ok(response) => {
-                    if let Err(e) = network_response_tx.send(response) {
-                        error!("Failed to send network response: {}", e);
+            let client = Arc::clone(&self.http_client);
+            thread::spawn(move || {
+                match request {
+                    TrySend::JustSend { request, conn_id } => {
+                        let response = client
+                            .lock()
+                            .unwrap()
+                            .send_request(request, conn_id.inner());
+                        match response {
+                            Ok(resp) => {
+                                let _ = network_response_tx.send((resp, conn_id));
+                            }
+                            Err(e) => {
+                                error!(error=%e, "failed to send network request");
+                                // In a real implementation, you might want to send an error response back
+                            }
+                        }
                     }
-                }
-                Err(e) => {
-                    error!("HTTP request failed: {}", e);
+                    TrySend::AuthNeeded { auth_sequence } => {
+                        // In a real implementation, you would handle the auth sequence here
+                        error!("AuthNeeded requests are not supported in this simplified example");
+                    }
                 }
             });
         }

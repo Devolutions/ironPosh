@@ -1,6 +1,6 @@
 use crate::{
     connector::{
-        conntion_pool::ConnectionPool,
+        conntion_pool::{ConnectionId, ConnectionPool, TrySend},
         http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
     host::{HostCallRequest, HostCallResponse, HostCallScope},
@@ -37,7 +37,7 @@ impl UserEvent {
 
 #[derive(Debug)]
 pub enum ActiveSessionOutput {
-    SendBack(Vec<HttpRequest>),
+    SendBack(Vec<TrySend>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     HostCall(HostCallRequest),
@@ -109,21 +109,15 @@ pub enum UserOperation {
 #[derive(Debug)]
 pub struct ActiveSession {
     runspace_pool: RunspacePool,
-    http_builder: HttpBuilder,
     /// Tracks pending host calls by (scope, call_id) to validate responses
     pending_host_calls: std::collections::HashMap<(HostCallScope, i64), ()>,
     connection_pool: ConnectionPool,
 }
 
 impl ActiveSession {
-    pub(crate) fn new(
-        runspace_pool: RunspacePool,
-        http_builder: HttpBuilder,
-        connection_pool: ConnectionPool,
-    ) -> Self {
+    pub(crate) fn new(runspace_pool: RunspacePool, connection_pool: ConnectionPool) -> Self {
         Self {
             runspace_pool,
-            http_builder,
             pending_host_calls: std::collections::HashMap::new(),
             connection_pool,
         }
@@ -157,13 +151,14 @@ impl ActiveSession {
             UserOperation::InvokePipeline { powershell } => {
                 let command_request = self.runspace_pool.invoke_pipeline_request(powershell);
 
-                match command_request {
-                    Ok(request) => {
-                        let response = self.http_builder.post("/wsman", HttpBody::Xml(request));
-                        Ok(ActiveSessionOutput::SendBack(vec![response]))
-                    }
-                    Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
-                }
+                // match command_request {
+                //     Ok(request) => {
+                //         let response = self.http_builder.post("/wsman", HttpBody::Xml(request));
+                //         Ok(ActiveSessionOutput::SendBack(vec![response]))
+                //     }
+                //     Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
+                // }
+                todo!()
             }
             UserOperation::SubmitHostResponse { response } => {
                 let HostCallResponse {
@@ -244,9 +239,10 @@ impl ActiveSession {
     #[instrument(skip(self, response))]
     pub fn accept_server_response(
         &mut self,
-        response: HttpResponse,
+        response: (HttpResponse, ConnectionId),
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
+        let (http_response, connection_id) = response;
+        let body = http_response.body.ok_or(crate::PwshCoreError::InvalidState(
             "Expected a body in server response",
         ))?;
 
@@ -282,10 +278,12 @@ impl ActiveSession {
                             error!("Failed to create receive request: {:#}", e);
                             e
                         })?;
-                    let response = self
-                        .http_builder
-                        .post("/wsman", HttpBody::Xml(receive_request));
-                    step_output.push(ActiveSessionOutput::SendBack(vec![response]));
+
+                    todo!()
+                    // let response = self
+                    //     .http_builder
+                    //     .post("/wsman", HttpBody::Xml(receive_request));
+                    // step_output.push(ActiveSessionOutput::SendBack(vec![response]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
                     debug!(?pipeline, "Pipeline created");
@@ -355,20 +353,21 @@ impl ActiveSession {
         let request = self
             .runspace_pool
             .send_pipeline_host_response(command_id, host_response)?;
-        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
+        // let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
 
-        // Queue a receive after sending the response
-        let receive_request = self.runspace_pool.fire_receive(
-            crate::runspace_pool::DesiredStream::pipeline_streams(command_id),
-        )?;
-        let receive_http_response = self
-            .http_builder
-            .post("/wsman", HttpBody::Xml(receive_request));
+        // // Queue a receive after sending the response
+        // let receive_request = self.runspace_pool.fire_receive(
+        //     crate::runspace_pool::DesiredStream::pipeline_streams(command_id),
+        // )?;
+        // let receive_http_response = self
+        //     .http_builder
+        //     .post("/wsman", HttpBody::Xml(receive_request));
+        todo!();
 
-        Ok(ActiveSessionOutput::SendBack(vec![
-            http_response,
-            receive_http_response,
-        ]))
+        // Ok(ActiveSessionOutput::SendBack(vec![
+        //     http_response,
+        //     receive_http_response,
+        // ]))
     }
 
     /// Send a runspace pool host response back to the server
@@ -400,19 +399,20 @@ impl ActiveSession {
         let request = self
             .runspace_pool
             .send_runspace_pool_host_response(host_response)?;
-        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
+        // let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
 
-        // Queue a receive after sending the response
-        let receive_request = self
-            .runspace_pool
-            .fire_receive(crate::runspace_pool::DesiredStream::runspace_pool_streams())?;
-        let receive_http_response = self
-            .http_builder
-            .post("/wsman", HttpBody::Xml(receive_request));
+        // // Queue a receive after sending the response
+        // let receive_request = self
+        //     .runspace_pool
+        //     .fire_receive(crate::runspace_pool::DesiredStream::runspace_pool_streams())?;
+        // let receive_http_response = self
+        //     .http_builder
+        //     .post("/wsman", HttpBody::Xml(receive_request));
+        todo!();
 
-        Ok(ActiveSessionOutput::SendBack(vec![
-            http_response,
-            receive_http_response,
-        ]))
+        // Ok(ActiveSessionOutput::SendBack(vec![
+        //     http_response,
+        //     receive_http_response,
+        // ]))
     }
 }

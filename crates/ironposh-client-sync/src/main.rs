@@ -1,14 +1,17 @@
+mod auth_handler;
 mod config;
 mod connection;
 mod http_client;
+mod kerberos;
 mod network;
 mod types;
 mod user_input;
 
 use anyhow::Context;
 use clap::Parser;
-use ironposh_client_core::connector::active_session::UserEvent;
+use ironposh_client_core::connector::conntion_pool::ConnectionId;
 use ironposh_client_core::connector::ActiveSessionOutput;
+use ironposh_client_core::connector::{active_session::UserEvent, conntion_pool::TrySend};
 use std::sync::mpsc;
 use std::thread;
 use tracing::{error, info, instrument, warn};
@@ -25,11 +28,13 @@ fn establish_connection(
     config: ironposh_client_core::connector::WinRmConfig,
 ) -> anyhow::Result<(
     ironposh_client_core::connector::active_session::ActiveSession,
-    ironposh_client_core::connector::http::HttpRequest,
+    TrySend,
+    UreqHttpClient,
 )> {
-    let client = UreqHttpClient::new();
-    let remote_ps = RemotePowershell::open(config, client)?;
-    Ok(remote_ps.into_components())
+    let mut client = UreqHttpClient::new();
+    let remote_ps = RemotePowershell::open(config, &mut client)?;
+    let (active_session, next_request) = remote_ps.into_components();
+    Ok((active_session, next_request, client))
 }
 
 #[instrument(name = "main", level = "info")]
@@ -71,7 +76,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 
     // Create configuration and establish connection
     let config = create_connector_config(args)?;
-    let (active_session, next_request) = establish_connection(config)?;
+    let (active_session, next_request, http_client) = establish_connection(config)?;
     info!("Runspace pool is now open and ready for operations!");
 
     // Set up communication channels
@@ -81,7 +86,8 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     let (user_event_tx, user_event_rx) = mpsc::channel();
 
     // Spawn network handler
-    let mut network_handler = NetworkHandler::new(network_request_rx, network_response_tx);
+    let mut network_handler =
+        NetworkHandler::new(network_request_rx, network_response_tx, http_client);
     let network_handle = thread::spawn(move || {
         network_handler.run();
     });
@@ -118,9 +124,12 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 #[instrument(level = "info", skip_all, fields(iterations = 0u64))]
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
-    network_response_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
+    network_response_rx: mpsc::Receiver<(
+        ironposh_client_core::connector::http::HttpResponse,
+        ConnectionId,
+    )>,
     user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
-    network_request_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpRequest>,
+    network_request_tx: mpsc::Sender<TrySend>,
     user_event_tx: mpsc::Sender<UserEvent>,
 ) -> anyhow::Result<()> {
     let span = tracing::Span::current();
@@ -139,7 +148,7 @@ fn run_event_loop(
             NextStep::NetworkResponse(http_response) => {
                 info!(
                     target: "network",
-                    body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                    body_length = http_response.0.body.as_ref().map(|b| b.len()).unwrap_or(0),
                     "processing network response"
                 );
 
@@ -273,7 +282,10 @@ fn run_event_loop(
 
 /// Synchronous select equivalent for two receivers
 fn select_sync(
-    network_rx: &mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
+    network_rx: &mpsc::Receiver<(
+        ironposh_client_core::connector::http::HttpResponse,
+        ConnectionId,
+    )>,
     user_rx: &mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
 ) -> anyhow::Result<NextStep> {
     use std::sync::mpsc::TryRecvError;
