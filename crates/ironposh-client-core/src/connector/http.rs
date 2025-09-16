@@ -1,6 +1,5 @@
 use std::{fmt::Display, net::IpAddr};
 
-use base64::Engine;
 
 use crate::connector::conntion_pool::{AuthenticatedHttpChannel, ConnectionId};
 

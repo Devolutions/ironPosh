@@ -128,7 +128,7 @@ pub struct AuthSequenceConfig {
 }
 
 impl AuthSequenceConfig {
-    pub fn new(config: AuthenticatorConfig, _require_encryption: bool) -> Self {
+    pub fn new(config: AuthenticatorConfig) -> Self {
         // require_encryption is now embedded in the AuthenticatorConfig::Sspi variant
         AuthSequenceConfig {
             authenticator_config: config,

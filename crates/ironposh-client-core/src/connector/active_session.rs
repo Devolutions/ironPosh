@@ -171,20 +171,8 @@ impl ActiveSession {
                 let send_invoke = self.connection_pool.send(&invoke_xml)?;
                 info!(invoke_request = ?send_invoke, "queued invoke request");
 
-                // 3) Queue a receive for the pipeline streams
-                let recv_xml = self
-                    .runspace_pool
-                    .fire_receive(DesiredStream::pipeline_streams(powershell.id()))?;
-                info!(
-                    recv_xml_length = recv_xml.len(),
-                    "built receive XML request"
-                );
-                info!(unencrypted_recv_xml = %recv_xml, "outgoing unencrypted receive SOAP");
-                let send_recv = self.connection_pool.send(&recv_xml)?;
-                info!(recv_request = ?send_recv, "queued receive request");
-
                 info!("returning 2 TrySend requests for pipeline invoke");
-                Ok(ActiveSessionOutput::SendBack(vec![send_invoke, send_recv]))
+                Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
 
             UserOperation::SubmitHostResponse { response } => {
@@ -308,10 +296,23 @@ impl ActiveSession {
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
                 AcceptResponsResult::PipelineCreated(powershell) => {
-                    info!(pipeline_id = %powershell.id(), "pipeline created");
+                    // // 3) Queue a receive for the pipeline streams
+                    let recv_xml = self
+                        .runspace_pool
+                        .fire_receive(DesiredStream::pipeline_streams(powershell.id()))?;
+
+                    info!(
+                        recv_xml_length = recv_xml.len(),
+                        "built receive XML request"
+                    );
+                    info!(unencrypted_recv_xml = %recv_xml, "outgoing unencrypted receive SOAP");
+                    let send_recv = self.connection_pool.send(&recv_xml)?;
+
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
                         powershell,
                     }));
+
+                    outs.push(ActiveSessionOutput::SendBack(vec![send_recv]));
                 }
                 AcceptResponsResult::PipelineFinished(powershell) => {
                     info!(pipeline_id = %powershell.id(), "pipeline finished");

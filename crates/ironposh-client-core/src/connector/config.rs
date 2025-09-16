@@ -48,3 +48,14 @@ pub enum AuthenticatorConfig {
         require_encryption: bool,
     },
 }
+
+impl AuthenticatorConfig {
+    pub(crate) fn requires_encryption(&self) -> bool {
+        match self {
+            AuthenticatorConfig::Basic { .. } => false,
+            AuthenticatorConfig::Sspi {
+                require_encryption, ..
+            } => *require_encryption,
+        }
+    }
+}
