@@ -157,13 +157,13 @@ impl ConnectionPool {
                 }
                 EncryptionOptions::IncludeHeader { header } => {
                     debug!(
+                        header,
                         conn_id = id.inner(),
                         "using Basic auth header to prepare outgoing XML"
                     );
 
-                    self.http_builder().with_auth_header(header.clone());
-
                     self.http_builder()
+                        .with_auth_header(header.clone())
                         .post(HttpBody::Xml(unencrypted_xml.to_owned()))
                 }
             };
@@ -171,7 +171,11 @@ impl ConnectionPool {
             self.connections
                 .insert(id, ConnectionState::Pending { enc: enc_opt });
 
-            info!(conn_id = id.inner(), "connection moved to Pending state");
+            info!(
+                ?req,
+                conn_id = id.inner(),
+                "connection moved to Pending state"
+            );
 
             return Ok(TrySend::JustSend {
                 request: req,
