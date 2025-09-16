@@ -44,7 +44,7 @@ impl PipelineCommand {
         self
     }
 
-    pub(crate) fn new_output_stream() -> PipelineCommand {
+    pub fn new_output_stream() -> PipelineCommand {
         let mut command = PipelineCommand::new_command("Out-String".to_string());
         command.add_parameter(Parameter::Switch {
             name: "Stream".to_string(),
@@ -93,11 +93,6 @@ impl Pipeline {
 
     pub(crate) fn add_command(&mut self, command: PipelineCommand) {
         self.commands.push(command);
-    }
-
-    pub fn as_stream(&mut self) -> &mut Self {
-        self.commands.push(PipelineCommand::new_output_stream());
-        self
     }
 }
 

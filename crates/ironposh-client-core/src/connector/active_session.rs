@@ -285,9 +285,9 @@ impl ActiveSession {
 
         // 3) Translate PSRP results to outputs
         let mut outs = Vec::new();
-        for (idx, r) in results.into_iter().enumerate() {
-            info!("processing PSRP result {idx}: {r:?}");
-            match r {
+        for (idx, res_accepted) in results.into_iter().enumerate() {
+            info!(index = idx, "processing PSRP result");
+            match res_accepted {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
                     info!(streams = ?desired_streams, "creating receive request for streams");
                     let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use ironposh_client_core::connector::active_session::PowershellOperations;
 use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
@@ -28,7 +29,7 @@ impl UserInputHandler {
     }
 
     #[instrument(skip_all, name = "user_input_handler")]
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         let stdin = io::stdin();
         let mut stdout = io::stdout();
         let mut pipeline: Option<PipelineHandle> = None;
@@ -51,12 +52,12 @@ impl UserInputHandler {
             stdout.flush().unwrap();
             let mut line = String::new();
             match stdin.read_line(&mut line) {
-                Ok(0) => break, // EOF
+                Ok(0) => break Ok(()),
                 Ok(_) => {
                     let command = line.trim().to_string();
                     if command.to_lowercase() == "exit" {
                         info!("user requested exit");
-                        break;
+                        break Ok(());
                     }
 
                     if command.is_empty() {
@@ -66,28 +67,38 @@ impl UserInputHandler {
 
                     if let Some(pipeline_handle) = pipeline {
                         // Add the script to the pipeline
-                        if let Err(e) = self.user_request_tx.send(UserOperation::OperatePipeline {
-                            powershell: pipeline_handle,
-                            operation: PowershellOperations::AddCommand {
-                                command: PipelineCommand::new_script(command),
-                            },
-                        }) {
-                            error!(error = %e, "failed to send operation");
-                            break;
-                        }
+                        let _ = self
+                            .user_request_tx
+                            .send(UserOperation::OperatePipeline {
+                                powershell: pipeline_handle,
+                                operation: PowershellOperations::AddCommand {
+                                    command: PipelineCommand::new_command(command),
+                                },
+                            })
+                            .context("Failed to send add command operation to pipeline")?;
+
+                        let _ = self
+                            .user_request_tx
+                            .send(UserOperation::OperatePipeline {
+                                powershell: pipeline_handle,
+                                operation: PowershellOperations::AddCommand {
+                                    command: PipelineCommand::new_output_stream(),
+                                },
+                            })
+                            .context("Failed to send add output stream operation to pipeline")?;
 
                         // Invoke the pipeline
-                        if let Err(e) = self.user_request_tx.send(UserOperation::InvokePipeline {
-                            powershell: pipeline_handle,
-                        }) {
-                            error!(error = %e, "failed to send invoke");
-                            break;
-                        }
+                        let _ = self
+                            .user_request_tx
+                            .send(UserOperation::InvokePipeline {
+                                powershell: pipeline_handle,
+                            })
+                            .context("Failed to send invoke pipeline operation")?;
                     }
                 }
                 Err(e) => {
                     error!(error = %e, "failed to read input");
-                    break;
+                    break Err(e.into());
                 }
             }
         }

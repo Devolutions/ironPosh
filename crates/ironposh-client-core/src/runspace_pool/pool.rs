@@ -272,6 +272,7 @@ impl RunspacePool {
 
             let is_there_a_stream_has_no_command_id =
                 streams.iter().any(|stream| stream.command_id().is_none());
+
             if is_there_a_stream_has_no_command_id {
                 debug!(
                     target: "receive",
