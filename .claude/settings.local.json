@@ -20,7 +20,10 @@
       "Bash(mv:*)",
       "Bash(cargo fmt:*)",
       "Bash(git log:*)",
-      "Read(C:\\dev\\sspi-rs\\src/**)"
+      "Read(C:\\dev\\sspi-rs\\src/**)",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__find_symbol",
+      "mcp__serena__replace_symbol_body"
     ],
     "deny": [],
     "additionalDirectories": [

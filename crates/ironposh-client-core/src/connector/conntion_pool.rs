@@ -281,24 +281,6 @@ impl ConnectionPool {
         }
     }
 
-    /// Decrypt a response body using the per-connection provider.
-    fn decrypt(&mut self, id: &ConnectionId, body: HttpBody) -> Result<String, PwshCoreError> {
-        match self.connections.get_mut(id) {
-            Some(ConnectionState::Idle {
-                encryption_provider: enc,
-            }) => enc.decrypt(body),
-            Some(ConnectionState::Pending {
-                encryption_provider: enc,
-            }) => enc.decrypt(body),
-            Some(ConnectionState::PreAuth) => {
-                Err(PwshCoreError::InvalidState("PreAuth has no decryptor"))
-            }
-            Some(ConnectionState::Closed) | None => {
-                Err(PwshCoreError::InvalidState("Closed/unknown connection"))
-            }
-        }
-    }
-
     // -------- internals --------
     fn alloc_pre_auth(&mut self) -> ConnectionId {
         let id = ConnectionId::new(self.next_id);

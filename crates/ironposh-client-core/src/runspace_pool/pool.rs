@@ -396,7 +396,6 @@ impl RunspacePool {
         skip(self, responses),
         fields(
             response_count = responses.len(),
-            processed_messages = 0u32
         )
     )]
     fn handle_pwsh_responses(
@@ -404,8 +403,6 @@ impl RunspacePool {
         responses: Vec<crate::runspace::win_rs::Stream>,
     ) -> Result<Vec<PwshMessageResponse>, crate::PwshCoreError> {
         let mut result = Vec::new();
-        let span = tracing::Span::current();
-        let mut message_count = 0u32;
 
         for (stream_index, stream) in responses.into_iter().enumerate() {
             debug!(
@@ -436,9 +433,6 @@ impl RunspacePool {
             };
 
             for (msg_index, message) in messages.into_iter().enumerate() {
-                message_count += 1;
-                span.record("processed_messages", message_count);
-
                 let ps_value = message.parse_ps_message().map_err(|e| {
                     error!(
                         target: "ps_message",
@@ -579,7 +573,6 @@ impl RunspacePool {
         info!(
             target: "pwsh_responses",
             result_count = result.len(),
-            total_messages_processed = message_count,
             "processed PowerShell responses"
         );
         Ok(result)
@@ -597,11 +590,6 @@ impl RunspacePool {
         };
 
         let session_capability = SessionCapability::try_from(session_capability)?;
-
-        // Record the protocol and PS versions in the span
-        let span = tracing::Span::current();
-        span.record("protocol_version", &session_capability.protocol_version);
-        span.record("ps_version", &session_capability.ps_version);
 
         debug!(
             target: "session",
