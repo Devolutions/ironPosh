@@ -11,6 +11,16 @@ use crate::{
     },
 };
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum EncryptionOptions {
+    IncludeHeader {
+        header: String,
+    },
+    Sspi {
+        encryption_provider: EncryptionProvider,
+    },
+}
+
 #[derive(Debug)]
 pub struct EncryptionProvider {
     id: uuid::Uuid,

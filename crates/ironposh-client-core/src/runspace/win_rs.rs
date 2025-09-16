@@ -110,12 +110,13 @@ impl WinRunspace {
         desired_streams: Vec<crate::runspace_pool::DesiredStream>,
     ) -> impl Into<Element<'a>> {
         // Group streams by CommandId - streams with the same CommandId go into one DesiredStream element
-        let mut grouped_streams: std::collections::BTreeMap<Option<uuid::Uuid>, Vec<String>> = std::collections::BTreeMap::new();
-        
+        let mut grouped_streams: std::collections::BTreeMap<Option<uuid::Uuid>, Vec<String>> =
+            std::collections::BTreeMap::new();
+
         for stream in desired_streams {
             grouped_streams
                 .entry(stream.command_id().copied())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(stream.name().to_owned());
         }
 
@@ -125,7 +126,8 @@ impl WinRunspace {
             .map(|(command_id, stream_names)| {
                 // Join stream names with spaces as required by Windows Shell schema
                 let combined_streams = stream_names.join(" ");
-                let mut tag = Tag::from_name(DesiredStream).with_value(Text::from(combined_streams));
+                let mut tag =
+                    Tag::from_name(DesiredStream).with_value(Text::from(combined_streams));
 
                 if let Some(command_id) = command_id {
                     tag = tag.with_attribute(Attribute::CommandId(command_id));

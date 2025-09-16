@@ -10,13 +10,13 @@ use uuid::Uuid;
 fn test_receive_with_single_desired_stream() {
     // Test case: Command-level receive with CommandId
     let command_id = Uuid::new_v4();
-    
+
     // Create a ReceiveValue with single DesiredStream containing space-separated streams
     let receive = ReceiveValue::builder()
         .desired_streams(vec![
             Tag::from_name(DesiredStream)
                 .with_value(Text::from("stdout stderr"))
-                .with_attribute(ironposh_winrm::cores::Attribute::CommandId(command_id))
+                .with_attribute(ironposh_winrm::cores::Attribute::CommandId(command_id)),
         ])
         .build();
 
@@ -32,11 +32,17 @@ fn test_receive_with_single_desired_stream() {
     // Verify the XML contains a single DesiredStream element with space-separated streams
     assert!(xml_string.contains("<rsp:DesiredStream"));
     assert!(xml_string.contains("stdout stderr"));
-    assert!(xml_string.contains(&format!("CommandId=\"{}\"", command_id.to_string().to_uppercase())));
-    
+    assert!(xml_string.contains(&format!(
+        "CommandId=\"{}\"",
+        command_id.to_string().to_uppercase()
+    )));
+
     // Should only have one DesiredStream element (not two separate ones)
     let desired_stream_count = xml_string.matches("<rsp:DesiredStream").count();
-    assert_eq!(desired_stream_count, 1, "Should have exactly one DesiredStream element");
+    assert_eq!(
+        desired_stream_count, 1,
+        "Should have exactly one DesiredStream element"
+    );
 }
 
 #[test]
@@ -44,7 +50,7 @@ fn test_receive_shell_level_without_command_id() {
     // Test case: Shell-level receive without CommandId
     let receive = ReceiveValue::builder()
         .desired_streams(vec![
-            Tag::from_name(DesiredStream).with_value(Text::from("stdout stderr"))
+            Tag::from_name(DesiredStream).with_value(Text::from("stdout stderr")),
         ])
         .build();
 
@@ -61,10 +67,13 @@ fn test_receive_shell_level_without_command_id() {
     assert!(xml_string.contains("<rsp:DesiredStream"));
     assert!(xml_string.contains("stdout stderr"));
     assert!(!xml_string.contains("CommandId="));
-    
+
     // Should only have one DesiredStream element
     let desired_stream_count = xml_string.matches("<rsp:DesiredStream").count();
-    assert_eq!(desired_stream_count, 1, "Should have exactly one DesiredStream element");
+    assert_eq!(
+        desired_stream_count, 1,
+        "Should have exactly one DesiredStream element"
+    );
 }
 
 #[test]
@@ -98,19 +107,20 @@ fn test_soap_fault_with_unknown_namespace() {
 
     // This should now parse successfully instead of failing on unknown namespace
     let parsed = ironposh_xml::parser::parse(soap_fault_xml).expect("Should parse XML");
-    let envelope = SoapEnvelope::from_node(parsed.root_element()).expect("Should parse SOAP envelope despite unknown namespace");
-    
+    let envelope = SoapEnvelope::from_node(parsed.root_element())
+        .expect("Should parse SOAP envelope despite unknown namespace");
+
     // Verify we can access the fault information
     if let Some(fault) = &envelope.body.as_ref().fault {
         println!("Successfully parsed SOAP fault: {:?}", fault);
-        
+
         // Check that we can access the fault code and reason
         if let Some(code) = &fault.as_ref().code {
             if let Some(value) = &code.as_ref().value {
                 assert_eq!(value.as_ref().as_ref(), "soap:Sender");
             }
         }
-        
+
         if let Some(reason) = &fault.as_ref().reason {
             if let Some(text) = &reason.as_ref().text {
                 assert_eq!(text.as_ref().as_ref(), "Schema validation error");

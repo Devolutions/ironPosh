@@ -2,7 +2,7 @@ use anyhow::Result;
 use ironposh_client_core::{
     KerberosConfig, SspiAuthConfig,
     connector::{
-        auth_sequence::{SspiAuthSequence, SecurityContextBuilderHolder},
+        auth_sequence::{SecurityContextBuilderHolder, SspiAuthSequence},
         authenticator::SecContextMaybeInit,
         http::{HttpBuilder, ServerAddress},
     },

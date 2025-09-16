@@ -100,11 +100,11 @@ mod tests {
 
         // ===== VALIDATE BODY =====
         let body = soap_envelope.body.as_ref();
-        
+
         // This error response should have a fault - but our current SoapBody doesn't support faults yet
         // For now, let's just verify that we can parse the envelope successfully without failing
         // TODO: Add fault support to SoapBody
-        
+
         // Validate that normal operation fields are None (since this is an error)
         assert!(
             body.receive_response.is_none(),
@@ -115,8 +115,14 @@ mod tests {
             "Body should not have ResourceCreated in error"
         );
         assert!(body.shell.is_none(), "Body should not have Shell in error");
-        assert!(body.command.is_none(), "Body should not have Command in error");
-        assert!(body.receive.is_none(), "Body should not have Receive in error");
+        assert!(
+            body.command.is_none(),
+            "Body should not have Command in error"
+        );
+        assert!(
+            body.receive.is_none(),
+            "Body should not have Receive in error"
+        );
         assert!(
             body.command_response.is_none(),
             "Body should not have CommandResponse in error"

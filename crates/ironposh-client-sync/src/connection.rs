@@ -1,7 +1,5 @@
 use ironposh_client_core::connector::{
-    conntion_pool::TrySend,
-    http::HttpResponseTargeted,
-    Connector, ConnectorStepResult, WinRmConfig,
+    conntion_pool::TrySend, http::HttpResponseTargeted, Connector, ConnectorStepResult, WinRmConfig,
 };
 
 pub trait HttpClient {

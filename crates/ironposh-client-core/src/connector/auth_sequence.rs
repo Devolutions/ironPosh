@@ -1,17 +1,17 @@
 use std::fmt::Debug;
 
+use base64::Engine;
 use sspi::{NegotiateConfig, ntlm::NtlmConfig};
 
 use crate::{
     PwshCoreError,
     connector::{
-        Scheme,
         authenticator::{
             SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
             Token,
         },
         config::{AuthenticatorConfig, SspiAuthConfig},
-        conntion_pool::ConnectionId,
+        conntion_pool::{ConnectionId, TrySend},
         encryption::EncryptionProvider,
         http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },
@@ -249,9 +249,9 @@ impl SspiAuthSequence {
     }
 
     /// Start SSPI authentication sequence
-    pub(crate) fn start(self, xml: &str, conn_id: ConnectionId) -> StartAuth {
-        StartAuth::AuthNeeded {
-            post: PostConAuthSequence {
+    pub(crate) fn start(self, xml: &str, conn_id: ConnectionId) -> TrySend {
+        TrySend::AuthNeeded {
+            auth_sequence: PostConAuthSequence {
                 auth_sequence: self,
                 queued_xml: xml.to_owned(),
                 conn_id,
@@ -269,18 +269,10 @@ pub struct Authenticated {
 // NEW ENUM-BASED AUTH SEQUENCE IMPLEMENTATION
 // ============================================================================
 
-/// Outcome for the caller (pool) when starting a send on a fresh connection.
-pub enum StartAuth {
-    /// Build and send a request right now (Basic).
-    JustSend { request: HttpRequest },
-    /// SSPI handshake required; the caller must drive `PostConAuthSequence`.
-    AuthNeeded { post: PostConAuthSequence },
-}
-
 /// The post-connection state machine used for SSPI rounds.
 #[derive(Debug)]
 pub struct PostConAuthSequence {
-    pub auth_sequence: SspiAuthSequence, 
+    pub auth_sequence: SspiAuthSequence,
     pub queued_xml: String,
     pub conn_id: ConnectionId,
 }
@@ -301,11 +293,19 @@ pub struct BasicAuthSequence {
 }
 
 impl BasicAuthSequence {
-    /// No handshake. Build a request with the Basic header and raw XML body.
-    pub fn start(mut self, xml: &str, _conn_id: ConnectionId) -> StartAuth {
-        self.http_builder.with_basic(&self.username, &self.password);
-        let req = self.http_builder.post(HttpBody::Xml(xml.to_owned()));
-        StartAuth::JustSend { request: req }
+    pub fn get_auth_header(&self) -> String {
+        let creds = format!("{}:{}", self.username, self.password);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(creds.as_bytes());
+        format!("Basic {b64}")
+    }
+
+    pub fn start(&mut self, xml: &str, connection_id: ConnectionId) -> TrySend {
+        self.http_builder.with_auth_header(self.get_auth_header());
+        let request = self.http_builder.post(HttpBody::Xml(xml.to_owned()));
+        TrySend::JustSend {
+            request,
+            conn_id: connection_id,
+        }
     }
 }
 
@@ -326,13 +326,6 @@ impl AuthSequence {
                     http_builder: http,
                 }))
             }
-        }
-    }
-
-    pub(crate) fn start(self, xml: &str, conn_id: ConnectionId) -> StartAuth {
-        match self {
-            AuthSequence::Sspi(s) => s.start(xml, conn_id),
-            AuthSequence::Basic(b) => b.start(xml, conn_id),
         }
     }
 }

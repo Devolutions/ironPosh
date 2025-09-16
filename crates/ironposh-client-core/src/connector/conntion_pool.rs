@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use tracing::{error, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     PwshCoreError,
     connector::{
         Scheme, WinRmConfig,
         auth_sequence::{
-            AuthSequence, AuthSequenceConfig, Authenticated, PostConAuthSequence,
-            SecurityContextBuilderHolder, SspiAuthSequence,
+            AuthSequenceConfig, Authenticated, PostConAuthSequence, SecurityContextBuilderHolder,
+            SspiAuthSequence,
         },
-        encryption::EncryptionProvider,
+        encryption::{EncryptionOptions, EncryptionProvider},
         http::{
             HttpBody, HttpBuilder, HttpRequest, HttpRequestAction, HttpResponseTargeted,
             ServerAddress,
@@ -36,9 +36,9 @@ impl ConnectionId {
 // ============================= ConnectionState =============================
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectionState {
-    PreAuth,                                     // SSPI only
-    Idle { enc: Option<EncryptionProvider> },    // SSPI => Some, Basic => None
-    Pending { enc: Option<EncryptionProvider> }, // in-flight request
+    PreAuth, // SSPI only
+    Idle { enc: EncryptionOptions },
+    Pending { enc: EncryptionOptions },
     Closed,
 }
 
@@ -138,38 +138,48 @@ impl ConnectionPool {
         info!("ConnectionPool: processing send request");
         info!(unencrypted_soap = %unencrypted_xml, "outgoing unencrypted SOAP before encryption");
 
-        if let Some((id, enc_opt)) = self.take_idle() {
+        if let Some((id, mut enc_opt)) = self.take_idle() {
             info!(
                 conn_id = id.inner(),
-                has_encryption = enc_opt.is_some(),
                 "found idle connection, preparing request"
             );
 
-            let (req, next_state) = match enc_opt {
-                Some(mut enc) => {
-                    let body = enc.encrypt(unencrypted_xml)?;
-                    (
-                        self.http_builder().post(body),
-                        ConnectionState::Pending { enc: Some(enc) },
-                    )
+            let req = match &mut enc_opt {
+                EncryptionOptions::Sspi {
+                    encryption_provider,
+                } => {
+                    debug!(
+                        conn_id = id.inner(),
+                        "using SSPI encryption provider to encrypt outgoing XML"
+                    );
+                    let body = encryption_provider.encrypt(unencrypted_xml)?;
+                    self.http_builder().post(body)
                 }
-                None => (
+                EncryptionOptions::IncludeHeader { header } => {
+                    debug!(
+                        conn_id = id.inner(),
+                        "using Basic auth header to prepare outgoing XML"
+                    );
+
+                    self.http_builder().with_auth_header(header.clone());
+
                     self.http_builder()
-                        .post(HttpBody::Xml(unencrypted_xml.to_owned())),
-                    ConnectionState::Pending { enc: None },
-                ),
+                        .post(HttpBody::Xml(unencrypted_xml.to_owned()))
+                }
             };
 
-            self.connections.insert(id, next_state);
+            self.connections
+                .insert(id, ConnectionState::Pending { enc: enc_opt });
+
             info!(conn_id = id.inner(), "connection moved to Pending state");
+
             return Ok(TrySend::JustSend {
                 request: req,
                 conn_id: id,
             });
         }
 
-        // No idle socket → allocate PreAuth and hand out an auth FSM the caller will drive
-        let id = self.alloc_pre_auth();
+        let id = self.alloc_new();
         info!(
             conn_id = id.inner(),
             "no idle connection, allocated new PreAuth connection for authentication"
@@ -181,23 +191,29 @@ impl ConnectionPool {
             self.http_builder(),
         )?;
 
-        match seq.start(unencrypted_xml, id) {
-            crate::connector::auth_sequence::StartAuth::JustSend { request } => {
-                // BASIC: no SSPI FSM
-                self.connections
-                    .insert(id, ConnectionState::Pending { enc: None });
-                Ok(TrySend::JustSend {
-                    request,
-                    conn_id: id,
-                })
+        let (try_send, next_state) = match seq {
+            crate::connector::auth_sequence::AuthSequence::Sspi(sspi_auth_sequence) => {
+                let try_send = sspi_auth_sequence.start(unencrypted_xml, id);
+                let next_state = ConnectionState::PreAuth;
+
+                (try_send, next_state)
             }
-            crate::connector::auth_sequence::StartAuth::AuthNeeded { post } => {
-                // SSPI: caller must drive the handshake via PostConAuthSequence
-                Ok(TrySend::AuthNeeded {
-                    auth_sequence: post,
-                })
+            crate::connector::auth_sequence::AuthSequence::Basic(mut basic_auth_sequence) => {
+                let auth_header = basic_auth_sequence.get_auth_header();
+                let try_send = basic_auth_sequence.start(unencrypted_xml, id);
+                let next_state = ConnectionState::Pending {
+                    enc: EncryptionOptions::IncludeHeader {
+                        header: auth_header,
+                    },
+                };
+
+                (try_send, next_state)
             }
-        }
+        };
+
+        self.connections.insert(id, next_state);
+
+        Ok(try_send)
     }
 
     #[instrument(skip(self, response), fields(
@@ -251,33 +267,31 @@ impl ConnectionPool {
                         }
 
                         *state = ConnectionState::Idle {
-                            enc: Some(encryption_provider),
+                            enc: EncryptionOptions::Sspi {
+                                encryption_provider,
+                            },
                         };
 
                         Ok(body)
                     }
                     None => {
-                        info!(
+                        // Unreachable
+                        error!(
                             conn_id = connection_id.inner(),
-                            "handling PreAuth response without encryption (Basic auth)"
+                            "PreAuth response missing encryption provider"
                         );
 
-                        *state = ConnectionState::Idle { enc: None };
-
-                        let HttpBody::Xml(string_body) = response.body else {
-                            error!(
-                                conn_id = connection_id.inner(),
-                                "expected XML body for Basic auth"
-                            );
-                            return Err(PwshCoreError::InvalidState("Expected XML body"));
-                        };
-
-                        return Ok(string_body);
+                        Err(PwshCoreError::InvalidState(
+                            "PreAuth response missing encryption provider",
+                        ))
                     }
                 }
             }
             ConnectionState::Pending {
-                enc: Some(mut encryption_provider),
+                enc:
+                    EncryptionOptions::Sspi {
+                        mut encryption_provider,
+                    },
             } => {
                 info!(conn_id = connection_id.inner(), "handling Pending response");
                 let body = encryption_provider.decrypt(response.body)?;
@@ -296,11 +310,13 @@ impl ConnectionPool {
                     );
                 }
                 *state = ConnectionState::Idle {
-                    enc: Some(encryption_provider),
+                    enc: EncryptionOptions::Sspi {
+                        encryption_provider,
+                    },
                 };
                 Ok(body)
             }
-            ConnectionState::Pending { enc: None } => {
+            ConnectionState::Pending { enc } => {
                 info!(
                     conn_id = connection_id.inner(),
                     "handling Pending response without encryption (Basic auth)"
@@ -317,7 +333,7 @@ impl ConnectionPool {
 
                 let string_body = response.body.as_str()?;
 
-                *state = ConnectionState::Idle { enc: None };
+                *state = ConnectionState::Idle { enc };
                 Ok(string_body.to_owned())
             }
             ConnectionState::Closed => {
@@ -335,7 +351,7 @@ impl ConnectionPool {
     }
 
     // -------- internals --------
-    fn alloc_pre_auth(&mut self) -> ConnectionId {
+    fn alloc_new(&mut self) -> ConnectionId {
         let id = ConnectionId::new(self.next_id);
         self.next_id += 1;
         self.connections.insert(id, ConnectionState::PreAuth);
@@ -348,7 +364,7 @@ impl ConnectionPool {
     }
 
     /// Remove one Idle connection from the pool, returning its provider.
-    fn take_idle(&mut self) -> Option<(ConnectionId, Option<EncryptionProvider>)> {
+    fn take_idle(&mut self) -> Option<(ConnectionId, EncryptionOptions)> {
         let key = self
             .connections
             .iter()
@@ -359,7 +375,7 @@ impl ConnectionPool {
                 info!(
                     conn_id = key.inner(),
                     remaining_connections = self.connections.len(),
-                    has_encryption = enc.is_some(),
+                    ?enc,
                     "took idle connection from pool"
                 );
                 Some((key, enc))

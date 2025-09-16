@@ -154,13 +154,15 @@ impl Connector {
                 // Create pool with SSPI cfg derived from WinRmConfig
                 let pool_cfg = ConnectionPoolConfig::from(&self.config);
                 let authenticator_cfg = self.config.authentication.clone();
-                
+
                 // Extract require_encryption from the auth config
                 let require_encryption = match &self.config.authentication {
-                    AuthenticatorConfig::Sspi { require_encryption, .. } => *require_encryption,
+                    AuthenticatorConfig::Sspi {
+                        require_encryption, ..
+                    } => *require_encryption,
                     AuthenticatorConfig::Basic { .. } => false, // Basic doesn't support encryption
                 };
-                
+
                 let auth_sequence_config =
                     AuthSequenceConfig::new(authenticator_cfg, require_encryption);
                 let mut connection_pool = ConnectionPool::new(pool_cfg, auth_sequence_config);

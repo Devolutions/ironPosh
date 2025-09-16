@@ -253,9 +253,9 @@ impl HttpBuilder {
     /// Adds `Authorization: Basic <base64(username:password)>`.
     /// WARNING: never log the resulting header value.
     pub fn with_basic(&mut self, username: &str, password: &str) -> &mut Self {
-        let creds = format!("{}:{}", username, password);
+        let creds = format!("{username}:{password}");
         let b64 = base64::engine::general_purpose::STANDARD.encode(creds.as_bytes());
-        self.with_auth_header(format!("Basic {}", b64));
+        self.with_auth_header(format!("Basic {b64}"));
         self
     }
 
