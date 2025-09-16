@@ -1,5 +1,7 @@
 use std::{fmt::Display, net::IpAddr};
 
+use base64::Engine;
+
 use crate::connector::conntion_pool::{AuthenticatedHttpChannel, ConnectionId};
 
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
@@ -246,6 +248,15 @@ impl HttpBuilder {
 
     pub fn with_auth_header(&mut self, header: String) {
         self.headers.push(("Authorization".to_string(), header));
+    }
+
+    /// Adds `Authorization: Basic <base64(username:password)>`.
+    /// WARNING: never log the resulting header value.
+    pub fn with_basic(&mut self, username: &str, password: &str) -> &mut Self {
+        let creds = format!("{}:{}", username, password);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(creds.as_bytes());
+        self.with_auth_header(format!("Basic {}", b64));
+        self
     }
 
     fn build_url(&self) -> String {

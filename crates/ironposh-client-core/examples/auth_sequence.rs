@@ -2,8 +2,8 @@ use anyhow::Result;
 use ironposh_client_core::{
     KerberosConfig, SspiAuthConfig,
     connector::{
-        auth_sequence::{AuthSequence, SecurityContextBuilderHolder},
-        authenticator::{ActionReqired, SecContextMaybeInit},
+        auth_sequence::{SspiAuthSequence, SecurityContextBuilderHolder},
+        authenticator::SecContextMaybeInit,
         http::{HttpBuilder, ServerAddress},
     },
     credentials::{ClientAuthIdentity, ClientUserName},
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
         ironposh_client_core::connector::Scheme::Http,
     );
 
-    let mut auth_sequence = AuthSequence::new(sspi_config, http_builder)?;
+    let mut auth_sequence = SspiAuthSequence::new(sspi_config, true, http_builder)?;
 
     let final_token = loop {
         let mut holder = SecurityContextBuilderHolder::new();
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
                     mut generator_holder,
                 } => loop {
                     let response = send(packet)?;
-                    match AuthSequence::resume(generator_holder, response)? {
+                    match SspiAuthSequence::resume(generator_holder, response)? {
                         SecContextMaybeInit::Initialized(sec_context_init) => {
                             break sec_context_init;
                         }
@@ -63,12 +63,12 @@ fn main() -> Result<()> {
         let action = auth_sequence.process_initialized_sec_context(init)?;
 
         match action {
-            ActionReqired::TryInitSecContextAgain { token } => {
-                // In a real scenario, you would use this token in the next HTTP request.
-                println!("Got token for next round: {:?}", token);
-                todo!("Send HTTP request with token and get response");
+            ironposh_client_core::connector::auth_sequence::SecCtxInited::Continue(req) => {
+                // In a real scenario, you would send this HTTP request.
+                println!("Got request for next round: {:?}", req);
+                todo!("Send HTTP request and get response");
             }
-            ActionReqired::Done { token } => {
+            ironposh_client_core::connector::auth_sequence::SecCtxInited::Done(token) => {
                 println!("Authentication finished. Final token: {:?}", token);
                 break token;
             }

@@ -5,7 +5,7 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     PwshCoreError,
     connector::{
-        auth_sequence::AuthContext,
+        auth_sequence::SspiAuthContext,
         authenticator::SspiAuthenticator,
         http::{ENCRYPTION_BOUNDARY, HttpBody},
     },
@@ -14,7 +14,7 @@ use crate::{
 #[derive(Debug)]
 pub struct EncryptionProvider {
     id: uuid::Uuid,
-    context: AuthContext,
+    context: SspiAuthContext,
     sequence_number: u32,
     recv_sequence_number: u32,
     require_encryption: bool,
@@ -41,7 +41,7 @@ pub enum DecryptionResult {
 }
 
 impl EncryptionProvider {
-    pub fn new(context: AuthContext, require_encryption: bool) -> Self {
+    pub fn new(context: SspiAuthContext, require_encryption: bool) -> Self {
         Self {
             id: uuid::Uuid::new_v4(),
             context,
@@ -261,13 +261,13 @@ impl EncryptionProvider {
         }
 
         let token = match &mut self.context {
-            AuthContext::Ntlm(auth_context) => {
+            SspiAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
-            AuthContext::Kerberos(auth_context) => {
+            SspiAuthContext::Kerberos(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
-            AuthContext::Negotiate(auth_context) => {
+            SspiAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
         }?;
@@ -287,13 +287,13 @@ impl EncryptionProvider {
         }
 
         let decrypted = match &mut self.context {
-            AuthContext::Ntlm(auth_context) => {
+            SspiAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
-            AuthContext::Kerberos(auth_context) => {
+            SspiAuthContext::Kerberos(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
-            AuthContext::Negotiate(auth_context) => {
+            SspiAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
         }?;

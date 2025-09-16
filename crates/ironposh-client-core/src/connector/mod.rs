@@ -42,7 +42,6 @@ pub struct WinRmConfig {
     pub scheme: Scheme,
     pub authentication: AuthenticatorConfig,
     pub host_info: HostInfo,
-    pub require_encryption: bool,
 }
 
 impl WinRmConfig {
@@ -155,8 +154,15 @@ impl Connector {
                 // Create pool with SSPI cfg derived from WinRmConfig
                 let pool_cfg = ConnectionPoolConfig::from(&self.config);
                 let authenticator_cfg = self.config.authentication.clone();
+                
+                // Extract require_encryption from the auth config
+                let require_encryption = match &self.config.authentication {
+                    AuthenticatorConfig::Sspi { require_encryption, .. } => *require_encryption,
+                    AuthenticatorConfig::Basic { .. } => false, // Basic doesn't support encryption
+                };
+                
                 let auth_sequence_config =
-                    AuthSequenceConfig::new(authenticator_cfg, self.config.require_encryption);
+                    AuthSequenceConfig::new(authenticator_cfg, require_encryption);
                 let mut connection_pool = ConnectionPool::new(pool_cfg, auth_sequence_config);
 
                 let ws_man = Arc::new(WsMan::builder().to(self.config.wsman_to(None)).build());

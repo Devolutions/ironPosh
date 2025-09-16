@@ -178,10 +178,13 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
                 client_username,
                 args.password.clone(),
             );
-            AuthenticatorConfig::Sspi(SspiAuthConfig::NTLM {
-                target: args.server.clone(),
-                identity,
-            })
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::NTLM {
+                    target: args.server.clone(),
+                    identity,
+                },
+                require_encryption: !args.no_encryption,
+            }
         }
         AuthMethod::Kerberos => {
             let client_username =
@@ -194,16 +197,22 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
 
             let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
 
-            AuthenticatorConfig::Sspi(SspiAuthConfig::Kerberos {
-                target: args.server.clone(),
-                identity,
-                kerberos_config: KerberosConfig {
-                    kdc_url,
-                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
-                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
-                    }),
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::Kerberos {
+                    target: args.server.clone(),
+                    identity,
+                    kerberos_config: KerberosConfig {
+                        kdc_url,
+                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
+                            || {
+                                whoami::fallible::hostname()
+                                    .unwrap_or_else(|_| "localhost".to_string())
+                            },
+                        ),
+                    },
                 },
-            })
+                require_encryption: !args.no_encryption,
+            }
         }
         AuthMethod::Negotiate => {
             let client_username =
@@ -212,16 +221,22 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
                 client_username,
                 args.password.clone(),
             );
-            AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
-                target: args.server.clone(),
-                identity,
-                kerberos_config: Some(KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
-                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
-                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::Negotiate {
+                    target: args.server.clone(),
+                    identity,
+                    kerberos_config: Some(KerberosConfig {
+                        kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
+                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
+                            || {
+                                whoami::fallible::hostname()
+                                    .unwrap_or_else(|_| "localhost".to_string())
+                            },
+                        ),
                     }),
-                }),
-            })
+                },
+                require_encryption: !args.no_encryption,
+            }
         }
     };
 
@@ -229,7 +244,6 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
         server: (server, args.port),
         scheme,
         authentication: auth,
-        require_encryption: !args.no_encryption,
         host_info: ironposh_psrp::HostInfo::builder()
             .is_host_null(false)
             .is_host_ui_null(true)

@@ -208,7 +208,7 @@ impl HttpClient for UreqHttpClient {
         use crate::kerberos::send_packet;
         use anyhow::Context;
         use ironposh_client_core::connector::{
-            auth_sequence::AuthSequence,
+            auth_sequence::SspiAuthSequence,
             authenticator::SecContextMaybeInit,
             conntion_pool::{SecContextInited, TrySend},
             http::{HttpRequestAction, HttpResponseTargeted},
@@ -245,7 +245,7 @@ impl HttpClient for UreqHttpClient {
                                     let kdc_resp = send_packet(packet).context(
                                         "failed to send packet to KDC during authentication",
                                     )?;
-                                    match AuthSequence::resume(generator_holder, kdc_resp)? {
+                                    match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
                                         SecContextMaybeInit::RunGenerator {
                                             packet: p2,
                                             generator_holder: g2,
