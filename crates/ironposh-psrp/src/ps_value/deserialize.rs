@@ -218,11 +218,13 @@ pub trait PsXmlVisitor<'a> {
         node: ironposh_xml::parser::Node<'a, 'a>,
         context: &mut DeserializationContext,
     ) -> Result<()>;
+
     fn visit_children(
         &mut self,
         children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
         context: &mut DeserializationContext,
     ) -> Result<()>;
+
     fn finish(self) -> Result<Self::Value>;
 }
 

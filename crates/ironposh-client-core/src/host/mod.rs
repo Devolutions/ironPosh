@@ -7,6 +7,9 @@ pub use error::*;
 pub use methods::*;
 pub use types::*;
 
+// Export spec-compliant utilities
+pub use conversions::{RemoteHostMethodId, should_send_host_response};
+
 use ironposh_psrp::{PipelineHostCall, PsValue};
 
 #[derive(Debug, Clone)]

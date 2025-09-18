@@ -438,7 +438,7 @@ impl RunspacePool {
                     error!(
                         target: "ps_message",
                         stream_index,
-                        msg_index,
+                        ?message,
                         error = %e,
                         "failed to parse PS message"
                     );

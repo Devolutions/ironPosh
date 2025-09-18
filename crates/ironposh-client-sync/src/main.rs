@@ -260,9 +260,6 @@ fn run_event_loop(
                         call_id = host_response.call_id,
                         "created host call response"
                     );
-
-                    // For now, we're not sending the response back yet - that requires more infrastructure
-                    // TODO: Implement sending host call responses back to the server
                 }
                 ActiveSessionOutput::OperationSuccess => {
                     info!(target: "session", "operation completed successfully");
