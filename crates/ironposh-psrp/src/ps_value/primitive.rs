@@ -10,6 +10,7 @@ pub enum PsPrimitiveValue {
     I64(i64),
     U64(u64),
     Guid(String),
+    Char(char),
     Nil,
     Bytes(Vec<u8>),
     Version(String),
@@ -27,6 +28,7 @@ impl Display for PsPrimitiveValue {
             PsPrimitiveValue::I64(i) => write!(f, "{i}"),
             PsPrimitiveValue::U64(u) => write!(f, "{u}"),
             PsPrimitiveValue::Guid(g) => write!(f, "{g}"),
+            PsPrimitiveValue::Char(c) => write!(f, "{c}"),
             PsPrimitiveValue::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
             PsPrimitiveValue::Bytes(_bytes) => write!(f, "System.Byte[]"),
             PsPrimitiveValue::Version(v) => write!(f, "{v}"),
@@ -79,6 +81,12 @@ impl From<u32> for PsPrimitiveValue {
 impl From<i64> for PsPrimitiveValue {
     fn from(i: i64) -> Self {
         PsPrimitiveValue::I64(i)
+    }
+}
+
+impl From<char> for PsPrimitiveValue {
+    fn from(c: char) -> Self {
+        PsPrimitiveValue::Char(c)
     }
 }
 

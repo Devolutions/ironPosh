@@ -62,6 +62,7 @@ impl<'a> PsPrimitiveValue {
             PsPrimitiveValue::I64(i) => Element::new("I64").set_text_owned(i.to_string()),
             PsPrimitiveValue::U64(u) => Element::new("U64").set_text_owned(u.to_string()),
             PsPrimitiveValue::Guid(g) => Element::new("G").set_text_owned(g.clone()),
+            PsPrimitiveValue::Char(c) => Element::new("C").set_text_owned((*c as u32).to_string()),
             PsPrimitiveValue::Nil => Element::new("Nil"), // empty tag
             PsPrimitiveValue::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
             PsPrimitiveValue::Version(v) => Element::new("Version").set_text_owned(v.clone()),

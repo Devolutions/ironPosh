@@ -838,7 +838,7 @@ impl RunspacePool {
             command_id = ?command_id,
             method_id = pipeline_host_call.method_id,
             method_name = pipeline_host_call.method_name,
-            parameter_count = pipeline_host_call.parameters.len(),
+            parameters = ?pipeline_host_call.parameters,
             "Received PipelineHostCall"
         );
 
