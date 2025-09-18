@@ -11,6 +11,7 @@ use clap::Parser;
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::ActiveSessionOutput;
 use ironposh_client_core::connector::{active_session::UserEvent, conntion_pool::TrySend};
+use ironposh_client_core::host::HostCall;
 use std::sync::mpsc;
 use std::thread;
 use tracing::{error, info, instrument, warn};
@@ -130,6 +131,9 @@ fn run_event_loop(
     network_request_tx: mpsc::Sender<TrySend>,
     user_event_tx: mpsc::Sender<UserEvent>,
 ) -> anyhow::Result<()> {
+    // Clone the network_request_tx for host call responses
+    let network_tx_for_host_calls = network_request_tx.clone();
+
     loop {
         // Use select! equivalent for synchronous channels
         let next_step = select_sync(&network_response_rx, &user_request_rx)?;
@@ -197,69 +201,31 @@ fn run_event_loop(
                     }
                 }
                 ActiveSessionOutput::HostCall(host_call) => {
-                    info!(
-                        target: "host",
-                        method_name = %host_call.method_name,
-                        call_id = host_call.call_id,
-                        "received host call"
-                    );
+                    let scope = { host_call.scope() };
+                    let call_id = host_call.call_id();
+                    let submission = match host_call {
+                        HostCall::GetName { transport } => {
+                            // Extract parameters and get the result transport
+                            let (_params, result_transport) = transport.into_parts();
+                            let host_name = "PowerShell-Host".to_string(); // In real implementation, get actual host name
 
-                    let method = host_call.get_param().map_err(|e| {
-                        error!(target: "host", error = %e, "failed to parse host call parameters");
-                        e
-                    })?;
-
-                    info!(target: "host", method = ?method, "processing host call method");
-
-                    // Handle the host call and create a response
-                    use ironposh_client_core::host::{HostCallMethodReturn, RawUIMethodReturn};
-
-                    let response = match method {
-                        // For GetBufferSize, return a default console buffer size
-                        ironposh_client_core::host::HostCallMethodWithParams::RawUIMethod(
-                            ironposh_client_core::host::RawUIMethodParams::GetBufferSize,
-                        ) => {
-                            info!(target: "host", method = "GetBufferSize", "returning default console size");
-                            HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(
-                                120, 30,
-                            ))
+                            result_transport.accept_result(host_name)
                         }
-
-                        // For WriteProgress, just acknowledge (void return)
-                        ironposh_client_core::host::HostCallMethodWithParams::UIMethod(
-                            ironposh_client_core::host::UIMethodParams::WriteProgress(
-                                source_id,
-                                record,
-                            ),
-                        ) => {
-                            info!(
-                                target: "host",
-                                method = "WriteProgress",
-                                source_id = source_id,
-                                record = %record,
-                                "handling write progress"
-                            );
-                            HostCallMethodReturn::UIMethod(
-                                ironposh_client_core::host::UIMethodReturn::WriteProgress,
-                            )
-                        }
-
-                        // For other methods, return not implemented error for now
-                        other => {
-                            warn!(target: "host", method = ?other, "host call method not implemented");
-                            HostCallMethodReturn::Error(
-                                ironposh_client_core::host::HostError::NotImplemented,
-                            )
+                        _ => {
+                            warn!("Unhandled host call type: {}", host_call.method_name());
+                            todo!("Handle other host call types")
                         }
                     };
 
-                    // Submit the response
-                    let host_response = host_call.submit_result(response);
-                    info!(
-                        target: "host",
-                        call_id = host_response.call_id,
-                        "created host call response"
-                    );
+                    active_session
+                        .accept_client_operation(
+                            ironposh_client_core::connector::UserOperation::SubmitHostResponse {
+                                call_id,
+                                scope,
+                                submission,
+                            },
+                        )
+                        .context("Failed to send host call response to active session")?;
                 }
                 ActiveSessionOutput::OperationSuccess => {
                     info!(target: "session", "operation completed successfully");

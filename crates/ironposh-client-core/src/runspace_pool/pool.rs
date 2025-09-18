@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::{
     PwshCoreError,
-    host::{HostCallRequest, HostCallScope},
+    host::{HostCall, HostCallScope},
     pipeline::{Pipeline, PipelineCommand},
     powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
@@ -88,7 +88,7 @@ pub enum AcceptResponsResult {
     },
     PipelineCreated(PipelineHandle),
     PipelineFinished(PipelineHandle),
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     PipelineOutput {
         output: PipelineOutput,
         handle: PipelineHandle,
@@ -97,7 +97,7 @@ pub enum AcceptResponsResult {
 
 #[derive(Debug)]
 pub enum PwshMessageResponse {
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     PipelineOutput {
         output: PipelineOutput,
         handle: PipelineHandle,
@@ -823,7 +823,7 @@ impl RunspacePool {
         ps_value: PsValue,
         stream_name: &str,
         command_id: Option<&Uuid>,
-    ) -> Result<HostCallRequest, crate::PwshCoreError> {
+    ) -> Result<HostCall, crate::PwshCoreError> {
         let PsValue::Object(pipeline_host_call) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
                 "Expected PipelineHostCall as PsValue::Object".into(),
@@ -849,12 +849,12 @@ impl RunspacePool {
             ));
         };
 
-        Ok(HostCallRequest::from((
-            &pipeline_host_call,
-            HostCallScope::Pipeline {
-                command_id: command_id.to_owned(),
-            },
-        )))
+        let scope = HostCallScope::Pipeline {
+            command_id: command_id.to_owned(),
+        };
+
+        HostCall::try_from_pipeline(scope, pipeline_host_call)
+            .map_err(|e| crate::PwshCoreError::InvalidResponse(format!("Failed to parse host call: {}", e).into()))
     }
 
     /// Send a pipeline host response to the server

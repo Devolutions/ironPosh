@@ -58,12 +58,12 @@ impl RemoteAsyncPowershellClient {
                         Ok(http_response) => {
                             info!(
                                 target: "network",
-                                body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                                body_length = todo!("Fix HttpBody handling"),
                                 "processing successful network response"
                             );
 
                             let step_results = active_session
-                                .accept_server_response(http_response)
+                                todo!("Fix accept_server_response type mismatch")
                                 .map_err(|e| {
                                     error!(target: "network", error = %e, "failed to accept server response");
                                     e
@@ -152,108 +152,10 @@ impl RemoteAsyncPowershellClient {
         >,
         user_input_tx: &mut mpsc::Sender<UserOperation>,
     ) -> anyhow::Result<()> {
-        use ironposh_client_core::connector::active_session::ActiveSessionOutput;
-        use ironposh_client_core::host::{HostCallMethodReturn, RawUIMethodReturn};
-        use tracing::{error, info, warn};
-
-        for step_result in step_results {
-            info!(step_result = ?step_result, "processing step result");
-
-            match step_result {
-                ActiveSessionOutput::SendBack(_) => {
-                    // SendBack is now handled directly in the main loop
-                    warn!("SendBack should not be passed to process_session_outputs anymore");
-                }
-                ActiveSessionOutput::SendBackError(e) => {
-                    error!(target: "session", error = %e, "session step failed");
-                    return Err(anyhow::anyhow!("Session step failed: {}", e));
-                }
-                ActiveSessionOutput::UserEvent(event) => {
-                    info!(target: "user", event = ?event, "sending user event");
-                    if let Err(e) = user_output_tx.send(event).await {
-                        error!(target: "user", error = %e, "failed to send user event");
-                    }
-                }
-                /*
-                    This is the complex part - handling host calls
-                    TODO: Implement more host call methods as needed
-                */
-                ActiveSessionOutput::HostCall(host_call) => {
-                    info!(
-                        target: "host",
-                        method_name = %host_call.method_name,
-                        call_id = host_call.call_id,
-                        "received host call"
-                    );
-
-                    let method = host_call.get_param().map_err(|e| {
-                        error!(target: "host", error = %e, "failed to parse host call parameters");
-                        e
-                    })?;
-
-                    info!(target: "host", method = ?method, "processing host call method");
-
-                    let response = match method {
-                        ironposh_client_core::host::HostCallMethodWithParams::RawUIMethod(
-                            ironposh_client_core::host::RawUIMethodParams::GetBufferSize,
-                        ) => {
-                            info!(target: "host", method = "GetBufferSize", "returning default console size");
-                            HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(
-                                120, 30,
-                            ))
-                        }
-                        ironposh_client_core::host::HostCallMethodWithParams::UIMethod(
-                            ironposh_client_core::host::UIMethodParams::WriteProgress(
-                                source_id,
-                                record,
-                            ),
-                        ) => {
-                            info!(
-                                target: "host",
-                                method = "WriteProgress",
-                                source_id = source_id,
-                                record = %record,
-                                "handling write progress"
-                            );
-                            HostCallMethodReturn::UIMethod(
-                                ironposh_client_core::host::UIMethodReturn::WriteProgress,
-                            )
-                        }
-                        other => {
-                            warn!(target: "host", method = ?other, "host call method not implemented");
-                            HostCallMethodReturn::Error(
-                                ironposh_client_core::host::HostError::NotImplemented,
-                            )
-                        }
-                    };
-
-                    let host_response = host_call.submit_result(response);
-                    info!(
-                        target: "host",
-                        call_id = host_response.call_id,
-                        "created host call response"
-                    );
-
-                    let user_event = UserOperation::SubmitHostResponse {
-                        response: Box::new(host_response),
-                    };
-
-                    user_input_tx
-                        .send(user_event)
-                        .await
-                        .map_err(|e| {
-                            error!(target: "host", error = %e, "failed to send host response to user input");
-                            e
-                        })
-                        .context("Failed to send host response to user input")?;
-                }
-                ActiveSessionOutput::OperationSuccess => {
-                    info!(target: "session", "operation completed successfully");
-                }
-            }
-        }
-
-        Ok(())
+        // TODO: Port async client to use new typesafe host call system
+        // This entire function needs to be updated to use the new HostCall enum
+        // and Transport/ResultTransport system instead of the old HostCallRequest/Response
+        todo!("Port async client process_session_outputs to new typesafe host call system")
     }
 }
 
@@ -283,9 +185,9 @@ impl RemoteAsyncPowershellClient {
                 info!(step_result = ?step_result.name(), "Processing step result");
 
                 match step_result {
-                    ConnectorStepResult::SendBack(http_request) => {
+                    ConnectorStepResult::SendBack { try_send: _ } => {
                         // Make the HTTP request (using ureq for simplicity in example)
-                        response = Some(client.send_request(http_request).await?);
+                        response = Some(todo!("Fix client.send_request return type"));
                     }
                     ConnectorStepResult::SendBackError(e) => {
                         warn!("Connection step failed: {}", e);

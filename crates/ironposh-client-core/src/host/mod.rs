@@ -4,145 +4,322 @@ mod methods;
 mod types;
 
 pub use error::*;
-pub use methods::*;
 pub use types::*;
 
 // Export spec-compliant utilities
 pub use conversions::{RemoteHostMethodId, should_send_host_response};
 
-use ironposh_psrp::{PipelineHostCall, PsValue};
+use ironposh_psrp::{PipelineHostCall, PipelineHostResponse, PsValue};
+use core::marker::PhantomData;
 
-#[derive(Debug, Clone)]
-pub struct HostCallRequest {
-    /// Type of the host call
-    pub call_type: HostCallScope,
-    /// Unique identifier for this host call
+//========================================================================================
+// NEW TYPESAFE HOST CALL SYSTEM
+//========================================================================================
+
+/// Sealed trait for compile-time method type safety
+pub trait Method: sealed::Sealed {
+    const ID: RemoteHostMethodId;
+    type Params;
+    type Return; // () = void
+}
+
+mod sealed { 
+    pub trait Sealed {} 
+}
+
+/// Parameter extraction from pipeline values
+pub trait FromParams: Sized { 
+    fn from_params(args: &[PsValue]) -> Result<Self, HostError>; 
+}
+
+/// Return value encoding to pipeline values
+pub trait ToPs { 
+    fn to_ps(v: Self) -> Option<PsValue>; 
+}
+
+// Implement basic parameter/return conversions
+impl FromParams for () { 
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> { 
+        if a.is_empty() { Ok(()) } else { Err(HostError::InvalidParameters) } 
+    } 
+}
+
+impl FromParams for String { 
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> { 
+        a.get(0)
+            .and_then(|v| v.as_string())
+            .ok_or(HostError::InvalidParameters) 
+    } 
+}
+
+impl FromParams for i32 {
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        a.get(0)
+            .and_then(|v| v.as_i32())
+            .ok_or(HostError::InvalidParameters)
+    }
+}
+
+impl FromParams for (i32,) {
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        let param = a.get(0).and_then(|v| v.as_i32()).ok_or(HostError::InvalidParameters)?;
+        Ok((param,))
+    }
+}
+
+impl FromParams for (String,) {
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        let param = a.get(0).and_then(|v| v.as_string()).ok_or(HostError::InvalidParameters)?;
+        Ok((param,))
+    }
+}
+
+// TODO: Add more parameter converters as needed
+impl FromParams for methods::Coordinates {
+    fn from_params(_a: &[PsValue]) -> Result<Self, HostError> {
+        // For now, just return a default - this needs proper coordinate parsing from PsValue
+        Ok(methods::Coordinates { x: 0, y: 0 })
+    }
+}
+
+impl ToPs for String { 
+    fn to_ps(v: String) -> Option<PsValue> { 
+        Some(PsValue::from(v)) 
+    } 
+}
+
+impl ToPs for i32 {
+    fn to_ps(v: i32) -> Option<PsValue> {
+        Some(PsValue::from(v))
+    }
+}
+
+impl ToPs for bool {
+    fn to_ps(v: bool) -> Option<PsValue> {
+        Some(PsValue::from(v))
+    }
+}
+
+impl ToPs for uuid::Uuid {
+    fn to_ps(v: uuid::Uuid) -> Option<PsValue> {
+        Some(PsValue::from(v.to_string()))
+    }
+}
+
+impl ToPs for Vec<u8> {
+    fn to_ps(v: Vec<u8>) -> Option<PsValue> {
+        Some(PsValue::from(v))
+    }
+}
+
+// TODO: Add more return converters as needed
+impl ToPs for methods::Coordinates {
+    fn to_ps(_v: methods::Coordinates) -> Option<PsValue> {
+        // For now, just return None - this needs proper coordinate to PsValue conversion
+        None
+    }
+}
+
+impl ToPs for methods::Size {
+    fn to_ps(_v: methods::Size) -> Option<PsValue> {
+        // For now, just return None - this needs proper size to PsValue conversion
+        None
+    }
+}
+
+impl ToPs for () { 
+    fn to_ps(_: ()) -> Option<PsValue> { 
+        None  // Void methods don't return values
+    } 
+}
+
+/// Transport wraps method parameters and provides typed result submission
+#[derive(Debug)]
+pub struct Transport<M: Method> {
+    pub scope: HostCallScope,
     pub call_id: i64,
-    /// The host method identifier (enum value)
-    pub method_id: i32,
-    /// String representation of the method name
-    pub method_name: String,
-    /// Parameters for the method call as a list of values
-    pub parameters: Vec<PsValue>,
+    pub params: M::Params,
+    _m: PhantomData<M>,
 }
 
-impl HostCallRequest {
-    pub fn new(
-        call_type: HostCallScope,
-        call_id: i64,
-        method_id: i32,
-        method_name: String,
-        parameters: Vec<PsValue>,
-    ) -> Self {
-        Self {
-            call_type,
-            call_id,
-            method_id,
-            method_name,
-            parameters,
+impl<M: Method> Transport<M> {
+    pub fn into_parts(self) -> (M::Params, ResultTransport<M>) {
+        (self.params, ResultTransport { 
+            scope: self.scope, 
+            call_id: self.call_id, 
+            _m: PhantomData
+        })
+    }
+}
+
+/// Result transport handles typed return values and creates pipeline responses
+pub struct ResultTransport<M: Method> {
+    scope: HostCallScope,
+    call_id: i64,
+    _m: PhantomData<M>,
+}
+
+/// What gets passed back to the session
+#[derive(Debug)]
+pub enum Submission { 
+    Send(PipelineHostResponse), 
+    NoSend 
+}
+
+impl<M: Method> ResultTransport<M> {
+    /// Accept a result - automatically determines if response should be sent based on method
+    pub fn accept_result(self, v: M::Return) -> Submission
+    where 
+        M::Return: ToPs,
+    {
+        if should_send_host_response(M::ID) {
+            Submission::Send(PipelineHostResponse {
+                call_id: self.call_id,
+                method_id: M::ID as i32,
+                method_name: format!("{:?}", M::ID),
+                method_result: <M::Return as ToPs>::to_ps(v),
+                method_exception: None,
+            })
+        } else {
+            Submission::NoSend
         }
     }
+}
 
-    /// Extract the method call with typed parameters
-    pub fn get_param(&self) -> Result<HostCallMethodWithParams, HostError> {
-        HostCallMethodWithParams::try_from(self)
-    }
+//========================================================================================
+// METHOD DEFINITIONS - All MS-PSRP spec methods via macro
+//========================================================================================
 
-    /// Submit the result and create a response
-    pub fn submit_result(self, result: HostCallMethodReturn) -> HostCallResponse {
-        // Extract method and delegate to the new submit method
-        let method = match self.get_param() {
-            Ok(method) => method,
-            Err(error) => {
-                // If we can't extract the method, create an error response
-                return HostCallResponse {
-                    call_scope: self.call_type,
-                    call_id: self.call_id,
-                    method_id: self.method_id,
-                    method_name: self.method_name,
-                    method_result: None,
-                    method_exception: Some(PsValue::Primitive(
-                        ironposh_psrp::PsPrimitiveValue::Str(error.to_string()),
-                    )),
-                };
+macro_rules! define_host_methods {
+    ($(
+        $method_name:ident = $method_id:ident : ($($param:ty),*) -> $return:ty
+    ),* $(,)?) => {
+        // Define method structs
+        $(
+            #[derive(Debug)]
+            pub struct $method_name;
+            impl sealed::Sealed for $method_name {}
+            impl Method for $method_name {
+                const ID: RemoteHostMethodId = RemoteHostMethodId::$method_id;
+                type Params = ($($param,)*);
+                type Return = $return;
             }
-        };
+        )*
 
-        let (method_result, method_exception) = match method.submit(result) {
-            Ok((result, exception)) => (result, exception),
-            Err(error) => {
-                // If submit fails, create an error response
-                (
-                    None,
-                    Some(PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Str(
-                        error.to_string(),
-                    ))),
-                )
+        /// The single enum for all host method calls - compile-time typed
+        #[derive(Debug)]
+        pub enum HostCall {
+            $(
+                $method_name { transport: Transport<$method_name> },
+            )*
+        }
+
+        impl HostCall {
+            /// Convert from pipeline host call to typesafe host call
+            pub fn try_from_pipeline(scope: HostCallScope, phc: PipelineHostCall) -> Result<Self, HostError> {
+                let id = RemoteHostMethodId::try_from(phc.method_id)?;
+                
+                match id {
+                    $(
+                        RemoteHostMethodId::$method_id => {
+                            let params: <$method_name as Method>::Params = FromParams::from_params(&phc.parameters)?;
+                            Ok(HostCall::$method_name { 
+                                transport: Transport { 
+                                    scope, 
+                                    call_id: phc.call_id, 
+                                    params, 
+                                    _m: PhantomData
+                                } 
+                            })
+                        }
+                    )*
+                    _ => Err(HostError::NotImplemented),
+                }
             }
-        };
 
-        HostCallResponse {
-            call_scope: self.call_type,
-            call_id: self.call_id,
-            method_id: self.method_id,
-            method_name: self.method_name,
-            method_result,
-            method_exception,
+            /// Get the call ID for this host call
+            pub fn call_id(&self) -> i64 {
+                match self {
+                    $(
+                        HostCall::$method_name { transport } => transport.call_id,
+                    )*
+                }
+            }
+
+            /// Get the method name for this host call
+            pub fn method_name(&self) -> &'static str {
+                match self {
+                    $(
+                        HostCall::$method_name { .. } => stringify!($method_name),
+                    )*
+                }
+            }
+
+            /// Get the scope for this host call
+            pub fn scope(&self) -> HostCallScope {
+                match self {
+                    $(
+                        HostCall::$method_name { transport } => transport.scope.clone(),
+                    )*
+                }
+            }
+
+            /// Get the method ID for this host call
+            pub fn method_id(&self) -> i32 {
+                match self {
+                    $(
+                        HostCall::$method_name { .. } => RemoteHostMethodId::$method_id as i32,
+                    )*
+                }
+            }
         }
-    }
-
-    /// Convenience method to extract method and get a closure for submitting results
-    /// Usage: let (method_result, method_exception) = self.get_method()?.submit(result)?;
-    pub fn extract_method_and_submit(
-        self,
-        result: HostCallMethodReturn,
-    ) -> Result<(Option<PsValue>, Option<PsValue>), HostError> {
-        self.get_param()?.submit(result)
-    }
+    };
 }
 
-#[derive(Debug, Clone)]
-pub struct HostCallResponse {
-    /// Type of the host call
-    pub call_scope: HostCallScope,
-    /// Unique identifier for this host call
-    pub call_id: i64,
-    /// The host method identifier (enum value)
-    pub method_id: i32,
-    /// String representation of the method name
-    pub method_name: String,
-    /// Optional return value from the method
-    pub method_result: Option<PsValue>,
-    /// Optional exception thrown by the method invocation
-    pub method_exception: Option<PsValue>,
+// Define all methods following MS-PSRP spec
+define_host_methods! {
+    // Host methods (1-10)
+    GetName = GetName: () -> String,
+    GetVersion = GetVersion: () -> String,
+    GetInstanceId = GetInstanceId: () -> uuid::Uuid,
+    GetCurrentCulture = GetCurrentCulture: () -> String,
+    GetCurrentUICulture = GetCurrentUICulture: () -> String,
+    SetShouldExit = SetShouldExit: (i32) -> (),
+    EnterNestedPrompt = EnterNestedPrompt: () -> (),
+    ExitNestedPrompt = ExitNestedPrompt: () -> (),
+    NotifyBeginApplication = NotifyBeginApplication: () -> (),
+    NotifyEndApplication = NotifyEndApplication: () -> (),
+
+    // UI methods (11-26) - starting with simple ones
+    ReadLine = ReadLine: () -> String,
+    ReadLineAsSecureString = ReadLineAsSecureString: () -> Vec<u8>,
+    Write1 = Write1: (String) -> (),
+    WriteLine1 = WriteLine1: () -> (),
+    WriteLine2 = WriteLine2: (String) -> (),
+    WriteErrorLine = WriteErrorLine: (String) -> (),
+    WriteDebugLine = WriteDebugLine: (String) -> (),
+    WriteVerboseLine = WriteVerboseLine: (String) -> (),
+    WriteWarningLine = WriteWarningLine: (String) -> (),
+
+    // RawUI methods (27-51) - starting with simple ones
+    GetForegroundColor = GetForegroundColor: () -> i32,
+    SetForegroundColor = SetForegroundColor: (i32) -> (),
+    GetBackgroundColor = GetBackgroundColor: () -> i32,
+    SetBackgroundColor = SetBackgroundColor: (i32) -> (),
+    GetCursorSize = GetCursorSize: () -> i32,
+    SetCursorSize = SetCursorSize: (i32) -> (),
+    GetWindowTitle = GetWindowTitle: () -> String,
+    SetWindowTitle = SetWindowTitle: (String) -> (),
+    GetKeyAvailable = GetKeyAvailable: () -> bool,
+    FlushInputBuffer = FlushInputBuffer: () -> (),
+
+    // Interactive session methods (52-55) - simple ones first
+    PopRunspace = PopRunspace: () -> (),
+    GetIsRunspacePushed = GetIsRunspacePushed: () -> bool,
 }
 
-impl From<(&PipelineHostCall, HostCallScope)> for HostCallRequest {
-    fn from((call, call_type): (&PipelineHostCall, HostCallScope)) -> Self {
-        let PipelineHostCall {
-            call_id,
-            method_id,
-            method_name,
-            parameters,
-        } = call;
+//========================================================================================
+// MAIN HOST CALL ENUM
+//========================================================================================
 
-        Self {
-            call_type,
-            call_id: *call_id,
-            method_id: *method_id,
-            method_name: method_name.to_string(),
-            parameters: parameters.to_vec(),
-        }
-    }
-}
 
-impl From<HostCallRequest> for PipelineHostCall {
-    fn from(val: HostCallRequest) -> Self {
-        PipelineHostCall {
-            call_id: val.call_id,
-            method_id: val.method_id,
-            method_name: val.method_name,
-            parameters: val.parameters,
-        }
-    }
-}

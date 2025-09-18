@@ -3,7 +3,7 @@ use crate::{
         conntion_pool::{ConnectionPool, TrySend},
         http::HttpResponseTargeted,
     },
-    host::{HostCallRequest, HostCallResponse, HostCallScope},
+    host::{HostCall, HostCallScope, Submission},
     pipeline::PipelineCommand,
     powershell::PipelineHandle,
     runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
@@ -41,7 +41,7 @@ pub enum ActiveSessionOutput {
     SendBack(Vec<TrySend>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     OperationSuccess,
 }
 
@@ -92,7 +92,9 @@ pub enum UserOperation {
     },
     /// reply to a server-initiated host call
     SubmitHostResponse {
-        response: Box<HostCallResponse>,
+        submission: Submission,
+        scope: HostCallScope,
+        call_id: i64,
     },
     /// cancel a pending host call (timeout / user cancelled)
     CancelHostCall {
@@ -119,6 +121,13 @@ impl ActiveSession {
             connection_pool,
             pending_host_calls: HashMap::new(),
         }
+    }
+
+    /// Process a host call by passing it through to user code and getting back a submission
+    pub fn sent_back_host_call_result(&mut self, _submission: crate::host::Submission) {
+        // TODO: Implement this - we need to track the host call context 
+        // and send the submission back through the proper channel
+        todo!("Implement host call result handling")
     }
 
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
@@ -175,18 +184,9 @@ impl ActiveSession {
                 Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
 
-            UserOperation::SubmitHostResponse { response } => {
-                let HostCallResponse {
-                    call_scope,
-                    call_id,
-                    method_id,
-                    method_name,
-                    method_result: result,
-                    method_exception: error,
-                } = *response;
-
+            UserOperation::SubmitHostResponse { submission, scope, call_id } => {
                 // Validate pending
-                let key = (call_scope.clone(), call_id);
+                let key = (scope.clone(), call_id);
                 if !self.pending_host_calls.contains_key(&key) {
                     return Err(crate::PwshCoreError::InvalidState(
                         "Host call not found or already completed",
@@ -194,22 +194,30 @@ impl ActiveSession {
                 }
                 self.pending_host_calls.remove(&key);
 
-                match call_scope {
-                    HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
-                        command_id,
-                        call_id,
-                        method_id,
-                        method_name,
-                        result,
-                        error,
-                    ),
-                    HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
-                        call_id,
-                        method_id,
-                        method_name,
-                        result,
-                        error,
-                    ),
+                match submission {
+                    Submission::Send(response) => {
+                        match scope {
+                            HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
+                                command_id,
+                                response.call_id,
+                                response.method_id,
+                                response.method_name,
+                                response.method_result,
+                                response.method_exception,
+                            ),
+                            HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
+                                response.call_id,
+                                response.method_id,
+                                response.method_name,
+                                response.method_result,
+                                response.method_exception,
+                            ),
+                        }
+                    }
+                    Submission::NoSend => {
+                        // Void method - no response needed
+                        Ok(ActiveSessionOutput::OperationSuccess)
+                    }
                 }
             }
 
@@ -321,10 +329,10 @@ impl ActiveSession {
                     ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
-                    info!(call_id = host_call.call_id, method = %host_call.method_name, "received host call");
+                    info!(call_id = host_call.call_id(), method = %host_call.method_name(), "received host call");
                     // mark pending so only legitimate replies are accepted
-                    let scope = host_call.call_type.clone();
-                    let key = (scope, host_call.call_id);
+                    let scope = host_call.scope().clone();
+                    let key = (scope, host_call.call_id());
                     self.pending_host_calls.insert(key, ());
                     outs.push(ActiveSessionOutput::HostCall(host_call));
                 }
