@@ -53,8 +53,7 @@ mod tests {
             let action_text: &str = action.value.as_ref();
             assert!(
                 action_text.contains("fault"),
-                "Action should contain 'fault', got: {}",
-                action_text
+                "Action should contain 'fault', got: {action_text}"
             );
         }
 
@@ -64,8 +63,7 @@ mod tests {
             assert!(
                 uuid_str.contains("BB7AF8AE-D64A-422D-B36E-15A04FA17C5C")
                     || uuid_str.contains("bb7af8ae-d64a-422d-b36e-15a04fa17c5c"),
-                "MessageID should match the error response, got: {}",
-                uuid_str
+                "MessageID should match the error response, got: {uuid_str}"
             );
         }
 
@@ -73,8 +71,7 @@ mod tests {
             let relates_to_text: &str = relates_to.value.as_ref();
             assert!(
                 relates_to_text.contains("bead0162-a67d-424d-9e22-4a18b6aefea8"),
-                "RelatesTo should contain the expected UUID, got: {}",
-                relates_to_text
+                "RelatesTo should contain the expected UUID, got: {relates_to_text}"
             );
         }
 
@@ -83,8 +80,7 @@ mod tests {
             assert!(
                 uuid_str.contains("fc739bfc-7556-4931-b699-677bf2c7d332")
                     || uuid_str.contains("FC739BFC-7556-4931-B699-677bf2c7d332"),
-                "OperationID should match the error response, got: {}",
-                uuid_str
+                "OperationID should match the error response, got: {uuid_str}"
             );
         }
 
@@ -93,8 +89,7 @@ mod tests {
             assert_eq!(
                 sequence_text.trim(),
                 "1",
-                "SequenceId should be '1', got: '{}'",
-                sequence_text
+                "SequenceId should be '1', got: '{sequence_text}'"
             );
         }
 
@@ -130,7 +125,7 @@ mod tests {
 
         // Pretty print the complete parsed SOAP envelope structure
         println!("\n=== PARSED SOAP ERROR RESPONSE STRUCTURE ===");
-        println!("{:#?}", soap_envelope);
+        println!("{soap_envelope:#?}");
         println!("=== END SOAP ERROR RESPONSE STRUCTURE ===\n");
     }
 }

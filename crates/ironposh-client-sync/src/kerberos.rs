@@ -7,10 +7,10 @@ use tracing::{info, instrument};
 
 /// Sends a network packet to the Kerberos KDC and returns the response
 #[instrument(
-    name = "kerberos.send_packet", 
-    level = "info", 
-    skip(packet), 
-    fields(protocol = ?packet.protocol, url = %packet.url, data_len = packet.data.len()), 
+    name = "kerberos.send_packet",
+    level = "info",
+    skip(packet),
+    fields(protocol = ?packet.protocol, url = %packet.url, data_len = packet.data.len()),
     err
 )]
 pub fn send_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {
@@ -32,10 +32,10 @@ pub fn send_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {
 
 /// Sends a packet via TCP to the Kerberos KDC
 #[instrument(
-    name = "kerberos.tcp", 
-    level = "info", 
-    skip(packet), 
-    fields(host = packet.url.host_str(), port = packet.url.port()), 
+    name = "kerberos.tcp",
+    level = "info",
+    skip(packet),
+    fields(host = packet.url.host_str(), port = packet.url.port()),
     err
 )]
 fn send_tcp_packet(packet: NetworkRequest) -> Result<Vec<u8>, anyhow::Error> {

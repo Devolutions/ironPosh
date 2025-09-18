@@ -1,11 +1,6 @@
-use uuid::Uuid;
 
 use super::*;
-use crate::{
-    Fragmenter,
-    ps_value::deserialize::{DeserializationContext, PsXmlDeserialize},
-    ps_value::serialize::RefIdMap,
-};
+use crate::ps_value::deserialize::{DeserializationContext, PsXmlDeserialize};
 
 const REAL_CREATE_PIPELINE: &str = r#"
 <Obj RefId="0">
@@ -139,12 +134,12 @@ fn test_deserialize_real_create_pipeline() {
         let create_pipeline = CreatePipeline::try_from(complex_obj).unwrap();
 
         // Verify top-level CreatePipeline properties (lines 16, 37, 90)
-        assert_eq!(create_pipeline.no_input, true, "NoInput should be true");
-        assert_eq!(
-            create_pipeline.add_to_history, false,
+        assert!(create_pipeline.no_input, "NoInput should be true");
+        assert!(
+            !create_pipeline.add_to_history,
             "AddToHistory should be false"
         );
-        assert_eq!(create_pipeline.is_nested, false, "IsNested should be false");
+        assert!(!create_pipeline.is_nested, "IsNested should be false");
 
         // Verify ApartmentState (lines 17-26)
         assert_eq!(
@@ -161,30 +156,30 @@ fn test_deserialize_real_create_pipeline() {
         );
 
         // Verify HostInfo properties (lines 38-45)
-        assert_eq!(
-            create_pipeline.host_info.is_host_null, true,
+        assert!(
+            create_pipeline.host_info.is_host_null,
             "_isHostNull should be true"
         );
-        assert_eq!(
-            create_pipeline.host_info.is_host_ui_null, true,
+        assert!(
+            create_pipeline.host_info.is_host_ui_null,
             "_isHostUINull should be true"
         );
-        assert_eq!(
-            create_pipeline.host_info.is_host_raw_ui_null, true,
+        assert!(
+            create_pipeline.host_info.is_host_raw_ui_null,
             "_isHostRawUINull should be true"
         );
-        assert_eq!(
-            create_pipeline.host_info.use_runspace_host, true,
+        assert!(
+            create_pipeline.host_info.use_runspace_host,
             "_useRunspaceHost should be true"
         );
 
         // Verify PowerShell pipeline properties (lines 46-88)
-        assert_eq!(
-            create_pipeline.power_shell.is_nested, false,
+        assert!(
+            !create_pipeline.power_shell.is_nested,
             "PowerShell.IsNested should be false"
         );
-        assert_eq!(
-            create_pipeline.power_shell.redirect_shell_error_output_pipe, true,
+        assert!(
+            create_pipeline.power_shell.redirect_shell_error_output_pipe,
             "RedirectShellErrorOutputPipe should be true"
         );
         assert_eq!(
@@ -205,7 +200,7 @@ fn test_deserialize_real_create_pipeline() {
             cmd.cmd, r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#,
             "Command text should match"
         );
-        assert_eq!(cmd.is_script, true, "IsScript should be true");
+        assert!(cmd.is_script, "IsScript should be true");
         assert_eq!(
             cmd.use_local_scope, None,
             "UseLocalScope should be None (Nil in XML)"

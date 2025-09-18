@@ -465,7 +465,7 @@ mod tests {
                     binary_payload[3],
                 ]) as usize;
 
-                println!("Token length: {} bytes", token_len);
+                println!("Token length: {token_len} bytes");
 
                 // Verify the structure makes sense
                 assert!(token_len > 0, "Token length should be greater than 0");
@@ -475,7 +475,7 @@ mod tests {
                 );
 
                 let encrypted_data_len = binary_payload.len() - 4 - token_len;
-                println!("Encrypted data length: {} bytes", encrypted_data_len);
+                println!("Encrypted data length: {encrypted_data_len} bytes");
 
                 // Print first few bytes of each section for debugging
                 println!(
@@ -492,7 +492,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                panic!("Failed to extract binary payload: {}", e);
+                panic!("Failed to extract binary payload: {e}");
             }
         }
     }
@@ -504,11 +504,11 @@ mod tests {
         // Convert to string to examine the multipart structure
         let data_str = String::from_utf8_lossy(&encrypted_data);
         println!("Multipart structure:");
-        println!("{}", data_str);
+        println!("{data_str}");
 
         // Look for our expected boundary
-        let boundary = format!("--{}", ENCRYPTION_BOUNDARY);
-        println!("Looking for boundary: '{}'", boundary);
+        let boundary = format!("--{ENCRYPTION_BOUNDARY}");
+        println!("Looking for boundary: '{boundary}'");
 
         let parts: Vec<&str> = data_str.split(&boundary).collect();
         println!("Found {} parts", parts.len());

@@ -3,6 +3,10 @@ name = "ironposh-psrp"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+crossterm = ["dep:crossterm"]
+
 [dependencies]
 base64 = "0.22.1"
 byteorder = "1.5.0"
@@ -18,6 +22,9 @@ tracing = "0.1.41"
 typed-builder = "0.21.0"
 uuid = { version = "1.17.0", features = ["v4"] }
 ironposh-xml = { version = "0.1.0", path = "../ironposh-xml" }
+
+# Optional crossterm integration
+crossterm = { version = "0.28.1", optional = true }
 
 [dev-dependencies]
 tracing-test = { version = "0.2.4", features = ["no-env-filter"] }

@@ -49,7 +49,7 @@ fn main() {
 
         loop {
             iteration += 1;
-            println!("Iteration {}", iteration);
+            println!("Iteration {iteration}");
 
             // This fails on second iteration!
             // The generator from iteration 1 still "holds" the borrows

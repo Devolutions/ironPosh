@@ -56,8 +56,12 @@ impl From<PSVersionTable> for ComplexObject {
 
         // PSRemotingProtocolVersion (as Version)
         entries.insert(
-            PsValue::Primitive(PsPrimitiveValue::Str("PSRemotingProtocolVersion".to_string())),
-            PsValue::Primitive(PsPrimitiveValue::Version(version_table.ps_remoting_protocol_version)),
+            PsValue::Primitive(PsPrimitiveValue::Str(
+                "PSRemotingProtocolVersion".to_string(),
+            )),
+            PsValue::Primitive(PsPrimitiveValue::Version(
+                version_table.ps_remoting_protocol_version,
+            )),
         );
 
         // PSCompatibleVersions as an array
@@ -95,7 +99,9 @@ impl From<PSVersionTable> for ComplexObject {
         // SerializationVersion (as Version)
         entries.insert(
             PsValue::Primitive(PsPrimitiveValue::Str("SerializationVersion".to_string())),
-            PsValue::Primitive(PsPrimitiveValue::Version(version_table.serialization_version)),
+            PsValue::Primitive(PsPrimitiveValue::Version(
+                version_table.serialization_version,
+            )),
         );
 
         // OS (as String)

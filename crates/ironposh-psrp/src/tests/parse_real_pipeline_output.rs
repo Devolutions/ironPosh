@@ -6,7 +6,7 @@ use crate::{
     },
 };
 
-const PIPELINE_OUTPUT: &'static str = r#"
+const PIPELINE_OUTPUT: &str = r#"
 <Obj RefId="0"><TN RefId="0"><T>System.IO.DirectoryInfo</T><T>System.IO.FileSystemInfo</T><T>System.MarshalByRefObject</T><T>System.Object</T></TN><ToString>ADMF</ToString><Props><S N="Name">ADMF</S><S N="FullName">C:\Users\Administrator\Documents\ADMF</S><S N="Parent">Documents</S><B N="Exists">true</B><S N="Root">C:\</S><S N="Extension"></S><DT N="CreationTime">2023-08-31T14:40:37.0592148-04:00</DT><DT N="CreationTimeUtc">2023-08-31T18:40:37.0592148Z</DT><DT N="LastAccessTime">2023-08-31T14:40:41.2433837-04:00</DT><DT N="LastAccessTimeUtc">2023-08-31T18:40:41.2433837Z</DT><DT N="LastWriteTime">2023-08-31T14:40:40.6107368-04:00</DT><DT N="LastWriteTimeUtc">2023-08-31T18:40:40.6107368Z</DT><S N="Attributes">Directory</S></Props><MS><S N="PSPath">Microsoft.PowerShell.Core\FileSystem::C:\Users\Administrator\Documents\ADMF</S><S N="PSParentPath">Microsoft.PowerShell.Core\FileSystem::C:\Users\Administrator\Documents</S><S N="PSChildName">ADMF</S><Obj N="PSDrive" RefId="1"><TN RefId="1"><T>System.Management.Automation.PSDriveInfo</T><T>System.Object</T></TN><ToString>C</ToString><Props><S N="CurrentLocation">Users\Administrator\Documents</S><S N="Name">C</S><S N="Provider">Microsoft.PowerShell.Core\FileSystem</S><S N="Root">C:\</S><S N="Description">System</S><Nil N="MaximumSize" /><Obj N="Credential" RefId="2"><TN RefId="2"><T>System.Management.Automation.PSCredential</T><T>System.Object</T></TN><ToString>System.Management.Automation.PSCredential</ToString><Props><Nil N="UserName" /><Nil N="Password" /></Props></Obj><Nil N="DisplayRoot" /></Props><MS><U64 N="Used">66251223040</U64><U64 N="Free">70923485184</U64></MS></Obj><Obj N="PSProvider" RefId="3"><TN RefId="3"><T>System.Management.Automation.ProviderInfo</T><T>System.Object</T></TN><ToString>Microsoft.PowerShell.Core\FileSystem</ToString><Props><S N="ImplementingType">Microsoft.PowerShell.Commands.FileSystemProvider</S><S N="HelpFile">System.Management.Automation.dll-Help.xml</S><S N="Name">FileSystem</S><S N="PSSnapIn">Microsoft.PowerShell.Core</S><S N="ModuleName">Microsoft.PowerShell.Core</S><Nil N="Module" /><S N="Description"></S><S N="Capabilities">Filter, ShouldProcess, Credentials</S><S N="Home">C:\Users\Administrator</S><Obj N="Drives" RefId="4"><TN RefId="4"><T>System.Collections.ObjectModel.Collection`1[[System.Management.Automation.PSDriveInfo, System.Management.Automation, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]</T><T>System.Object</T></TN><LST><Ref RefId="1" /><S>A</S><S>D</S></LST></Obj></Props></Obj><B N="PSIsContainer">true</B><S N="Mode">d-----</S><S N="BaseName">ADMF</S><Obj N="Target" RefId="5"><TN RefId="5"><T>System.Collections.Generic.List`1[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T><T>System.Object</T></TN><LST /></Obj><Nil N="LinkType" /></MS></Obj>
 "#;
 
@@ -234,10 +234,10 @@ fn test_parse_real_pipeline_output_detailed_inspection() {
             match &obj.content {
                 ComplexObjectContent::Standard => println!("\nContent: Standard"),
                 ComplexObjectContent::ExtendedPrimitive(prim) => {
-                    println!("\nContent: ExtendedPrimitive({:?})", prim)
+                    println!("\nContent: ExtendedPrimitive({prim:?})")
                 }
                 ComplexObjectContent::Container(container) => {
-                    println!("\nContent: Container({:?})", container);
+                    println!("\nContent: Container({container:?})");
                 }
                 ComplexObjectContent::PsEnums(enums) => {
                     println!("\nContent: Enum({})", enums.value)
@@ -246,14 +246,14 @@ fn test_parse_real_pipeline_output_detailed_inspection() {
         }
         PsValue::Primitive(prim) => {
             println!("=== PRIMITIVE VALUE ===");
-            println!("{:?}", prim);
+            println!("{prim:?}");
         }
     }
 }
 
 fn classify_ps_value(value: &PsValue) -> String {
     match value {
-        PsValue::Primitive(prim) => format!("Primitive({:?})", prim),
+        PsValue::Primitive(prim) => format!("Primitive({prim:?})"),
         PsValue::Object(obj) => {
             let type_name = obj
                 .type_def

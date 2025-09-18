@@ -14,8 +14,7 @@ pub use ps_thread_options::PSThreadOptions;
 
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
-    PsType, PsValue,
+    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
 };
 use std::collections::BTreeMap;
 

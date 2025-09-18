@@ -27,7 +27,7 @@ fn test_receive_with_single_desired_stream() {
     let element: Element = receive_tag.into_element();
     let xml_string = element.to_xml_string().unwrap();
 
-    println!("Generated XML: {}", xml_string);
+    println!("Generated XML: {xml_string}");
 
     // Verify the XML contains a single DesiredStream element with space-separated streams
     assert!(xml_string.contains("<rsp:DesiredStream"));
@@ -61,7 +61,7 @@ fn test_receive_shell_level_without_command_id() {
     let element: Element = receive_tag.into_element();
     let xml_string = element.to_xml_string().unwrap();
 
-    println!("Generated Shell-level XML: {}", xml_string);
+    println!("Generated Shell-level XML: {xml_string}");
 
     // Verify the XML contains a single DesiredStream element without CommandId
     assert!(xml_string.contains("<rsp:DesiredStream"));
@@ -112,20 +112,18 @@ fn test_soap_fault_with_unknown_namespace() {
 
     // Verify we can access the fault information
     if let Some(fault) = &envelope.body.as_ref().fault {
-        println!("Successfully parsed SOAP fault: {:?}", fault);
+        println!("Successfully parsed SOAP fault: {fault:?}");
 
         // Check that we can access the fault code and reason
-        if let Some(code) = &fault.as_ref().code {
-            if let Some(value) = &code.as_ref().value {
+        if let Some(code) = &fault.as_ref().code
+            && let Some(value) = &code.as_ref().value {
                 assert_eq!(value.as_ref().as_ref(), "soap:Sender");
             }
-        }
 
-        if let Some(reason) = &fault.as_ref().reason {
-            if let Some(text) = &reason.as_ref().text {
+        if let Some(reason) = &fault.as_ref().reason
+            && let Some(text) = &reason.as_ref().text {
                 assert_eq!(text.as_ref().as_ref(), "Schema validation error");
             }
-        }
     } else {
         panic!("Should have parsed the SOAP fault successfully");
     }

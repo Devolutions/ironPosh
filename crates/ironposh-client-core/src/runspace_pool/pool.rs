@@ -5,8 +5,8 @@ use std::{
 
 use base64::Engine;
 use ironposh_psrp::{
-    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
-    InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter,
+    HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
     SessionCapability, fragmentation,
 };
 use ironposh_winrm::{

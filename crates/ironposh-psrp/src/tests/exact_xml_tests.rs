@@ -63,7 +63,7 @@ fn test_session_capability_message() {
     let xml = element.to_xml_string().unwrap();
 
     println!("Generated XML:");
-    println!("{}", xml);
+    println!("{xml}");
 
     // Verify basic structure
     assert!(xml.contains(r#"RefId="0""#));
@@ -307,7 +307,7 @@ fn test_runspace_pool_message() {
     let xml = element.to_xml_string().unwrap();
 
     println!("Generated XML:");
-    println!("{}", xml);
+    println!("{xml}");
 
     // Verify basic structure
     assert!(xml.contains(r#"RefId="1""#));
@@ -560,7 +560,7 @@ fn test_round_trip_session_capability() {
     let element = original.to_element_as_root().unwrap();
     let xml = element.to_xml_string().unwrap();
 
-    println!("Round-trip XML: {}", xml);
+    println!("Round-trip XML: {xml}");
 
     // Step 2: Parse the XML and deserialize
     let doc = parse(&xml).expect("Failed to parse XML");
@@ -617,7 +617,7 @@ fn test_round_trip_enum_object() {
     let element = original.to_element_as_root().unwrap();
     let xml = element.to_xml_string().unwrap();
 
-    println!("Enum round-trip XML: {}", xml);
+    println!("Enum round-trip XML: {xml}");
 
     // Deserialize
     let doc = parse(&xml).expect("Failed to parse XML");
@@ -674,7 +674,7 @@ fn test_round_trip_dictionary_container() {
     let element = original.to_element_as_root().unwrap();
     let xml = element.to_xml_string().unwrap();
 
-    println!("Dictionary round-trip XML: {}", xml);
+    println!("Dictionary round-trip XML: {xml}");
 
     // Deserialize
     let doc = parse(&xml).expect("Failed to parse XML");
@@ -888,7 +888,7 @@ fn test_primitive_values_round_trip() {
     ];
 
     for (test_name, original_primitive) in test_cases {
-        println!("Testing {}", test_name);
+        println!("Testing {test_name}");
 
         // Create object with primitive content
         let original = ComplexObject {
@@ -903,7 +903,7 @@ fn test_primitive_values_round_trip() {
         let element = original.to_element_as_root().unwrap();
         let xml = element.to_xml_string().expect("Failed to serialize to XML");
 
-        println!("  XML: {}", xml);
+        println!("  XML: {xml}");
 
         // Deserialize
         let doc = parse(&xml).expect("Failed to parse XML");
@@ -918,11 +918,10 @@ fn test_primitive_values_round_trip() {
         {
             assert_eq!(
                 deserialized_primitive, &original_primitive,
-                "Mismatch in {}",
-                test_name
+                "Mismatch in {test_name}"
             );
         } else {
-            panic!("Expected ExtendedPrimitive content for {}", test_name);
+            panic!("Expected ExtendedPrimitive content for {test_name}");
         }
     }
 

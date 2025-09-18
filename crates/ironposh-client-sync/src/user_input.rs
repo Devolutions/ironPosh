@@ -3,8 +3,6 @@ use ironposh_client_core::connector::active_session::PowershellOperations;
 use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use ironposh_psrp::PipelineOutput;
-use regex::Regex;
 use std::io::{self, Write};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -67,7 +65,7 @@ impl UserInputHandler {
 
                     if let Some(pipeline_handle) = pipeline {
                         // Add the script to the pipeline
-                        let _ = self
+                        self
                             .user_request_tx
                             .send(UserOperation::OperatePipeline {
                                 powershell: pipeline_handle,
@@ -77,7 +75,7 @@ impl UserInputHandler {
                             })
                             .context("Failed to send add command operation to pipeline")?;
 
-                        let _ = self
+                        self
                             .user_request_tx
                             .send(UserOperation::OperatePipeline {
                                 powershell: pipeline_handle,
@@ -88,7 +86,7 @@ impl UserInputHandler {
                             .context("Failed to send add output stream operation to pipeline")?;
 
                         // Invoke the pipeline
-                        let _ = self
+                        self
                             .user_request_tx
                             .send(UserOperation::InvokePipeline {
                                 powershell: pipeline_handle,
@@ -138,8 +136,8 @@ impl UserInputHandler {
                     if let Some(current_pipeline) = pipeline {
                         if *current_pipeline == powershell {
                             match output.format_as_displyable_string() {
-                                Ok(o) => print!("{}", o),
-                                Err(e) => eprintln!("Error formatting output: {}", e),
+                                Ok(o) => print!("{o}"),
+                                Err(e) => eprintln!("Error formatting output: {e}"),
                             };
                             // Flush stdout to ensure output is displayed immediately
                             std::io::stdout().flush().unwrap();

@@ -27,7 +27,6 @@ pub enum PowerShellRemotingError {
     #[error("Serialization Error: {0}")]
     SerializationError(&'static str),
 
-
     #[error("PsFragment cannot be read as a valid XML message: {0}")]
     Utf8Error(#[from] Utf8Error),
 

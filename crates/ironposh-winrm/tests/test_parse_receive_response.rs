@@ -53,8 +53,7 @@ mod tests {
             let action_text: &str = action.value.as_ref();
             assert!(
                 action_text.contains("ReceiveResponse"),
-                "Action should contain 'ReceiveResponse', got: {}",
-                action_text
+                "Action should contain 'ReceiveResponse', got: {action_text}"
             );
         }
 
@@ -64,8 +63,7 @@ mod tests {
             assert!(
                 uuid_str.contains("6c334787-ef2c-40e4-992f-de4599ed2505")
                     || uuid_str.contains("6C334787-EF2C-40E4-992F-DE4599ED2505"),
-                "MessageID should match the wire capture, got: {}",
-                uuid_str
+                "MessageID should match the wire capture, got: {uuid_str}"
             );
         }
 
@@ -73,8 +71,7 @@ mod tests {
             let relates_to_text: &str = relates_to.value.as_ref();
             assert!(
                 relates_to_text.contains("87d0a667-c08e-4311-8d2d-069367f452d8"),
-                "RelatesTo should contain the expected UUID, got: {}",
-                relates_to_text
+                "RelatesTo should contain the expected UUID, got: {relates_to_text}"
             );
         }
 
@@ -83,8 +80,7 @@ mod tests {
             assert!(
                 uuid_str.contains("672d68a1-9782-4f78-bebc-8b5db2355fda")
                     || uuid_str.contains("672D68A1-9782-4F78-BEBC-8B5DB2355FDA"),
-                "OperationID should match the wire capture, got: {}",
-                uuid_str
+                "OperationID should match the wire capture, got: {uuid_str}"
             );
         }
 
@@ -93,8 +89,7 @@ mod tests {
             assert_eq!(
                 sequence_text.trim(),
                 "1",
-                "SequenceId should be '1', got: '{}'",
-                sequence_text
+                "SequenceId should be '1', got: '{sequence_text}'"
             );
         }
 
@@ -154,7 +149,7 @@ mod tests {
 
         // Pretty print the complete parsed SOAP envelope structure
         println!("\n=== PARSED SOAP ENVELOPE STRUCTURE ===");
-        println!("{:#?}", soap_envelope);
+        println!("{soap_envelope:#?}");
         println!("=== END SOAP ENVELOPE STRUCTURE ===\n");
     }
 }

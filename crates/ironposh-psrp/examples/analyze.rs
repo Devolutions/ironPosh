@@ -67,10 +67,10 @@ fn get_input() -> Result<String, Box<dyn std::error::Error>> {
         // Handle --file flag
         if args[1] == "--file" && args.len() > 2 {
             let file_path = &args[2];
-            println!("📁 Reading from file: {}", file_path);
+            println!("📁 Reading from file: {file_path}");
 
             if !Path::new(file_path).exists() {
-                return Err(format!("File not found: {}", file_path).into());
+                return Err(format!("File not found: {file_path}").into());
             }
 
             let file_content = fs::read_to_string(file_path)?;
@@ -119,13 +119,13 @@ fn get_input() -> Result<String, Box<dyn std::error::Error>> {
 
 fn print_separator(title: &str) {
     println!("\n{}", "=".repeat(80));
-    println!("{:^80}", title);
+    println!("{title:^80}");
     println!("{}", "=".repeat(80));
 }
 
 fn print_section(title: &str) {
     println!("\n{}", "-".repeat(60));
-    println!("{}", title);
+    println!("{title}");
     println!("{}", "-".repeat(60));
 }
 
@@ -233,7 +233,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         println!("   🎯 Destination: {:?}", msg.destination);
         println!("   🆔 Runspace Pool ID: {}", msg.rpid);
         if let Some(pid) = msg.pid {
-            println!("   🔗 Pipeline ID: {}", pid);
+            println!("   🔗 Pipeline ID: {pid}");
         }
         println!("   📏 Data Size: {} bytes", msg.data.len());
         println!();
@@ -247,7 +247,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         let parsed_string_data = match str::from_utf8(&pwsh_remoting_message.data) {
             Ok(s) => s,
             Err(e) => {
-                println!("⚠️  Warning: Message data is not valid UTF-8: {}", e);
+                println!("⚠️  Warning: Message data is not valid UTF-8: {e}");
                 println!(
                     "🔍 Raw binary data (first 100 bytes): {:?}",
                     &pwsh_remoting_message.data
@@ -264,14 +264,14 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         );
 
         println!("📄 Complete XML Data:");
-        println!("{}", parsed_string_data);
+        println!("{parsed_string_data}");
 
         // Parse XML
         print_section("5. XML Structure Analysis");
         let xml_representation = match ironposh_xml::parser::parse(parsed_string_data) {
             Ok(xml) => xml,
             Err(e) => {
-                println!("❌ Failed to parse XML structure: {}", e);
+                println!("❌ Failed to parse XML structure: {e}");
                 println!("💡 The data may not be valid XML or may be corrupted");
                 continue;
             }
@@ -287,7 +287,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
         let ps_object = match ComplexObject::from_node_with_context(root_element, &mut context) {
             Ok(obj) => obj,
             Err(e) => {
-                println!("❌ Failed to convert XML to PowerShell object: {}", e);
+                println!("❌ Failed to convert XML to PowerShell object: {e}");
                 println!("🔍 Available XML attributes:");
                 for attr in root_element.attributes() {
                     println!("   • {}: {}", attr.name(), attr.value());
@@ -301,7 +301,7 @@ fn analyze_message(base64_message: &str) -> Result<(), Box<dyn std::error::Error
 
         // Display formatted PowerShell Object
         print_section("7. PowerShell Object Details");
-        println!("{}", ps_object);
+        println!("{ps_object}");
     }
 
     print_separator("ANALYSIS COMPLETE");
@@ -336,7 +336,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("🎯 Destination: {:?}", message.destination);
                     println!("🆔 Runspace Pool ID: {}", message.rpid);
                     if let Some(pid) = message.pid {
-                        println!("🔗 Pipeline ID: {}", pid);
+                        println!("🔗 Pipeline ID: {pid}");
                     }
                     println!("📏 Data Size: {} bytes", message.data.len());
                     println!("✅ Message successfully reconstructed from fragments!");
@@ -348,7 +348,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(0);
             }
             Err(e) => {
-                eprintln!("\n❌ Error during defragmentation: {}", e);
+                eprintln!("\n❌ Error during defragmentation: {e}");
                 eprintln!("💡 Tips for troubleshooting:");
                 eprintln!("   • Ensure all fragments are valid base64-encoded data");
                 eprintln!("   • Check that fragments are provided in the correct order");
@@ -365,7 +365,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(input) => match analyze_message(&input) {
                 Ok(()) => std::process::exit(0),
                 Err(e) => {
-                    eprintln!("\n❌ Analysis failed: {}", e);
+                    eprintln!("\n❌ Analysis failed: {e}");
                     eprintln!("💡 Troubleshooting suggestions:");
                     eprintln!("   • Verify the input is valid base64-encoded data");
                     eprintln!(
@@ -376,7 +376,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
             Err(e) => {
-                eprintln!("❌ Input error: {}", e);
+                eprintln!("❌ Input error: {e}");
                 eprintln!("💡 Use --help for usage information");
                 std::process::exit(1);
             }
@@ -481,14 +481,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             println!("🎯 Destination: {:?}", message.destination);
                                             println!("🆔 Runspace Pool ID: {}", message.rpid);
                                             if let Some(pid) = message.pid {
-                                                println!("🔗 Pipeline ID: {}", pid);
+                                                println!("🔗 Pipeline ID: {pid}");
                                             }
                                             println!("📏 Data Size: {} bytes", message.data.len());
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("❌ Defragmentation error: {}", e);
+                                    eprintln!("❌ Defragmentation error: {e}");
                                     eprintln!(
                                         "💡 Check that fragments are valid and in correct order"
                                     );
@@ -507,7 +507,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("🔄 Ready for next message or command...");
                         }
                         Err(e) => {
-                            eprintln!("\n❌ Analysis failed: {}", e);
+                            eprintln!("\n❌ Analysis failed: {e}");
                             eprintln!("💡 Troubleshooting tips:");
                             eprintln!("   • Ensure input is valid base64-encoded data");
                             eprintln!(
@@ -519,7 +519,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("❌ Input error: {}", e);
+                    eprintln!("❌ Input error: {e}");
                     eprintln!("💡 Please try again or restart the application");
                     break;
                 }

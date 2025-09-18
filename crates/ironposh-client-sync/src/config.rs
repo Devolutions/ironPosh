@@ -3,9 +3,9 @@ use ironposh_client_core::{
     connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
     AuthenticatorConfig, SspiAuthConfig,
 };
-use ironposh_psrp::{HostDefaultData, Size};
-use tracing::debug;
+use ironposh_psrp::HostDefaultData;
 use std::sync::OnceLock;
+use tracing::debug;
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
@@ -246,21 +246,10 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
     debug!(cols, rows, "Terminal size");
 
     let host_info = ironposh_psrp::HostInfo::builder()
-        .is_host_null(false)
-        .is_host_ui_null(false)
-        .is_host_raw_ui_null(false)
-        .host_default_data(
-            HostDefaultData::builder()
-                .window_size(Size {
-                    width: cols as i32,
-                    height: rows as i32,
-                })
-                .buffer_size(Size {
-                    width: cols as i32,
-                    height: rows as i32,
-                })
-                .build(),
-        )
+        // .is_host_null(true)
+        // .is_host_ui_null(true)
+        // .is_host_raw_ui_null(true)
+        .host_default_data(HostDefaultData::from_crossterm()?)
         .build();
 
     Ok(WinRmConfig {

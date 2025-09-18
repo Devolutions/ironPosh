@@ -197,7 +197,7 @@ mod tests {
         let create_pipeline = CreatePipeline::try_from(original_obj.clone())
             .expect("Failed to convert to CreatePipeline");
 
-        println!("Parsed CreatePipeline: {:#?}", create_pipeline);
+        println!("Parsed CreatePipeline: {create_pipeline:#?}");
 
         // Convert back to ComplexObject
         let recreated_obj = ComplexObject::from(create_pipeline);
@@ -208,7 +208,7 @@ mod tests {
             .to_xml_string()
             .unwrap();
 
-        println!("Recreated XML:\n{}", xml);
+        println!("Recreated XML:\n{xml}");
 
         // Test round-trip
         assert_eq!(
@@ -258,17 +258,17 @@ mod tests {
 
             for (i, cmd_value) in cmd_list.iter().enumerate() {
                 if let PsValue::Object(cmd_obj) = cmd_value {
-                    println!("Testing command {}", i);
+                    println!("Testing command {i}");
 
                     // Test round-trip for individual command
                     let command = Command::try_from(cmd_obj.clone())
-                        .expect(&format!("Failed to parse command {}", i));
+                        .unwrap_or_else(|_| panic!("Failed to parse command {i}"));
 
-                    println!("Command {}: {:#?}", i, command);
+                    println!("Command {i}: {command:#?}");
 
                     let recreated_obj = ComplexObject::from(command);
 
-                    assert_eq!(cmd_obj, &recreated_obj, "Command {} round-trip failed", i);
+                    assert_eq!(cmd_obj, &recreated_obj, "Command {i} round-trip failed");
                 }
             }
         } else {

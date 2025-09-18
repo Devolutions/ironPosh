@@ -2,7 +2,7 @@ use crate::{
     HostDefaultData, HostInfo,
     fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
     messages::{
-        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability, Size,
+        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
     },
 };
 
@@ -28,16 +28,7 @@ fn test_combined_messages_like_runspace_open() {
         apartment_state: ApartmentState::Unknown,
         host_info: HostInfo::builder()
             .host_default_data(
-                HostDefaultData::builder()
-                    .window_size(Size {
-                        width: 120,
-                        height: 50,
-                    })
-                    .buffer_size(Size {
-                        width: 120,
-                        height: 3000,
-                    })
-                    .build(),
+                HostDefaultData::from_crossterm().expect("Failed to get HostDefaultData"),
             )
             .build(),
         application_arguments: ApplicationArguments::default(),

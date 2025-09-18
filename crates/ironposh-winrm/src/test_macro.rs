@@ -47,7 +47,7 @@ mod tests {
         // Deserialize back to struct
         let deserialized = TestStruct::from_node(root).expect("Failed to deserialize");
 
-        println!("Deserialized struct: {:#?}", deserialized);
+        println!("Deserialized struct: {deserialized:#?}");
 
         // Verify deserialization matches original
         assert_eq!(deserialized.action.value.as_ref(), "test-action");
@@ -72,7 +72,7 @@ mod tests {
         let root = doc.root_element();
 
         let result = TestStruct::from_node(root).expect("Failed to deserialize");
-        println!("Deserialized with all fields: {:#?}", result);
+        println!("Deserialized with all fields: {result:#?}");
 
         // Verify required fields
         assert_eq!(result.action.value.as_ref(), "test-action");
@@ -98,7 +98,7 @@ mod tests {
         let root = doc.root_element();
 
         let result = TestStruct::from_node(root).expect("Failed to deserialize");
-        println!("Deserialized with required fields only: {:#?}", result);
+        println!("Deserialized with required fields only: {result:#?}");
 
         // Verify required fields
         assert_eq!(result.action.value.as_ref(), "test-action");

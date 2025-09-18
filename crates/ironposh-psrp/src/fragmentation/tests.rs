@@ -1,21 +1,14 @@
 use super::*;
-use crate::{
-    messages::{
-        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
-    },
-    ps_value::PsObjectWithType,
+use crate::messages::{
+    ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
 };
-use std::collections::BTreeMap;
 use tracing::info;
 use tracing_test::traced_test;
 use uuid::Uuid;
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        Size,
-        messages::{HostDefaultData, HostInfo},
-    };
+    use crate::messages::{HostDefaultData, HostInfo};
 
     use super::*;
     /// Test fragmenter/defragmenter roundtrip with single small message
@@ -66,16 +59,7 @@ mod tests {
             apartment_state: ApartmentState::Unknown,
             host_info: HostInfo::builder()
                 .host_default_data(
-                    HostDefaultData::builder()
-                        .window_size(Size {
-                            width: 120,
-                            height: 50,
-                        })
-                        .buffer_size(Size {
-                            width: 120,
-                            height: 3000,
-                        })
-                        .build(),
+                    HostDefaultData::from_crossterm().expect("Failed to get HostDefaultData"),
                 )
                 .build(),
             application_arguments: ApplicationArguments::empty(),
@@ -137,16 +121,7 @@ mod tests {
             apartment_state: ApartmentState::Unknown,
             host_info: HostInfo::builder()
                 .host_default_data(
-                    HostDefaultData::builder()
-                        .window_size(Size {
-                            width: 120,
-                            height: 50,
-                        })
-                        .buffer_size(Size {
-                            width: 120,
-                            height: 3000,
-                        })
-                        .build(),
+                    HostDefaultData::from_crossterm().expect("Failed to get HostDefaultData"),
                 )
                 .build(),
             application_arguments: ApplicationArguments::empty(),
@@ -218,16 +193,7 @@ mod tests {
             apartment_state: ApartmentState::Unknown,
             host_info: HostInfo::builder()
                 .host_default_data(
-                    HostDefaultData::builder()
-                        .window_size(Size {
-                            width: 120,
-                            height: 50,
-                        })
-                        .buffer_size(Size {
-                            width: 120,
-                            height: 3000,
-                        })
-                        .build(),
+                    HostDefaultData::from_crossterm().expect("Failed to get HostDefaultData"),
                 )
                 .build(),
             application_arguments: ApplicationArguments::empty(),

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use ironposh_psrp::{
     ApartmentState, ApplicationArguments, ApplicationPrivateData, Defragmenter, Fragmenter,
-    HostInfo, PSThreadOptions, PsValue, SessionCapability,
+    HostInfo, PSThreadOptions, SessionCapability,
 };
 use ironposh_winrm::ws_management::WsMan;
 
