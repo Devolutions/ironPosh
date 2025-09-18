@@ -48,7 +48,7 @@ impl UserInputHandler {
                 PipelineOperated::KeepGoing => {}
             }
 
-            println!("> ");
+            print!("> ");
             stdout.flush().unwrap();
             let mut line = String::new();
             match stdin.read_line(&mut line) {
