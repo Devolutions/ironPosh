@@ -45,11 +45,7 @@ impl PipelineCommand {
     }
 
     pub fn new_output_stream() -> PipelineCommand {
-        let mut command = PipelineCommand::new_command("Out-String".to_string());
-        command.add_parameter(Parameter::Switch {
-            name: "Stream".to_string(),
-            value: true,
-        });
+        let command = PipelineCommand::new_command("Out-String".to_string());
         command
     }
 }
