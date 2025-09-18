@@ -4,6 +4,105 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use typed_builder::TypedBuilder;
 
+/// Represents a typed value wrapper that matches the PowerShell remoting protocol structure
+/// where each value has a type (T) and value (V) property
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueWrapper {
+    pub type_name: String,
+    pub value: PsValue,
+}
+
+impl ValueWrapper {
+    pub fn new_i32(value: i32, type_name: &str) -> Self {
+        Self {
+            type_name: type_name.to_string(),
+            value: PsValue::Primitive(PsPrimitiveValue::I32(value)),
+        }
+    }
+
+    pub fn new_string(value: &str) -> Self {
+        Self {
+            type_name: "System.String".to_string(),
+            value: PsValue::Primitive(PsPrimitiveValue::Str(value.to_string())),
+        }
+    }
+
+    pub fn new_coordinates(coords: &Coordinates) -> Self {
+        Self {
+            type_name: "System.Management.Automation.Host.Coordinates".to_string(),
+            value: PsValue::Object(coords.clone().into()),
+        }
+    }
+
+    pub fn new_size(size: &Size) -> Self {
+        Self {
+            type_name: "System.Management.Automation.Host.Size".to_string(),
+            value: PsValue::Object(size.clone().into()),
+        }
+    }
+}
+
+impl From<ValueWrapper> for ComplexObject {
+    fn from(wrapper: ValueWrapper) -> Self {
+        let mut extended_properties = BTreeMap::new();
+        
+        extended_properties.insert(
+            "T".to_string(),
+            PsProperty {
+                name: "T".to_string(),
+                value: PsValue::Primitive(PsPrimitiveValue::Str(wrapper.type_name)),
+            },
+        );
+        
+        extended_properties.insert(
+            "V".to_string(),
+            PsProperty {
+                name: "V".to_string(),
+                value: wrapper.value,
+            },
+        );
+
+        ComplexObject {
+            type_def: None,
+            to_string: None,
+            content: ComplexObjectContent::Standard,
+            adapted_properties: BTreeMap::new(),
+            extended_properties,
+        }
+    }
+}
+
+impl TryFrom<&ComplexObject> for ValueWrapper {
+    type Error = PowerShellRemotingError;
+
+    fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
+        let type_name = obj
+            .extended_properties
+            .get("T")
+            .and_then(|p| match &p.value {
+                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                PowerShellRemotingError::InvalidMessage(
+                    "Missing or invalid type property 'T' in ValueWrapper".to_string()
+                )
+            })?;
+
+        let value = obj
+            .extended_properties
+            .get("V")
+            .map(|p| p.value.clone())
+            .ok_or_else(|| {
+                PowerShellRemotingError::InvalidMessage(
+                    "Missing value property 'V' in ValueWrapper".to_string()
+                )
+            })?;
+
+        Ok(ValueWrapper { type_name, value })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder)]
 pub struct Coordinates {
     #[builder(default = 0)]
@@ -153,46 +252,27 @@ impl HostDefaultData {
     pub fn to_dictionary(&self) -> BTreeMap<PsValue, PsValue> {
         let mut map = BTreeMap::new();
 
-        let add_i32 = |map: &mut BTreeMap<_, _>, key, val| {
+        // Helper function to add wrapped values to the map
+        let add_wrapped_value = |map: &mut BTreeMap<_, _>, key: i32, wrapper: ValueWrapper| {
             map.insert(
                 PsValue::Primitive(PsPrimitiveValue::I32(key)),
-                PsValue::Primitive(PsPrimitiveValue::I32(val)),
+                PsValue::Object(wrapper.into()),
             );
         };
 
-        let add_string = |map: &mut BTreeMap<_, _>, key, val: &str| {
-            map.insert(
-                PsValue::Primitive(PsPrimitiveValue::I32(key)),
-                PsValue::Primitive(PsPrimitiveValue::Str(val.to_string())),
-            );
-        };
-
-        let add_coords = |map: &mut BTreeMap<_, _>, key, val: &Coordinates| {
-            map.insert(
-                PsValue::Primitive(PsPrimitiveValue::I32(key)),
-                PsValue::Object(val.clone().into()),
-            );
-        };
-
-        let add_size = |map: &mut BTreeMap<_, _>, key, val: &Size| {
-            map.insert(
-                PsValue::Primitive(PsPrimitiveValue::I32(key)),
-                PsValue::Object(val.clone().into()),
-            );
-        };
-
-        add_i32(&mut map, 0, self.foreground_color);
-        add_i32(&mut map, 1, self.background_color);
-        add_coords(&mut map, 2, &self.cursor_position);
-        add_coords(&mut map, 3, &self.window_position);
-        add_i32(&mut map, 4, self.cursor_size);
-        add_size(&mut map, 5, &self.window_size);
-        add_size(&mut map, 6, &self.buffer_size);
-        add_size(&mut map, 7, &self.max_window_size);
-        add_size(&mut map, 8, &self.max_physical_window_size);
-        add_string(&mut map, 9, &self.window_title);
-        add_string(&mut map, 10, &self.locale);
-        add_string(&mut map, 11, &self.ui_locale);
+        // Add all values wrapped in ValueWrapper objects
+        add_wrapped_value(&mut map, 0, ValueWrapper::new_i32(self.foreground_color, "System.ConsoleColor"));
+        add_wrapped_value(&mut map, 1, ValueWrapper::new_i32(self.background_color, "System.ConsoleColor"));
+        add_wrapped_value(&mut map, 2, ValueWrapper::new_coordinates(&self.cursor_position));
+        add_wrapped_value(&mut map, 3, ValueWrapper::new_coordinates(&self.window_position));
+        add_wrapped_value(&mut map, 4, ValueWrapper::new_i32(self.cursor_size, "System.Int32"));
+        add_wrapped_value(&mut map, 5, ValueWrapper::new_size(&self.window_size));
+        add_wrapped_value(&mut map, 6, ValueWrapper::new_size(&self.buffer_size));
+        add_wrapped_value(&mut map, 7, ValueWrapper::new_size(&self.max_window_size));
+        add_wrapped_value(&mut map, 8, ValueWrapper::new_size(&self.max_physical_window_size));
+        add_wrapped_value(&mut map, 9, ValueWrapper::new_string(&self.window_title));
+        add_wrapped_value(&mut map, 10, ValueWrapper::new_string(&self.locale));
+        add_wrapped_value(&mut map, 11, ValueWrapper::new_string(&self.ui_locale));
 
         map
     }
@@ -202,63 +282,64 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
     type Error = PowerShellRemotingError;
 
     fn try_from(dict: BTreeMap<PsValue, PsValue>) -> Result<Self, Self::Error> {
-        let get_i32 = |key: i32| -> Result<i32, Self::Error> {
+        // Helper function to extract ValueWrapper from the dictionary
+        let get_value_wrapper = |key: i32| -> Result<ValueWrapper, Self::Error> {
             dict.get(&PsValue::Primitive(PsPrimitiveValue::I32(key)))
                 .and_then(|v| match v {
-                    PsValue::Primitive(PsPrimitiveValue::I32(val)) => Some(*val),
+                    PsValue::Object(obj) => ValueWrapper::try_from(obj).ok(),
                     _ => None,
                 })
                 .ok_or_else(|| {
-                    Self::Error::InvalidMessage(format!("Missing or invalid value for key {key}"))
+                    Self::Error::InvalidMessage(format!("Missing or invalid ValueWrapper for key {key}"))
                 })
         };
 
-        let get_string = |key: i32| -> Result<String, Self::Error> {
-            dict.get(&PsValue::Primitive(PsPrimitiveValue::I32(key)))
-                .and_then(|v| match v {
-                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    Self::Error::InvalidMessage(format!("Missing or invalid value for key {key}"))
-                })
+        // Helper functions to extract typed values from ValueWrapper
+        let get_i32_from_wrapper = |key: i32| -> Result<i32, Self::Error> {
+            let wrapper = get_value_wrapper(key)?;
+            match wrapper.value {
+                PsValue::Primitive(PsPrimitiveValue::I32(val)) => Ok(val),
+                _ => Err(Self::Error::InvalidMessage(format!("Expected i32 value for key {key}"))),
+            }
         };
 
-        let get_coords = |key: i32| -> Result<Coordinates, Self::Error> {
-            dict.get(&PsValue::Primitive(PsPrimitiveValue::I32(key)))
-                .and_then(|v| match v {
-                    PsValue::Object(obj) => Coordinates::try_from(obj).ok(),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    Self::Error::InvalidMessage(format!("Missing or invalid value for key {key}"))
-                })
+        let get_string_from_wrapper = |key: i32| -> Result<String, Self::Error> {
+            let wrapper = get_value_wrapper(key)?;
+            match wrapper.value {
+                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Ok(s),
+                _ => Err(Self::Error::InvalidMessage(format!("Expected string value for key {key}"))),
+            }
         };
 
-        let get_size = |key: i32| -> Result<Size, Self::Error> {
-            dict.get(&PsValue::Primitive(PsPrimitiveValue::I32(key)))
-                .and_then(|v| match v {
-                    PsValue::Object(obj) => Size::try_from(obj).ok(),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    Self::Error::InvalidMessage(format!("Missing or invalid value for key {key}"))
-                })
+        let get_coords_from_wrapper = |key: i32| -> Result<Coordinates, Self::Error> {
+            let wrapper = get_value_wrapper(key)?;
+            match wrapper.value {
+                PsValue::Object(obj) => Coordinates::try_from(&obj),
+                _ => Err(Self::Error::InvalidMessage(format!("Expected Coordinates object for key {key}"))),
+            }
+        };
+
+        let get_size_from_wrapper = |key: i32| -> Result<Size, Self::Error> {
+            let wrapper = get_value_wrapper(key)?;
+            match wrapper.value {
+                PsValue::Object(obj) => Size::try_from(&obj),
+                _ => Err(Self::Error::InvalidMessage(format!("Expected Size object for key {key}"))),
+            }
         };
 
         Ok(HostDefaultData {
-            foreground_color: get_i32(0)?,
-            background_color: get_i32(1)?,
-            cursor_position: get_coords(2)?,
-            window_position: get_coords(3)?,
-            cursor_size: get_i32(4)?,
-            window_size: get_size(5)?,
-            buffer_size: get_size(6)?,
-            max_window_size: get_size(7)?,
-            max_physical_window_size: get_size(8)?,
-            window_title: get_string(9)?,
-            locale: get_string(10)?,
-            ui_locale: get_string(11)?,
+            foreground_color: get_i32_from_wrapper(0)?,
+            background_color: get_i32_from_wrapper(1)?,
+            cursor_position: get_coords_from_wrapper(2)?,
+            window_position: get_coords_from_wrapper(3)?,
+            cursor_size: get_i32_from_wrapper(4)?,
+            window_size: get_size_from_wrapper(5)?,
+            buffer_size: get_size_from_wrapper(6)?,
+            max_window_size: get_size_from_wrapper(7)?,
+            max_physical_window_size: get_size_from_wrapper(8)?,
+            window_title: get_string_from_wrapper(9)?,
+            locale: get_string_from_wrapper(10)?,
+            ui_locale: get_string_from_wrapper(11)?,
         })
     }
 }
