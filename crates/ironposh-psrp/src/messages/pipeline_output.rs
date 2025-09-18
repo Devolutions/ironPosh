@@ -11,7 +11,7 @@ pub struct PipelineOutput {
 }
 
 impl PipelineOutput {
-    pub fn format_as_ps_string(&self) -> Result<String, PowerShellRemotingError> {
+    pub fn format_as_displyable_string(&self) -> Result<String, PowerShellRemotingError> {
         let Some(output_str) = self.data.as_string() else {
             return Err(PowerShellRemotingError::OutputFormattingError(
                 "Pipeline output is not a string",

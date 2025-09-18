@@ -94,7 +94,9 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     // Spawn user input/UI handler
     let mut user_input_handler = UserInputHandler::new(user_request_tx.clone(), user_event_rx);
     let user_handle = thread::spawn(move || {
-        user_input_handler.run();
+        let _ = user_input_handler
+            .run()
+            .inspect_err(|e| error!(err = ?e, "User input handler failed"));
     });
 
     // Send initial network request

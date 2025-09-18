@@ -5,7 +5,7 @@ use std::{
 
 use base64::Engine;
 use ironposh_psrp::{
-    ApartmentState, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
     InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
     SessionCapability, fragmentation,
 };
@@ -133,7 +133,7 @@ pub struct RunspacePool {
     pub(super) thread_options: PSThreadOptions,
     pub(super) apartment_state: ApartmentState,
     pub(super) host_info: HostInfo,
-    pub(super) application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
+    pub(super) application_arguments: ApplicationArguments,
     pub(super) shell: WinRunspace,
     pub(super) connection: Arc<WsMan>,
     pub(super) defragmenter: Defragmenter,

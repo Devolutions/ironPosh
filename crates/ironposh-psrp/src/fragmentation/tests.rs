@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
-    messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
+    messages::{
+        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
+    },
     ps_value::PsObjectWithType,
 };
 use std::collections::BTreeMap;
@@ -10,10 +12,12 @@ use uuid::Uuid;
 
 #[cfg(test)]
 mod tests {
-    use crate::HostInfo;
+    use crate::{
+        Size,
+        messages::{HostDefaultData, HostInfo},
+    };
 
     use super::*;
-
     /// Test fragmenter/defragmenter roundtrip with single small message
     #[test]
     #[traced_test]
@@ -60,8 +64,21 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: HostInfo::builder().build(),
-            application_arguments: BTreeMap::new(),
+            host_info: HostInfo::builder()
+                .host_default_data(
+                    HostDefaultData::builder()
+                        .window_size(Size {
+                            width: 120,
+                            height: 50,
+                        })
+                        .buffer_size(Size {
+                            width: 120,
+                            height: 3000,
+                        })
+                        .build(),
+                )
+                .build(),
+            application_arguments: ApplicationArguments::empty(),
         };
 
         let runspace_id = Uuid::new_v4();
@@ -118,8 +135,21 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: HostInfo::builder().build(),
-            application_arguments: BTreeMap::new(),
+            host_info: HostInfo::builder()
+                .host_default_data(
+                    HostDefaultData::builder()
+                        .window_size(Size {
+                            width: 120,
+                            height: 50,
+                        })
+                        .buffer_size(Size {
+                            width: 120,
+                            height: 3000,
+                        })
+                        .build(),
+                )
+                .build(),
+            application_arguments: ApplicationArguments::empty(),
         };
 
         let runspace_id = Uuid::new_v4();
@@ -186,8 +216,21 @@ mod tests {
             max_runspaces: 1,
             thread_options: PSThreadOptions::Default,
             apartment_state: ApartmentState::Unknown,
-            host_info: HostInfo::builder().build(),
-            application_arguments: BTreeMap::new(),
+            host_info: HostInfo::builder()
+                .host_default_data(
+                    HostDefaultData::builder()
+                        .window_size(Size {
+                            width: 120,
+                            height: 50,
+                        })
+                        .buffer_size(Size {
+                            width: 120,
+                            height: 3000,
+                        })
+                        .build(),
+                )
+                .build(),
+            application_arguments: ApplicationArguments::empty(),
         };
 
         // This mimics the exact call in RunspacePool::open()

@@ -408,7 +408,7 @@ impl RemoteAsyncPowershellClient {
                     UserEvent::PipelineOutput { output, powershell } => {
                         debug_assert!(powershell.id() == new_pipeline_id);
                         info!(pipeline_id = %new_pipeline_id, output = ?output, "received pipeline output");
-                        result.push_str(&output.format_as_ps_string()?);
+                        result.push_str(&output.format_as_displyable_string()?);
                     }
                     UserEvent::PipelineFinished { powershell } => {
                         debug_assert!(powershell.id() == new_pipeline_id);

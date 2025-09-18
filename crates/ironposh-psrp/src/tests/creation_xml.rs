@@ -1,9 +1,11 @@
 use crate::{
-    HostInfo,
+    HostDefaultData, HostInfo,
     fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
-    messages::{ApartmentState, InitRunspacePool, PSThreadOptions, SessionCapability},
+    messages::{
+        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability, Size,
+    },
 };
-use std::collections::BTreeMap;
+
 use tracing::info;
 use tracing_test::traced_test;
 use uuid::Uuid;
@@ -24,8 +26,21 @@ fn test_combined_messages_like_runspace_open() {
         max_runspaces: 1,
         thread_options: PSThreadOptions::Default,
         apartment_state: ApartmentState::Unknown,
-        host_info: HostInfo::builder().build(),
-        application_arguments: BTreeMap::new(),
+        host_info: HostInfo::builder()
+            .host_default_data(
+                HostDefaultData::builder()
+                    .window_size(Size {
+                        width: 120,
+                        height: 50,
+                    })
+                    .buffer_size(Size {
+                        width: 120,
+                        height: 3000,
+                    })
+                    .build(),
+            )
+            .build(),
+        application_arguments: ApplicationArguments::default(),
     };
 
     let runspace_id = Uuid::parse_str("d034652d-126b-e340-b773-cba26459cfa8").unwrap();

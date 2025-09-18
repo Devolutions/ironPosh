@@ -1,10 +1,12 @@
 pub mod apartment_state;
+pub mod application_arguments;
 pub mod application_private_data;
 pub mod host_default_data;
 pub mod host_info;
 pub mod ps_thread_options;
 
 pub use apartment_state::ApartmentState;
+pub use application_arguments::{ApplicationArguments, PSVersionTable};
 pub use application_private_data::ApplicationPrivateData;
 pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
@@ -24,7 +26,7 @@ pub struct InitRunspacePool {
     pub thread_options: PSThreadOptions,
     pub apartment_state: ApartmentState,
     pub host_info: HostInfo,
-    pub application_arguments: BTreeMap<PsValue, PsValue>,
+    pub application_arguments: ApplicationArguments,
 }
 
 impl From<InitRunspacePool> for ComplexObject {
@@ -80,19 +82,11 @@ impl From<InitRunspacePool> for ComplexObject {
                 },
             );
         } else {
-            let app_args_obj = ComplexObject {
-                type_def: Some(PsType::ps_primitive_dictionary()),
-                content: ComplexObjectContent::Container(Container::Dictionary(
-                    init.application_arguments,
-                )),
-                ..Default::default()
-            };
-
             extended_properties.insert(
                 "ApplicationArguments".to_string(),
                 PsProperty {
                     name: "ApplicationArguments".to_string(),
-                    value: PsValue::Object(app_args_obj),
+                    value: PsValue::Object(init.application_arguments.into()),
                 },
             );
         }
