@@ -393,12 +393,7 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
-    #[instrument(
-        skip(self, responses),
-        fields(
-            response_count = responses.len(),
-        )
-    )]
+    #[instrument(skip(self, responses))]
     fn handle_pwsh_responses(
         &mut self,
         responses: Vec<crate::runspace::win_rs::Stream>,
@@ -535,7 +530,6 @@ impl RunspacePool {
                             })?;
                         debug!(target: "host_call", host_call = ?host_call, "successfully created host call");
                         result.push(PwshMessageResponse::HostCall(host_call));
-                        debug!(target: "host_call", result_len = result.len(), "pushed HostCall response");
                     }
                     ironposh_psrp::MessageType::PipelineOutput => {
                         debug!(
@@ -853,8 +847,11 @@ impl RunspacePool {
             command_id: command_id.to_owned(),
         };
 
-        HostCall::try_from_pipeline(scope, pipeline_host_call)
-            .map_err(|e| crate::PwshCoreError::InvalidResponse(format!("Failed to parse host call: {}", e).into()))
+        HostCall::try_from_pipeline(scope, pipeline_host_call).map_err(|e| {
+            crate::PwshCoreError::InvalidResponse(
+                format!("Failed to parse host call: {}", e).into(),
+            )
+        })
     }
 
     /// Send a pipeline host response to the server
