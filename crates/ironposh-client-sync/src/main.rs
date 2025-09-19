@@ -211,6 +211,29 @@ fn run_event_loop(
 
                             result_transport.accept_result(host_name)
                         }
+                        HostCall::SetCursorPosition { transport } => {
+                            let (params, result_transport) = transport.into_parts();
+                            
+                            if let Some(coordinates) = params.first() {
+                                info!("Setting cursor position to: {:?}", coordinates);
+                                
+                                // Use crossterm to actually set the cursor position
+                                use crossterm::{cursor, ExecutableCommand};
+                                use std::io::stdout;
+                                
+                                let mut stdout = stdout();
+                                if let Err(e) = stdout.execute(cursor::MoveTo(coordinates.x as u16, coordinates.y as u16)) {
+                                    warn!("Failed to set cursor position: {}", e);
+                                } else {
+                                    debug!("Successfully moved cursor to ({}, {})", coordinates.x, coordinates.y);
+                                }
+                            } else {
+                                warn!("SetCursorPosition called without coordinates parameter");
+                            }
+                            
+                            // This method doesn't return a value according to the macro definition
+                            // The result_transport will handle the response automatically
+                        }
                         _ => {
                             warn!("Unhandled host call type: {}", host_call.method_name());
                             todo!("Handle other host call types")

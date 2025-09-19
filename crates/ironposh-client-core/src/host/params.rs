@@ -1,5 +1,5 @@
+use super::{HostError, methods, traits::FromParams};
 use ironposh_psrp::PsValue;
-use super::{traits::FromParams, methods, HostError};
 
 // Complex parameter type implementations
 impl FromParams for (i32, i32, String) {
@@ -61,7 +61,14 @@ impl FromParams for (String, String, String, String, i32, i32) {
         let target_name = a[3].as_string().ok_or(HostError::InvalidParameters)?;
         let allowed_types = a[4].as_i32().ok_or(HostError::InvalidParameters)?;
         let options = a[5].as_i32().ok_or(HostError::InvalidParameters)?;
-        Ok((caption, message, user_name, target_name, allowed_types, options))
+        Ok((
+            caption,
+            message,
+            user_name,
+            target_name,
+            allowed_types,
+            options,
+        ))
     }
 }
 
@@ -91,17 +98,36 @@ impl FromParams for (String, String, Vec<methods::ChoiceDescription>, Vec<i32>) 
 }
 
 impl FromParams for methods::Coordinates {
-    fn from_params(_a: &[PsValue]) -> Result<Self, HostError> {
-        todo!("Implement Coordinates deserialization from PsValue")
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        if a.len() != 1 {
+            return Err(HostError::InvalidParameters);
+        }
+
+        match &a[0] {
+            PsValue::Object(obj) => {
+                let x = obj
+                    .extended_properties
+                    .get("x")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+
+                let y = obj
+                    .extended_properties
+                    .get("y")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+
+                Ok(methods::Coordinates { x, y })
+            }
+            _ => Err(HostError::InvalidParameters),
+        }
     }
 }
 
 impl FromParams for (methods::Coordinates,) {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
-        if a.len() != 1 {
-            return Err(HostError::InvalidParameters);
-        }
-        todo!("Implement Coordinates deserialization from PsValue")
+        let coord = methods::Coordinates::from_params(a)?;
+        Ok((coord,))
     }
 }
 
@@ -121,8 +147,37 @@ impl FromParams for (methods::Size,) {
 }
 
 impl FromParams for methods::Rectangle {
-    fn from_params(_a: &[PsValue]) -> Result<Self, HostError> {
-        todo!("Implement Rectangle deserialization from PsValue")
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        if a.len() != 1 {
+            return Err(HostError::InvalidParameters);
+        }
+        
+        match &a[0] {
+            PsValue::Object(obj) => {
+                let left = obj.extended_properties
+                    .get("left")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let top = obj.extended_properties
+                    .get("top")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let right = obj.extended_properties
+                    .get("right")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let bottom = obj.extended_properties
+                    .get("bottom")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                Ok(methods::Rectangle { left, top, right, bottom })
+            }
+            _ => Err(HostError::InvalidParameters),
+        }
     }
 }
 
@@ -140,7 +195,9 @@ impl FromParams for (methods::Rectangle, methods::BufferCell) {
         if a.len() != 2 {
             return Err(HostError::InvalidParameters);
         }
-        todo!("Implement Rectangle and BufferCell deserialization from PsValue")
+        let rectangle = methods::Rectangle::from_params(&a[0..1])?;
+        let buffer_cell = methods::BufferCell::from_params(&a[1..2])?;
+        Ok((rectangle, buffer_cell))
     }
 }
 
@@ -153,12 +210,61 @@ impl FromParams for (methods::Rectangle,) {
     }
 }
 
-impl FromParams for (methods::Rectangle, methods::Coordinates, methods::Rectangle, methods::BufferCell) {
+impl FromParams
+    for (
+        methods::Rectangle,
+        methods::Coordinates,
+        methods::Rectangle,
+        methods::BufferCell,
+    )
+{
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         if a.len() != 4 {
             return Err(HostError::InvalidParameters);
         }
         todo!("Implement complex ScrollBufferContents parameter deserialization from PsValue")
+    }
+}
+
+// BufferCell deserialization
+impl FromParams for methods::BufferCell {
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        if a.len() != 1 {
+            return Err(HostError::InvalidParameters);
+        }
+        
+        match &a[0] {
+            PsValue::Object(obj) => {
+                let character = obj.extended_properties
+                    .get("character")
+                    .and_then(|prop| {
+                        if let PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Char(c)) = &prop.value {
+                            Some(*c)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let foreground = obj.extended_properties
+                    .get("foregroundColor")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let background = obj.extended_properties
+                    .get("backgroundColor")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                let flags = obj.extended_properties
+                    .get("bufferCellType")
+                    .and_then(|prop| prop.value.as_i32())
+                    .ok_or(HostError::InvalidParameters)?;
+                
+                Ok(methods::BufferCell { character, foreground, background, flags })
+            }
+            _ => Err(HostError::InvalidParameters),
+        }
     }
 }
 

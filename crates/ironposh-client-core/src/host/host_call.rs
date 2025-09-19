@@ -153,7 +153,7 @@ define_host_methods! {
     45.GetKeyAvailable: () -> bool, send_back = true,
     46.ReadKey: (i32) -> methods::KeyInfo, send_back = true,
     47.FlushInputBuffer: () -> (), send_back = false,
-    48.SetBufferContents1: (methods::Coordinates, Vec<Vec<methods::BufferCell>>) -> (), send_back = false,
+    48.SetBufferContents1: (methods::Rectangle, methods::BufferCell) -> (), send_back = false,
     49.SetBufferContents2: (methods::Rectangle, methods::BufferCell) -> (), send_back = false,
     50.GetBufferContents: (methods::Rectangle) -> Vec<Vec<methods::BufferCell>>, send_back = true,
     51.ScrollBufferContents: (methods::Rectangle, methods::Coordinates, methods::Rectangle, methods::BufferCell) -> (), send_back = false,
