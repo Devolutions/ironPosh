@@ -1,5 +1,4 @@
 use super::{
-    conversions::should_send_host_response,
     traits::{Method, ToPs},
     types::HostCallScope,
 };
@@ -57,11 +56,11 @@ impl<M: Method> ResultTransport<M> {
     where
         M::Return: ToPs,
     {
-        if should_send_host_response(M::ID) {
+        if M::should_send_response() {
             Submission::Send(PipelineHostResponse {
                 call_id: self.call_id,
-                method_id: M::ID as i32,
-                method_name: format!("{:?}", M::ID),
+                method_id: M::ID,
+                method_name: M::NAME.to_string(),
                 method_result: <M::Return as ToPs>::to_ps(v),
                 method_exception: None,
             })

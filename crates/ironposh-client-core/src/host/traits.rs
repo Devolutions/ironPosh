@@ -1,11 +1,14 @@
 use ironposh_psrp::PsValue;
-use super::{HostError, conversions::RemoteHostMethodId};
+use super::HostError;
 
 /// Sealed trait for compile-time method type safety
 pub trait Method: sealed::Sealed {
-    const ID: RemoteHostMethodId;
+    const ID: i32;
+    const NAME: &'static str;
     type Params;
-    type Return; // () = void
+    type Return;
+    
+    fn should_send_response() -> bool;
 }
 
 pub(crate) mod sealed { 
