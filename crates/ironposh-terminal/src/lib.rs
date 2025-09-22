@@ -1,12 +1,13 @@
-use std::time::{Duration, Instant};
 use anyhow::Result;
-use crossterm::terminal;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, instrument};
 
-pub mod term;
 pub mod input;
+pub mod stdio;
+pub mod term;
 
-pub use term::{TerminalOp, GuestTerm, HostRenderer, CrosstermRenderer};
+pub use stdio::{ReadOutcome, StdTerm};
+pub use term::{CrosstermRenderer, GuestTerm, HostRenderer, TerminalOp};
 
 /// Clean terminal pipeline with separated concerns
 pub struct Terminal {
@@ -51,14 +52,9 @@ impl Terminal {
         self.guest.apply(op);
     }
 
-    /// Non-consuming resize: compare current host size and update screen if changed.
-    pub fn sync_host_size_if_changed(&mut self) -> Result<bool> {
-        let (cols, rows) = self.renderer.host_size()?;
-        debug!(current_cols = cols, current_rows = rows, "Checking terminal size");
-
-        // Apply resize operation if size changed
-        self.guest.apply(TerminalOp::Resize { rows, cols });
-        Ok(true) // For now, always assume change (guest handles dirty checking)
+    /// Update guest size when the host reports a resize event.
+    pub fn on_host_resize(&mut self, cols: u16, rows: u16) {
+        self.apply_op(TerminalOp::Resize { rows, cols });
     }
 
     /// Render the terminal if dirty
@@ -79,6 +75,11 @@ impl Terminal {
         }
 
         Ok(())
+    }
+
+    /// Borrow a stdio-like handle. Scope it to release the &mut borrow when done.
+    pub fn stdio(&mut self) -> StdTerm<'_> {
+        StdTerm::new(self)
     }
 }
 

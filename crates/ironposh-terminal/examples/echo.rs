@@ -15,9 +15,6 @@ fn main() -> Result<()> {
     term.render()?;
 
     loop {
-        // keep guest size in sync with host window
-        term.sync_host_size_if_changed()?;
-
         // non-blocking poll for keys
         if event::poll(Duration::from_millis(25))? {
             let ev = event::read()?;
@@ -30,6 +27,11 @@ fn main() -> Result<()> {
             }
 
             match ev {
+                Event::Resize(cols, rows) => {
+                    term.on_host_resize(cols, rows);
+                    term.render()?;
+                }
+
                 // Ctrl+C exits cleanly
                 Event::Key(KeyEvent {
                     code: KeyCode::Char('c'),

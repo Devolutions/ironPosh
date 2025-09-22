@@ -1,9 +1,9 @@
-use std::io::{Stdout, Write};
-use crossterm::{
-    terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
 use anyhow::Result;
+use crossterm::{
+    ExecutableCommand,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use std::io::{Stdout, Write};
 
 pub trait HostRenderer {
     fn init(&mut self) -> Result<()>;
@@ -13,16 +13,18 @@ pub trait HostRenderer {
 
 pub struct CrosstermRenderer {
     out: Stdout,
-    last_rows: u16,
-    last_cols: u16,
+}
+
+impl Default for CrosstermRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CrosstermRenderer {
     pub fn new() -> Self {
         Self {
             out: std::io::stdout(),
-            last_rows: 0,
-            last_cols: 0,
         }
     }
 

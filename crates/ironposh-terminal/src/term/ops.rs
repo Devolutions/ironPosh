@@ -2,7 +2,10 @@
 pub enum TerminalOp {
     FeedBytes(Vec<u8>),
     CursorHome,
-    SetCursor { x: u16, y: u16 },
+    SetCursor {
+        x: u16,
+        y: u16,
+    },
     ClearScreen,
     ClearScrollback,
     FillRect {
@@ -14,5 +17,8 @@ pub enum TerminalOp {
         fg: u8,
         bg: u8,
     },
-    Resize { rows: u16, cols: u16 },
+    Resize {
+        rows: u16,
+        cols: u16,
+    },
 }

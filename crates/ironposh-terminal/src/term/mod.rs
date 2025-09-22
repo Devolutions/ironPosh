@@ -1,7 +1,7 @@
-pub mod ops;
 pub mod guest;
+pub mod ops;
 pub mod renderer;
 
-pub use ops::TerminalOp;
 pub use guest::GuestTerm;
-pub use renderer::{HostRenderer, CrosstermRenderer};
+pub use ops::TerminalOp;
+pub use renderer::{CrosstermRenderer, HostRenderer};

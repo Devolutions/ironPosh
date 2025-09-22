@@ -1,5 +1,15 @@
 use super::TerminalOp;
 
+pub struct FillRectParams {
+    pub l: u16,
+    pub t: u16,
+    pub r: u16,
+    pub b: u16,
+    pub ch: char,
+    pub fg: u8,
+    pub bg: u8,
+}
+
 pub struct GuestTerm {
     parser: vt100::Parser,
     prev: Option<vt100::Screen>,
@@ -36,7 +46,15 @@ impl GuestTerm {
                 ch,
                 fg,
                 bg,
-            } => self.fill_rect(left, top, right, bottom, ch, fg, bg),
+            } => self.fill_rect(FillRectParams {
+                l: left,
+                t: top,
+                r: right,
+                b: bottom,
+                ch,
+                fg,
+                bg,
+            }),
         }
     }
 
@@ -45,7 +63,16 @@ impl GuestTerm {
         self.dirty = true;
     }
 
-    fn fill_rect(&mut self, l: u16, t: u16, r: u16, b: u16, ch: char, fg: u8, bg: u8) {
+    fn fill_rect(&mut self, rect: FillRectParams) {
+        let FillRectParams {
+            l,
+            t,
+            r,
+            b,
+            ch,
+            fg,
+            bg,
+        } = rect;
         if ch == ' ' && l == 0 && t == 0 {
             self.feed(b"\x1b[2J\x1b[H");
             return;
@@ -55,7 +82,7 @@ impl GuestTerm {
         self.feed(b"\x1b7"); // save cursor
         let width = (r - l + 1) as usize;
         let run = ch.to_string().repeat(width);
-        let sgr = format!("\x1b[{};{}m", fg, bg);
+        let sgr = format!("\x1b[{fg};{bg}m");
         for y in t..=b {
             let seq = format!("\x1b[{};{}H{}{}", y + 1, l + 1, sgr, run);
             self.feed(seq.as_bytes());
