@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::{
     PwshCoreError,
     host::{HostCall, HostCallScope},
-    pipeline::{Pipeline, PipelineCommand},
+    pipeline::{Pipeline, PipelineCommand, PipelineSpec},
     powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
@@ -778,14 +778,7 @@ impl RunspacePool {
         Ok(())
     }
 
-    /// Invokes the specified pipeline and waits for its completion.
-    ///
-    /// This method will handle the entire PSRP message exchange:
-    /// 1. Send the `CreatePipeline` message.
-    /// 2. Send `Command`, `Send`, and `EndOfInput` messages.
-    /// 3. Enter a loop to `Receive` and process responses.
-    /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
-    /// 5. Return the final output upon completion.
+    #[instrument(skip_all)]
     pub fn invoke_pipeline_request(
         &mut self,
         handle: PipelineHandle,
@@ -977,5 +970,23 @@ impl RunspacePool {
 
         pipeline.add_command(command);
         Ok(())
+    }
+
+    /// Create, populate, and invoke a pipeline in one operation
+    pub(crate) fn invoke_spec(
+        &mut self,
+        uuid: Uuid,
+        spec: PipelineSpec,
+    ) -> Result<String, PwshCoreError> {
+        // 1) Create the pipeline
+        let handle = self.init_pipeline(uuid)?;
+
+        // 2) Add all commands from the spec
+        for cmd in spec.commands {
+            self.add_command(handle, cmd)?;
+        }
+
+        // 3) Invoke the pipeline using existing logic
+        self.invoke_pipeline_request(handle)
     }
 }

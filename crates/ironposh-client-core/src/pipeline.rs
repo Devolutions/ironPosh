@@ -18,6 +18,12 @@ pub struct PipelineCommand {
     pub parameters: Vec<Parameter>,
 }
 
+/// Represents a pipeline specification at the API boundary
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineSpec {
+    pub commands: Vec<PipelineCommand>,
+}
+
 impl PipelineCommand {
     pub fn new_script(script: String) -> Self {
         Self {

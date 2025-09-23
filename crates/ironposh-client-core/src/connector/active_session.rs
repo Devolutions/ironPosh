@@ -4,7 +4,7 @@ use crate::{
         http::HttpResponseTargeted,
     },
     host::{HostCall, HostCallScope, Submission},
-    pipeline::PipelineCommand,
+    pipeline::PipelineSpec,
     powershell::PipelineHandle,
     runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
 };
@@ -79,22 +79,12 @@ impl Ord for ActiveSessionOutput {
     }
 }
 
-#[derive(Debug)]
-pub enum PowershellOperations {
-    AddCommand { command: PipelineCommand },
-}
 
 #[derive(Debug)]
 pub enum UserOperation {
-    CreatePipeline {
+    InvokeWithSpec {
         uuid: uuid::Uuid,
-    },
-    OperatePipeline {
-        powershell: PipelineHandle,
-        operation: PowershellOperations,
-    },
-    InvokePipeline {
-        powershell: PipelineHandle,
+        spec: PipelineSpec,
     },
     KillPipeline {
         powershell: PipelineHandle,
@@ -116,9 +106,7 @@ pub enum UserOperation {
 impl UserOperation {
     pub fn operation_type(&self) -> &str {
         match self {
-            UserOperation::CreatePipeline { .. } => "CreatePipeline",
-            UserOperation::OperatePipeline { .. } => "OperatePipeline",
-            UserOperation::InvokePipeline { .. } => "InvokePipeline",
+            UserOperation::InvokeWithSpec { .. } => "InvokeWithSpec",
             UserOperation::KillPipeline { .. } => "KillPipeline",
             UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse",
             UserOperation::CancelHostCall { .. } => "CancelHostCall",
@@ -150,43 +138,18 @@ impl ActiveSession {
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
         info!("ActiveSession: processing client operation");
         match operation {
-            UserOperation::CreatePipeline { uuid } => {
-                info!(pipeline_uuid = %uuid, "creating new pipeline");
-                let handle = self.runspace_pool.init_pipeline(uuid)?;
-                info!(pipeline_id = %handle.id(), "pipeline created successfully");
-                Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                    pipeline: handle,
-                }))
-            }
+            UserOperation::InvokeWithSpec { uuid, spec } => {
+                info!(pipeline_uuid = %uuid, "invoking pipeline with spec");
 
-            UserOperation::OperatePipeline {
-                powershell,
-                operation,
-            } => {
-                info!(pipeline_id = %powershell.id(), "operating on pipeline");
-                match operation {
-                    PowershellOperations::AddCommand { command } => {
-                        info!(command = ?command, "adding command to pipeline");
-                        self.runspace_pool.add_command(powershell, command)?;
-                        info!("command added successfully");
-                    }
-                }
-                Ok(ActiveSessionOutput::OperationSuccess)
-            }
-
-            UserOperation::InvokePipeline { powershell } => {
-                info!(pipeline_id = %powershell.id(), "invoking pipeline");
-
-                // 1) Build the Invoke request
-                let invoke_xml = self.runspace_pool.invoke_pipeline_request(powershell)?;
+                // Single operation: create, populate, and invoke pipeline
+                let invoke_xml = self.runspace_pool.invoke_spec(uuid, spec)?;
                 info!(xml_length = invoke_xml.len(), "built invoke XML request");
                 info!(unencrypted_invoke_xml = %invoke_xml, "outgoing unencrypted invoke SOAP");
 
-                // 2) Send invoke
+                // Send the invoke request
                 let send_invoke = self.connection_pool.send(&invoke_xml)?;
                 info!(invoke_request = ?send_invoke, "queued invoke request");
 
-                info!("returning 2 TrySend requests for pipeline invoke");
                 Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
 
