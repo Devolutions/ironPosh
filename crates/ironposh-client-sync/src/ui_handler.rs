@@ -1,109 +1,117 @@
 use anyhow::Context;
-use ironposh_client_core::connector::active_session::PowershellOperations;
+use ironposh_client_core::connector::active_session::{self, PowershellOperations};
 use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use std::io::{self, Write};
+use ironposh_terminal::{ReadOutcome, StdTerm, Terminal};
+use std::io::Write;
 use std::sync::mpsc;
 use std::time::Duration;
-use tracing::{error, info, instrument};
+use tracing::{info, instrument};
 use uuid::Uuid;
 
+use crate::types::UiOp;
+
 /// Handle user input for PowerShell commands (synchronous)
-pub struct UserInputHandler {
+pub struct UIHanlder {
     user_request_tx: mpsc::Sender<UserOperation>,
-    user_event_rx: mpsc::Receiver<ironposh_client_core::connector::active_session::UserEvent>,
+    user_event_rx: mpsc::Receiver<active_session::UserEvent>,
+    ui_rx: mpsc::Receiver<UiOp>,
 }
 
-impl UserInputHandler {
+impl UIHanlder {
     pub fn new(
         user_request_tx: mpsc::Sender<UserOperation>,
-        user_event_rx: mpsc::Receiver<ironposh_client_core::connector::active_session::UserEvent>,
+        user_event_rx: mpsc::Receiver<active_session::UserEvent>,
+        ui_rx: mpsc::Receiver<UiOp>,
     ) -> Self {
         Self {
             user_request_tx,
             user_event_rx,
+            ui_rx,
         }
     }
 
-    #[instrument(skip_all, name = "user_input_handler")]
-    pub fn run(&mut self) -> anyhow::Result<()> {
-        let stdin = io::stdin();
-        let mut stdout = io::stdout();
+    pub fn run(&mut self, mut terminal: Terminal) -> anyhow::Result<()> {
+        let mut io = terminal.stdio(); // stdio-like wrapper
         let mut pipeline: Option<PipelineHandle> = None;
 
-        info!("starting user input handler");
-        self.user_request_tx
-            .send(UserOperation::CreatePipeline {
-                uuid: uuid::Uuid::new_v4(),
-            })
-            .expect("Failed to send create pipeline request");
+        // boot pipeline as before
+        self.user_request_tx.send(UserOperation::CreatePipeline {
+            uuid: uuid::Uuid::new_v4(),
+        })?;
 
         loop {
-            // Check for user events
-            match self.process_user_events(&mut pipeline) {
-                PipelineOperated::Continue => continue,
-                PipelineOperated::KeepGoing => {}
+            // 4a) drain UI ops quickly (paint from main loop HostCalls)
+            while let Ok(op) = self.ui_rx.try_recv() {
+                match op {
+                    UiOp::Apply(ops) => {
+                        for o in ops {
+                            io.apply_op(o);
+                        }
+                        io.render()?; // throttled internally
+                    }
+                    UiOp::Print(s) => {
+                        use std::io::Write;
+                        writeln!(io, "{s}")?;
+                    }
+                }
             }
 
-            print!("> ");
-            stdout.flush().unwrap();
-            let mut line = String::new();
-            match stdin.read_line(&mut line) {
-                Ok(0) => break Ok(()),
-                Ok(_) => {
-                    let command = line.trim().to_string();
-                    if command.to_lowercase() == "exit" {
-                        info!("user requested exit");
+            // 4b) process PowerShell events (pipeline output etc.)
+            match self.process_user_events(&mut pipeline, &mut io) {
+                PipelineOperated::Continue => {}
+                PipelineOperated::KeepGoing => { /* pipeline (re)created, just proceed */ }
+            }
+
+            // 4c) prompt + read a line (Ctrl+C / Ctrl+D handled)
+            match io.read_line("> ")? {
+                ReadOutcome::Line(cmd) => {
+                    let command = cmd.trim();
+                    if command.eq_ignore_ascii_case("exit") {
                         break Ok(());
                     }
-
                     if command.is_empty() {
                         continue;
                     }
-                    // Ensure we have a pipeline before executing the command
-
                     if let Some(pipeline_handle) = pipeline {
-                        // Add the script to the pipeline
-                        self
-                            .user_request_tx
-                            .send(UserOperation::OperatePipeline {
+                        let pipeline_operations = [
+                            UserOperation::OperatePipeline {
                                 powershell: pipeline_handle,
                                 operation: PowershellOperations::AddCommand {
-                                    command: PipelineCommand::new_command(command),
+                                    command: PipelineCommand::new_command(command.to_string()),
                                 },
-                            })
-                            .context("Failed to send add command operation to pipeline")?;
-
-                        self
-                            .user_request_tx
-                            .send(UserOperation::OperatePipeline {
+                            },
+                            UserOperation::OperatePipeline {
                                 powershell: pipeline_handle,
                                 operation: PowershellOperations::AddCommand {
                                     command: PipelineCommand::new_output_stream(),
                                 },
-                            })
-                            .context("Failed to send add output stream operation to pipeline")?;
-
-                        // Invoke the pipeline
-                        self
-                            .user_request_tx
-                            .send(UserOperation::InvokePipeline {
+                            },
+                            UserOperation::InvokePipeline {
                                 powershell: pipeline_handle,
-                            })
-                            .context("Failed to send invoke pipeline operation")?;
+                            },
+                        ];
+
+                        for op in pipeline_operations {
+                            self.user_request_tx
+                                .send(op)
+                                .context("Failed to send pipeline operation")?;
+                        }
                     }
                 }
-                Err(e) => {
-                    error!(error = %e, "failed to read input");
-                    break Err(e.into());
-                }
+                ReadOutcome::Interrupt => continue, // reprompt (like shells)
+                ReadOutcome::Eof => break Ok(()),
             }
         }
     }
 
     #[instrument(skip_all)]
-    fn process_user_events(&mut self, pipeline: &mut Option<PipelineHandle>) -> PipelineOperated {
+    fn process_user_events(
+        &mut self,
+        pipeline: &mut Option<PipelineHandle>,
+        io: &mut StdTerm<'_>,
+    ) -> PipelineOperated {
         while let Ok(event) = self.user_event_rx.recv_timeout(Duration::from_millis(100)) {
             match event {
                 ironposh_client_core::connector::active_session::UserEvent::PipelineCreated {
@@ -136,11 +144,15 @@ impl UserInputHandler {
                     if let Some(current_pipeline) = pipeline {
                         if *current_pipeline == powershell {
                             match output.format_as_displyable_string() {
-                                Ok(o) => print!("{o}"),
-                                Err(e) => eprintln!("Error formatting output: {e}"),
+                                Ok(o) => {
+                                    let _ = writeln!(io, "{o}");
+                                }
+                                Err(e) => {
+                                    let _ = writeln!(io, "Error formatting output: {e}");
+                                }
                             };
-                            // Flush stdout to ensure output is displayed immediately
-                            std::io::stdout().flush().unwrap();
+
+                            let _ = io.render(); // best-effort
                         }
                     }
                 }

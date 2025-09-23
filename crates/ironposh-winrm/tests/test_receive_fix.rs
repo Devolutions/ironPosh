@@ -116,14 +116,16 @@ fn test_soap_fault_with_unknown_namespace() {
 
         // Check that we can access the fault code and reason
         if let Some(code) = &fault.as_ref().code
-            && let Some(value) = &code.as_ref().value {
-                assert_eq!(value.as_ref().as_ref(), "soap:Sender");
-            }
+            && let Some(value) = &code.as_ref().value
+        {
+            assert_eq!(value.as_ref().as_ref(), "soap:Sender");
+        }
 
         if let Some(reason) = &fault.as_ref().reason
-            && let Some(text) = &reason.as_ref().text {
-                assert_eq!(text.as_ref().as_ref(), "Schema validation error");
-            }
+            && let Some(text) = &reason.as_ref().text
+        {
+            assert_eq!(text.as_ref().as_ref(), "Schema validation error");
+        }
     } else {
         panic!("Should have parsed the SOAP fault successfully");
     }

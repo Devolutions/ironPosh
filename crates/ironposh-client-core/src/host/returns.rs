@@ -1,5 +1,5 @@
+use super::{methods, traits::ToPs};
 use ironposh_psrp::PsValue;
-use super::{traits::ToPs, methods};
 
 impl ToPs for std::collections::HashMap<String, PsValue> {
     fn to_ps(_v: std::collections::HashMap<String, PsValue>) -> Option<PsValue> {

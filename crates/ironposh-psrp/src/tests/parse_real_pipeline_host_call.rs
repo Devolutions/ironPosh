@@ -22,10 +22,11 @@ fn test_parse_real_pipeline_host_call() {
 
     // Debug the method identifier structure
     if let Some(mi_prop) = complex_obj.extended_properties.get("mi")
-        && let PsValue::Object(mi_obj) = &mi_prop.value {
-            println!("Method identifier object content: {:?}", mi_obj.content);
-            println!("Method identifier to_string: {:?}", mi_obj.to_string);
-        }
+        && let PsValue::Object(mi_obj) = &mi_prop.value
+    {
+        println!("Method identifier object content: {:?}", mi_obj.content);
+        println!("Method identifier to_string: {:?}", mi_obj.to_string);
+    }
 
     let pipeline_host_call =
         PipelineHostCall::try_from(complex_obj).expect("Failed to convert to PipelineHostCall");

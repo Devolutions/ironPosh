@@ -99,7 +99,9 @@ impl<'a> XmlVisitor<'a> for PsPrimitiveValueVisitor<'a> {
                     ironposh_xml::XmlError::GenericError(format!("Invalid character code: {text}"))
                 })?;
                 let char_val = char::from_u32(char_code).ok_or_else(|| {
-                    ironposh_xml::XmlError::GenericError(format!("Invalid Unicode character code: {char_code}"))
+                    ironposh_xml::XmlError::GenericError(format!(
+                        "Invalid Unicode character code: {char_code}"
+                    ))
                 })?;
                 self.value = Some(PsPrimitiveValue::Char(char_val));
             }
@@ -463,8 +465,8 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     }
                 }
                 // Handle primitive content for ExtendedPrimitive objects
-                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA" | "Version"
-                | "DT" => {
+                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA"
+                | "Version" | "DT" => {
                     let primitive = PsPrimitiveValue::from_node(child)?;
                     self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
                 }
@@ -566,7 +568,8 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
 
         match tag_name {
             // Handle primitive values
-            "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA" | "Version" | "DT" => {
+            "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA" | "Version"
+            | "DT" => {
                 let primitive = PsPrimitiveValue::from_node(node)?;
                 self.value = Some(PsValue::Primitive(primitive));
             }

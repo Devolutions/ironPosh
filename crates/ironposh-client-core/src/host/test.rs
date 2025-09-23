@@ -1,6 +1,6 @@
+use super::{HostCall, HostCallScope};
 use ironposh_psrp::PipelineHostCall;
 use uuid::Uuid;
-use super::{HostCall, HostCallScope};
 
 #[test]
 pub fn test_from_pipeline_host_call() {

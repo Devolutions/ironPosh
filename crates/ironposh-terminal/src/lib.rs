@@ -77,6 +77,11 @@ impl Terminal {
         Ok(())
     }
 
+    /// Get the current terminal size
+    pub fn size(&mut self) -> Result<(u16, u16)> {
+        self.renderer.host_size()
+    }
+
     /// Borrow a stdio-like handle. Scope it to release the &mut borrow when done.
     pub fn stdio(&mut self) -> StdTerm<'_> {
         StdTerm::new(self)

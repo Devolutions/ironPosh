@@ -3,7 +3,7 @@ use ironposh_client_core::{
     connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
     AuthenticatorConfig, SspiAuthConfig,
 };
-use ironposh_psrp::HostDefaultData;
+use ironposh_psrp::{HostDefaultData, Size};
 use std::sync::OnceLock;
 use tracing::debug;
 use tracing_log::LogTracer;
@@ -154,7 +154,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error> {
+pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> Result<WinRmConfig, anyhow::Error> {
     let server = ServerAddress::parse(&args.server)?;
     let scheme = if args.https {
         Scheme::Https
@@ -242,14 +242,23 @@ pub fn create_connector_config(args: &Args) -> Result<WinRmConfig, anyhow::Error
         }
     };
 
-    let (cols, rows) = crossterm::terminal::size()?;
-    debug!(cols, rows, "Terminal size");
+    // Use real terminal size from the terminal instance
+    debug!(cols, rows, "Using real terminal size from terminal instance");
+
+    let size = Size {
+        width: cols as i32,
+        height: rows as i32,
+    };
+
+    let host_data = HostDefaultData::builder()
+        .buffer_size(size.clone())
+        .window_size(size.clone())
+        .max_window_size(size.clone())
+        .max_physical_window_size(size)
+        .build();
 
     let host_info = ironposh_psrp::HostInfo::builder()
-        // .is_host_null(true)
-        // .is_host_ui_null(true)
-        // .is_host_raw_ui_null(true)
-        .host_default_data(HostDefaultData::from_crossterm()?)
+        .host_default_data(host_data)
         .build();
 
     Ok(WinRmConfig {

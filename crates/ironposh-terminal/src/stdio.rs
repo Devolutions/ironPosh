@@ -28,6 +28,14 @@ impl<'a> StdTerm<'a> {
         }
     }
 
+    pub fn apply_op(&mut self, op: TerminalOp) {
+        self.term.apply_op(op);
+    }
+
+    pub fn render(&mut self) -> Result<(), anyhow::Error> {
+        self.term.render()
+    }
+
     pub fn set_auto_render(&mut self, on: bool) {
         self.auto_render = on;
     }

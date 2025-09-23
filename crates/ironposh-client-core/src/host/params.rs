@@ -151,30 +151,39 @@ impl FromParams for methods::Rectangle {
         if a.len() != 1 {
             return Err(HostError::InvalidParameters);
         }
-        
+
         match &a[0] {
             PsValue::Object(obj) => {
-                let left = obj.extended_properties
+                let left = obj
+                    .extended_properties
                     .get("left")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let top = obj.extended_properties
+
+                let top = obj
+                    .extended_properties
                     .get("top")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let right = obj.extended_properties
+
+                let right = obj
+                    .extended_properties
                     .get("right")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let bottom = obj.extended_properties
+
+                let bottom = obj
+                    .extended_properties
                     .get("bottom")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                Ok(methods::Rectangle { left, top, right, bottom })
+
+                Ok(methods::Rectangle {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                })
             }
             _ => Err(HostError::InvalidParameters),
         }
@@ -232,36 +241,47 @@ impl FromParams for methods::BufferCell {
         if a.len() != 1 {
             return Err(HostError::InvalidParameters);
         }
-        
+
         match &a[0] {
             PsValue::Object(obj) => {
-                let character = obj.extended_properties
+                let character = obj
+                    .extended_properties
                     .get("character")
                     .and_then(|prop| {
-                        if let PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Char(c)) = &prop.value {
+                        if let PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Char(c)) =
+                            &prop.value
+                        {
                             Some(*c)
                         } else {
                             None
                         }
                     })
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let foreground = obj.extended_properties
+
+                let foreground = obj
+                    .extended_properties
                     .get("foregroundColor")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let background = obj.extended_properties
+
+                let background = obj
+                    .extended_properties
                     .get("backgroundColor")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                let flags = obj.extended_properties
+
+                let flags = obj
+                    .extended_properties
                     .get("bufferCellType")
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
-                
-                Ok(methods::BufferCell { character, foreground, background, flags })
+
+                Ok(methods::BufferCell {
+                    character,
+                    foreground,
+                    background,
+                    flags,
+                })
             }
             _ => Err(HostError::InvalidParameters),
         }
