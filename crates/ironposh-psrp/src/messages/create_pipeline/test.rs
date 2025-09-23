@@ -174,27 +174,27 @@ fn test_deserialize_real_create_pipeline() {
 
         // Verify PowerShell pipeline properties (lines 46-88)
         assert!(
-            !create_pipeline.power_shell.is_nested,
+            !create_pipeline.pipeline.is_nested,
             "PowerShell.IsNested should be false"
         );
         assert!(
-            create_pipeline.power_shell.redirect_shell_error_output_pipe,
+            create_pipeline.pipeline.redirect_shell_error_output_pipe,
             "RedirectShellErrorOutputPipe should be true"
         );
         assert_eq!(
-            create_pipeline.power_shell.history, "",
+            create_pipeline.pipeline.history, "",
             "History should be empty string (Nil in XML)"
         );
 
         // Verify Commands array (line 53-83)
         assert_eq!(
-            create_pipeline.power_shell.cmds.len(),
+            create_pipeline.pipeline.cmds.len(),
             1,
             "Should have exactly 1 command"
         );
 
         // Verify Command properties (lines 54-82)
-        let cmd = &create_pipeline.power_shell.cmds[0];
+        let cmd = &create_pipeline.pipeline.cmds[0];
         assert_eq!(
             cmd.cmd, r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#,
             "Command text should match"

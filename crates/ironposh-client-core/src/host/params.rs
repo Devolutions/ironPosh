@@ -1,5 +1,5 @@
 use super::{HostError, methods, traits::FromParams};
-use ironposh_psrp::PsValue;
+use ironposh_psrp::{ComplexObjectContent, PsPrimitiveValue, PsValue};
 
 // Complex parameter type implementations
 impl FromParams for (i32, i32, String) {
@@ -19,9 +19,105 @@ impl FromParams for (i64, methods::ProgressRecord) {
         if a.len() != 2 {
             return Err(HostError::InvalidParameters);
         }
-        let _source_id = a[0].as_i64().ok_or(HostError::InvalidParameters)?;
-        // ProgressRecord deserialization needs proper implementation
-        todo!("Implement ProgressRecord deserialization from PsValue")
+        let source_id = a[0].as_i64().ok_or(HostError::InvalidParameters)?;
+
+        // Extract ProgressRecord from the ComplexObject
+        match &a[1] {
+            PsValue::Object(complex_obj) => {
+                // Extract required fields
+                let activity = complex_obj
+                    .extended_properties
+                    .get("Activity")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+
+                let activity_id = complex_obj
+                    .extended_properties
+                    .get("ActivityId")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+
+                let status_description = complex_obj
+                    .extended_properties
+                    .get("StatusDescription")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        PsValue::Primitive(PsPrimitiveValue::Nil) => Some(String::new()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(String::new);
+
+                let current_operation = complex_obj
+                    .extended_properties
+                    .get("CurrentOperation")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        PsValue::Primitive(PsPrimitiveValue::Nil) => Some(String::new()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(String::new);
+
+                let parent_activity_id = complex_obj
+                    .extended_properties
+                    .get("ParentActivityId")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
+                        _ => None,
+                    })
+                    .unwrap_or(-1);
+
+                let percent_complete = complex_obj
+                    .extended_properties
+                    .get("PercentComplete")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::I32(percent)) => Some(*percent),
+                        _ => None,
+                    })
+                    .unwrap_or(-1);
+
+                let seconds_remaining = complex_obj
+                    .extended_properties
+                    .get("SecondsRemaining")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
+                        _ => None,
+                    })
+                    .unwrap_or(-1);
+
+                // Extract the record type from the nested Type object
+                let record_type = complex_obj
+                    .extended_properties
+                    .get("Type")
+                    .and_then(|prop| match &prop.value {
+                        PsValue::Object(type_obj) => match &type_obj.content {
+                            ComplexObjectContent::PsEnums(enums) => Some(enums.value),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+
+                let progress_record = methods::ProgressRecord {
+                    activity,
+                    status_description,
+                    current_operation,
+                    activity_id,
+                    parent_activity_id,
+                    percent_complete,
+                    seconds_remaining,
+                    record_type,
+                };
+
+                Ok((source_id, progress_record))
+            }
+            _ => Err(HostError::InvalidParameters),
+        }
     }
 }
 

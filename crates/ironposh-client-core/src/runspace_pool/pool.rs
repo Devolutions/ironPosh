@@ -784,7 +784,7 @@ impl RunspacePool {
         // Convert business pipeline to protocol pipeline and build CreatePipeline message
         let protocol_pipeline = pipeline.to_protocol_pipeline()?;
         let create_pipeline = CreatePipeline::builder()
-            .power_shell(protocol_pipeline)
+            .pipeline(protocol_pipeline)
             .host_info(self.host_info.clone())
             .apartment_state(self.apartment_state)
             .build();
@@ -807,6 +807,35 @@ impl RunspacePool {
             None,
             None,
         )?;
+
+        Ok(request.into().to_xml_string()?)
+    }
+
+    pub fn kill_pipeline_request(
+        &mut self,
+        handle: PipelineHandle,
+    ) -> Result<String, PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state == PsInvocationState::Stopped
+            || pipeline.state == PsInvocationState::Completed
+            || pipeline.state == PsInvocationState::Failed
+        {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot kill a pipeline that is already stopped, completed, or failed",
+            ));
+        }
+
+        // Set pipeline state to Stopping
+        pipeline.state = PsInvocationState::Stopping;
+        info!(pipeline_id = %handle.id(), "Killing pipeline");
+
+        let request = self
+            .shell
+            .stop_pipeline_request(&self.connection, handle.id())?;
 
         Ok(request.into().to_xml_string()?)
     }
@@ -848,9 +877,7 @@ impl RunspacePool {
         };
 
         HostCall::try_from_pipeline(scope, pipeline_host_call).map_err(|e| {
-            crate::PwshCoreError::InvalidResponse(
-                format!("Failed to parse host call: {e}").into(),
-            )
+            crate::PwshCoreError::InvalidResponse(format!("Failed to parse host call: {e}").into())
         })
     }
 

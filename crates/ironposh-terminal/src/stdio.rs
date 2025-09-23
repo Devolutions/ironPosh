@@ -63,9 +63,11 @@ impl<'a> StdTerm<'a> {
 
     /// Line-buffered input with prompt. Filters key repeats; supports paste.
     pub fn read_line(&mut self, prompt: &str) -> io::Result<ReadOutcome> {
-        self.write_all(b"\r")?; // ensure column 0
-        self.write_all(prompt.as_bytes())?;
-        self.flush()?; // show prompt
+        if !prompt.is_empty() {
+            self.write_all(b"\r")?; // ensure column 0
+            self.write_all(prompt.as_bytes())?;
+            self.flush()?; // show prompt
+        }
 
         let mut line = String::new();
 

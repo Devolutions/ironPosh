@@ -45,8 +45,10 @@ impl PipelineCommand {
     }
 
     pub fn new_output_stream() -> PipelineCommand {
-        
-        PipelineCommand::new_command("Out-String".to_string())
+        PipelineCommand::new_command("Out-String".to_string()).with_parameter(Parameter::Switch {
+            name: "-Stream".to_owned(),
+            value: true,
+        })
     }
 }
 

@@ -337,6 +337,20 @@ impl WinRunspace {
 
         Ok(command_id.0)
     }
+
+    pub(crate) fn stop_pipeline_request(
+        &self,
+        connection: &WsMan,
+        id: Uuid,
+    ) -> Result<impl Into<Element>, crate::PwshCoreError> {
+        connection.invoke(
+            ws_management::WsAction::Send,
+            resource_uri,
+            resource_body,
+            option_set,
+            selector_set,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -63,7 +63,7 @@ impl UIHanlder {
                             UserOperation::OperatePipeline {
                                 powershell: pipeline_handle,
                                 operation: PowershellOperations::AddCommand {
-                                    command: PipelineCommand::new_command(command.to_string()),
+                                    command: PipelineCommand::new_script(command.to_string()),
                                 },
                             },
                             UserOperation::OperatePipeline {

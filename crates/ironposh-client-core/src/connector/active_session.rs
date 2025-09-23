@@ -281,7 +281,6 @@ impl ActiveSession {
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
                 AcceptResponsResult::PipelineCreated(powershell) => {
-                    // // 3) Queue a receive for the pipeline streams
                     let recv_xml = self
                         .runspace_pool
                         .fire_receive(DesiredStream::pipeline_streams(powershell.id()))?;

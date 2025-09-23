@@ -259,6 +259,11 @@ fn run_event_loop(
                             let _ = ui_tx.send(UIInputEvent::UiOp(UiOp::Apply(ops)));
                             result_transport.accept_result(())
                         }
+                        HostCall::WriteProgress { transport } => {
+                            let (params, result_transport) = transport.into_parts();
+
+                            result_transport.accept_result(())
+                        }
                         _ => {
                             warn!("Unhandled host call type: {}", host_call.method_name());
                             todo!("Handle other host call types")
