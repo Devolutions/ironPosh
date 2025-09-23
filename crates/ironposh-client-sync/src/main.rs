@@ -8,9 +8,9 @@ mod ui_handler;
 
 use anyhow::Context;
 use clap::Parser;
+use ironposh_client_core::connector::conntion_pool::TrySend;
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::ActiveSessionOutput;
-use ironposh_client_core::connector::conntion_pool::TrySend;
 use ironposh_client_core::host::HostCall;
 use ironposh_terminal::{Terminal, TerminalOp};
 use std::sync::mpsc;
@@ -234,17 +234,22 @@ fn run_event_loop(
                             let rect = params.0;
                             let cell = params.1;
 
-                            // PowerShell "clear screen" fast path (same semantics you had)
-                            let is_clear = cell.character == ' ' && rect.left == 0 && rect.top == 0;
+                            // PowerShell "clear screen" fast path - handle both normal and sentinel cases
+                            let is_clear = cell.character == ' '
+                                && (
+                                    (rect.left == 0 && rect.top == 0) ||  // Normal clear screen
+                                   (rect.left == -1 && rect.top == -1 && rect.right == -1 && rect.bottom == -1)
+                                    // Sentinel: fill entire buffer
+                                );
 
                             let ops = if is_clear {
                                 vec![TerminalOp::ClearScreen]
                             } else {
                                 vec![TerminalOp::FillRect {
-                                    left: rect.left as u16,
-                                    top: rect.top as u16,
-                                    right: rect.right as u16,
-                                    bottom: rect.bottom as u16,
+                                    left: rect.left.max(0) as u16,
+                                    top: rect.top.max(0) as u16,
+                                    right: rect.right.max(0) as u16,
+                                    bottom: rect.bottom.max(0) as u16,
                                     ch: cell.character,
                                     fg: cell.foreground as u8,
                                     bg: cell.background as u8,

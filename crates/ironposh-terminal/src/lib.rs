@@ -49,6 +49,7 @@ impl Terminal {
 
     /// Apply a single terminal operation
     pub fn apply_op(&mut self, op: TerminalOp) {
+        debug!(?op, "Applying terminal operation");
         self.guest.apply(op);
     }
 

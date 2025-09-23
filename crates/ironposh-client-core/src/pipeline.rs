@@ -45,8 +45,8 @@ impl PipelineCommand {
     }
 
     pub fn new_output_stream() -> PipelineCommand {
-        let command = PipelineCommand::new_command("Out-String".to_string());
-        command
+        
+        PipelineCommand::new_command("Out-String".to_string())
     }
 }
 

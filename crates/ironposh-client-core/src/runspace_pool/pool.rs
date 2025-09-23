@@ -849,7 +849,7 @@ impl RunspacePool {
 
         HostCall::try_from_pipeline(scope, pipeline_host_call).map_err(|e| {
             crate::PwshCoreError::InvalidResponse(
-                format!("Failed to parse host call: {}", e).into(),
+                format!("Failed to parse host call: {e}").into(),
             )
         })
     }

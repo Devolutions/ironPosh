@@ -1,10 +1,16 @@
 use super::TerminalOp;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillArea {
+    /// Fill the entire screen
+    FullScreen,
+    /// Fill a specific rectangular area
+    Rectangle { l: u16, t: u16, r: u16, b: u16 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FillRectParams {
-    pub l: u16,
-    pub t: u16,
-    pub r: u16,
-    pub b: u16,
+    pub area: FillArea,
     pub ch: char,
     pub fg: u8,
     pub bg: u8,
@@ -46,15 +52,15 @@ impl GuestTerm {
                 ch,
                 fg,
                 bg,
-            } => self.fill_rect(FillRectParams {
-                l: left,
-                t: top,
-                r: right,
-                b: bottom,
-                ch,
-                fg,
-                bg,
-            }),
+            } => {
+                let area = FillArea::Rectangle {
+                    l: left,
+                    t: top,
+                    r: right,
+                    b: bottom,
+                };
+                self.fill_rect(FillRectParams { area, ch, fg, bg });
+            }
         }
     }
 
@@ -64,30 +70,37 @@ impl GuestTerm {
     }
 
     fn fill_rect(&mut self, rect: FillRectParams) {
-        let FillRectParams {
-            l,
-            t,
-            r,
-            b,
-            ch,
-            fg,
-            bg,
-        } = rect;
-        if ch == ' ' && l == 0 && t == 0 {
-            self.feed(b"\x1b[2J\x1b[H");
-            return;
+        let FillRectParams { area, ch, fg, bg } = rect;
+
+        match area {
+            FillArea::FullScreen => {
+                // Clear the entire screen
+                self.feed(b"\x1b[2J\x1b[H");
+            }
+            FillArea::Rectangle { l, t, r, b } => {
+                // Handle specific rectangle fill
+                if ch == ' ' && l == 0 && t == 0 {
+                    self.feed(b"\x1b[2J\x1b[H");
+                    return;
+                }
+
+                let fg = idx_to_sgr_fg(fg);
+                let bg = idx_to_sgr_bg(bg);
+                self.feed(b"\x1b7"); // save cursor
+
+                // Use wider arithmetic to prevent overflow
+                let width = (r as u32 - l as u32 + 1) as usize;
+                let run = ch.to_string().repeat(width);
+                let sgr = format!("\x1b[{fg};{bg}m");
+
+                for y in t..=b {
+                    // Use u32 arithmetic to prevent overflow when adding 1
+                    let seq = format!("\x1b[{};{}H{}{}", (y as u32) + 1, (l as u32) + 1, sgr, run);
+                    self.feed(seq.as_bytes());
+                }
+                self.feed(b"\x1b[0m\x1b8"); // reset attrs + restore cursor
+            }
         }
-        let fg = idx_to_sgr_fg(fg);
-        let bg = idx_to_sgr_bg(bg);
-        self.feed(b"\x1b7"); // save cursor
-        let width = (r - l + 1) as usize;
-        let run = ch.to_string().repeat(width);
-        let sgr = format!("\x1b[{fg};{bg}m");
-        for y in t..=b {
-            let seq = format!("\x1b[{};{}H{}{}", y + 1, l + 1, sgr, run);
-            self.feed(seq.as_bytes());
-        }
-        self.feed(b"\x1b[0m\x1b8"); // reset attrs + restore cursor
     }
 
     /// Produce bytes to render: full on first frame, diffs after, and keep host cursor in sync.
