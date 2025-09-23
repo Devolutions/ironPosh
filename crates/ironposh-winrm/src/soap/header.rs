@@ -22,7 +22,7 @@ pub struct SoapHeaders<'a> {
     #[builder(default, setter(into, strip_option))]
     pub message_id: Option<Tag<'a, WsUuid, MessageID>>,
     #[builder(default, setter(into, strip_option))]
-    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>,
+    pub relates_to: Option<Tag<'a, WsUuid, RelatesTo>>,
 
     /// WS-Management headers
     #[builder(default, setter(into, strip_option))]

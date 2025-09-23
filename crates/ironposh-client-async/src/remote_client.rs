@@ -255,7 +255,7 @@ impl RemoteAsyncPowershellClient {
             let events = self.receive_from_pipeline(new_pipeline_id).await?;
             info!(pipeline_id = %new_pipeline_id, event_count = events.len(), "received events from pipeline");
             for event in events {
-                if let UserEvent::PipelineCreated { powershell } = event {
+                if let UserEvent::PipelineCreated { pipeline } = event {
                     // Definatly the same, just check to be sure
                     debug_assert!(powershell.id() == new_pipeline_id);
                     break 'outer powershell;
@@ -307,12 +307,12 @@ impl RemoteAsyncPowershellClient {
             info!(pipeline_id = %new_pipeline_id, event_count = events.len(), "received events from pipeline");
             for event in events {
                 match event {
-                    UserEvent::PipelineOutput { output, powershell } => {
+                    UserEvent::PipelineOutput { output, pipeline } => {
                         debug_assert!(powershell.id() == new_pipeline_id);
                         info!(pipeline_id = %new_pipeline_id, output = ?output, "received pipeline output");
                         result.push_str(&output.format_as_displyable_string()?);
                     }
-                    UserEvent::PipelineFinished { powershell } => {
+                    UserEvent::PipelineFinished { pipeline } => {
                         debug_assert!(powershell.id() == new_pipeline_id);
                         info!(pipeline_id = %new_pipeline_id, "pipeline finished");
                         pipeline_ended = true;

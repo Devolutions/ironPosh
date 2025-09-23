@@ -122,7 +122,6 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     .inspect_err(|e| error!("Error in main event loop: {}", e))?;
 
     info!("Exiting main function");
-    // Clean up threads (they will exit when channels are dropped)
     drop(network_handle);
     drop(user_handle);
     Ok(())
@@ -143,7 +142,7 @@ fn run_event_loop(
 
         info!(next_step = %next_step, "processing step");
 
-        let step_results = match next_step {
+        let steps = match next_step {
             NextStep::NetworkResponse(http_response) => {
                 info!(
                     target: "network",
@@ -173,13 +172,13 @@ fn run_event_loop(
         };
 
         info!(
-            step_result_count = step_results.len(),
+            step_result_count = steps.len(),
             "received server response, processing step results"
         );
 
-        for step_result in step_results {
-            info!(step_result = ?step_result, "processing step result");
-            match step_result {
+        for step in steps {
+            info!(step = ?step, "processing step result");
+            match step {
                 ActiveSessionOutput::SendBack(http_requests) => {
                     info!(
                         target: "network",

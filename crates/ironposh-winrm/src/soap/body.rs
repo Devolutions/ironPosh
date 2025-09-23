@@ -25,7 +25,7 @@ pub struct SoapBody<'a> {
     #[builder(default, setter(into, strip_option))]
     pub delete: Option<Tag<'a, Text<'a>, Delete>>,
     #[builder(default, setter(into, strip_option))]
-    pub enumerate: Option<Tag<'a, TagList<'a>, Enumerate>>,
+    pub enumerate: Option<Tag<'a, ReadOnlyUnParsed<'a>, Enumerate>>,
     #[builder(default, setter(into, strip_option))]
     pub pull: Option<Tag<'a, TagList<'a>, Pull>>,
     #[builder(default, setter(into, strip_option))]
@@ -53,7 +53,9 @@ pub struct SoapBody<'a> {
     #[builder(default, setter(into, strip_option))]
     pub send: Option<Tag<'a, Text<'a>, Send>>,
     #[builder(default, setter(into, strip_option))]
-    pub signal: Option<Tag<'a, TagList<'a>, Signal>>,
+    pub signal: Option<Tag<'a, Tag<'a, Text<'a>, SignalCode>, Signal>>,
+    #[builder(default, setter(into, strip_option))]
+    pub signal_response: Option<Tag<'a, Empty, SignalResponse>>,
 
     /// SOAP fault handling
     #[builder(default, setter(into, strip_option))]

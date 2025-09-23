@@ -62,7 +62,8 @@ impl FromParams for i64 {
 
 impl FromParams for (i32,) {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
-        let param = a.first()
+        let param = a
+            .first()
             .and_then(|v| v.as_i32())
             .ok_or(HostError::InvalidParameters)?;
         Ok((param,))
@@ -71,7 +72,8 @@ impl FromParams for (i32,) {
 
 impl FromParams for (String,) {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
-        let param = a.first()
+        let param = a
+            .first()
             .and_then(|v| v.as_string())
             .ok_or(HostError::InvalidParameters)?;
         Ok((param,))

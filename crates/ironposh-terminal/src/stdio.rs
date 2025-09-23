@@ -61,6 +61,129 @@ impl<'a> StdTerm<'a> {
         Ok(())
     }
 
+    /// Shared event handler for line editing and one-off checks.
+    /// When `edit_line` is false, printable/paste/backspace are ignored and we only
+    /// react to Enter / Ctrl+C / Ctrl+D(^Z on Windows) / Resize.
+    fn process_event(
+        &mut self,
+        line: &mut String,
+        evt: Event,
+        edit_line: bool,
+    ) -> io::Result<Option<ReadOutcome>> {
+        match evt {
+            Event::Resize(cols, rows) => {
+                self.term.on_host_resize(cols, rows);
+                // Keep the prompt crisp after a resize.
+                self.term.render().map_err(io::Error::other)?;
+                Ok(None)
+            }
+
+            // ---- ENTER ----
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Enter,
+                ..
+            }) => {
+                self.write_all(b"\r\n")?;
+                self.flush()?;
+                // Return accumulated line when editing; empty string in one-off mode.
+                let out = if edit_line {
+                    std::mem::take(line)
+                } else {
+                    String::new()
+                };
+                Ok(Some(ReadOutcome::Line(out)))
+            }
+
+            // ---- BACKSPACE ----
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Backspace,
+                ..
+            }) if edit_line => {
+                if !line.is_empty() {
+                    line.pop();
+                    self.write_all(b"\x08 \x08")?; // BS, erase, BS
+                    self.flush()?;
+                }
+                Ok(None)
+            }
+
+            // ---- CTRL+C → Interrupt ----
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Char('c'),
+                modifiers,
+                ..
+            }) if modifiers.contains(KeyModifiers::CONTROL) => {
+                // Visual ACK like real shells:
+                self.write_all(b"^C\r\n")?;
+                self.flush()?;
+                Ok(Some(ReadOutcome::Interrupt))
+            }
+
+            // ---- CTRL+D / CTRL+Z → EOF ----
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Char(ch),
+                modifiers,
+                ..
+            }) if modifiers.contains(KeyModifiers::CONTROL)
+                && (ch == 'd' || (cfg!(windows) && ch == 'z')) =>
+            {
+                // Only emit EOF if the current line is empty (or we're in one-off mode).
+                if !edit_line || line.is_empty() {
+                    self.write_all(b"\r\n")?;
+                    self.flush()?;
+                    Ok(Some(ReadOutcome::Eof))
+                } else {
+                    Ok(None)
+                }
+            }
+
+            // ---- Printable ----
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Press,
+                code: KeyCode::Char(c),
+                modifiers,
+                ..
+            }) if edit_line && !modifiers.contains(KeyModifiers::CONTROL) => {
+                let mut buf = [0u8; 4];
+                let s = c.encode_utf8(&mut buf);
+                line.push(c);
+                self.write_all(s.as_bytes())?;
+                self.flush()?;
+                Ok(None)
+            }
+
+            // ---- Paste ----
+            Event::Paste(s) if edit_line => {
+                line.push_str(&s);
+                self.write_all(s.as_bytes())?;
+                self.flush()?;
+                Ok(None)
+            }
+
+            _ => Ok(None),
+        }
+    }
+
+    /// Non-blocking, one-shot check: returns immediately with:
+    ///   - Some(Interrupt) on ^C
+    ///   - Some(Eof) on ^D (or ^Z on Windows) when no text is pending
+    ///   - Some(Line("")) if Enter is pressed
+    ///   - None if nothing relevant happened
+    pub fn try_read_line(&mut self) -> io::Result<Option<ReadOutcome>> {
+        // Zero-timeout poll: do not block.
+        if !event::poll(Duration::from_millis(0))? {
+            return Ok(None);
+        }
+        let evt = event::read()?;
+        // In one-off mode we *don't* edit/echo arbitrary characters or backspace.
+        let mut scratch = String::new();
+        self.process_event(&mut scratch, evt, /*edit_line=*/ false)
+    }
+
     /// Line-buffered input with prompt. Filters key repeats; supports paste.
     pub fn read_line(&mut self, prompt: &str) -> io::Result<ReadOutcome> {
         if !prompt.is_empty() {
@@ -73,93 +196,11 @@ impl<'a> StdTerm<'a> {
 
         loop {
             if event::poll(Duration::from_millis(50))? {
-                match event::read()? {
-                    Event::Resize(cols, rows) => {
-                        self.term.on_host_resize(cols, rows);
-                        // Optional: repaint immediately so the prompt stays crisp after resize
-                        self.term.render().map_err(io::Error::other)?;
-                        continue;
-                    }
-                    // ---- ENTER ----
-                    Event::Key(KeyEvent {
-                        kind: KeyEventKind::Press,
-                        code: KeyCode::Enter,
-                        ..
-                    }) => {
-                        self.write_all(b"\r\n")?;
-                        self.flush()?;
-                        return Ok(ReadOutcome::Line(line));
-                    }
-
-                    // ---- BACKSPACE ----
-                    Event::Key(KeyEvent {
-                        kind: KeyEventKind::Press,
-                        code: KeyCode::Backspace,
-                        ..
-                    }) => {
-                        if !line.is_empty() {
-                            line.pop();
-                            self.write_all(b"\x08 \x08")?; // BS, erase, BS
-                            self.flush()?;
-                        }
-                    }
-
-                    // ---- CTRL+C → Interrupt ----
-                    Event::Key(KeyEvent {
-                        kind: KeyEventKind::Press,
-                        code: KeyCode::Char('c'),
-                        modifiers,
-                        ..
-                    }) if modifiers.contains(KeyModifiers::CONTROL) => {
-                        // Visual ACK like real shells:
-                        self.write_all(b"^C\r\n")?;
-                        self.flush()?;
-                        return Ok(ReadOutcome::Interrupt);
-                    }
-
-                    // ---- CTRL+D / CTRL+Z → EOF ----
-                    Event::Key(KeyEvent {
-                        kind: KeyEventKind::Press,
-                        code: KeyCode::Char(ch),
-                        modifiers,
-                        ..
-                    }) if modifiers.contains(KeyModifiers::CONTROL)
-                        && (
-                            (ch == 'd') ||                                    // UNIX ^D
-                        (cfg!(windows) && ch == 'z')
-                            // Windows ^Z
-                        ) =>
-                    {
-                        if line.is_empty() {
-                            self.write_all(b"\r\n")?;
-                            self.flush()?;
-                            return Ok(ReadOutcome::Eof);
-                        }
-                        // If there's text, ignore like many shells do.
-                    }
-
-                    // ---- Printable ----
-                    Event::Key(KeyEvent {
-                        kind: KeyEventKind::Press,
-                        code: KeyCode::Char(c),
-                        modifiers,
-                        ..
-                    }) if !modifiers.contains(KeyModifiers::CONTROL) => {
-                        let mut buf = [0u8; 4];
-                        let s = c.encode_utf8(&mut buf);
-                        line.push(c);
-                        self.write_all(s.as_bytes())?;
-                        self.flush()?;
-                    }
-
-                    // ---- Paste ----
-                    Event::Paste(s) => {
-                        line.push_str(&s);
-                        self.write_all(s.as_bytes())?;
-                        self.flush()?;
-                    }
-
-                    _ => {}
+                let evt = event::read()?;
+                if let Some(outcome) =
+                    self.process_event(&mut line, evt, /*edit_line=*/ true)?
+                {
+                    return Ok(outcome);
                 }
             }
 

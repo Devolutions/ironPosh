@@ -55,6 +55,9 @@ pub struct WinRunspace {
 
     #[builder(default)]
     opened: bool,
+
+    #[builder(default)]
+    signal_messages: std::collections::HashMap<Uuid, Uuid>,
 }
 
 impl WinRunspace {
@@ -198,7 +201,8 @@ impl WinRunspace {
         Ok((streams, command_state))
     }
 
-    pub fn accept_create_response<'a>(
+    #[instrument(skip_all)]
+    pub(crate) fn accept_create_response<'a>(
         &mut self,
         soap_envelop: &SoapEnvelope<'a>,
     ) -> Result<(), crate::PwshCoreError> {
@@ -249,6 +253,30 @@ impl WinRunspace {
         self.opened = true;
 
         Ok(())
+    }
+
+    /// Accept a SignalResponse and match it's message ID to a previously sent Signal request
+    /// If matched, return the associated CommandId
+    pub(crate) fn accept_signal_response<'a>(
+        &mut self,
+        soap_envelope: &SoapEnvelope<'a>,
+    ) -> Result<Option<Uuid>, crate::PwshCoreError> {
+        let message_id = soap_envelope
+            .header
+            .as_ref()
+            .and_then(|h| h.as_ref().relates_to.clone())
+            .ok_or(crate::PwshCoreError::UnlikelyToHappen(
+                "Missing MessageId in Signal response",
+            ))?
+            .value
+            .0;
+
+        if let Some(command_id) = self.signal_messages.remove(&message_id) {
+            Ok(Some(command_id))
+        } else {
+            debug!(message_id = %message_id, "Received Signal response with unknown MessageId");
+            Ok(None)
+        }
     }
 
     pub(crate) fn create_pipeline_request<'a>(
@@ -338,18 +366,56 @@ impl WinRunspace {
         Ok(command_id.0)
     }
 
-    pub(crate) fn stop_pipeline_request(
-        &self,
-        connection: &WsMan,
+    pub(crate) fn terminal_pipeline_signal<'a>(
+        &'a mut self,
+        connection: &'a WsMan,
         id: Uuid,
-    ) -> Result<impl Into<Element>, crate::PwshCoreError> {
-        connection.invoke(
-            ws_management::WsAction::Send,
-            resource_uri,
-            resource_body,
-            option_set,
+    ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
+        use ironposh_winrm::cores::{
+            Namespace,
+            tag_name::{Signal, SignalCode},
+        };
+
+        // Build <rsp:Code>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_c</rsp:Code>
+        let code = Tag::from_name(SignalCode).with_value(Text::from(
+            "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/terminate",
+        ));
+
+        // Build <w:Signal CommandId="...">...</w:Signal>
+        let signal = Tag::from_name(Signal)
+            .with_attribute(Attribute::CommandId(id))
+            .with_value(code)
+            .with_declaration(Namespace::WsmanShell);
+
+        // Keepalive is what you already use on Send/Receive
+        let option_set = OptionSetValue::default()
+            .add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", true.to_string());
+
+        // Reuse the shell's selector set that was captured on create
+        let selector_set = self.selector_set.clone().into();
+
+        let body = connection.invoke(
+            ws_management::WsAction::Signal,
+            Some(self.resource_uri.as_ref()),
+            SoapBody::builder().signal(signal).build(),
+            Some(option_set),
             selector_set,
-        )
+        );
+
+        let message_id = body
+            .as_ref()
+            .header
+            .as_ref()
+            .and_then(|h| h.as_ref().message_id.clone())
+            .ok_or(crate::PwshCoreError::UnlikelyToHappen(
+                "Missing MessageId in Signal response",
+            ))?
+            .value
+            .0;
+
+        self.signal_messages.insert(message_id, id);
+
+        Ok(body)
     }
 }
 

@@ -51,6 +51,8 @@ define_tagname!(CommandState, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ExitCode, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Send, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
+define_tagname!(SignalResponse, Some(Namespace::WsmanShell.uri()));
+define_custom_tagname!(SignalCode, "Code", Some(Namespace::WsmanShell.uri()));
 define_tagname!(Arguments, Some(Namespace::WsmanShell.uri()));
 
 // ====================

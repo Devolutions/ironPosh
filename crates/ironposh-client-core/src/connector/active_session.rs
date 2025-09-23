@@ -14,13 +14,13 @@ use tracing::{error, info, instrument, warn};
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
     PipelineCreated {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
     },
     PipelineFinished {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
     },
     PipelineOutput {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
         output: PipelineOutput,
     },
 }
@@ -28,9 +28,16 @@ pub enum UserEvent {
 impl UserEvent {
     pub fn pipeline_id(&self) -> uuid::Uuid {
         match self {
-            UserEvent::PipelineCreated { powershell }
-            | UserEvent::PipelineFinished { powershell }
-            | UserEvent::PipelineOutput { powershell, .. } => powershell.id(),
+            UserEvent::PipelineCreated {
+                pipeline: powershell,
+            }
+            | UserEvent::PipelineFinished {
+                pipeline: powershell,
+            }
+            | UserEvent::PipelineOutput {
+                pipeline: powershell,
+                ..
+            } => powershell.id(),
         }
     }
 }
@@ -89,6 +96,9 @@ pub enum UserOperation {
     InvokePipeline {
         powershell: PipelineHandle,
     },
+    KillPipeline {
+        powershell: PipelineHandle,
+    },
     /// reply to a server-initiated host call
     SubmitHostResponse {
         submission: Submission,
@@ -101,6 +111,19 @@ pub enum UserOperation {
         call_id: i64,
         reason: Option<String>,
     },
+}
+
+impl UserOperation {
+    pub fn operation_type(&self) -> &str {
+        match self {
+            UserOperation::CreatePipeline { .. } => "CreatePipeline",
+            UserOperation::OperatePipeline { .. } => "OperatePipeline",
+            UserOperation::InvokePipeline { .. } => "InvokePipeline",
+            UserOperation::KillPipeline { .. } => "KillPipeline",
+            UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse",
+            UserOperation::CancelHostCall { .. } => "CancelHostCall",
+        }
+    }
 }
 
 /// Manages post-connect PSRP operations. Produces `TrySend` for the caller to send.
@@ -120,13 +143,7 @@ impl ActiveSession {
     }
 
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
-    #[instrument(skip_all, fields(operation_type = %match &operation {
-        UserOperation::CreatePipeline { uuid } => format!("CreatePipeline({uuid})"),
-        UserOperation::OperatePipeline { powershell, .. } => format!("OperatePipeline({})", powershell.id()),
-        UserOperation::InvokePipeline { powershell } => format!("InvokePipeline({})", powershell.id()),
-        UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse".to_string(),
-        UserOperation::CancelHostCall { .. } => "CancelHostCall".to_string(),
-    }))]
+    #[instrument(skip_all, fields(operation_type = operation.operation_type()))]
     pub fn accept_client_operation(
         &mut self,
         operation: UserOperation,
@@ -138,7 +155,7 @@ impl ActiveSession {
                 let handle = self.runspace_pool.init_pipeline(uuid)?;
                 info!(pipeline_id = %handle.id(), "pipeline created successfully");
                 Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                    powershell: handle,
+                    pipeline: handle,
                 }))
             }
 
@@ -173,6 +190,19 @@ impl ActiveSession {
                 Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
 
+            UserOperation::KillPipeline { powershell } => {
+                info!(pipeline_id = %powershell.id(), "killing pipeline");
+
+                // 1) Build the Signal request
+                let kill_xml = self.runspace_pool.kill_pipeline(powershell)?;
+                info!(xml_length = kill_xml.len(), "built kill XML request");
+
+                // 2) Send signal
+                let ts_send = self.connection_pool.send(&kill_xml)?;
+                info!(signal_request = ?ts_send, "queued signal request");
+
+                Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
+            }
             UserOperation::SubmitHostResponse {
                 submission, scope, ..
             } => {
@@ -280,10 +310,10 @@ impl ActiveSession {
                     info!(try_send = ?ts, "queued receive request");
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
-                AcceptResponsResult::PipelineCreated(powershell) => {
+                AcceptResponsResult::PipelineCreated(pipeline) => {
                     let recv_xml = self
                         .runspace_pool
-                        .fire_receive(DesiredStream::pipeline_streams(powershell.id()))?;
+                        .fire_receive(DesiredStream::pipeline_streams(pipeline.id()))?;
 
                     info!(
                         recv_xml_length = recv_xml.len(),
@@ -293,15 +323,15 @@ impl ActiveSession {
                     let send_recv = self.connection_pool.send(&recv_xml)?;
 
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                        powershell,
+                        pipeline,
                     }));
 
                     outs.push(ActiveSessionOutput::SendBack(vec![send_recv]));
                 }
-                AcceptResponsResult::PipelineFinished(powershell) => {
-                    info!(pipeline_id = %powershell.id(), "pipeline finished");
+                AcceptResponsResult::PipelineFinished(pipeline) => {
+                    info!(pipeline_id = %pipeline.id(), "pipeline finished");
                     outs.push(ActiveSessionOutput::UserEvent(
-                        UserEvent::PipelineFinished { powershell },
+                        UserEvent::PipelineFinished { pipeline },
                     ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
@@ -311,7 +341,7 @@ impl ActiveSession {
                 AcceptResponsResult::PipelineOutput { output, handle } => {
                     info!(pipeline_id = %handle.id(), output_type = ?output, "pipeline output received");
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
-                        powershell: handle,
+                        pipeline: handle,
                         output,
                     }));
                 }

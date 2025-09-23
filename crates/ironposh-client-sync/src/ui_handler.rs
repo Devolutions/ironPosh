@@ -2,7 +2,6 @@ use anyhow::Context;
 use ironposh_client_core::connector::active_session::{self, PowershellOperations, UserEvent};
 use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
-use ironposh_client_core::powershell::PipelineHandle;
 use ironposh_terminal::{ReadOutcome, Terminal};
 use std::io::Write;
 use std::sync::mpsc;
@@ -30,21 +29,21 @@ impl UIHanlder {
 
     pub fn run(&mut self, mut terminal: Terminal) -> anyhow::Result<()> {
         let mut io = terminal.stdio(); // stdio-like wrapper
-        let mut pipeline: Option<PipelineHandle> = None;
 
         // boot pipeline as before
         self.user_request_tx.send(UserOperation::CreatePipeline {
             uuid: uuid::Uuid::new_v4(),
         })?;
 
-        let UIInputEvent::UserEvent(UserEvent::PipelineCreated { powershell }) =
-            self.unified_rx.recv()?
+        let UIInputEvent::UserEvent(UserEvent::PipelineCreated {
+            pipeline: powershell,
+        }) = self.unified_rx.recv()?
         else {
             anyhow::bail!("Expected initial PipelineCreated event");
         };
 
         info!(pipeline_id = %powershell.id(), "initial pipeline created");
-        pipeline = Some(powershell);
+        let mut pipeline = Some(powershell);
 
         'ui: loop {
             match io.read_line("> ")? {
@@ -84,11 +83,36 @@ impl UIHanlder {
                         }
                     }
                 }
-                ReadOutcome::Interrupt => continue, // reprompt (like shells)
+                ReadOutcome::Interrupt => {
+                    // Send KillPipeline if there's an active pipeline
+                    if let Some(pipeline_handle) = pipeline {
+                        info!(pipeline_id = %pipeline_handle.id(), "sending ctrl-c signal to pipeline");
+                        self.user_request_tx
+                            .send(UserOperation::KillPipeline {
+                                powershell: pipeline_handle,
+                            })
+                            .context("Failed to send kill pipeline operation")?;
+                    }
+                    continue; // reprompt (like shells)
+                }
                 ReadOutcome::Eof => break Ok(()),
             }
 
             'receive: while let Ok(event) = self.unified_rx.recv() {
+                let read_outcome = io.try_read_line()?;
+                if let Some(ReadOutcome::Interrupt) = read_outcome {
+                    // User pressed Ctrl+C while waiting for events
+                    if let Some(pipeline_handle) = pipeline {
+                        info!(pipeline_id = %pipeline_handle.id(), "sending ctrl-c signal to pipeline");
+                        self.user_request_tx
+                            .send(UserOperation::KillPipeline {
+                                powershell: pipeline_handle,
+                            })
+                            .context("Failed to send kill pipeline operation")?;
+                    }
+                    continue 'receive;
+                }
+
                 match event {
                     UIInputEvent::UiOp(op) => {
                         match op {
@@ -107,12 +131,16 @@ impl UIHanlder {
                     }
                     UIInputEvent::UserEvent(user_event) => {
                         match user_event {
-                            active_session::UserEvent::PipelineCreated { powershell } => {
+                            active_session::UserEvent::PipelineCreated {
+                                pipeline: powershell,
+                            } => {
                                 info!(pipeline_id = %powershell.id(), "pipeline created");
                                 pipeline = Some(powershell);
                                 continue 'ui;
                             }
-                            active_session::UserEvent::PipelineFinished { powershell } => {
+                            active_session::UserEvent::PipelineFinished {
+                                pipeline: powershell,
+                            } => {
                                 info!(pipeline_id = %powershell.id(), "pipeline finished");
                                 if let Some(current_pipeline) = &pipeline {
                                     if *current_pipeline == powershell {
@@ -126,7 +154,10 @@ impl UIHanlder {
                                 }
                                 continue 'receive;
                             }
-                            active_session::UserEvent::PipelineOutput { output, powershell } => {
+                            active_session::UserEvent::PipelineOutput {
+                                output,
+                                pipeline: powershell,
+                            } => {
                                 info!(pipeline_id = %powershell.id(), ?output, "pipeline output");
                                 if let Some(current_pipeline) = &pipeline {
                                     if *current_pipeline == powershell {

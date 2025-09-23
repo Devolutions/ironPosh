@@ -353,9 +353,6 @@ impl RunspacePool {
         if soap_envelope.body.as_ref().command_response.is_some() {
             let pipeline_id = self.shell.accept_commannd_response(&soap_envelope)?;
 
-            // We have received the pipeline creation response
-            // 1. update the state of the pipeline
-            // 2. fire receive request for the new pipeline
             self.pipelines
                 .get_mut(&pipeline_id)
                 .ok_or(crate::PwshCoreError::InvalidResponse(
@@ -366,6 +363,27 @@ impl RunspacePool {
             result.push(AcceptResponsResult::ReceiveResponse {
                 desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
             });
+        }
+
+        if soap_envelope.body.as_ref().signal_response.is_some() {
+            let pipeline_id = self.shell.accept_signal_response(&soap_envelope)?;
+            match pipeline_id {
+                None => {
+                    // Don't know what to do with it
+                }
+                Some(id) => match self.pipelines.remove(&id) {
+                    None => {
+                        warn!(
+                            target: "signal",
+                            pipeline_id = ?id,
+                            "received signal response for unknown pipeline"
+                        );
+                    }
+                    Some(_) => {
+                        result.push(AcceptResponsResult::PipelineFinished(PipelineHandle { id }));
+                    }
+                },
+            }
         }
 
         debug!(
@@ -811,10 +829,7 @@ impl RunspacePool {
         Ok(request.into().to_xml_string()?)
     }
 
-    pub fn kill_pipeline_request(
-        &mut self,
-        handle: PipelineHandle,
-    ) -> Result<String, PwshCoreError> {
+    pub fn kill_pipeline(&mut self, handle: PipelineHandle) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
@@ -835,7 +850,7 @@ impl RunspacePool {
 
         let request = self
             .shell
-            .stop_pipeline_request(&self.connection, handle.id())?;
+            .terminal_pipeline_signal(&self.connection, handle.id())?;
 
         Ok(request.into().to_xml_string()?)
     }
