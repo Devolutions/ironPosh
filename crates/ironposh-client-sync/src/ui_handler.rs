@@ -3,32 +3,29 @@ use ironposh_client_core::connector::active_session::{self, PowershellOperations
 use ironposh_client_core::connector::UserOperation;
 use ironposh_client_core::pipeline::PipelineCommand;
 use ironposh_client_core::powershell::PipelineHandle;
-use ironposh_terminal::{ReadOutcome, StdTerm, Terminal};
+use ironposh_terminal::{ReadOutcome, Terminal};
 use std::io::Write;
 use std::sync::mpsc;
 use std::time::Duration;
-use tracing::{info, instrument};
+use tracing::info;
 use uuid::Uuid;
 
-use crate::types::UiOp;
+use crate::types::{UIInputEvent, UiOp};
 
 /// Handle user input for PowerShell commands (synchronous)
 pub struct UIHanlder {
     user_request_tx: mpsc::Sender<UserOperation>,
-    user_event_rx: mpsc::Receiver<active_session::UserEvent>,
-    ui_rx: mpsc::Receiver<UiOp>,
+    unified_rx: mpsc::Receiver<UIInputEvent>,
 }
 
 impl UIHanlder {
     pub fn new(
         user_request_tx: mpsc::Sender<UserOperation>,
-        user_event_rx: mpsc::Receiver<active_session::UserEvent>,
-        ui_rx: mpsc::Receiver<UiOp>,
+        unified_rx: mpsc::Receiver<UIInputEvent>,
     ) -> Self {
         Self {
             user_request_tx,
-            user_event_rx,
-            ui_rx,
+            unified_rx,
         }
     }
 
@@ -42,29 +39,9 @@ impl UIHanlder {
         })?;
 
         loop {
-            // 4a) drain UI ops quickly (paint from main loop HostCalls)
-            while let Ok(op) = self.ui_rx.try_recv() {
-                match op {
-                    UiOp::Apply(ops) => {
-                        for o in ops {
-                            io.apply_op(o);
-                        }
-                        io.render()?; // throttled internally
-                    }
-                    UiOp::Print(s) => {
-                        use std::io::Write;
-                        writeln!(io, "{s}")?;
-                    }
-                }
-            }
+            // Process unified events (UI ops and user events) with a timeout
 
-            // 4b) process PowerShell events (pipeline output etc.)
-            match self.process_user_events(&mut pipeline, &mut io) {
-                PipelineOperated::Continue => {}
-                PipelineOperated::KeepGoing => { /* pipeline (re)created, just proceed */ }
-            }
-
-            // 4c) prompt + read a line (Ctrl+C / Ctrl+D handled)
+            // prompt + read a line (Ctrl+C / Ctrl+D handled)
             match io.read_line("> ")? {
                 ReadOutcome::Line(cmd) => {
                     let command = cmd.trim();
@@ -103,66 +80,127 @@ impl UIHanlder {
                 ReadOutcome::Interrupt => continue, // reprompt (like shells)
                 ReadOutcome::Eof => break Ok(()),
             }
-        }
-    }
 
-    #[instrument(skip_all)]
-    fn process_user_events(
-        &mut self,
-        pipeline: &mut Option<PipelineHandle>,
-        io: &mut StdTerm<'_>,
-    ) -> PipelineOperated {
-        while let Ok(event) = self.user_event_rx.recv_timeout(Duration::from_millis(100)) {
-            match event {
-                ironposh_client_core::connector::active_session::UserEvent::PipelineCreated {
-                    powershell,
-                } => {
-                    info!(pipeline_id = %powershell.id(), "pipeline created");
-                    *pipeline = Some(powershell);
-                    return PipelineOperated::KeepGoing;
-                }
-                ironposh_client_core::connector::active_session::UserEvent::PipelineFinished {
-                    powershell,
-                } => {
-                    info!(pipeline_id = %powershell.id(), "pipeline finished");
-                    if let Some(current_pipeline) = pipeline {
-                        if *current_pipeline == powershell {
-                            *pipeline = None;
-                            self.user_request_tx
-                                .send(UserOperation::CreatePipeline {
-                                    uuid: Uuid::new_v4(),
-                                })
-                                .expect("Failed to send create pipeline request");
+            while let Ok(event) = self.unified_rx.recv() {
+                match event {
+                    UIInputEvent::UiOp(op) => {
+                        match op {
+                            UiOp::Apply(ops) => {
+                                for o in ops {
+                                    io.apply_op(o);
+                                }
+                                io.render()?; // throttled internally
+                            }
+                            UiOp::Print(s) => {
+                                use std::io::Write;
+                                writeln!(io, "{s}")?;
+                            }
+                        }
+                        continue; // Skip to next iteration
+                    }
+                    UIInputEvent::UserEvent(user_event) => {
+                        match user_event {
+                            active_session::UserEvent::PipelineCreated { powershell } => {
+                                info!(pipeline_id = %powershell.id(), "pipeline created");
+                                pipeline = Some(powershell);
+                                continue; // Skip to next iteration
+                            }
+                            active_session::UserEvent::PipelineFinished { powershell } => {
+                                info!(pipeline_id = %powershell.id(), "pipeline finished");
+                                if let Some(current_pipeline) = &pipeline {
+                                    if *current_pipeline == powershell {
+                                        pipeline = None;
+                                        self.user_request_tx
+                                            .send(UserOperation::CreatePipeline {
+                                                uuid: Uuid::new_v4(),
+                                            })
+                                            .expect("Failed to send create pipeline request");
+                                    }
+                                }
+                                break; // Exit inner while loop to reprompt
+                            }
+                            active_session::UserEvent::PipelineOutput { output, powershell } => {
+                                info!(pipeline_id = %powershell.id(), ?output, "pipeline output");
+                                if let Some(current_pipeline) = &pipeline {
+                                    if *current_pipeline == powershell {
+                                        match output.format_as_displyable_string() {
+                                            Ok(o) => {
+                                                let _ = writeln!(io, "{o}");
+                                            }
+                                            Err(e) => {
+                                                let _ =
+                                                    writeln!(io, "Error formatting output: {e}");
+                                            }
+                                        };
+                                        let _ = io.render(); // best-effort
+                                    }
+                                }
+                                continue;
+                            }
                         }
                     }
                 }
-                ironposh_client_core::connector::active_session::UserEvent::PipelineOutput {
-                    output,
-                    powershell,
-                } => {
-                    info!(pipeline_id = %powershell.id(),?output, "pipeline output");
-                    if let Some(current_pipeline) = pipeline {
-                        if *current_pipeline == powershell {
-                            match output.format_as_displyable_string() {
-                                Ok(o) => {
-                                    let _ = writeln!(io, "{o}");
+            }
+            while let Ok(event) = self.unified_rx.recv_timeout(Duration::from_millis(100)) {
+                match event {
+                    UIInputEvent::UiOp(op) => {
+                        match op {
+                            UiOp::Apply(ops) => {
+                                for o in ops {
+                                    io.apply_op(o);
                                 }
-                                Err(e) => {
-                                    let _ = writeln!(io, "Error formatting output: {e}");
+                                io.render()?; // throttled internally
+                            }
+                            UiOp::Print(s) => {
+                                use std::io::Write;
+                                writeln!(io, "{s}")?;
+                            }
+                        }
+                        continue; // Skip to next iteration
+                    }
+                    UIInputEvent::UserEvent(user_event) => {
+                        match user_event {
+                            active_session::UserEvent::PipelineCreated { powershell } => {
+                                info!(pipeline_id = %powershell.id(), "pipeline created");
+                                pipeline = Some(powershell);
+                                continue; // Skip to next iteration
+                            }
+                            active_session::UserEvent::PipelineFinished { powershell } => {
+                                info!(pipeline_id = %powershell.id(), "pipeline finished");
+                                if let Some(current_pipeline) = &pipeline {
+                                    if *current_pipeline == powershell {
+                                        pipeline = None;
+                                        self.user_request_tx
+                                            .send(UserOperation::CreatePipeline {
+                                                uuid: Uuid::new_v4(),
+                                            })
+                                            .expect("Failed to send create pipeline request");
+                                    }
                                 }
-                            };
-
-                            let _ = io.render(); // best-effort
+                                break; // Exit inner while loop to reprompt
+                            }
+                            active_session::UserEvent::PipelineOutput { output, powershell } => {
+                                info!(pipeline_id = %powershell.id(), ?output, "pipeline output");
+                                if let Some(current_pipeline) = &pipeline {
+                                    if *current_pipeline == powershell {
+                                        match output.format_as_displyable_string() {
+                                            Ok(o) => {
+                                                let _ = writeln!(io, "{o}");
+                                            }
+                                            Err(e) => {
+                                                let _ =
+                                                    writeln!(io, "Error formatting output: {e}");
+                                            }
+                                        };
+                                        let _ = io.render(); // best-effort
+                                    }
+                                }
+                                continue;
+                            }
                         }
                     }
                 }
             }
         }
-        PipelineOperated::Continue
     }
-}
-
-pub enum PipelineOperated {
-    Continue,
-    KeepGoing,
 }

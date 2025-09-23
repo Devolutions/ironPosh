@@ -154,7 +154,11 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> Result<WinRmConfig, anyhow::Error> {
+pub fn create_connector_config(
+    args: &Args,
+    cols: u16,
+    rows: u16,
+) -> Result<WinRmConfig, anyhow::Error> {
     let server = ServerAddress::parse(&args.server)?;
     let scheme = if args.https {
         Scheme::Https
@@ -243,7 +247,10 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> Result<WinR
     };
 
     // Use real terminal size from the terminal instance
-    debug!(cols, rows, "Using real terminal size from terminal instance");
+    debug!(
+        cols,
+        rows, "Using real terminal size from terminal instance"
+    );
 
     let size = Size {
         width: cols as i32,

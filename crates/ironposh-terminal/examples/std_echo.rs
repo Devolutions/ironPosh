@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ironposh_terminal::{ReadOutcome, Terminal};
+use ironposh_terminal::{ReadOutcome, Terminal, TerminalOp};
 use std::io::Write;
 
 fn main() -> Result<()> {
@@ -19,7 +19,14 @@ fn main() -> Result<()> {
                         writeln!(io, "Goodbye!")?;
                         break;
                     }
-                    writeln!(io, "You typed: {}", line)?;
+                    if line.trim() == "clear" {
+                        // Reset cursor to top left and clear screen using TerminalOp
+                        io.apply_op(TerminalOp::CursorHome);
+                        io.apply_op(TerminalOp::ClearScreen);
+                        io.render()?;
+                    } else {
+                        writeln!(io, "You typed: {}", line)?;
+                    }
                 }
                 ReadOutcome::Interrupt => {
                     // graceful: just reprompt (like bash/zsh)

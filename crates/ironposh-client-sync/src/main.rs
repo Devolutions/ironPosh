@@ -10,7 +10,7 @@ use anyhow::Context;
 use clap::Parser;
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::ActiveSessionOutput;
-use ironposh_client_core::connector::{active_session::UserEvent, conntion_pool::TrySend};
+use ironposh_client_core::connector::conntion_pool::TrySend;
 use ironposh_client_core::host::HostCall;
 use ironposh_terminal::{Terminal, TerminalOp};
 use std::sync::mpsc;
@@ -21,7 +21,7 @@ use config::{create_connector_config, init_logging, Args};
 use connection::RemotePowershell;
 use http_client::UreqHttpClient;
 use network::NetworkHandler;
-use types::{NextStep, UiOp};
+use types::{NextStep, UIInputEvent, UiOp};
 use ui_handler::UIHanlder;
 
 /// Establish connection to the PowerShell remote server
@@ -89,8 +89,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     let (network_request_tx, network_request_rx) = mpsc::channel();
     let (network_response_tx, network_response_rx) = mpsc::channel();
     let (user_request_tx, user_request_rx) = mpsc::channel();
-    let (user_event_tx, user_event_rx) = mpsc::channel();
-    let (ui_tx, ui_rx) = mpsc::channel::<UiOp>();
+    let (ui_tx, ui_rx) = mpsc::channel::<UIInputEvent>();
 
     // Spawn network handler
     let mut network_handler =
@@ -99,8 +98,8 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         network_handler.run();
     });
 
-    // Spawn user input/UI handler (now takes ui_rx)
-    let mut user_input_handler = UIHanlder::new(user_request_tx.clone(), user_event_rx, ui_rx);
+    // Spawn user input/UI handler (now takes unified_rx)
+    let mut user_input_handler = UIHanlder::new(user_request_tx.clone(), ui_rx);
     let user_handle = thread::spawn(move || {
         let _ = user_input_handler
             .run(terminal)
@@ -118,7 +117,6 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         network_response_rx,
         user_request_rx,
         network_request_tx,
-        user_event_tx,
         ui_tx,
     )
     .inspect_err(|e| error!("Error in main event loop: {}", e))?;
@@ -137,8 +135,7 @@ fn run_event_loop(
     network_response_rx: mpsc::Receiver<HttpResponseTargeted>,
     user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
     network_request_tx: mpsc::Sender<TrySend>,
-    user_event_tx: mpsc::Sender<UserEvent>,
-    ui_tx: mpsc::Sender<UiOp>,
+    ui_tx: mpsc::Sender<UIInputEvent>,
 ) -> anyhow::Result<()> {
     'main: loop {
         // Use select! equivalent for synchronous channels
@@ -197,12 +194,12 @@ fn run_event_loop(
                 }
                 ActiveSessionOutput::SendBackError(e) => {
                     error!(target: "session", error = %e, "session step failed");
-                    return Err(anyhow::anyhow!("Session step failed: {}", e));
+                    return Err(anyhow::anyhow!("Session step failed: {e}"));
                 }
                 ActiveSessionOutput::UserEvent(event) => {
                     info!(target: "user", event = ?event, "sending user event");
-                    // Send all user events to the UI thread
-                    if user_event_tx.send(event).is_err() {
+                    // Send user events wrapped in UIInputEvent to the unified channel
+                    if ui_tx.send(UIInputEvent::UserEvent(event)).is_err() {
                         break 'main Ok(()); // UI thread has exited, end main loop
                     }
                 }
@@ -226,8 +223,10 @@ fn run_event_loop(
                             let x = xy.x.clamp(0, u16::MAX as i32) as u16;
                             let y = xy.y.clamp(0, u16::MAX as i32) as u16;
 
-                            // Send to UI thread
-                            let _ = ui_tx.send(UiOp::Apply(vec![TerminalOp::SetCursor { x, y }]));
+                            // Send to UI thread wrapped in UIInputEvent
+                            let _ = ui_tx.send(UIInputEvent::UiOp(UiOp::Apply(vec![
+                                TerminalOp::SetCursor { x, y },
+                            ])));
                             result_transport.accept_result(())
                         }
                         HostCall::SetBufferContents1 { transport } => {
@@ -252,7 +251,7 @@ fn run_event_loop(
                                 }]
                             };
 
-                            let _ = ui_tx.send(UiOp::Apply(ops));
+                            let _ = ui_tx.send(UIInputEvent::UiOp(UiOp::Apply(ops)));
                             result_transport.accept_result(())
                         }
                         _ => {

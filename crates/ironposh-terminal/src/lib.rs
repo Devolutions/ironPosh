@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::time::{Duration, Instant};
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, trace};
 
 pub mod input;
 pub mod stdio;
@@ -59,19 +59,18 @@ impl Terminal {
 
     /// Render the terminal if dirty
     pub fn render(&mut self) -> Result<()> {
-        debug!(dirty = self.guest.is_dirty(), "Render called");
+        trace!(dirty = self.guest.is_dirty(), "Render called");
 
         // Simple throttle to avoid spamming the host terminal
         if self.last_render.elapsed() < Duration::from_millis(8) {
-            debug!("Skipping render due to throttle");
+            trace!("Skipping render due to throttle");
             return Ok(());
         }
 
         if let Some(bytes) = self.guest.take_render_bytes() {
             self.last_render = Instant::now();
-            debug!(bytes_len = bytes.len(), "Presenting bytes to renderer");
+            trace!(bytes_len = bytes.len(), "Presenting bytes to renderer");
             self.renderer.present(&bytes)?;
-            info!(bytes_written = bytes.len(), "Terminal render completed");
         }
 
         Ok(())

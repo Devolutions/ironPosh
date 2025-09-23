@@ -26,3 +26,11 @@ pub enum UiOp {
     Apply(Vec<TerminalOp>), // render ops (cursor move, clear, fill, bytes…)
     Print(String),          // for plain text lines if you want
 }
+/// Unified input event for the main loop - combines UI operations and user events
+#[derive(Debug)]
+pub enum UIInputEvent {
+    /// UI operation (rendering, printing)
+    UiOp(UiOp),
+    /// User event from PowerShell pipeline
+    UserEvent(ironposh_client_core::connector::active_session::UserEvent),
+}
