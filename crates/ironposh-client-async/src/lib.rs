@@ -1,7 +1,16 @@
-use ironposh_client_core::connector::http::{HttpRequest, HttpResponse};
+use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
 use std::future::Future;
 
-pub mod remote_client;
+// Internal modules
+mod connection;
+mod host_calls;
+mod session;
+
+// Public API
+pub mod client;
+
+// Re-export the main client
+pub use client::RemoteAsyncPowershellClient;
 
 pub trait AsyncPowershellClient {
     fn open_task(&self, client: impl HttpClient) -> impl Future<Output = anyhow::Result<()>>
@@ -14,6 +23,6 @@ pub trait AsyncPowershellClient {
 pub trait HttpClient: Send + Sync + 'static {
     fn send_request(
         &self,
-        request: HttpRequest,
-    ) -> impl Future<Output = anyhow::Result<HttpResponse>> + Send;
+        try_send: TrySend,
+    ) -> impl Future<Output = anyhow::Result<HttpResponseTargeted>> + Send;
 }
