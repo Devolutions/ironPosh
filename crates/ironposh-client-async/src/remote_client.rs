@@ -58,12 +58,19 @@ impl RemoteAsyncPowershellClient {
                         Ok(http_response) => {
                             info!(
                                 target: "network",
-                                body_length = todo!("Fix HttpBody handling"),
+                                body_length = http_response.body.len(),
                                 "processing successful network response"
                             );
 
+                            // TODO: Track connection IDs properly in async client
+                            let dummy_conn_id = ironposh_client_core::connector::conntion_pool::ConnectionId::new(0);
+                            let targeted_response = ironposh_client_core::connector::http::HttpResponseTargeted::new(
+                                http_response,
+                                dummy_conn_id,
+                                None
+                            );
                             let step_results = active_session
-                                todo!("Fix accept_server_response type mismatch")
+                                .accept_server_response(targeted_response)
                                 .map_err(|e| {
                                     error!(target: "network", error = %e, "failed to accept server response");
                                     e
@@ -81,7 +88,15 @@ impl RemoteAsyncPowershellClient {
                                         );
                                         // launch all new HTTPs in parallel
                                         for r in reqs {
-                                            inflight.push(launch(&client, r));
+                                            match r {
+                                                ironposh_client_core::connector::conntion_pool::TrySend::JustSend { request, .. } => {
+                                                    inflight.push(launch(&client, request));
+                                                }
+                                                ironposh_client_core::connector::conntion_pool::TrySend::AuthNeeded { .. } => {
+                                                    // TODO: Handle auth needed case
+                                                    todo!("Handle AuthNeeded case in async client");
+                                                }
+                                            }
                                         }
                                     }
                                     ActiveSessionOutput::SendBackError(e) => {
@@ -126,7 +141,15 @@ impl RemoteAsyncPowershellClient {
                                         "launching HTTP requests from user operation"
                                     );
                                     for r in reqs {
-                                        inflight.push(launch(&client, r));
+                                        match r {
+                                            ironposh_client_core::connector::conntion_pool::TrySend::JustSend { request, .. } => {
+                                                inflight.push(launch(&client, request));
+                                            }
+                                            ironposh_client_core::connector::conntion_pool::TrySend::AuthNeeded { .. } => {
+                                                // TODO: Handle auth needed case
+                                                todo!("Handle AuthNeeded case in async client");
+                                            }
+                                        }
                                     }
                                 }
                                 _ => Self::process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx).await?,
@@ -189,20 +212,11 @@ impl RemoteAsyncPowershellClient {
                         // Make the HTTP request (using ureq for simplicity in example)
                         response = Some(todo!("Fix client.send_request return type"));
                     }
-                    ConnectorStepResult::SendBackError(e) => {
-                        warn!("Connection step failed: {}", e);
-                        anyhow::bail!("Connection failed: {}", e);
-                    }
                     ConnectorStepResult::Connected {
                         active_session,
                         send_this_one_async_or_you_stuck: next_receive_request,
                     } => {
                         break (active_session, next_receive_request);
-                    }
-                    ConnectorStepResult::Auth { sequence: _ } => {
-                        info!("Starting authentication sequence");
-                        // TODO: Fix this pattern - need proper implementation
-                        todo!("Fix auth sequence handling");
                     }
                 }
             };
@@ -243,61 +257,46 @@ impl RemoteAsyncPowershellClient {
     ) -> anyhow::Result<String> {
         let new_pipeline_id = uuid::Uuid::new_v4();
 
+        // Build the command pipeline
+        let mut commands = vec![
+            ironposh_client_core::pipeline::PipelineCommand::new_command(
+                "Invoke-Expression".to_string(),
+            )
+            .with_parameter(ironposh_client_core::pipeline::Parameter::Named {
+                name: "Command".to_string(),
+                value: command.into(),
+            }),
+        ];
+
+        // Add Out-String with appropriate parameters
+        if new_line {
+            commands.push(
+                ironposh_client_core::pipeline::PipelineCommand::new_command(
+                    "Out-String".to_string(),
+                )
+                .with_parameter(
+                    ironposh_client_core::pipeline::Parameter::Switch {
+                        name: "Stream".to_string(),
+                        value: true,
+                    },
+                ),
+            );
+        } else {
+            commands.push(
+                ironposh_client_core::pipeline::PipelineCommand::new_command(
+                    "Out-String".to_string(),
+                ),
+            );
+        }
+
+        // Send the single invoke operation
         self.user_input_tx
-            .send(UserOperation::CreatePipeline {
+            .send(UserOperation::InvokeWithSpec {
                 uuid: new_pipeline_id,
+                spec: ironposh_client_core::pipeline::PipelineSpec { commands },
             })
             .await
-            .context("Failed to send create pipeline operation")?;
-
-        debug!(pipeline_id = %new_pipeline_id, "waiting for pipeline output");
-        let powershell = 'outer: loop {
-            let events = self.receive_from_pipeline(new_pipeline_id).await?;
-            info!(pipeline_id = %new_pipeline_id, event_count = events.len(), "received events from pipeline");
-            for event in events {
-                if let UserEvent::PipelineCreated { pipeline } = event {
-                    // Definatly the same, just check to be sure
-                    debug_assert!(powershell.id() == new_pipeline_id);
-                    break 'outer powershell;
-                }
-            }
-        };
-        debug!(pipeline_id = %new_pipeline_id, "pipeline created, sending command");
-
-        self.user_input_tx
-            .send(
-                powershell
-                    .command_builder("Invoke-Expression".to_string())
-                    .with_param(Parameter::Named {
-                        name: "Command".to_string(),
-                        value: command.into(),
-                    })
-                    .build(),
-            )
-            .await
-            .context("Failed to send add command operation")?;
-
-        let builder = powershell.command_builder("Out-String".to_string());
-        let out_string = if new_line {
-            builder
-                .with_param(Parameter::Switch {
-                    name: "Stream".to_string(),
-                    value: true,
-                })
-                .build()
-        } else {
-            builder.build()
-        };
-
-        self.user_input_tx
-            .send(out_string)
-            .await
-            .context("Failed to send invoke pipeline operation")?;
-
-        self.user_input_tx
-            .send(powershell.invoke())
-            .await
-            .context("Failed to send invoke pipeline operation")?;
+            .context("Failed to send invoke with spec operation")?;
 
         let mut pipeline_ended = false;
         let mut result = String::new();
@@ -308,17 +307,17 @@ impl RemoteAsyncPowershellClient {
             for event in events {
                 match event {
                     UserEvent::PipelineOutput { output, pipeline } => {
-                        debug_assert!(powershell.id() == new_pipeline_id);
+                        debug_assert!(pipeline.id() == new_pipeline_id);
                         info!(pipeline_id = %new_pipeline_id, output = ?output, "received pipeline output");
                         result.push_str(&output.format_as_displyable_string()?);
                     }
                     UserEvent::PipelineFinished { pipeline } => {
-                        debug_assert!(powershell.id() == new_pipeline_id);
+                        debug_assert!(pipeline.id() == new_pipeline_id);
                         info!(pipeline_id = %new_pipeline_id, "pipeline finished");
                         pipeline_ended = true;
                     }
-                    other => {
-                        warn!(pipeline_id = %new_pipeline_id, event = ?other, "unexpected event received");
+                    UserEvent::PipelineCreated { .. } => {
+                        // Ignore creation events in the new API
                     }
                 }
             }

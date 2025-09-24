@@ -79,7 +79,6 @@ impl Ord for ActiveSessionOutput {
     }
 }
 
-
 #[derive(Debug)]
 pub enum UserOperation {
     InvokeWithSpec {
@@ -87,7 +86,7 @@ pub enum UserOperation {
         spec: PipelineSpec,
     },
     KillPipeline {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
     },
     /// reply to a server-initiated host call
     SubmitHostResponse {
@@ -153,11 +152,11 @@ impl ActiveSession {
                 Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
 
-            UserOperation::KillPipeline { powershell } => {
-                info!(pipeline_id = %powershell.id(), "killing pipeline");
+            UserOperation::KillPipeline { pipeline } => {
+                info!(pipeline_id = %pipeline.id(), "killing pipeline");
 
                 // 1) Build the Signal request
-                let kill_xml = self.runspace_pool.kill_pipeline(powershell)?;
+                let kill_xml = self.runspace_pool.kill_pipeline(pipeline)?;
                 info!(xml_length = kill_xml.len(), "built kill XML request");
 
                 // 2) Send signal
@@ -274,22 +273,9 @@ impl ActiveSession {
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
-                    let recv_xml = self
-                        .runspace_pool
-                        .fire_receive(DesiredStream::pipeline_streams(pipeline.id()))?;
-
-                    info!(
-                        recv_xml_length = recv_xml.len(),
-                        "built receive XML request"
-                    );
-                    info!(unencrypted_recv_xml = %recv_xml, "outgoing unencrypted receive SOAP");
-                    let send_recv = self.connection_pool.send(&recv_xml)?;
-
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
                         pipeline,
                     }));
-
-                    outs.push(ActiveSessionOutput::SendBack(vec![send_recv]));
                 }
                 AcceptResponsResult::PipelineFinished(pipeline) => {
                     info!(pipeline_id = %pipeline.id(), "pipeline finished");

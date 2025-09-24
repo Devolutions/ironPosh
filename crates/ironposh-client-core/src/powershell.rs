@@ -5,7 +5,7 @@ use uuid::Uuid;
 /// This struct is a lightweight, copyable identifier for a specific pipeline.
 /// All operations on the pipeline are performed via methods on the `RunspacePool`
 /// that take this handle as an argument.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct PipelineHandle {
     pub(crate) id: uuid::Uuid,
 }

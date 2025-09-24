@@ -363,6 +363,10 @@ impl RunspacePool {
             result.push(AcceptResponsResult::ReceiveResponse {
                 desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
             });
+
+            result.push(AcceptResponsResult::PipelineCreated(PipelineHandle {
+                id: pipeline_id,
+            }));
         }
 
         if soap_envelope.body.as_ref().signal_response.is_some() {
@@ -954,7 +958,7 @@ impl RunspacePool {
 
     pub(crate) fn add_command(
         &mut self,
-        powershell: PipelineHandle,
+        powershell: &PipelineHandle,
         command: PipelineCommand,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -983,7 +987,7 @@ impl RunspacePool {
 
         // 2) Add all commands from the spec
         for cmd in spec.commands {
-            self.add_command(handle, cmd)?;
+            self.add_command(&handle, cmd)?;
         }
 
         // 3) Invoke the pipeline using existing logic
