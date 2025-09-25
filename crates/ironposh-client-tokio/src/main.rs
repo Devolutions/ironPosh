@@ -6,13 +6,12 @@ mod types;
 
 use clap::Parser;
 use futures::StreamExt;
-use ironposh_client_async::{HostResponse, RemoteAsyncPowershellClient};
+use ironposh_client_async::RemoteAsyncPowershellClient;
 use ironposh_terminal::Terminal;
 use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
 use http_client::ReqwestHttpClient;
-use types::TerminalOperation;
 
 #[tokio::main]
 #[instrument(name = "main", level = "info")]
@@ -48,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     // Extract host I/O for handling host calls
     let (mut client, host_io) = client.take_host_io();
     let (host_call_rx, submitter) = host_io.into_parts();
-    let (ui_tx, mut ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
+    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
 
     // Spawn host call handler task
     let host_call_handle =

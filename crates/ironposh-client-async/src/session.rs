@@ -7,7 +7,7 @@ use ironposh_client_core::connector::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::{HttpClient, HostResponse};
+use crate::{HostResponse, HttpClient};
 
 fn launch<C: HttpClient>(
     client: &C,
@@ -241,7 +241,13 @@ async fn process_session_outputs(
                 }
 
                 // Await the consumer's reply
-                let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
+                let HostResponse {
+                    call_id,
+                    scope,
+                    submission,
+                } = host_resp_rx
+                    .next()
+                    .await
                     .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
                 if user_input_tx

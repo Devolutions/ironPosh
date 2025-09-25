@@ -81,6 +81,31 @@ fn run_ui_thread(
                         }
                     }
                 }
+                TerminalOperation::CheckInterrupt => {
+                    if let Some(read_line) = io.try_read_line()? {
+                        match read_line {
+                            ReadOutcome::Line(s) => {
+                                info!(command = %s.trim(), "user entered command");
+                                if user_input_tx.blocking_send(UserInput::Cmd(s)).is_err() {
+                                    warn!("failed to send command to REPL - channel closed");
+                                    return Ok(());
+                                }
+                            }
+                            ReadOutcome::Interrupt => {
+                                info!("user pressed Ctrl+C");
+                                if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                                    warn!("failed to send interrupt to REPL - channel closed");
+                                    return Ok(());
+                                }
+                            }
+                            ReadOutcome::Eof => {
+                                info!("received EOF from user input");
+                                let _ = user_input_tx.blocking_send(UserInput::Eof);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -123,8 +148,6 @@ async fn run_repl_loop(
                             info!(pipeline = ?h, "Killing active pipeline due to interrupt");
                             client.kill_pipeline(h).await?;
                         }
-                        // Request new prompt after interrupt
-                        let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
                     }
                     UserInput::Cmd(cmd) => {
                         let cmd = cmd.trim().to_string();
@@ -134,6 +157,7 @@ async fn run_repl_loop(
                             info!("Exit command received, terminating REPL");
                             break;
                         }
+
                         if cmd.is_empty() {
                             debug!("Empty command, requesting new prompt");
                             let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
@@ -165,7 +189,8 @@ async fn run_repl_loop(
                     None => futures::future::pending().await,
                 }
             } => {
-                debug!("Received pipeline event: {:?}", ev);
+                debug!(?ev,"Received pipeline event");
+                let _ = terminal_op_tx.send(TerminalOperation::CheckInterrupt).await;
                 match ev {
                     UserEvent::PipelineCreated { pipeline } => {
                         info!(pipeline = ?pipeline, "Pipeline created");
@@ -230,8 +255,8 @@ pub async fn run_simple_repl(
 
     info!("REPL loop ending, cleaning up tasks");
 
-    let _ = ui_handle.abort();
-    let _ = forward_handle.abort();
+    ui_handle.abort();
+    forward_handle.abort();
 
     info!("Unified async REPL completed");
     repl_result

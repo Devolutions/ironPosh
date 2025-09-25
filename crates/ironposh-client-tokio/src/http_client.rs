@@ -2,8 +2,8 @@ use anyhow::Context;
 use ironposh_client_async::HttpClient;
 use ironposh_client_core::connector::{
     authenticator::SecContextMaybeInit,
-    conntion_pool::TrySend,
     conntion_pool::SecContextInited,
+    conntion_pool::TrySend,
     http::HttpRequestAction,
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
 };

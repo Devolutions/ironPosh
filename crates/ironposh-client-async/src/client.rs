@@ -1,6 +1,6 @@
 use anyhow::Context;
-use futures::channel::mpsc::Receiver;
 use futures::SinkExt;
+use futures::channel::mpsc::Receiver;
 use ironposh_client_core::connector::{WinRmConfig, active_session::UserEvent};
 use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
 use ironposh_client_core::powershell::PipelineHandle;

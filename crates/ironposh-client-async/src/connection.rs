@@ -11,7 +11,7 @@ use ironposh_client_core::{
 };
 use tracing::{Instrument, info, info_span};
 
-use crate::{HttpClient, HostIo, HostSubmitter, session};
+use crate::{HostIo, HostSubmitter, HttpClient, session};
 
 /// Establish connection and return client handle with background task
 ///
@@ -164,7 +164,13 @@ where
 
     let joined_task = async move { join!(active_session_task, multiplex_pipeline_task).0 };
 
-    (ConnectionHandle { pipeline_input_tx, host_io }, joined_task)
+    (
+        ConnectionHandle {
+            pipeline_input_tx,
+            host_io,
+        },
+        joined_task,
+    )
 }
 
 /// Handle for communicating with the established connection

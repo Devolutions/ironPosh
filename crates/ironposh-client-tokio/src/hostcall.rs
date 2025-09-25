@@ -24,7 +24,10 @@ async fn process_host_call(
 
             // Send cursor position command to UI thread
             let _ = ui_tx
-                .send(TerminalOperation::Apply(vec![TerminalOp::SetCursor { x, y }]))
+                .send(TerminalOperation::Apply(vec![TerminalOp::SetCursor {
+                    x,
+                    y,
+                }]))
                 .await;
             rt.accept_result(())
         }

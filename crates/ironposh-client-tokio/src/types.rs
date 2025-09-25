@@ -1,6 +1,4 @@
-use std::fmt;
 
-use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_terminal::TerminalOp;
 
 /// UI operations for the async UI handler
@@ -12,8 +10,6 @@ pub enum TerminalOperation {
     Print(String),
     /// Request input from user with given prompt
     RequestInput { prompt: String },
-}
-
-pub enum TermialThreadEvent {
-    UiOp(TerminalOperation),
+    /// Check input for interrupt (Ctrl-C)
+    CheckInterrupt,
 }
