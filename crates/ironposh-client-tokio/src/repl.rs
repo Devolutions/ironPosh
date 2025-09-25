@@ -1,150 +1,146 @@
 use futures::StreamExt;
 use ironposh_client_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::connector::active_session::UserEvent;
-use ironposh_terminal::{ReadOutcome, Terminal};
-use std::io::Write;
-use tokio::sync::mpsc;
+use ironposh_terminal::Terminal;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
-use crate::types::UiOp;
+use crate::types::TerminalOperation;
 
 #[derive(Debug)]
-enum UiToRepl {
+enum UserInput {
     Cmd(String),
     Interrupt,
     Eof,
 }
 
-/// Run simple REPL mode using basic stdin/stdout
-pub async fn run_simple_repl(
-    client: &mut RemoteAsyncPowershellClient,
-    terminal: Terminal,
-) -> anyhow::Result<()> {
-    info!("Starting async REPL");
+/// Run the UI thread that owns the terminal and processes UI operations
+fn run_ui_thread(
+    mut terminal: Terminal,
+    mut terminal_op_rx: Receiver<TerminalOperation>,
+    user_input_tx: Sender<UserInput>,
+) -> tokio::task::JoinHandle<anyhow::Result<()>> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        use ironposh_terminal::ReadOutcome;
+        use std::io::Write;
 
-    // Channels: UI thread -> REPL, and REPL -> UI thread
-    let (ui_to_repl_tx, mut ui_to_repl_rx) = mpsc::unbounded_channel::<UiToRepl>();
-    let (repl_to_ui_tx, repl_to_ui_rx) = mpsc::unbounded_channel::<UiOp>();
+        info!("UI thread starting with unified queue");
+        let mut io = terminal.stdio();
 
-    info!("Created communication channels");
-    let terminate_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let ui_terminate_flag = std::sync::Arc::clone(&terminate_flag);
-
-    // 1) UI thread owns the terminal (blocking)
-    let ui_handle = tokio::task::spawn_blocking({
-        let mut terminal = terminal;
-        let mut repl_to_ui_rx = repl_to_ui_rx;
-        move || -> anyhow::Result<()> {
-            info!("UI thread starting");
-            let mut io = terminal.stdio();
-
-            while !ui_terminate_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                // First drain any UiOps the REPL sent (render on the same thread)
-                let mut ui_ops_processed = 0;
-                while let Ok(op) = repl_to_ui_rx.try_recv() {
-                    ui_ops_processed += 1;
-                    debug!("Processing UI operation: {:?}", op);
-                    match op {
-                        UiOp::Apply(ops) => {
-                            debug!("Applying {} terminal operations", ops.len());
-                            for o in ops {
-                                io.apply_op(o);
-                            }
-                            if let Err(e) = io.render() {
-                                error!("Failed to render terminal: {}", e);
-                                return Err(e);
-                            }
-                        }
-                        UiOp::Print(s) => {
-                            debug!("Printing output: {} chars", s.len());
-                            if let Err(e) = writeln!(io, "{s}") {
-                                error!("Failed to write to terminal: {}", e);
-                                return Err(e.into());
-                            }
-                            if let Err(e) = io.render() {
-                                error!("Failed to render terminal after print: {}", e);
-                                return Err(e);
-                            }
-                        }
+        let _ui = tracing::span!(tracing::Level::INFO, "UI Thread").entered();
+        // Drain all pending UI ops
+        while let Some(op) = terminal_op_rx.blocking_recv() {
+            info!(op = ?op, "Processing terminal operation");
+            match op {
+                TerminalOperation::Apply(ops) => {
+                    debug!(count = ops.len(), "applying terminal operations");
+                    for o in ops {
+                        io.apply_op(o);
+                    }
+                    if let Err(e) = io.render() {
+                        error!(error = %e, "failed to render terminal");
+                        return Err(e);
                     }
                 }
-                if ui_ops_processed > 0 {
-                    debug!("Processed {} UI operations", ui_ops_processed);
-                }
-
-                debug!("Reading user input...");
-                match io.read_line("> ") {
-                    Ok(ReadOutcome::Line(s)) => {
-                        info!(command = %s.trim(), "User entered command");
-                        if ui_to_repl_tx.send(UiToRepl::Cmd(s)).is_err() {
-                            warn!("Failed to send command to REPL - channel closed");
-                            break;
-                        }
-                    }
-                    Ok(ReadOutcome::Interrupt) => {
-                        info!("User pressed Ctrl+C");
-                        if ui_to_repl_tx.send(UiToRepl::Interrupt).is_err() {
-                            warn!("Failed to send interrupt to REPL - channel closed");
-                            break;
-                        }
-                        // reprompt without printing a new line, mimic sync
-                        continue;
-                    }
-                    Ok(ReadOutcome::Eof) => {
-                        info!("Received EOF from user input");
-                        let _ = ui_to_repl_tx.send(UiToRepl::Eof);
-                        break;
-                    }
-                    Err(e) => {
-                        error!("Error reading user input: {}", e);
+                TerminalOperation::Print(s) => {
+                    debug!(chars = s.len(), "printing output");
+                    if let Err(e) = writeln!(io, "{s}") {
+                        error!(error = %e, "failed to write to terminal");
                         return Err(e.into());
+                    }
+                    if let Err(e) = io.render() {
+                        error!(error = %e, "failed to render terminal after print");
+                        return Err(e);
+                    }
+                }
+                TerminalOperation::RequestInput { prompt } => {
+                    debug!(prompt = %prompt, "reading user input");
+                    match io.read_line(&prompt) {
+                        Ok(ReadOutcome::Line(s)) => {
+                            info!(command = %s.trim(), "user entered command");
+                            if user_input_tx.blocking_send(UserInput::Cmd(s)).is_err() {
+                                warn!("failed to send command to REPL - channel closed");
+                                return Ok(());
+                            }
+                        }
+                        Ok(ReadOutcome::Interrupt) => {
+                            info!("user pressed Ctrl+C");
+                            if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                                warn!("failed to send interrupt to REPL - channel closed");
+                                return Ok(());
+                            }
+                        }
+                        Ok(ReadOutcome::Eof) => {
+                            info!("received EOF from user input");
+                            let _ = user_input_tx.blocking_send(UserInput::Eof);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            error!(error = %e, "error reading user input");
+                            return Err(e.into());
+                        }
                     }
                 }
             }
-            info!("UI thread ending");
-            Ok(())
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-    });
 
-    info!("UI thread spawned, starting async REPL loop");
+        Ok(())
+    })
+}
 
-    // 2) Async REPL loop
+/// Run the main REPL event loop
+async fn run_repl_loop(
+    client: &mut RemoteAsyncPowershellClient,
+    terminal_op_tx: Sender<TerminalOperation>,
+    mut user_input_rx: Receiver<UserInput>,
+) -> anyhow::Result<()> {
+    info!("Starting unified REPL loop");
+
+    // Ask for the first prompt
+    let _ = terminal_op_tx
+        .send(TerminalOperation::RequestInput {
+            prompt: "> ".into(),
+        })
+        .await;
+
+    // Async REPL loop
     let mut current_pipeline = None;
-    let mut current_stream = None::<futures::stream::BoxStream<'_, UserEvent>>; // Stream<UserEvent>
+    let mut current_stream = None::<futures::stream::BoxStream<'_, UserEvent>>;
 
     loop {
         tokio::select! {
-            // a) User typed something
-            Some(msg) = ui_to_repl_rx.recv() => {
+            // User input from UI thread
+            Some(msg) = user_input_rx.recv() => {
                 debug!(?msg, "Received message from UI thread");
                 match msg {
-                    UiToRepl::Eof => {
+                    UserInput::Eof => {
                         info!("Received EOF, exiting REPL");
                         break;
                     }
-                    UiToRepl::Interrupt => {
+                    UserInput::Interrupt => {
                         if let Some(h) = current_pipeline.take() {
                             info!(pipeline = ?h, "Killing active pipeline due to interrupt");
                             client.kill_pipeline(h).await?;
-                        } else {
-                            debug!("Interrupt received but no active pipeline to kill");
                         }
-                        // keep waiting; sync impl reprompts immediately
+                        // Request new prompt after interrupt
+                        let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
                     }
-                    UiToRepl::Cmd(cmd) => {
+                    UserInput::Cmd(cmd) => {
                         let cmd = cmd.trim().to_string();
-                        info!(command = %cmd, "Processing command");
+                        info!(command = %cmd, "processing command");
 
                         if cmd.eq_ignore_ascii_case("exit") {
                             info!("Exit command received, terminating REPL");
                             break;
                         }
                         if cmd.is_empty() {
-                            debug!("Empty command, ignoring");
+                            debug!("Empty command, requesting new prompt");
+                            let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
                             continue;
                         }
 
-                        // Start a pipeline: script + output stream
+                        // Start a pipeline
                         info!(command = %cmd, "Sending command to PowerShell");
                         match client.send_command(cmd).await {
                             Ok(stream) => {
@@ -154,14 +150,15 @@ pub async fn run_simple_repl(
                             }
                             Err(e) => {
                                 error!("Failed to send command: {}", e);
-                                let _ = repl_to_ui_tx.send(UiOp::Print(format!("Error sending command: {e}")));
+                                let _ = terminal_op_tx.send(TerminalOperation::Print(format!("Error sending command: {e}"))).await;
+                                let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
                             }
                         }
                     }
                 }
             }
 
-            // b) Pipeline events
+            // Pipeline events
             Some(ev) = async {
                 match &mut current_stream {
                     Some(s) => s.next().await,
@@ -178,11 +175,11 @@ pub async fn run_simple_repl(
                         info!("Pipeline finished");
                         current_pipeline = None;
                         current_stream = None;
-                        // fall back to prompt; UI thread will prompt on next read
+                        // Request new prompt after pipeline finishes
+                        let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
                     }
                     UserEvent::PipelineOutput { output, .. } => {
                         debug!("Received pipeline output");
-                        // Mirror sync's formatting path
                         let text = match output.format_as_displyable_string() {
                             Ok(s) => {
                                 debug!("Formatted output: {} chars", s.len());
@@ -193,19 +190,49 @@ pub async fn run_simple_repl(
                                 format!("Error formatting output: {e}")
                             }
                         };
-                        if let Err(e) = repl_to_ui_tx.send(UiOp::Print(text)) {
-                            error!("Failed to send print operation to UI thread: {}", e);
-                        }
+                        let _ = terminal_op_tx.send(TerminalOperation::Print(text)).await;
                     }
                 }
             }
         }
     }
 
-    terminate_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-    info!("REPL loop ending, waiting for UI thread to finish");
-    ui_handle.await??;
-    info!("Async REPL completed");
-
     Ok(())
+}
+
+/// Run simple REPL mode using basic stdin/stdout
+pub async fn run_simple_repl(
+    client: &mut RemoteAsyncPowershellClient,
+    terminal: Terminal,
+    mut hostcall_ui_rx: tokio::sync::mpsc::Receiver<TerminalOperation>,
+) -> anyhow::Result<()> {
+    info!("Starting async REPL with unified UI queue");
+
+    // Channels: UI thread -> REPL (user input events)
+    let (terminal_request_tx, terminal_request_rx) = tokio::sync::mpsc::channel::<UserInput>(32);
+    let (terminal_op_tx, terminal_op_rx) = tokio::sync::mpsc::channel::<TerminalOperation>(32);
+
+    let terminal_op_tx_1 = terminal_op_tx.clone();
+    let forward_handle = tokio::spawn(async move {
+        while let Some(op) = hostcall_ui_rx.recv().await {
+            if terminal_op_tx_1.send(op).await.is_err() {
+                warn!("UI operation channel closed, stopping forwarder");
+                break;
+            }
+        }
+    });
+
+    info!("Created unified communication channels");
+    let ui_handle = run_ui_thread(terminal, terminal_op_rx, terminal_request_tx.clone());
+
+    info!("UI thread and forwarder tasks spawned, starting unified REPL loop");
+    let repl_result = run_repl_loop(client, terminal_op_tx, terminal_request_rx).await;
+
+    info!("REPL loop ending, cleaning up tasks");
+
+    let _ = ui_handle.abort();
+    let _ = forward_handle.abort();
+
+    info!("Unified async REPL completed");
+    repl_result
 }

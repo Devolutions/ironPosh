@@ -1,9 +1,10 @@
+use futures::channel::mpsc;
 use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
+use ironposh_client_core::host::{HostCall, HostCallScope, Submission};
 use std::future::Future;
 
 // Internal modules
 mod connection;
-mod host_calls;
 mod session;
 
 // Public API
@@ -11,6 +12,42 @@ pub mod client;
 
 // Re-export the main client
 pub use client::RemoteAsyncPowershellClient;
+
+/// Host I/O interface for handling PowerShell host calls
+pub struct HostIo {
+    /// Host calls coming from the runspace/pipelines
+    pub host_call_rx: mpsc::UnboundedReceiver<HostCall>,
+    /// Submits the host response back to the session
+    pub submitter: HostSubmitter,
+}
+
+impl HostIo {
+    /// Consume the HostIo and return the receiver and submitter separately
+    pub fn into_parts(self) -> (mpsc::UnboundedReceiver<HostCall>, HostSubmitter) {
+        (self.host_call_rx, self.submitter)
+    }
+}
+
+/// Submitter for host call responses
+#[derive(Clone)]
+pub struct HostSubmitter(mpsc::UnboundedSender<HostResponse>);
+
+/// Response to a host call
+pub struct HostResponse {
+    pub call_id: i64,
+    pub scope: HostCallScope,
+    pub submission: Submission,
+}
+
+impl HostSubmitter {
+    /// Submit a host call response back to the session
+    pub async fn submit(&self, resp: HostResponse) -> anyhow::Result<()> {
+        self.0
+            .unbounded_send(resp)
+            .map_err(|_| anyhow::anyhow!("Host response channel closed"))?;
+        Ok(())
+    }
+}
 
 pub trait AsyncPowershellClient {
     fn open_task(&self, client: impl HttpClient) -> impl Future<Output = anyhow::Result<()>>

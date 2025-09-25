@@ -11,7 +11,7 @@ use ironposh_client_core::{
 };
 use tracing::{Instrument, info, info_span};
 
-use crate::{HttpClient, session};
+use crate::{HttpClient, HostIo, HostSubmitter, session};
 
 /// Establish connection and return client handle with background task
 ///
@@ -29,6 +29,16 @@ where
 {
     let (mut user_input_tx, user_input_rx) = mpsc::channel(10);
     let (server_output_tx, mut server_output_rx) = mpsc::channel(10);
+
+    // Create host call channels upfront
+    let (host_call_tx, host_call_rx) = mpsc::unbounded();
+    let (host_resp_tx, host_resp_rx) = mpsc::unbounded();
+
+    // Create host I/O interface for the consumer
+    let host_io = HostIo {
+        host_call_rx,
+        submitter: HostSubmitter(host_resp_tx),
+    };
 
     let user_input_tx_clone = user_input_tx.clone();
     let active_session_task = async move {
@@ -58,6 +68,7 @@ where
         };
 
         info!("Connection established, entering active session loop");
+
         session::start_active_session_loop(
             next_request,
             *active_session,
@@ -65,6 +76,8 @@ where
             user_input_rx,
             server_output_tx,
             user_input_tx_clone,
+            host_call_tx,
+            host_resp_rx,
         )
         .instrument(info_span!("ActiveSession"))
         .await?;
@@ -151,12 +164,13 @@ where
 
     let joined_task = async move { join!(active_session_task, multiplex_pipeline_task).0 };
 
-    (ConnectionHandle { pipeline_input_tx }, joined_task)
+    (ConnectionHandle { pipeline_input_tx, host_io }, joined_task)
 }
 
 /// Handle for communicating with the established connection
 pub struct ConnectionHandle {
     pub pipeline_input_tx: mpsc::Sender<PipelineInput>,
+    pub host_io: crate::HostIo,
 }
 
 pub enum PipelineInput {

@@ -63,4 +63,17 @@ impl RemoteAsyncPowershellClient {
 
         Ok(())
     }
+
+    /// Take ownership of the host I/O interface for handling PowerShell host calls
+    pub fn take_host_io(self) -> (Self, crate::HostIo) {
+        let host_io = self.handle.host_io;
+        let new_handle = connection::ConnectionHandle {
+            pipeline_input_tx: self.handle.pipeline_input_tx,
+            host_io: crate::HostIo {
+                host_call_rx: futures::channel::mpsc::unbounded().1, // dummy receiver
+                submitter: host_io.submitter.clone(),
+            },
+        };
+        (Self { handle: new_handle }, host_io)
+    }
 }

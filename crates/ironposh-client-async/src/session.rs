@@ -7,7 +7,7 @@ use ironposh_client_core::connector::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::{HttpClient, host_calls};
+use crate::{HttpClient, HostResponse};
 
 fn launch<C: HttpClient>(
     client: &C,
@@ -25,6 +25,8 @@ pub async fn start_active_session_loop(
     mut user_input_rx: mpsc::Receiver<UserOperation>,
     mut user_output_tx: mpsc::Sender<UserEvent>,
     mut user_input_tx: mpsc::Sender<UserOperation>,
+    host_call_tx: mpsc::UnboundedSender<ironposh_client_core::host::HostCall>,
+    mut host_resp_rx: mpsc::UnboundedReceiver<HostResponse>,
 ) -> anyhow::Result<()> {
     use ironposh_client_core::connector::active_session::ActiveSessionOutput;
 
@@ -83,10 +85,16 @@ pub async fn start_active_session_loop(
                                     }
                                 }
                                 ActiveSessionOutput::HostCall(host_call) => {
-                                    let scope = { host_call.scope() };
-                                    let call_id = host_call.call_id();
-                                    debug!(host_call = ?host_call.method_name(), call_id, ?scope);
-                                    let submission = host_calls::handle_host_call(host_call)?;
+                                    debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
+
+                                    // Forward to consumer
+                                    if host_call_tx.unbounded_send(host_call).is_err() {
+                                        return Err(anyhow::anyhow!("Host-call channel closed"));
+                                    }
+
+                                    // Await the consumer's reply
+                                    let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
+                                        .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
                                     let step_result = active_session
                                         .accept_client_operation(
@@ -102,7 +110,7 @@ pub async fn start_active_session_loop(
                                         })
                                         .context("Failed to submit host response")?;
 
-                                    process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx).await?;
+                                    process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx, &host_call_tx, &mut host_resp_rx).await?;
                                 }
                                 ActiveSessionOutput::OperationSuccess => {
                                     info!(target: "session", "operation completed successfully");
@@ -151,10 +159,16 @@ pub async fn start_active_session_loop(
                                 }
                             }
                             ActiveSessionOutput::HostCall(host_call) => {
-                                let scope = { host_call.scope() };
-                                let call_id = host_call.call_id();
-                                debug!(host_call = ?host_call.method_name(), call_id, ?scope);
-                                let submission = host_calls::handle_host_call(host_call)?;
+                                debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
+
+                                // Forward to consumer
+                                if host_call_tx.unbounded_send(host_call).is_err() {
+                                    return Err(anyhow::anyhow!("Host-call channel closed"));
+                                }
+
+                                // Await the consumer's reply
+                                let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
+                                    .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
                                 let step_result = active_session
                                     .accept_client_operation(
@@ -170,7 +184,7 @@ pub async fn start_active_session_loop(
                                     })
                                     .context("Failed to submit host response")?;
 
-                                process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx).await?;
+                                process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx, &host_call_tx, &mut host_resp_rx).await?;
                             }
                             ActiveSessionOutput::OperationSuccess => {
                                 info!(target: "session", "operation completed successfully");
@@ -199,6 +213,8 @@ async fn process_session_outputs(
     step_results: Vec<ActiveSessionOutput>,
     user_output_tx: &mut mpsc::Sender<UserEvent>,
     user_input_tx: &mut mpsc::Sender<UserOperation>,
+    host_call_tx: &mpsc::UnboundedSender<ironposh_client_core::host::HostCall>,
+    host_resp_rx: &mut mpsc::UnboundedReceiver<HostResponse>,
 ) -> anyhow::Result<()> {
     for step_result in step_results {
         match step_result {
@@ -217,10 +233,16 @@ async fn process_session_outputs(
                 }
             }
             ActiveSessionOutput::HostCall(host_call) => {
-                let scope = { host_call.scope() };
-                let call_id = host_call.call_id();
-                debug!(host_call = ?host_call.method_name(), call_id, ?scope);
-                let submission = host_calls::handle_host_call(host_call)?;
+                debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
+
+                // Forward to consumer
+                if host_call_tx.unbounded_send(host_call).is_err() {
+                    return Err(anyhow::anyhow!("Host-call channel closed"));
+                }
+
+                // Await the consumer's reply
+                let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
+                    .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
                 if user_input_tx
                     .send(UserOperation::SubmitHostResponse {

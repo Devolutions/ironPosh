@@ -1,16 +1,18 @@
 mod config;
+mod hostcall;
 mod http_client;
 mod repl;
 mod types;
 
 use clap::Parser;
 use futures::StreamExt;
-use ironposh_client_async::RemoteAsyncPowershellClient;
+use ironposh_client_async::{HostResponse, RemoteAsyncPowershellClient};
 use ironposh_terminal::Terminal;
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
 use http_client::ReqwestHttpClient;
+use types::TerminalOperation;
 
 #[tokio::main]
 #[instrument(name = "main", level = "info")]
@@ -41,7 +43,16 @@ async fn main() -> anyhow::Result<()> {
     let http_client = ReqwestHttpClient::new();
 
     // Create the PowerShell client
-    let (mut client, connection_task) = RemoteAsyncPowershellClient::open_task(config, http_client);
+    let (client, connection_task) = RemoteAsyncPowershellClient::open_task(config, http_client);
+
+    // Extract host I/O for handling host calls
+    let (mut client, host_io) = client.take_host_io();
+    let (host_call_rx, submitter) = host_io.into_parts();
+    let (ui_tx, mut ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
+
+    // Spawn host call handler task
+    let host_call_handle =
+        tokio::spawn(hostcall::handle_host_calls(host_call_rx, submitter, ui_tx));
 
     info!("Runspace pool is now open and ready for operations!");
 
@@ -61,14 +72,16 @@ async fn main() -> anyhow::Result<()> {
         }
         // Clean up
         connection_handle.abort();
+        host_call_handle.abort();
     } else {
         // Interactive mode: simple REPL
         info!("starting simple interactive mode");
 
         // Spawn connection task
         let _connection_handle = tokio::spawn(connection_task);
+        let _host_call_handle = host_call_handle;
 
-        if let Err(e) = repl::run_simple_repl(&mut client, terminal).await {
+        if let Err(e) = repl::run_simple_repl(&mut client, terminal, ui_rx).await {
             error!(error = %e, "Interactive mode failed");
             eprintln!("Interactive mode failed: {e}");
             std::process::exit(1);
