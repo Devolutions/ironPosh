@@ -7,6 +7,7 @@ edition = "2021"
 ironposh-client-async = { version = "0.1.0", path = "../ironposh-client-async" }
 ironposh-client-core = { version = "0.1.0", path = "../ironposh-client-core" }
 ironposh-psrp = { version = "0.1.0", path = "../ironposh-psrp" }
+ironposh-terminal = { version = "0.1.0", path = "../ironposh-terminal" }
 tokio = { version = "1.0", features = ["full"] }
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
@@ -15,3 +16,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 reqwest = { version = "0.12", features = ["json"] }
 uuid = { version = "1.18.0", features = ["v4"] }
 futures = "0.3"
+crossbeam-channel = "0.5"
+whoami = "1.5"

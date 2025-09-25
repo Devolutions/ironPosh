@@ -1,8 +1,14 @@
 use anyhow::Context;
 use ironposh_client_async::HttpClient;
-use ironposh_client_core::connector::http::{HttpBody, HttpRequest, HttpResponse, Method};
+use ironposh_client_core::connector::{
+    authenticator::SecContextMaybeInit,
+    conntion_pool::TrySend,
+    conntion_pool::SecContextInited,
+    http::HttpRequestAction,
+    http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
+};
 use reqwest::Client;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 pub struct ReqwestHttpClient {
     client: reqwest::Client,
@@ -47,7 +53,7 @@ impl ReqwestHttpClient {
 
         // Add body if present
         if let Some(body) = &request.body {
-            req_builder = req_builder.body(body.as_str().to_string());
+            req_builder = req_builder.body(body.as_str()?.to_string());
         }
 
         tracing::info!("Sending HTTP request to server");
@@ -82,14 +88,81 @@ impl ReqwestHttpClient {
         Ok(HttpResponse {
             status_code,
             headers,
-            body: Some(HttpBody::Text(body)),
+            body: HttpBody::Text(body),
         })
     }
 }
 
 impl HttpClient for ReqwestHttpClient {
-    #[instrument(name = "http_request", level = "debug", skip(self, request))]
-    async fn send_request(&self, request: HttpRequest) -> anyhow::Result<HttpResponse> {
-        Self::send_with_client(self.client.clone(), request).await
+    #[instrument(name = "http_request", level = "debug", skip(self, try_send))]
+    async fn send_request(&self, try_send: TrySend) -> anyhow::Result<HttpResponseTargeted> {
+        match try_send {
+            // === Simple path: already have an idle, encrypted channel ===
+            TrySend::JustSend { request, conn_id } => {
+                info!(conn_id = conn_id.inner(), "sending on existing connection");
+                let resp = Self::send_with_client(self.client.clone(), request).await?;
+                // No provider attached on steady-state sends
+                Ok(HttpResponseTargeted::new(resp, conn_id, None))
+            }
+
+            // === Auth path: drive the per-connection FSM, then send first sealed request ===
+            TrySend::AuthNeeded { mut auth_sequence } => {
+                info!("starting authentication sequence");
+                let mut auth_response: Option<HttpResponse> = None;
+
+                loop {
+                    // 1) Initialize security context
+                    let (seq, mut holder) = auth_sequence.prepare();
+                    let init =
+                        match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
+                            SecContextMaybeInit::Initialized(sec) => sec,
+                            SecContextMaybeInit::RunGenerator { .. } => {
+                                // For async client, we don't implement KDC communication yet
+                                return Err(anyhow::anyhow!(
+                                    "KDC generator not implemented in async client"
+                                ));
+                            }
+                        };
+
+                    // 2) Process initialized context → either Continue (send another token) or Done
+                    match auth_sequence.process_sec_ctx_init(init)? {
+                        SecContextInited::Continue { request, sequence } => {
+                            info!("continuing authentication sequence");
+                            let HttpRequestAction {
+                                connection_id,
+                                request,
+                            } = request;
+                            let resp = Self::send_with_client(self.client.clone(), request).await?;
+                            auth_response = Some(resp);
+                            auth_sequence = sequence;
+                        }
+
+                        SecContextInited::SendRequest {
+                            request,
+                            authenticated_http_channel_cert,
+                        } => {
+                            info!(
+                                "authentication sequence complete, sending final encrypted request"
+                            );
+                            let HttpRequestAction {
+                                connection_id,
+                                request,
+                            } = request;
+
+                            // Send the final (sealed) request
+                            let resp = Self::send_with_client(self.client.clone(), request).await?;
+
+                            // Return targeted response WITH the provider attached
+                            info!("authentication sequence successful");
+                            return Ok(HttpResponseTargeted::new(
+                                resp,
+                                connection_id,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
     }
 }

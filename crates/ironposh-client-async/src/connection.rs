@@ -1,7 +1,13 @@
+use std::sync::Arc;
+
 use anyhow::Context;
-use futures::channel::mpsc;
-use ironposh_client_core::connector::{
-    Connector, ConnectorStepResult, UserOperation, WinRmConfig, active_session::UserEvent,
+use futures::{SinkExt, StreamExt, channel::mpsc, join};
+use ironposh_client_core::{
+    connector::{
+        Connector, ConnectorStepResult, UserOperation, WinRmConfig, active_session::UserEvent,
+    },
+    pipeline::PipelineSpec,
+    powershell::PipelineHandle,
 };
 use tracing::{Instrument, info, info_span};
 
@@ -21,11 +27,11 @@ pub fn establish_connection<C: HttpClient>(
 where
     C: 'static,
 {
-    let (user_input_tx, user_input_rx) = mpsc::channel(10);
-    let (user_output_tx, user_output_rx) = mpsc::channel(10);
+    let (mut user_input_tx, user_input_rx) = mpsc::channel(10);
+    let (server_output_tx, mut server_output_rx) = mpsc::channel(10);
 
     let user_input_tx_clone = user_input_tx.clone();
-    let task = async move {
+    let active_session_task = async move {
         let mut connector = Connector::new(config);
         info!("Created connector, starting connection...");
 
@@ -40,7 +46,6 @@ where
 
             match step_result {
                 ConnectorStepResult::SendBack { try_send } => {
-                    // Make the HTTP request
                     response = Some(client.send_request(try_send).await?);
                 }
                 ConnectorStepResult::Connected {
@@ -58,7 +63,7 @@ where
             *active_session,
             client,
             user_input_rx,
-            user_output_tx,
+            server_output_tx,
             user_input_tx_clone,
         )
         .instrument(info_span!("ActiveSession"))
@@ -70,19 +75,97 @@ where
     }
     .instrument(info_span!("MainTask"));
 
-    (
-        ConnectionHandle {
-            user_input_tx,
-            user_output_rx,
-            message_cache: std::collections::HashMap::new(),
-        },
-        task,
-    )
+    let (pipeline_input_tx, mut pipeline_input_rx) = mpsc::channel(10);
+    let multiplex_pipeline_task = async move {
+        let pipeline_map =
+            std::sync::Arc::new(futures::lock::Mutex::new(std::collections::HashMap::<
+                uuid::Uuid,
+                mpsc::Sender<UserEvent>,
+            >::new()));
+
+        let pipeline_map_clone = Arc::clone(&pipeline_map);
+
+        let from_server = async move {
+            while let Some(server_output_event) = server_output_rx.next().await {
+                let uuid = server_output_event.pipeline_id();
+                let mut map = pipeline_map.lock().await;
+                if let Some(sender) = map.get_mut(&uuid) {
+                    let close = matches!(server_output_event, UserEvent::PipelineFinished { .. });
+
+                    if let Err(e) = sender.clone().send(server_output_event).await {
+                        info!(%e, pipeline_id = %uuid, "Failed to forward event to pipeline stream");
+                    }
+
+                    if close {
+                        info!(pipeline_id = %uuid, "Closing stream for finished pipeline");
+                        sender.close_channel();
+                    }
+                } else {
+                    info!(pipeline_id = %uuid, "No stream found for pipeline event");
+                }
+            }
+
+            Ok::<(), anyhow::Error>(())
+        };
+
+        let pipeline_map = pipeline_map_clone;
+        let from_user = async move {
+            while let Some(input) = pipeline_input_rx.next().await {
+                match input {
+                    PipelineInput::Invoke {
+                        uuid,
+                        spec,
+                        response_tx,
+                    } => {
+                        let op = UserOperation::InvokeWithSpec { uuid, spec };
+                        info!(?op, "Received pipeline operation");
+
+                        let mut map = pipeline_map.lock().await;
+                        map.insert(uuid, response_tx);
+
+                        user_input_tx
+                            .send(op)
+                            .await
+                            .context("Failed to forward pipeline operation")?;
+                    }
+                    PipelineInput::Kill { pipeline_handle } => {
+                        let op = UserOperation::KillPipeline {
+                            pipeline: pipeline_handle,
+                        };
+                        info!(?op, "Received pipeline kill operation");
+
+                        user_input_tx
+                            .send(op)
+                            .await
+                            .context("Failed to forward KillPipeline operation")?;
+                    }
+                }
+            }
+
+            Ok::<(), anyhow::Error>(())
+        };
+
+        let (x, y) = join!(from_server, from_user);
+        x.and(y)
+    };
+
+    let joined_task = async move { join!(active_session_task, multiplex_pipeline_task).0 };
+
+    (ConnectionHandle { pipeline_input_tx }, joined_task)
 }
 
 /// Handle for communicating with the established connection
 pub struct ConnectionHandle {
-    pub user_input_tx: mpsc::Sender<UserOperation>,
-    pub user_output_rx: mpsc::Receiver<UserEvent>,
-    pub message_cache: std::collections::HashMap<uuid::Uuid, Vec<UserEvent>>,
+    pub pipeline_input_tx: mpsc::Sender<PipelineInput>,
+}
+
+pub enum PipelineInput {
+    Invoke {
+        uuid: uuid::Uuid,
+        spec: PipelineSpec,
+        response_tx: mpsc::Sender<UserEvent>,
+    },
+    Kill {
+        pipeline_handle: PipelineHandle,
+    },
 }
