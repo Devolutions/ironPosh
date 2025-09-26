@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use ironposh_client_async::RemoteAsyncPowershellClient;
+use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_terminal::Terminal;
 use tokio::sync::mpsc::{Receiver, Sender};

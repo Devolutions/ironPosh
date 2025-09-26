@@ -6,7 +6,7 @@ mod types;
 
 use clap::Parser;
 use futures::StreamExt;
-use ironposh_client_async::RemoteAsyncPowershellClient;
+use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_terminal::Terminal;
 use tracing::{error, info, instrument, warn};
 

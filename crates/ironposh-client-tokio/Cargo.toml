@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ironposh-client-async = { version = "0.1.0", path = "../ironposh-client-async" }
+ironposh-async = { version = "0.1.0", path = "../ironposh-async" }
 ironposh-client-core = { version = "0.1.0", path = "../ironposh-client-core" }
 ironposh-psrp = { version = "0.1.0", path = "../ironposh-psrp" }
 ironposh-terminal = { version = "0.1.0", path = "../ironposh-terminal" }

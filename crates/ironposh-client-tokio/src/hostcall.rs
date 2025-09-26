@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use ironposh_client_async::HostResponse;
+use ironposh_async::HostResponse;
 use ironposh_client_core::host::HostCall;
 use ironposh_terminal::TerminalOp;
 use tracing::{error, warn};
@@ -112,7 +112,7 @@ async fn process_host_call(
 /// Handle host calls from PowerShell in a loop, implementing the UI operations
 pub async fn handle_host_calls(
     mut host_call_rx: futures::channel::mpsc::UnboundedReceiver<HostCall>,
-    submitter: ironposh_client_async::HostSubmitter,
+    submitter: ironposh_async::HostSubmitter,
     ui_tx: tokio::sync::mpsc::Sender<TerminalOperation>,
 ) {
     while let Some(host_call) = host_call_rx.next().await {

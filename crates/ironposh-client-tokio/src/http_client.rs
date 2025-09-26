@@ -1,5 +1,5 @@
 use anyhow::Context;
-use ironposh_client_async::HttpClient;
+use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     authenticator::SecContextMaybeInit,
     conntion_pool::SecContextInited,
@@ -129,7 +129,7 @@ impl HttpClient for ReqwestHttpClient {
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
                             let HttpRequestAction {
-                                connection_id,
+                                connection_id: _,
                                 request,
                             } = request;
                             let resp = Self::send_with_client(self.client.clone(), request).await?;

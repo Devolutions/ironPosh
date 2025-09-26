@@ -1403,7 +1403,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ironposh-client-async"
+name = "ironposh-async"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1467,7 +1467,7 @@ dependencies = [
  "clap",
  "crossbeam-channel 0.5.15",
  "futures",
- "ironposh-client-async",
+ "ironposh-async",
  "ironposh-client-core",
  "ironposh-psrp",
  "ironposh-terminal",
