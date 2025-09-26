@@ -148,6 +148,15 @@ impl UIHanlder {
                                 let _ = io.render(); // best-effort
                                 continue 'receive;
                             }
+                            active_session::UserEvent::ErrorRecord {
+                                error_record,
+                                handle,
+                            } => {
+                                info!(pipeline_id = %handle.id(), error_record = ?error_record, "Received ErrorRecord from pipeline");
+                                let _ = writeln!(io, "{}", error_record.render_concise());
+                                let _ = io.render(); // best-effort
+                                continue 'receive;
+                            }
                         }
                     }
                 }

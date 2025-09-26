@@ -128,7 +128,7 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 }
 
 /// Main event loop that processes network responses and user requests
-#[instrument(level = "info", skip_all, fields(iterations = 0u64))]
+#[instrument(level = "info", skip_all)]
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
     network_response_rx: mpsc::Receiver<HttpResponseTargeted>,

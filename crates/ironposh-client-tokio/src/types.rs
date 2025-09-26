@@ -1,4 +1,3 @@
-
 use ironposh_terminal::TerminalOp;
 
 /// UI operations for the async UI handler

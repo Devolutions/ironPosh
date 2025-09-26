@@ -1,5 +1,6 @@
 use super::{HostError, methods, traits::FromParams};
 use ironposh_psrp::{ComplexObjectContent, PsPrimitiveValue, PsValue};
+use tracing::debug;
 
 // Complex parameter type implementations
 impl FromParams for (i32, i32, String) {
@@ -129,6 +130,7 @@ impl FromParams for (String, String, Vec<methods::FieldDescription>) {
         let _caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
         let _message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
         // FieldDescription vector deserialization needs proper implementation
+        debug!(params = ?a, "Deserializing FieldDescription vector from PsValue");
         todo!("Implement Vec<FieldDescription> deserialization from PsValue")
     }
 }

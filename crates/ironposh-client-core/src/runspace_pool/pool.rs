@@ -6,8 +6,8 @@ use std::{
 use base64::Engine;
 use ironposh_psrp::{
     ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter,
-    HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
-    SessionCapability, fragmentation,
+    ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue,
+    RunspacePoolStateMessage, SessionCapability, fragmentation,
 };
 use ironposh_winrm::{
     soap::SoapEnvelope,
@@ -93,6 +93,10 @@ pub enum AcceptResponsResult {
         output: PipelineOutput,
         handle: PipelineHandle,
     },
+    ErrorRecord {
+        error_record: ErrorRecord,
+        handle: PipelineHandle,
+    },
 }
 
 #[derive(Debug)]
@@ -102,6 +106,10 @@ pub enum PwshMessageResponse {
         output: PipelineOutput,
         handle: PipelineHandle,
     },
+    ErrorRecord {
+        error_record: ErrorRecord,
+        handle: PipelineHandle,
+    },
 }
 
 impl PwshMessageResponse {
@@ -109,6 +117,7 @@ impl PwshMessageResponse {
         match self {
             PwshMessageResponse::HostCall(_) => "HostCall",
             PwshMessageResponse::PipelineOutput { .. } => "PipelineOutput",
+            PwshMessageResponse::ErrorRecord { .. } => "ErrorRecord",
         }
     }
 }
@@ -120,6 +129,13 @@ impl From<PwshMessageResponse> for AcceptResponsResult {
             PwshMessageResponse::PipelineOutput { output, handle } => {
                 AcceptResponsResult::PipelineOutput { output, handle }
             }
+            PwshMessageResponse::ErrorRecord {
+                error_record,
+                handle,
+            } => AcceptResponsResult::ErrorRecord {
+                error_record,
+                handle,
+            },
         }
     }
 }
@@ -570,6 +586,37 @@ impl RunspacePool {
                                 id: *stream.command_id().ok_or(
                                     crate::PwshCoreError::InvalidResponse(
                                         "PipelineOutput message must have a command_id".into(),
+                                    ),
+                                )?,
+                            },
+                        });
+                    }
+                    ironposh_psrp::MessageType::ErrorRecord => {
+                        debug!(
+                            target: "error_record",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling ErrorRecord message"
+                        );
+
+                        let PsValue::Object(complex_object) = ps_value else {
+                            return Err(crate::PwshCoreError::InvalidResponse(
+                                "Expected ErrorRecord as PsValue::Object".into(),
+                            ));
+                        };
+
+                        let error_record = ErrorRecord::try_from(complex_object).map_err(|e| {
+                            error!(target: "error_record", error = %e, "failed to parse ErrorRecord");
+                            e
+                        })?;
+
+                        debug!(target: "error_record", error_record = ?error_record, "successfully parsed ErrorRecord");
+                        result.push(PwshMessageResponse::ErrorRecord {
+                            error_record,
+                            handle: PipelineHandle {
+                                id: *stream.command_id().ok_or(
+                                    crate::PwshCoreError::InvalidResponse(
+                                        "ErrorRecord message must have a command_id".into(),
                                     ),
                                 )?,
                             },

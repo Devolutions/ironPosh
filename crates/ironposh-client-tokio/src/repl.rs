@@ -217,6 +217,11 @@ async fn run_repl_loop(
                         };
                         let _ = terminal_op_tx.send(TerminalOperation::Print(text)).await;
                     }
+                    UserEvent::ErrorRecord { error_record, .. } => {
+                        debug!("Received error record");
+                        let error_text = error_record.render_concise();
+                        let _ = terminal_op_tx.send(TerminalOperation::Print(format!("Error: {error_text}"))).await;
+                    }
                 }
             }
         }

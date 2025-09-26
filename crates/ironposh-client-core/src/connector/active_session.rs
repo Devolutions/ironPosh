@@ -8,7 +8,7 @@ use crate::{
     powershell::PipelineHandle,
     runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
 };
-use ironposh_psrp::{PipelineOutput, PsPrimitiveValue, PsValue};
+use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
 use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -22,6 +22,10 @@ pub enum UserEvent {
     PipelineOutput {
         pipeline: PipelineHandle,
         output: PipelineOutput,
+    },
+    ErrorRecord {
+        error_record: ErrorRecord,
+        handle: PipelineHandle,
     },
 }
 
@@ -38,6 +42,7 @@ impl UserEvent {
                 pipeline: powershell,
                 ..
             } => powershell.id(),
+            UserEvent::ErrorRecord { handle, .. } => handle.id(),
         }
     }
 }
@@ -266,10 +271,10 @@ impl ActiveSession {
             info!(index = idx, "processing PSRP result");
             match res_accepted {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
-                    info!(streams = ?desired_streams, "creating receive request for streams");
+                    info!(streams= ?desired_streams,"creating receive request for streams");
                     let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
                     let ts = self.connection_pool.send(&recv_xml)?;
-                    info!(try_send = ?ts, "queued receive request");
+                    info!(try_send= ?ts,"queued receive request");
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
@@ -278,20 +283,30 @@ impl ActiveSession {
                     }));
                 }
                 AcceptResponsResult::PipelineFinished(pipeline) => {
-                    info!(pipeline_id = %pipeline.id(), "pipeline finished");
+                    info!(pipeline_id= %pipeline.id(),"pipeline finished");
                     outs.push(ActiveSessionOutput::UserEvent(
                         UserEvent::PipelineFinished { pipeline },
                     ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
-                    info!(call_id = host_call.call_id(), method = %host_call.method_name(), "received host call");
+                    info!(call_id=host_call.call_id(),method= %host_call.method_name(),"received host call");
                     outs.push(ActiveSessionOutput::HostCall(host_call));
                 }
                 AcceptResponsResult::PipelineOutput { output, handle } => {
-                    info!(pipeline_id = %handle.id(), output_type = ?output, "pipeline output received");
+                    info!(pipeline_id= %handle.id(),output_type= ?output,"pipeline output received");
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
                         pipeline: handle,
                         output,
+                    }));
+                }
+                AcceptResponsResult::ErrorRecord {
+                    error_record,
+                    handle,
+                } => {
+                    info!(pipeline_id= %handle.id(),error_record = ?error_record, "ErrorRecord received");
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::ErrorRecord {
+                        error_record,
+                        handle,
                     }));
                 }
             }
