@@ -38,6 +38,7 @@ impl<M: Method> Transport<M> {
 
 /// Result transport handles typed return values and creates pipeline responses
 pub struct ResultTransport<M: Method> {
+    #[allow(dead_code)]
     scope: HostCallScope,
     call_id: i64,
     _m: PhantomData<M>,
