@@ -1,8 +1,10 @@
 use core::hash;
 use std::borrow::Cow;
 
+use serde::{Deserialize, Serialize};
+
 /// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/2784bd9c-267d-4297-b603-722c727f85f1
-#[derive(Debug, Clone, Eq, Default, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, Default, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PsType {
     /// The <TN> element contains <T> elements, each of which contains the name of a type associated with the object being serialized.
     /// <T> elements MUST be ordered from the most specific (that is, point) to least specific (that is, object).

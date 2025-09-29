@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, fmt::Display};
 
+use serde::{Deserialize, Serialize};
+
 use super::PsValue;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Container {
     ///https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/e9cf648e-38fe-42ba-9ca3-d89a9e0a856a
     Stack(Vec<PsValue>),
@@ -44,7 +46,7 @@ impl Display for Container {
 ///        <ToString>Blue</ToString>
 ///        <I32>9</I32>
 ///      </Obj>
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PsEnums {
     pub value: i32,
 }

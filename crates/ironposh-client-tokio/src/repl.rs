@@ -166,7 +166,7 @@ async fn run_repl_loop(
 
                         // Start a pipeline
                         info!(command = %cmd, "Sending command to PowerShell");
-                        match client.send_command(cmd).await {
+                        match client.send_script(cmd).await {
                             Ok(stream) => {
                                 info!("Command sent successfully, waiting for events");
                                 current_stream = Some(stream.boxed());

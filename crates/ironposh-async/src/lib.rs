@@ -61,5 +61,5 @@ pub trait HttpClient: Send + Sync + 'static {
     fn send_request(
         &self,
         try_send: TrySend,
-    ) -> impl Future<Output = anyhow::Result<HttpResponseTargeted>> + Send;
+    ) -> impl Future<Output = anyhow::Result<HttpResponseTargeted>>;
 }

@@ -12,7 +12,7 @@ use crate::{HostResponse, HttpClient};
 fn launch<C: HttpClient>(
     client: &C,
     try_send: TrySend,
-) -> impl core::future::Future<Output = anyhow::Result<HttpResponseTargeted>> + Send {
+) -> impl core::future::Future<Output = anyhow::Result<HttpResponseTargeted>> {
     client.send_request(try_send)
 }
 

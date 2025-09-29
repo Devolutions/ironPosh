@@ -32,7 +32,7 @@ impl RemoteAsyncPowershellClient {
 
     /// Execute a PowerShell command and return its output
     #[instrument(skip(self))]
-    pub async fn send_command(&mut self, script: String) -> anyhow::Result<Receiver<UserEvent>> {
+    pub async fn send_script(&mut self, script: String) -> anyhow::Result<Receiver<UserEvent>> {
         // Build the command pipeline
         let commands = vec![
             PipelineCommand::new_script(script),
@@ -46,6 +46,25 @@ impl RemoteAsyncPowershellClient {
             .send(connection::PipelineInput::Invoke {
                 uuid: uuid::Uuid::new_v4(),
                 spec: PipelineSpec { commands },
+                response_tx: tx,
+            })
+            .await
+            .context("Failed to send CreatePipeline operation")?;
+
+        Ok(rx)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn send_command(&mut self, command: String) -> anyhow::Result<Receiver<UserEvent>> {
+        let (tx, rx) = futures::channel::mpsc::channel(10);
+
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Invoke {
+                uuid: uuid::Uuid::new_v4(),
+                spec: PipelineSpec {
+                    commands: vec![PipelineCommand::new_command(command)],
+                },
                 response_tx: tx,
             })
             .await

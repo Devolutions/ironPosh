@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
+
 ///  https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/c8c85974-ffd7-4455-84a8-e49016c20683
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PsPrimitiveValue {
     Str(String),
     Bool(bool),

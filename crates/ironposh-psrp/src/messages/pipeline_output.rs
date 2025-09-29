@@ -1,11 +1,12 @@
 use std::fmt::Display;
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use super::PsValue;
 use crate::{MessageType, PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PipelineOutput {
     pub data: PsValue, // the actual output object (primitive or complex)
 }

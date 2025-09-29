@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
         let connection_handle = tokio::spawn(connection_task);
 
         // Execute command
-        let mut stream = client.send_command(command).await?;
+        let mut stream = client.send_script(command).await?;
 
         while let Some(event) = stream.next().await {
             unimplemented!("{event:?}");
