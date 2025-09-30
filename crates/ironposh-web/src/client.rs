@@ -4,7 +4,7 @@ use crate::{
 };
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::connector::WinRmConfig;
-use js_sys::Promise;
+use js_sys::{Function, Promise};
 use tracing::{error, info};
 use url::Url;
 use wasm_bindgen::prelude::*;
@@ -17,9 +17,18 @@ pub struct WasmPowerShellClient {
 }
 
 #[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "(js_host_call: JsHostCall) => Promise<any> | any")]
+    pub type HostCallHandler;
+}
+
+#[wasm_bindgen]
 impl WasmPowerShellClient {
     #[wasm_bindgen]
-    pub fn connect(config: WasmWinRmConfig) -> Result<Self, WasmError> {
+    pub fn connect(
+        config: WasmWinRmConfig,
+        host_call_handler: HostCallHandler,
+    ) -> Result<Self, WasmError> {
         info!(
             gateway_url = %config.gateway_url,
             "connecting PowerShell client"
@@ -43,7 +52,14 @@ impl WasmPowerShellClient {
         let (client, host_io) = client.take_host_io();
 
         let (host_call_rx, submitter) = host_io.into_parts();
-        wasm_bindgen_futures::spawn_local(handle_host_calls(host_call_rx, submitter));
+
+        let host_call_handler = host_call_handler.unchecked_into::<Function>();
+
+        wasm_bindgen_futures::spawn_local(handle_host_calls(
+            host_call_rx,
+            submitter,
+            host_call_handler,
+        ));
 
         info!("spawning background task for PowerShell client");
         // Spawn background task
@@ -74,6 +90,8 @@ impl WasmPowerShellClient {
         info!("PowerShell command stream created successfully");
         Ok(stream)
     }
+
+    // pub async fn next_host_call
 
     #[wasm_bindgen]
     pub fn disconnect(&self) -> Promise {

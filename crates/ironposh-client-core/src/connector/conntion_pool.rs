@@ -432,9 +432,7 @@ pub enum SecContextInited {
 }
 
 impl PostConAuthSequence {
-    pub fn prepare<'b>(
-        &mut self,
-    ) -> (&mut SspiAuthSequence, SecurityContextBuilderHolder<'b>) {
+    pub fn prepare<'b>(&mut self) -> (&mut SspiAuthSequence, SecurityContextBuilderHolder<'b>) {
         (&mut self.auth_sequence, SecurityContextBuilderHolder::new())
     }
 

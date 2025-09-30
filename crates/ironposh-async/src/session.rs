@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Context;
 use futures::channel::mpsc;
+use futures::future::Either;
 use futures::{SinkExt, StreamExt, stream::FuturesUnordered};
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_client_core::connector::{
@@ -240,15 +243,19 @@ async fn process_session_outputs(
                     return Err(anyhow::anyhow!("Host-call channel closed"));
                 }
 
+                let next = host_resp_rx.next();
+
+                let Ok(next) = with_timeout(next, Duration::from_secs(5)).await else {
+                    error!("Timed out waiting for host response");
+                    continue;
+                };
+
                 // Await the consumer's reply
                 let HostResponse {
                     call_id,
                     scope,
                     submission,
-                } = host_resp_rx
-                    .next()
-                    .await
-                    .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
+                } = next.ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
                 if user_input_tx
                     .send(UserOperation::SubmitHostResponse {
@@ -268,4 +275,22 @@ async fn process_session_outputs(
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct Timeout;
+
+pub async fn with_timeout<F, T>(fut: F, dur: Duration) -> Result<T, Timeout>
+where
+    F: Future<Output = T>,
+{
+    let timeout = futures_timer::Delay::new(dur);
+
+    futures::pin_mut!(timeout);
+    futures::pin_mut!(fut);
+
+    match futures::future::select(fut, timeout).await {
+        Either::Left((val, _sleep)) => Ok(val),
+        Either::Right((_unit, _fut)) => Err(Timeout),
+    }
 }

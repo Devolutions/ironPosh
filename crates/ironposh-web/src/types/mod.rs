@@ -1,3 +1,5 @@
+mod hostcall;
+pub use hostcall::*;
 use ironposh_psrp::PipelineOutput;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;

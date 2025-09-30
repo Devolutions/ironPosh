@@ -7,7 +7,14 @@ edition = "2024"
 anyhow = "1.0.99"
 async-stream = "0.3.6"
 crossbeam = { version = "0.8.4", features = ["crossbeam-channel"] }
-futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
+futures = { version = "0.3.31", default-features = false, features = [
+    "async-await",
+    "std",
+] }
+futures-timer = { version = "3.0.3", default-features = false }
 ironposh-client-core = { version = "0.1.0", path = "../ironposh-client-core" }
 tracing = "0.1"
 uuid = "1.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-timer = { version = "3", features = ["wasm-bindgen"] }
