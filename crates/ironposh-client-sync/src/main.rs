@@ -1,35 +1,41 @@
 mod config;
 mod connection;
 mod http_client;
+mod kerberos;
 mod network;
 mod types;
-mod user_input;
+mod ui_handler;
 
 use anyhow::Context;
 use clap::Parser;
-use ironposh_client_core::connector::active_session::UserEvent;
+use ironposh_client_core::connector::conntion_pool::TrySend;
+use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::ActiveSessionOutput;
+use ironposh_client_core::host::HostCall;
+use ironposh_terminal::{Terminal, TerminalOp};
 use std::sync::mpsc;
 use std::thread;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
 use connection::RemotePowershell;
 use http_client::UreqHttpClient;
 use network::NetworkHandler;
-use types::NextStep;
-use user_input::UserInputHandler;
+use types::{NextStep, UIInputEvent, UiOp};
+use ui_handler::UIHanlder;
 
 /// Establish connection to the PowerShell remote server
 fn establish_connection(
-    config: ironposh_client_core::connector::ConnectorConfig,
+    config: ironposh_client_core::connector::WinRmConfig,
 ) -> anyhow::Result<(
     ironposh_client_core::connector::active_session::ActiveSession,
-    ironposh_client_core::connector::http::HttpRequest,
+    TrySend,
+    UreqHttpClient,
 )> {
-    let client = UreqHttpClient::new();
-    let remote_ps = RemotePowershell::open(config, client)?;
-    Ok(remote_ps.into_components())
+    let mut client = UreqHttpClient::new();
+    let remote_ps = RemotePowershell::open(config, &mut client)?;
+    let (active_session, next_request) = remote_ps.into_components();
+    Ok((active_session, next_request, client))
 }
 
 #[instrument(name = "main", level = "info")]
@@ -69,27 +75,35 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         "connecting to server"
     );
 
-    // Create configuration and establish connection
-    let config = create_connector_config(args)?;
-    let (active_session, next_request) = establish_connection(config)?;
+    // Create terminal early to get real dimensions for PowerShell host info
+    let mut terminal = Terminal::new(2000)?;
+    let (cols, rows) = terminal.size()?;
+    info!("Terminal created with size: {}x{}", cols, rows);
+
+    // Create configuration and establish connection with real terminal dimensions
+    let config = create_connector_config(args, cols, rows)?;
+    let (active_session, next_request, http_client) = establish_connection(config)?;
     info!("Runspace pool is now open and ready for operations!");
 
     // Set up communication channels
     let (network_request_tx, network_request_rx) = mpsc::channel();
     let (network_response_tx, network_response_rx) = mpsc::channel();
     let (user_request_tx, user_request_rx) = mpsc::channel();
-    let (user_event_tx, user_event_rx) = mpsc::channel();
+    let (ui_tx, ui_rx) = mpsc::channel::<UIInputEvent>();
 
     // Spawn network handler
-    let mut network_handler = NetworkHandler::new(network_request_rx, network_response_tx);
+    let mut network_handler =
+        NetworkHandler::new(network_request_rx, network_response_tx, http_client);
     let network_handle = thread::spawn(move || {
         network_handler.run();
     });
 
-    // Spawn user input/UI handler
-    let mut user_input_handler = UserInputHandler::new(user_request_tx.clone(), user_event_rx);
+    // Spawn user input/UI handler (now takes unified_rx)
+    let mut user_input_handler = UIHanlder::new(user_request_tx.clone(), ui_rx);
     let user_handle = thread::spawn(move || {
-        user_input_handler.run();
+        let _ = user_input_handler
+            .run(terminal)
+            .inspect_err(|e| error!(err = ?e, "UI failed"));
     });
 
     // Send initial network request
@@ -103,43 +117,36 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
         network_response_rx,
         user_request_rx,
         network_request_tx,
-        user_event_tx,
+        ui_tx,
     )
     .inspect_err(|e| error!("Error in main event loop: {}", e))?;
 
     info!("Exiting main function");
-    // Clean up threads (they will exit when channels are dropped)
     drop(network_handle);
     drop(user_handle);
     Ok(())
 }
 
 /// Main event loop that processes network responses and user requests
-#[instrument(level = "info", skip_all, fields(iterations = 0u64))]
+#[instrument(level = "info", skip_all)]
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
-    network_response_rx: mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
+    network_response_rx: mpsc::Receiver<HttpResponseTargeted>,
     user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
-    network_request_tx: mpsc::Sender<ironposh_client_core::connector::http::HttpRequest>,
-    user_event_tx: mpsc::Sender<UserEvent>,
+    network_request_tx: mpsc::Sender<TrySend>,
+    ui_tx: mpsc::Sender<UIInputEvent>,
 ) -> anyhow::Result<()> {
-    let span = tracing::Span::current();
-    let mut iteration_count = 0u64;
-
-    loop {
-        iteration_count += 1;
-        span.record("iterations", iteration_count);
-
+    'main: loop {
         // Use select! equivalent for synchronous channels
         let next_step = select_sync(&network_response_rx, &user_request_rx)?;
 
         info!(next_step = %next_step, "processing step");
 
-        let step_results = match next_step {
+        let steps = match next_step {
             NextStep::NetworkResponse(http_response) => {
                 info!(
                     target: "network",
-                    body_length = http_response.body.as_ref().map(|b| b.len()).unwrap_or(0),
+                    body_length = http_response.response().body.len(),
                     "processing network response"
                 );
 
@@ -165,13 +172,13 @@ fn run_event_loop(
         };
 
         info!(
-            step_result_count = step_results.len(),
+            step_result_count = steps.len(),
             "received server response, processing step results"
         );
 
-        for step_result in step_results {
-            info!(step_result = ?step_result, "processing step result");
-            match step_result {
+        for step in steps {
+            info!(step = ?step, "processing step result");
+            match step {
                 ActiveSessionOutput::SendBack(http_requests) => {
                     info!(
                         target: "network",
@@ -186,82 +193,91 @@ fn run_event_loop(
                 }
                 ActiveSessionOutput::SendBackError(e) => {
                     error!(target: "session", error = %e, "session step failed");
-                    return Err(anyhow::anyhow!("Session step failed: {}", e));
+                    return Err(anyhow::anyhow!("Session step failed: {e}"));
                 }
                 ActiveSessionOutput::UserEvent(event) => {
                     info!(target: "user", event = ?event, "sending user event");
-                    // Send all user events to the UI thread
-                    if let Err(e) = user_event_tx.send(event) {
-                        error!(target: "user", error = %e, "failed to send user event");
+                    // Send user events wrapped in UIInputEvent to the unified channel
+                    if ui_tx.send(UIInputEvent::UserEvent(event)).is_err() {
+                        break 'main Ok(()); // UI thread has exited, end main loop
                     }
                 }
                 ActiveSessionOutput::HostCall(host_call) => {
-                    info!(
-                        target: "host",
-                        method_name = %host_call.method_name,
-                        call_id = host_call.call_id,
-                        "received host call"
-                    );
+                    let scope = { host_call.scope() };
+                    let call_id = host_call.call_id();
+                    debug!(host_call = ?host_call.method_name(), call_id, ?scope);
+                    let submission = match host_call {
+                        HostCall::GetName { transport } => {
+                            // Extract parameters and get the result transport
+                            let (_params, result_transport) = transport.into_parts();
+                            let host_name = "PowerShell-Host".to_string(); // In real implementation, get actual host name
 
-                    let method = host_call.get_param().map_err(|e| {
-                        error!(target: "host", error = %e, "failed to parse host call parameters");
-                        e
-                    })?;
-
-                    info!(target: "host", method = ?method, "processing host call method");
-
-                    // Handle the host call and create a response
-                    use ironposh_client_core::host::{HostCallMethodReturn, RawUIMethodReturn};
-
-                    let response = match method {
-                        // For GetBufferSize, return a default console buffer size
-                        ironposh_client_core::host::HostCallMethodWithParams::RawUIMethod(
-                            ironposh_client_core::host::RawUIMethodParams::GetBufferSize,
-                        ) => {
-                            info!(target: "host", method = "GetBufferSize", "returning default console size");
-                            HostCallMethodReturn::RawUIMethod(RawUIMethodReturn::GetBufferSize(
-                                120, 30,
-                            ))
+                            result_transport.accept_result(host_name)
                         }
+                        HostCall::SetCursorPosition { transport } => {
+                            let (params, result_transport) = transport.into_parts();
+                            let xy = params.0;
 
-                        // For WriteProgress, just acknowledge (void return)
-                        ironposh_client_core::host::HostCallMethodWithParams::UIMethod(
-                            ironposh_client_core::host::UIMethodParams::WriteProgress(
-                                source_id,
-                                record,
-                            ),
-                        ) => {
-                            info!(
-                                target: "host",
-                                method = "WriteProgress",
-                                source_id = source_id,
-                                record = %record,
-                                "handling write progress"
-                            );
-                            HostCallMethodReturn::UIMethod(
-                                ironposh_client_core::host::UIMethodReturn::WriteProgress,
-                            )
+                            // Clamp to u16 like before (safety)
+                            let x = xy.x.clamp(0, u16::MAX as i32) as u16;
+                            let y = xy.y.clamp(0, u16::MAX as i32) as u16;
+
+                            // Send to UI thread wrapped in UIInputEvent
+                            let _ = ui_tx.send(UIInputEvent::UiOp(UiOp::Apply(vec![
+                                TerminalOp::SetCursor { x, y },
+                            ])));
+                            result_transport.accept_result(())
                         }
+                        HostCall::SetBufferContents1 { transport } => {
+                            let (params, result_transport) = transport.into_parts();
+                            let rect = params.0;
+                            let cell = params.1;
 
-                        // For other methods, return not implemented error for now
-                        other => {
-                            warn!(target: "host", method = ?other, "host call method not implemented");
-                            HostCallMethodReturn::Error(
-                                ironposh_client_core::host::HostError::NotImplemented,
-                            )
+                            // PowerShell "clear screen" fast path - handle both normal and sentinel cases
+                            let is_clear = cell.character == ' '
+                                && (
+                                    (rect.left == 0 && rect.top == 0) ||  // Normal clear screen
+                                   (rect.left == -1 && rect.top == -1 && rect.right == -1 && rect.bottom == -1)
+                                    // Sentinel: fill entire buffer
+                                );
+
+                            let ops = if is_clear {
+                                vec![TerminalOp::ClearScreen]
+                            } else {
+                                vec![TerminalOp::FillRect {
+                                    left: rect.left.max(0) as u16,
+                                    top: rect.top.max(0) as u16,
+                                    right: rect.right.max(0) as u16,
+                                    bottom: rect.bottom.max(0) as u16,
+                                    ch: cell.character,
+                                    fg: cell.foreground as u8,
+                                    bg: cell.background as u8,
+                                }]
+                            };
+
+                            let _ = ui_tx.send(UIInputEvent::UiOp(UiOp::Apply(ops)));
+                            result_transport.accept_result(())
+                        }
+                        HostCall::WriteProgress { transport } => {
+                            let (params, result_transport) = transport.into_parts();
+
+                            result_transport.accept_result(())
+                        }
+                        _ => {
+                            warn!("Unhandled host call type: {}", host_call.method_name());
+                            todo!("Handle other host call types")
                         }
                     };
 
-                    // Submit the response
-                    let host_response = host_call.submit_result(response);
-                    info!(
-                        target: "host",
-                        call_id = host_response.call_id,
-                        "created host call response"
-                    );
-
-                    // For now, we're not sending the response back yet - that requires more infrastructure
-                    // TODO: Implement sending host call responses back to the server
+                    active_session
+                        .accept_client_operation(
+                            ironposh_client_core::connector::UserOperation::SubmitHostResponse {
+                                call_id,
+                                scope,
+                                submission,
+                            },
+                        )
+                        .context("Failed to send host call response to active session")?;
                 }
                 ActiveSessionOutput::OperationSuccess => {
                     info!(target: "session", "operation completed successfully");
@@ -273,7 +289,7 @@ fn run_event_loop(
 
 /// Synchronous select equivalent for two receivers
 fn select_sync(
-    network_rx: &mpsc::Receiver<ironposh_client_core::connector::http::HttpResponse>,
+    network_rx: &mpsc::Receiver<HttpResponseTargeted>,
     user_rx: &mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
 ) -> anyhow::Result<NextStep> {
     use std::sync::mpsc::TryRecvError;

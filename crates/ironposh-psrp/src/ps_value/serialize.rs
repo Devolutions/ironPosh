@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 
 use ironposh_xml::builder::{Attribute, Element};
-use tracing::{debug, trace};
+use tracing::trace;
 
 type Result<T> = std::result::Result<T, crate::PowerShellRemotingError>;
 
@@ -62,6 +62,7 @@ impl<'a> PsPrimitiveValue {
             PsPrimitiveValue::I64(i) => Element::new("I64").set_text_owned(i.to_string()),
             PsPrimitiveValue::U64(u) => Element::new("U64").set_text_owned(u.to_string()),
             PsPrimitiveValue::Guid(g) => Element::new("G").set_text_owned(g.clone()),
+            PsPrimitiveValue::Char(c) => Element::new("C").set_text_owned((*c as u32).to_string()),
             PsPrimitiveValue::Nil => Element::new("Nil"), // empty tag
             PsPrimitiveValue::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
             PsPrimitiveValue::Version(v) => Element::new("Version").set_text_owned(v.clone()),
@@ -107,7 +108,7 @@ impl<'a> PsType {
         if type_maps.contains(self) {
             // If this type has already been serialized, return a reference element.
             let ref_id = type_maps.map.get(self).unwrap();
-            debug!("Creating TNRef for existing type with RefId={}", ref_id);
+            trace!("Creating TNRef for existing type with RefId={}", ref_id);
             return Ok(
                 Element::new("TNRef").add_attribute(Attribute::new("RefId", ref_id.to_string()))
             );

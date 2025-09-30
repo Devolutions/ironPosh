@@ -48,6 +48,7 @@ pub enum WsAction {
     ShellReceive,
     ShellCreate,
     Send,
+    Signal,
 }
 
 impl WsAction {
@@ -68,6 +69,7 @@ impl WsAction {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create"
             }
             WsAction::Send => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send",
+            WsAction::Signal => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal",
         }
     }
 }

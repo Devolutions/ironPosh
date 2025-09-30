@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         "stream = \n\n {}",
         stream
             .iter()
-            .map(|b| format!("{:02X}", b))
+            .map(|b| format!("{b:02X}"))
             .collect::<Vec<_>>()
             .join(" ")
     );
@@ -34,6 +34,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mut defragmenter = Defragmenter::new();
     let result = defragmenter.defragment(&stream)?;
 
-    println!("Defragmentation result: {:?}", result);
+    println!("Defragmentation result: {result:?}");
     Ok(())
 }

@@ -112,38 +112,14 @@ impl TryFrom<ComplexObject> for ApplicationPrivateData {
 
             let mut result = BTreeMap::new();
             for (key, value) in dict {
-                let PsValue::Primitive(PsPrimitiveValue::Str(_)) = key else {
+                let PsValue::Primitive(PsPrimitiveValue::Str(key_str)) = key else {
                     return Err(Self::Error::InvalidMessage(
                         "Dictionary key is not a string".to_string(),
                     ));
                 };
 
-                let PsValue::Object(value_obj) = value else {
-                    return Err(Self::Error::InvalidMessage(
-                        "Dictionary value is not an object".to_string(),
-                    ));
-                };
-
-                debug_assert!(value_obj.type_def == Some(PsType::ps_primitive_dictionary()));
-
-                let ComplexObjectContent::Container(Container::Dictionary(value_dict)) =
-                    &value_obj.content
-                else {
-                    return Err(Self::Error::InvalidMessage(format!(
-                        "Dictionary value is not a primitive dictionary: {:#?}",
-                        value_obj.content
-                    )));
-                };
-
-                for (value_key, value_value) in value_dict {
-                    let PsValue::Primitive(PsPrimitiveValue::Str(value_key_str)) = value_key else {
-                        return Err(Self::Error::InvalidMessage(
-                            "Dictionary key is not a string".to_string(),
-                        ));
-                    };
-
-                    result.insert(value_key_str.clone(), value_value.clone());
-                }
+                // The value can be any PsValue (primitive or object), we store it directly
+                result.insert(key_str.clone(), value.clone());
             }
 
             Some(result)

@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use ironposh_psrp::{
-    ApartmentState, ApplicationPrivateData, Defragmenter, Fragmenter, HostInfo, PSThreadOptions,
-    PsValue, SessionCapability,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, Defragmenter, Fragmenter,
+    HostInfo, PSThreadOptions, SessionCapability,
 };
 use ironposh_winrm::ws_management::WsMan;
 
@@ -30,8 +30,8 @@ pub struct RunspacePoolCreator {
 
     host_info: HostInfo,
 
-    #[builder(default = std::collections::BTreeMap::new())]
-    application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
+    #[builder(default)]
+    application_arguments: ApplicationArguments,
 
     #[builder(default = Defragmenter::new())]
     defragmenter: Defragmenter,

@@ -5,9 +5,9 @@ use std::{
 
 use base64::Engine;
 use ironposh_psrp::{
-    ApartmentState, ApplicationPrivateData, CreatePipeline, Defragmenter, HostInfo,
-    InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue, RunspacePoolStateMessage,
-    SessionCapability, fragmentation,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter,
+    ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue,
+    RunspacePoolStateMessage, SessionCapability, fragmentation,
 };
 use ironposh_winrm::{
     soap::SoapEnvelope,
@@ -19,8 +19,8 @@ use uuid::Uuid;
 
 use crate::{
     PwshCoreError,
-    host::{HostCallRequest, HostCallScope},
-    pipeline::{Pipeline, PipelineCommand},
+    host::{HostCall, HostCallScope},
+    pipeline::{Pipeline, PipelineCommand, PipelineSpec},
     powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
     runspace_pool::PsInvocationState,
@@ -88,18 +88,26 @@ pub enum AcceptResponsResult {
     },
     PipelineCreated(PipelineHandle),
     PipelineFinished(PipelineHandle),
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     PipelineOutput {
         output: PipelineOutput,
+        handle: PipelineHandle,
+    },
+    ErrorRecord {
+        error_record: ErrorRecord,
         handle: PipelineHandle,
     },
 }
 
 #[derive(Debug)]
 pub enum PwshMessageResponse {
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     PipelineOutput {
         output: PipelineOutput,
+        handle: PipelineHandle,
+    },
+    ErrorRecord {
+        error_record: ErrorRecord,
         handle: PipelineHandle,
     },
 }
@@ -109,6 +117,7 @@ impl PwshMessageResponse {
         match self {
             PwshMessageResponse::HostCall(_) => "HostCall",
             PwshMessageResponse::PipelineOutput { .. } => "PipelineOutput",
+            PwshMessageResponse::ErrorRecord { .. } => "ErrorRecord",
         }
     }
 }
@@ -120,6 +129,13 @@ impl From<PwshMessageResponse> for AcceptResponsResult {
             PwshMessageResponse::PipelineOutput { output, handle } => {
                 AcceptResponsResult::PipelineOutput { output, handle }
             }
+            PwshMessageResponse::ErrorRecord {
+                error_record,
+                handle,
+            } => AcceptResponsResult::ErrorRecord {
+                error_record,
+                handle,
+            },
         }
     }
 }
@@ -133,7 +149,7 @@ pub struct RunspacePool {
     pub(super) thread_options: PSThreadOptions,
     pub(super) apartment_state: ApartmentState,
     pub(super) host_info: HostInfo,
-    pub(super) application_arguments: std::collections::BTreeMap<PsValue, PsValue>,
+    pub(super) application_arguments: ApplicationArguments,
     pub(super) shell: WinRunspace,
     pub(super) connection: Arc<WsMan>,
     pub(super) defragmenter: Defragmenter,
@@ -272,6 +288,7 @@ impl RunspacePool {
 
             let is_there_a_stream_has_no_command_id =
                 streams.iter().any(|stream| stream.command_id().is_none());
+
             if is_there_a_stream_has_no_command_id {
                 debug!(
                     target: "receive",
@@ -352,9 +369,6 @@ impl RunspacePool {
         if soap_envelope.body.as_ref().command_response.is_some() {
             let pipeline_id = self.shell.accept_commannd_response(&soap_envelope)?;
 
-            // We have received the pipeline creation response
-            // 1. update the state of the pipeline
-            // 2. fire receive request for the new pipeline
             self.pipelines
                 .get_mut(&pipeline_id)
                 .ok_or(crate::PwshCoreError::InvalidResponse(
@@ -365,6 +379,31 @@ impl RunspacePool {
             result.push(AcceptResponsResult::ReceiveResponse {
                 desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
             });
+
+            result.push(AcceptResponsResult::PipelineCreated(PipelineHandle {
+                id: pipeline_id,
+            }));
+        }
+
+        if soap_envelope.body.as_ref().signal_response.is_some() {
+            let pipeline_id = self.shell.accept_signal_response(&soap_envelope)?;
+            match pipeline_id {
+                None => {
+                    // Don't know what to do with it
+                }
+                Some(id) => match self.pipelines.remove(&id) {
+                    None => {
+                        warn!(
+                            target: "signal",
+                            pipeline_id = ?id,
+                            "received signal response for unknown pipeline"
+                        );
+                    }
+                    Some(_) => {
+                        result.push(AcceptResponsResult::PipelineFinished(PipelineHandle { id }));
+                    }
+                },
+            }
         }
 
         debug!(
@@ -392,20 +431,12 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
-    #[instrument(
-        skip(self, responses),
-        fields(
-            response_count = responses.len(),
-            processed_messages = 0u32
-        )
-    )]
+    #[instrument(skip(self, responses))]
     fn handle_pwsh_responses(
         &mut self,
         responses: Vec<crate::runspace::win_rs::Stream>,
     ) -> Result<Vec<PwshMessageResponse>, crate::PwshCoreError> {
         let mut result = Vec::new();
-        let span = tracing::Span::current();
-        let mut message_count = 0u32;
 
         for (stream_index, stream) in responses.into_iter().enumerate() {
             debug!(
@@ -436,14 +467,11 @@ impl RunspacePool {
             };
 
             for (msg_index, message) in messages.into_iter().enumerate() {
-                message_count += 1;
-                span.record("processed_messages", message_count);
-
                 let ps_value = message.parse_ps_message().map_err(|e| {
                     error!(
                         target: "ps_message",
                         stream_index,
-                        msg_index,
+                        ?message,
                         error = %e,
                         "failed to parse PS message"
                     );
@@ -540,7 +568,6 @@ impl RunspacePool {
                             })?;
                         debug!(target: "host_call", host_call = ?host_call, "successfully created host call");
                         result.push(PwshMessageResponse::HostCall(host_call));
-                        debug!(target: "host_call", result_len = result.len(), "pushed HostCall response");
                     }
                     ironposh_psrp::MessageType::PipelineOutput => {
                         debug!(
@@ -564,6 +591,37 @@ impl RunspacePool {
                             },
                         });
                     }
+                    ironposh_psrp::MessageType::ErrorRecord => {
+                        debug!(
+                            target: "error_record",
+                            stream_name = ?stream.name(),
+                            command_id = ?stream.command_id(),
+                            "handling ErrorRecord message"
+                        );
+
+                        let PsValue::Object(complex_object) = ps_value else {
+                            return Err(crate::PwshCoreError::InvalidResponse(
+                                "Expected ErrorRecord as PsValue::Object".into(),
+                            ));
+                        };
+
+                        let error_record = ErrorRecord::try_from(complex_object).map_err(|e| {
+                            error!(target: "error_record", error = %e, "failed to parse ErrorRecord");
+                            e
+                        })?;
+
+                        debug!(target: "error_record", error_record = ?error_record, "successfully parsed ErrorRecord");
+                        result.push(PwshMessageResponse::ErrorRecord {
+                            error_record,
+                            handle: PipelineHandle {
+                                id: *stream.command_id().ok_or(
+                                    crate::PwshCoreError::InvalidResponse(
+                                        "ErrorRecord message must have a command_id".into(),
+                                    ),
+                                )?,
+                            },
+                        });
+                    }
                     _ => {
                         error!(
                             target: "ps_message",
@@ -579,7 +637,6 @@ impl RunspacePool {
         info!(
             target: "pwsh_responses",
             result_count = result.len(),
-            total_messages_processed = message_count,
             "processed PowerShell responses"
         );
         Ok(result)
@@ -597,11 +654,6 @@ impl RunspacePool {
         };
 
         let session_capability = SessionCapability::try_from(session_capability)?;
-
-        // Record the protocol and PS versions in the span
-        let span = tracing::Span::current();
-        span.record("protocol_version", &session_capability.protocol_version);
-        span.record("ps_version", &session_capability.ps_version);
 
         debug!(
             target: "session",
@@ -777,14 +829,7 @@ impl RunspacePool {
         Ok(())
     }
 
-    /// Invokes the specified pipeline and waits for its completion.
-    ///
-    /// This method will handle the entire PSRP message exchange:
-    /// 1. Send the `CreatePipeline` message.
-    /// 2. Send `Command`, `Send`, and `EndOfInput` messages.
-    /// 3. Enter a loop to `Receive` and process responses.
-    /// 4. Defragment and deserialize messages, updating the pipeline's state, output, and error streams.
-    /// 5. Return the final output upon completion.
+    #[instrument(skip_all)]
     pub fn invoke_pipeline_request(
         &mut self,
         handle: PipelineHandle,
@@ -801,7 +846,7 @@ impl RunspacePool {
         // Convert business pipeline to protocol pipeline and build CreatePipeline message
         let protocol_pipeline = pipeline.to_protocol_pipeline()?;
         let create_pipeline = CreatePipeline::builder()
-            .power_shell(protocol_pipeline)
+            .pipeline(protocol_pipeline)
             .host_info(self.host_info.clone())
             .apartment_state(self.apartment_state)
             .build();
@@ -828,13 +873,39 @@ impl RunspacePool {
         Ok(request.into().to_xml_string()?)
     }
 
+    pub fn kill_pipeline(&mut self, handle: PipelineHandle) -> Result<String, PwshCoreError> {
+        let pipeline = self
+            .pipelines
+            .get_mut(&handle.id())
+            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+
+        if pipeline.state == PsInvocationState::Stopped
+            || pipeline.state == PsInvocationState::Completed
+            || pipeline.state == PsInvocationState::Failed
+        {
+            return Err(PwshCoreError::InvalidState(
+                "Cannot kill a pipeline that is already stopped, completed, or failed",
+            ));
+        }
+
+        // Set pipeline state to Stopping
+        pipeline.state = PsInvocationState::Stopping;
+        info!(pipeline_id = %handle.id(), "Killing pipeline");
+
+        let request = self
+            .shell
+            .terminal_pipeline_signal(&self.connection, handle.id())?;
+
+        Ok(request.into().to_xml_string()?)
+    }
+
     #[instrument(skip_all)]
     pub fn handle_pipeline_host_call(
         &mut self,
         ps_value: PsValue,
         stream_name: &str,
         command_id: Option<&Uuid>,
-    ) -> Result<HostCallRequest, crate::PwshCoreError> {
+    ) -> Result<HostCall, crate::PwshCoreError> {
         let PsValue::Object(pipeline_host_call) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
                 "Expected PipelineHostCall as PsValue::Object".into(),
@@ -849,7 +920,7 @@ impl RunspacePool {
             command_id = ?command_id,
             method_id = pipeline_host_call.method_id,
             method_name = pipeline_host_call.method_name,
-            parameter_count = pipeline_host_call.parameters.len(),
+            parameters = ?pipeline_host_call.parameters,
             "Received PipelineHostCall"
         );
 
@@ -860,12 +931,13 @@ impl RunspacePool {
             ));
         };
 
-        Ok(HostCallRequest::from((
-            &pipeline_host_call,
-            HostCallScope::Pipeline {
-                command_id: command_id.to_owned(),
-            },
-        )))
+        let scope = HostCallScope::Pipeline {
+            command_id: command_id.to_owned(),
+        };
+
+        HostCall::try_from_pipeline(scope, pipeline_host_call).map_err(|e| {
+            crate::PwshCoreError::InvalidResponse(format!("Failed to parse host call: {e}").into())
+        })
     }
 
     /// Send a pipeline host response to the server
@@ -933,7 +1005,7 @@ impl RunspacePool {
 
     pub(crate) fn add_command(
         &mut self,
-        powershell: PipelineHandle,
+        powershell: &PipelineHandle,
         command: PipelineCommand,
     ) -> Result<(), PwshCoreError> {
         let pipeline = self
@@ -949,5 +1021,23 @@ impl RunspacePool {
 
         pipeline.add_command(command);
         Ok(())
+    }
+
+    /// Create, populate, and invoke a pipeline in one operation
+    pub(crate) fn invoke_spec(
+        &mut self,
+        uuid: Uuid,
+        spec: PipelineSpec,
+    ) -> Result<String, PwshCoreError> {
+        // 1) Create the pipeline
+        let handle = self.init_pipeline(uuid)?;
+
+        // 2) Add all commands from the spec
+        for cmd in spec.commands {
+            self.add_command(&handle, cmd)?;
+        }
+
+        // 3) Invoke the pipeline using existing logic
+        self.invoke_pipeline_request(handle)
     }
 }

@@ -51,6 +51,8 @@ define_tagname!(CommandState, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ExitCode, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Send, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
+define_tagname!(SignalResponse, Some(Namespace::WsmanShell.uri()));
+define_custom_tagname!(SignalCode, "Code", Some(Namespace::WsmanShell.uri()));
 define_tagname!(Arguments, Some(Namespace::WsmanShell.uri()));
 
 // ====================
@@ -72,6 +74,15 @@ define_tagname!(ReferenceParameters, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(Envelope, Some(Namespace::SoapEnvelope2003.uri()));
 define_tagname!(Header, Some(Namespace::SoapEnvelope2003.uri()));
 define_tagname!(Body, Some(Namespace::SoapEnvelope2003.uri()));
+
+// SOAP Fault elements
+define_tagname!(Fault, Some(Namespace::SoapEnvelope2003.uri()));
+define_tagname!(Code, Some(Namespace::SoapEnvelope2003.uri()));
+define_tagname!(Reason, Some(Namespace::SoapEnvelope2003.uri()));
+define_tagname!(Detail, Some(Namespace::SoapEnvelope2003.uri()));
+define_tagname!(Subcode, Some(Namespace::SoapEnvelope2003.uri()));
+define_custom_tagname!(SoapValue, "Value", Some(Namespace::SoapEnvelope2003.uri()));
+define_custom_tagname!(SoapText, "Text", Some(Namespace::SoapEnvelope2003.uri()));
 
 // ===============================
 // WS-Management DMTF (w namespace)

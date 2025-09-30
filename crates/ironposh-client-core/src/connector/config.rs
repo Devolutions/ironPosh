@@ -37,8 +37,14 @@ pub enum SspiAuthConfig {
 }
 
 #[derive(Debug, Clone)]
-pub enum Authentication {
-    Basic { username: String, password: String },
-
-    Sspi(SspiAuthConfig),
+pub enum AuthenticatorConfig {
+    Basic {
+        username: String,
+        password: String,
+    },
+    Sspi {
+        sspi: SspiAuthConfig,
+        /// SSPI message sealing (wrap/unwrap). TLS is separate at transport level.
+        require_encryption: bool,
+    },
 }

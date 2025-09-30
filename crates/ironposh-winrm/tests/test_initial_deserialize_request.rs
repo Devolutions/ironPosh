@@ -1,7 +1,7 @@
 use ironposh_winrm::{cores::Attribute, soap::header::SoapHeaders};
 use ironposh_xml::parser::XmlDeserialize;
 
-const SOAP_HEADER_XML: &'static str = r#"
+const SOAP_HEADER_XML: &str = r#"
     <s:Envelope
     xml:lang="en-US"
     xmlns:s="http://www.w3.org/2003/05/soap-envelope"

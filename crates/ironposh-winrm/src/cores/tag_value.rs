@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use ironposh_xml::{
     builder::Element,
-    parser::{XmlDeserialize, XmlVisitor},
+    parser::{Node, XmlDeserialize, XmlVisitor},
 };
 
 use crate::xml_num_value;
@@ -401,5 +401,61 @@ impl From<Time> for f64 {
 impl AsRef<f64> for Time {
     fn as_ref(&self) -> &f64 {
         &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ReadOnlyUnParsed<'a> {
+    Node(Node<'a, 'a>),
+    Children(Vec<Node<'a, 'a>>),
+}
+
+impl<'a> TagValue<'a> for ReadOnlyUnParsed<'a> {
+    fn append_to_element(self, element: Element<'a>) -> Element<'a> {
+        element
+    }
+}
+
+pub struct UnparsedVisitor<'a> {
+    value: Option<ReadOnlyUnParsed<'a>>,
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> XmlVisitor<'a> for UnparsedVisitor<'a> {
+    type Value = ReadOnlyUnParsed<'a>;
+
+    fn visit_node(
+        &mut self,
+        node: ironposh_xml::parser::Node<'a, 'a>,
+    ) -> Result<(), ironposh_xml::XmlError> {
+        self.value = Some(ReadOnlyUnParsed::Node(node));
+        Ok(())
+    }
+
+    fn visit_children(
+        &mut self,
+        children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
+    ) -> Result<(), ironposh_xml::XmlError> {
+        // Collect all child nodes into a vector
+        let children: Vec<_> = children.collect();
+        self.value = Some(ReadOnlyUnParsed::Children(children));
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
+        self.value.ok_or(ironposh_xml::XmlError::InvalidXml(
+            "No content found in the node".to_string(),
+        ))
+    }
+}
+
+impl<'a> XmlDeserialize<'a> for ReadOnlyUnParsed<'a> {
+    type Visitor = UnparsedVisitor<'a>;
+
+    fn visitor() -> Self::Visitor {
+        UnparsedVisitor {
+            value: None,
+            _marker: std::marker::PhantomData,
+        }
     }
 }

@@ -1,8 +1,10 @@
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
+
 use super::{ComplexObject, PsPrimitiveValue, PsType};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PsValue {
     Primitive(PsPrimitiveValue),
     Object(ComplexObject),

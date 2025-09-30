@@ -18,6 +18,12 @@ pub struct PipelineCommand {
     pub parameters: Vec<Parameter>,
 }
 
+/// Represents a pipeline specification at the API boundary
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineSpec {
+    pub commands: Vec<PipelineCommand>,
+}
+
 impl PipelineCommand {
     pub fn new_script(script: String) -> Self {
         Self {
@@ -44,13 +50,11 @@ impl PipelineCommand {
         self
     }
 
-    pub(crate) fn new_output_stream() -> PipelineCommand {
-        let mut command = PipelineCommand::new_command("Out-String".to_string());
-        command.add_parameter(Parameter::Switch {
-            name: "Stream".to_string(),
+    pub fn new_output_stream() -> PipelineCommand {
+        PipelineCommand::new_command("Out-String".to_string()).with_parameter(Parameter::Switch {
+            name: "-Stream".to_owned(),
             value: true,
-        });
-        command
+        })
     }
 }
 
@@ -93,11 +97,6 @@ impl Pipeline {
 
     pub(crate) fn add_command(&mut self, command: PipelineCommand) {
         self.commands.push(command);
-    }
-
-    pub fn as_stream(&mut self) -> &mut Self {
-        self.commands.push(PipelineCommand::new_output_stream());
-        self
     }
 }
 

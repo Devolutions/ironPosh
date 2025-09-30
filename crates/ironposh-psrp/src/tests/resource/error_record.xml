@@ -1,0 +1,102 @@
+<Obj RefId="0">
+    <TN RefId="0">
+        <T>System.Management.Automation.ErrorRecord</T>
+        <T>System.Object</T>
+    </TN>
+    <ToString>The term 'ed' is not recognized as the name of a cmdlet,, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.</ToString>
+    <MS>
+        <B N="writeErrorStream">true</B>
+        <Obj N="Exception" RefId="1">
+            <TN RefId="1">
+                <T>System.Management.Automation.CommandNotFoundException</T>
+                <T>System.Management.Automation.RuntimeException</T>
+                <T>System.SystemException</T>
+                <T>System.Exception</T>
+                <T>System.Object</T>
+            </TN>
+            <ToString>System.Management.Automation.CommandNotFoundException: The term 'ed' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again._x000D__x000A_   at System.Management.Automation.CommandDiscovery.LookupCommandInfo(String commandName, CommandTypes commandTypes, SearchResolutionOptions searchResolutionOptions, CommandOrigin commandOrigin, ExecutionContext context)_x000D__x000A_   at System.Management.Automation.CommandDiscovery.LookupCommandProcessor(String commandName, CommandOrigin commandOrigin, Nullable`1 useLocalScope)_x000D__x000A_   at System.Management.Automation.ExecutionContext.CreateCommand(String command, Boolean dotSource)_x000D__x000A_   at System.Management.Automation.PipelineOps.AddCommand(PipelineProcessor pipe, CommandParameterInternal[] commandElements, CommandBaseAst commandBaseAst, CommandRedirection[] redirections, ExecutionContext context)_x000D__x000A_   at System.Management.Automation.PipelineOps.InvokePipeline(Object input, Boolean ignoreInput, CommandParameterInternal[][] pipeElements, CommandBaseAst[] pipeElementAsts, CommandRedirection[][] commandRedirections, FunctionContext funcContext)_x000D__x000A_   at System.Management.Automation.Interpreter.ActionCallInstruction`6.Run(InterpretedFrame frame)_x000D__x000A_   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)</ToString>
+            <Props>
+                <S N="ErrorRecord">The term 'ed' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.</S>
+                <S N="CommandName">ed</S>
+                <B N="WasThrownFromThrowStatement">false</B>
+                <S N="Message">The term 'ed' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.</S>
+                <Obj N="Data" RefId="2">
+                    <TN RefId="2">
+                        <T>System.Collections.ListDictionaryInternal</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <DCT>
+                        <En>
+                            <S N="Key">System.Management.Automation.Interpreter.InterpretedFrameInfo</S>
+                            <Obj N="Value" RefId="3">
+                                <TN RefId="3">
+                                    <T>System.Management.Automation.Interpreter.InterpretedFrameInfo[]</T>
+                                    <T>System.Array</T>
+                                    <T>System.Object</T>
+                                </TN>
+                                <LST>
+                                    <S>&lt;ScriptBlock&gt;</S>
+                                </LST>
+                            </Obj>
+                        </En>
+                    </DCT>
+                </Obj>
+                <Nil N="InnerException" />
+                <S N="TargetSite">System.Management.Automation.CommandInfo LookupCommandInfo(System.String, System.Management.Automation.CommandTypes, System.Management.Automation.SearchResolutionOptions, System.Management.Automation.CommandOrigin, System.Management.Automation.ExecutionContext)</S>
+                <S N="StackTrace">   at System.Management.Automation.CommandDiscovery.LookupCommandInfo(String commandName, CommandTypes commandTypes, SearchResolutionOptions searchResolutionOptions, CommandOrigin commandOrigin, ExecutionContext context)_x000D__x000A_   at System.Management.Automation.CommandDiscovery.LookupCommandProcessor(String commandName, CommandOrigin commandOrigin, Nullable`1 useLocalScope)_x000D__x000A_   at System.Management.Automation.ExecutionContext.CreateCommand(String command, Boolean dotSource)_x000D__x000A_   at System.Management.Automation.PipelineOps.AddCommand(PipelineProcessor pipe, CommandParameterInternal[] commandElements, CommandBaseAst commandBaseAst, CommandRedirection[] redirections, ExecutionContext context)_x000D__x000A_   at System.Management.Automation.PipelineOps.InvokePipeline(Object input, Boolean ignoreInput, CommandParameterInternal[][] pipeElements, CommandBaseAst[] pipeElementAsts, CommandRedirection[][] commandRedirections, FunctionContext funcContext)_x000D__x000A_   at System.Management.Automation.Interpreter.ActionCallInstruction`6.Run(InterpretedFrame frame)_x000D__x000A_   at System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame frame)</S>
+                <Nil N="HelpLink" />
+                <S N="Source">System.Management.Automation</S>
+                <I32 N="HResult">-2146233087</I32>
+            </Props>
+        </Obj>
+        <S N="TargetObject">ed</S>
+        <S N="FullyQualifiedErrorId">CommandNotFoundException</S>
+        <Obj N="InvocationInfo" RefId="4">
+            <TN RefId="4">
+                <T>System.Management.Automation.InvocationInfo</T>
+                <T>System.Object</T>
+            </TN>
+            <ToString>System.Management.Automation.InvocationInfo</ToString>
+            <Props>
+                <Nil N="MyCommand" />
+                <Obj N="BoundParameters" RefId="5">
+                    <TN RefId="5">
+                        <T>System.Collections.Generic.Dictionary`2[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089],[System.Object, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <DCT />
+                </Obj>
+                <Obj N="UnboundArguments" RefId="6">
+                    <TN RefId="6">
+                        <T>System.Collections.Generic.List`1[[System.Object, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]]</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <LST />
+                </Obj>
+                <I32 N="ScriptLineNumber">1</I32>
+                <I32 N="OffsetInLine">1</I32>
+                <I64 N="HistoryId">1</I64>
+                <S N="ScriptName"></S>
+                <S N="Line">ed</S>
+                <S N="PositionMessage">At line:1 char:1_x000D__x000A_+ ed_x000D__x000A_+ ~~</S>
+                <S N="PSScriptRoot"></S>
+                <Nil N="PSCommandPath" />
+                <S N="InvocationName">ed</S>
+                <I32 N="PipelineLength">0</I32>
+                <I32 N="PipelinePosition">0</I32>
+                <B N="ExpectingInput">false</B>
+                <S N="CommandOrigin">Internal</S>
+                <Nil N="DisplayScriptPosition" />
+            </Props>
+        </Obj>
+        <I32 N="ErrorCategory_Category">13</I32>
+        <S N="ErrorCategory_Activity"></S>
+        <S N="ErrorCategory_Reason">CommandNotFoundException</S>
+        <S N="ErrorCategory_TargetName">ed</S>
+        <S N="ErrorCategory_TargetType">String</S>
+        <S N="ErrorCategory_Message">ObjectNotFound: (ed:String) [], CommandNotFoundException</S>
+        <B N="SerializeExtendedInfo">false</B>
+        <S N="ErrorDetails_ScriptStackTrace">at &lt;ScriptBlock&gt;, &lt;No file&gt;: line 1</S>
+        <Nil N="PSMessageDetails" />
+    </MS>
+</Obj>

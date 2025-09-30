@@ -242,7 +242,7 @@ fn generate_simple_xml_visitor_impl(
         .map(|entry| {
             let field_name = &entry.field_name;
             if entry.is_optional {
-                // Optional fields pass through as-is
+                // Optional fields use their own value
                 quote! { #field_name }
             } else {
                 // Required fields use the checked version
@@ -251,9 +251,6 @@ fn generate_simple_xml_visitor_impl(
             }
         })
         .collect();
-
-    // Generate final field list for struct construction
-    let _final_field_list: Vec<&Ident> = field_entries.iter().map(|f| &f.field_name).collect();
 
     quote! {
         impl #impl_generics ironposh_xml::parser::XmlVisitor<'a> for #visitor_name #ty_generics #where_clause {
@@ -274,9 +271,15 @@ fn generate_simple_xml_visitor_impl(
                     match tag_name {
                         #(#match_arms)*
                         _ => {
-                            return Err(ironposh_xml::XmlError::InvalidXml(format!(
-                                "Unknown tag in {}: {tag_name}", stringify!(#struct_name)
-                            )));
+                            // Warn about unknown tags instead of erroring - this allows SOAP faults
+                            // with unknown namespaces (like WS-Eventing) to be parsed successfully
+                            tracing::warn!(
+                                target: "xml_parsing",
+                                tag_name = tag_name,
+                                namespace = ?namespace,
+                                struct_name = stringify!(#struct_name),
+                                "Unknown tag encountered during XML parsing, ignoring"
+                            );
                         }
                     }
                 }
@@ -295,7 +298,7 @@ fn generate_simple_xml_visitor_impl(
             fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
                 let Self { #field_list } = self;
 
-                // Check required fields and extract values
+                // Validate required fields
                 #(#required_field_checks)*
 
                 Ok(#struct_name {

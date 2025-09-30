@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn test_namespace_display() {
         let ns = Namespace::new("http://example.com");
-        assert_eq!(format!("{}", ns), "http://example.com");
+        assert_eq!(format!("{ns}"), "http://example.com");
     }
 
     // Declaration tests
@@ -383,7 +383,7 @@ mod tests {
     fn test_declaration_basic() {
         let declaration = Declaration::new("1.0", "UTF-8");
         assert_eq!(
-            format!("{}", declaration),
+            format!("{declaration}"),
             r#"<?xml version="1.0" encoding="UTF-8"?>"#
         );
     }
@@ -392,7 +392,7 @@ mod tests {
     fn test_declaration_with_standalone_true() {
         let declaration = Declaration::new("1.0", "UTF-8").with_standalone(true);
         assert_eq!(
-            format!("{}", declaration),
+            format!("{declaration}"),
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#
         );
     }
@@ -401,7 +401,7 @@ mod tests {
     fn test_declaration_with_standalone_false() {
         let declaration = Declaration::new("1.0", "UTF-8").with_standalone(false);
         assert_eq!(
-            format!("{}", declaration),
+            format!("{declaration}"),
             r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#
         );
     }
@@ -410,7 +410,7 @@ mod tests {
     fn test_declaration_different_versions() {
         let declaration1 = Declaration::new("1.1", "ISO-8859-1");
         assert_eq!(
-            format!("{}", declaration1),
+            format!("{declaration1}"),
             r#"<?xml version="1.1" encoding="ISO-8859-1"?>"#
         );
     }
@@ -553,7 +553,7 @@ mod tests {
         let element = Element::new("test").set_text(long_text.clone());
         let builder = Builder::new(None, element);
         let xml_string = builder.to_xml_string().unwrap();
-        assert_eq!(xml_string, format!("<test>{}</test>", long_text));
+        assert_eq!(xml_string, format!("<test>{long_text}</test>"));
     }
 
     // Content enum specific tests

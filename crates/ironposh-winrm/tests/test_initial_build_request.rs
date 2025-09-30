@@ -161,7 +161,7 @@ mod tests {
         assert!(xml_string.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"));
 
         // Print the XML for debugging purposes
-        println!("Generated SOAP Envelope:\n{}", xml_string);
+        println!("Generated SOAP Envelope:\n{xml_string}");
     }
 
     #[test]

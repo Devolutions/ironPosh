@@ -1,23 +1,42 @@
 use std::fmt::Debug;
 
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::{
     PwshCoreError,
     connector::{
-        auth_sequence::AnyAuthContext,
+        auth_sequence::SspiAuthContext,
         authenticator::SspiAuthenticator,
         http::{ENCRYPTION_BOUNDARY, HttpBody},
     },
 };
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum EncryptionOptions {
+    IncludeHeader {
+        header: String,
+    },
+    Sspi {
+        encryption_provider: EncryptionProvider,
+    },
+}
+
 #[derive(Debug)]
 pub struct EncryptionProvider {
-    context: AnyAuthContext,
+    id: uuid::Uuid,
+    context: SspiAuthContext,
     sequence_number: u32,
     recv_sequence_number: u32,
     require_encryption: bool,
 }
+
+impl PartialEq for EncryptionProvider {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for EncryptionProvider {}
 
 #[derive(Debug)]
 pub enum EncryptionResult {
@@ -32,8 +51,9 @@ pub enum DecryptionResult {
 }
 
 impl EncryptionProvider {
-    pub fn new(context: AnyAuthContext, require_encryption: bool) -> Self {
+    pub fn new(context: SspiAuthContext, require_encryption: bool) -> Self {
         Self {
+            id: uuid::Uuid::new_v4(),
             context,
             sequence_number: 0,
             recv_sequence_number: 0,
@@ -55,13 +75,13 @@ impl EncryptionProvider {
 
     /// High-level method to encrypt a string into an HttpBody
     #[instrument(skip(self, data))]
-    pub fn encrypt(&mut self, data: String) -> Result<HttpBody, PwshCoreError> {
+    pub fn encrypt(&mut self, data: &str) -> Result<HttpBody, PwshCoreError> {
         let sequence_number = self.next_sequence_number();
         // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
         let plain_len = data.len();
 
         debug!(
-            xml_to_encrypt = data.as_str(),
+            xml_to_encrypt = data,
             data_len = plain_len,
             "Encrypting XML body"
         );
@@ -74,7 +94,7 @@ impl EncryptionProvider {
             EncryptionResult::Encrypted { token } => token,
             EncryptionResult::EncryptionNotPerformed => {
                 debug!("Encryption not performed, returning original XML body");
-                return Ok(HttpBody::Xml(data));
+                return Ok(HttpBody::Xml(data.to_owned()));
             }
         };
 
@@ -138,7 +158,7 @@ impl EncryptionProvider {
         let sequence_number = self.next_recv_sequence_number();
         info!(
             body_type = ?data,
-            "Decrypting HTTP body if necessary"
+            "Decrypting HTTP body"
         );
         let encrypted_data = match data {
             HttpBody::Encrypted(encrypted_data) => {
@@ -211,11 +231,24 @@ impl EncryptionProvider {
                     PwshCoreError::InternalError(format!("Failed to decode decrypted body: {e}"))
                 })?;
 
-                debug!(
-                    xml_decrypted = decrypted.as_str(),
-                    decrypted_len = decrypted.len(),
-                    "Successfully decrypted XML body"
-                );
+                // Log the full decrypted content at debug level for all responses
+                // and at info level for error responses to help with debugging
+                if decrypted.contains("<s:Fault")
+                    || decrypted.contains("HTTP 5")
+                    || decrypted.contains("Error")
+                {
+                    warn!(
+                        xml_decrypted = %decrypted,
+                        decrypted_len = decrypted.len(),
+                        "decrypted XML body contains error content"
+                    );
+                } else {
+                    debug!(
+                        xml_decrypted = decrypted.as_str(),
+                        decrypted_len = decrypted.len(),
+                        "Successfully decrypted XML body"
+                    );
+                }
 
                 Ok(decrypted)
             }
@@ -238,13 +271,13 @@ impl EncryptionProvider {
         }
 
         let token = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => {
+            SspiAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
-            AnyAuthContext::Kerberos(auth_context) => {
+            SspiAuthContext::Kerberos(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
-            AnyAuthContext::Negotiate(auth_context) => {
+            SspiAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
             }
         }?;
@@ -264,13 +297,13 @@ impl EncryptionProvider {
         }
 
         let decrypted = match &mut self.context {
-            AnyAuthContext::Ntlm(auth_context) => {
+            SspiAuthContext::Ntlm(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
-            AnyAuthContext::Kerberos(auth_context) => {
+            SspiAuthContext::Kerberos(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
-            AnyAuthContext::Negotiate(auth_context) => {
+            SspiAuthContext::Negotiate(auth_context) => {
                 SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
             }
         }?;
@@ -432,7 +465,7 @@ mod tests {
                     binary_payload[3],
                 ]) as usize;
 
-                println!("Token length: {} bytes", token_len);
+                println!("Token length: {token_len} bytes");
 
                 // Verify the structure makes sense
                 assert!(token_len > 0, "Token length should be greater than 0");
@@ -442,7 +475,7 @@ mod tests {
                 );
 
                 let encrypted_data_len = binary_payload.len() - 4 - token_len;
-                println!("Encrypted data length: {} bytes", encrypted_data_len);
+                println!("Encrypted data length: {encrypted_data_len} bytes");
 
                 // Print first few bytes of each section for debugging
                 println!(
@@ -459,7 +492,7 @@ mod tests {
                 }
             }
             Err(e) => {
-                panic!("Failed to extract binary payload: {}", e);
+                panic!("Failed to extract binary payload: {e}");
             }
         }
     }
@@ -471,11 +504,11 @@ mod tests {
         // Convert to string to examine the multipart structure
         let data_str = String::from_utf8_lossy(&encrypted_data);
         println!("Multipart structure:");
-        println!("{}", data_str);
+        println!("{data_str}");
 
         // Look for our expected boundary
-        let boundary = format!("--{}", ENCRYPTION_BOUNDARY);
-        println!("Looking for boundary: '{}'", boundary);
+        let boundary = format!("--{ENCRYPTION_BOUNDARY}");
+        println!("Looking for boundary: '{boundary}'");
 
         let parts: Vec<&str> = data_str.split(&boundary).collect();
         println!("Found {} parts", parts.len());

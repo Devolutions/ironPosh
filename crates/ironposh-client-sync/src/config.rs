@@ -1,9 +1,11 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, ConnectorConfig, Scheme},
-    Authentication, SspiAuthConfig,
+    connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
+    AuthenticatorConfig, SspiAuthConfig,
 };
+use ironposh_psrp::{HostDefaultData, Size};
 use std::sync::OnceLock;
+use tracing::debug;
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
@@ -125,9 +127,9 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 
     // Determine log level based on verbosity using global filters
     let filter_str = match verbose_level {
-        0 => "info,ureq=error",
-        1 => "debug,ureq=warn",
-        2 => "trace,ureq=info",
+        0 => "info,ureq=error,sspi=error",
+        1 => "debug,ureq=warn,sspi=error",
+        2 => "trace,ureq=info,sspi=error",
         _ => "trace",
     };
 
@@ -152,7 +154,11 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::Error> {
+pub fn create_connector_config(
+    args: &Args,
+    cols: u16,
+    rows: u16,
+) -> Result<WinRmConfig, anyhow::Error> {
     let server = ServerAddress::parse(&args.server)?;
     let scheme = if args.https {
         Scheme::Https
@@ -167,7 +173,7 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
     };
 
     let auth = match args.auth_method {
-        AuthMethod::Basic => Authentication::Basic {
+        AuthMethod::Basic => AuthenticatorConfig::Basic {
             username: args.username.clone(),
             password: args.password.clone(),
         },
@@ -178,10 +184,13 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
                 client_username,
                 args.password.clone(),
             );
-            Authentication::Sspi(SspiAuthConfig::NTLM {
-                target: args.server.clone(),
-                identity,
-            })
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::NTLM {
+                    target: args.server.clone(),
+                    identity,
+                },
+                require_encryption: !args.no_encryption,
+            }
         }
         AuthMethod::Kerberos => {
             let client_username =
@@ -194,16 +203,22 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
 
             let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
 
-            Authentication::Sspi(SspiAuthConfig::Kerberos {
-                target: args.server.clone(),
-                identity,
-                kerberos_config: KerberosConfig {
-                    kdc_url,
-                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
-                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
-                    }),
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::Kerberos {
+                    target: args.server.clone(),
+                    identity,
+                    kerberos_config: KerberosConfig {
+                        kdc_url,
+                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
+                            || {
+                                whoami::fallible::hostname()
+                                    .unwrap_or_else(|_| "localhost".to_string())
+                            },
+                        ),
+                    },
                 },
-            })
+                require_encryption: !args.no_encryption,
+            }
         }
         AuthMethod::Negotiate => {
             let client_username =
@@ -212,28 +227,51 @@ pub fn create_connector_config(args: &Args) -> Result<ConnectorConfig, anyhow::E
                 client_username,
                 args.password.clone(),
             );
-            Authentication::Sspi(SspiAuthConfig::Negotiate {
-                target: args.server.clone(),
-                identity,
-                kerberos_config: Some(KerberosConfig {
-                    kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
-                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
-                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+            AuthenticatorConfig::Sspi {
+                sspi: SspiAuthConfig::Negotiate {
+                    target: args.server.clone(),
+                    identity,
+                    kerberos_config: Some(KerberosConfig {
+                        kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
+                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
+                            || {
+                                whoami::fallible::hostname()
+                                    .unwrap_or_else(|_| "localhost".to_string())
+                            },
+                        ),
                     }),
-                }),
-            })
+                },
+                require_encryption: !args.no_encryption,
+            }
         }
     };
 
-    Ok(ConnectorConfig {
+    // Use real terminal size from the terminal instance
+    debug!(
+        cols,
+        rows, "Using real terminal size from terminal instance"
+    );
+
+    let size = Size {
+        width: cols as i32,
+        height: rows as i32,
+    };
+
+    let host_data = HostDefaultData::builder()
+        .buffer_size(size.clone())
+        .window_size(size.clone())
+        .max_window_size(size.clone())
+        .max_physical_window_size(size)
+        .build();
+
+    let host_info = ironposh_psrp::HostInfo::builder()
+        .host_default_data(host_data)
+        .build();
+
+    Ok(WinRmConfig {
         server: (server, args.port),
         scheme,
         authentication: auth,
-        require_encryption: !args.no_encryption,
-        host_info: ironposh_psrp::HostInfo::builder()
-            .is_host_null(false)
-            .is_host_ui_null(true)
-            .is_host_raw_ui_null(true)
-            .build(),
+        host_info,
     })
 }

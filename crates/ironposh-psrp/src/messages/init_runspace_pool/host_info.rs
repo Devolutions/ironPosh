@@ -4,7 +4,7 @@ use crate::ps_value::{
 };
 use std::{borrow::Cow, collections::BTreeMap};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, typed_builder::TypedBuilder)]
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct HostInfo {
     #[builder(default = false)]
     pub is_host_null: bool,
@@ -14,18 +14,17 @@ pub struct HostInfo {
     pub is_host_raw_ui_null: bool,
     #[builder(default = false)]
     pub use_runspace_host: bool,
-    #[builder(default)]
     pub host_default_data: HostDefaultData,
 }
 
 impl HostInfo {
-    pub fn enabled_all() -> Self {
+    pub fn enabled_all(host_data: HostDefaultData) -> Self {
         HostInfo {
             is_host_null: true,
             is_host_ui_null: true,
             is_host_raw_ui_null: true,
             use_runspace_host: true,
-            host_default_data: HostDefaultData::default(),
+            host_default_data: host_data,
         }
     }
 }
@@ -137,9 +136,41 @@ impl TryFrom<ComplexObject> for HostInfo {
         let is_host_raw_ui_null = get_bool_property("_isHostRawUINull").unwrap_or(false);
         let use_runspace_host = get_bool_property("_useRunspaceHost").unwrap_or(false);
 
-        // For now, use default HostDefaultData since it's complex to deserialize
-        // and the real XML example doesn't seem to include the full host default data
-        let host_default_data = HostDefaultData::default();
+        let host_default_data = value
+            .extended_properties
+            .get("_hostDefaultData")
+            .ok_or_else(|| {
+                Self::Error::InvalidMessage("Missing property: _hostDefaultData".to_string())
+            })
+            .and_then(|prop| match &prop.value {
+                PsValue::Object(host_data_obj) => {
+                    let data_prop =
+                        host_data_obj
+                            .extended_properties
+                            .get("data")
+                            .ok_or_else(|| {
+                                Self::Error::InvalidMessage(
+                                    "Missing property: data in _hostDefaultData".to_string(),
+                                )
+                            })?;
+                    match &data_prop.value {
+                        PsValue::Object(data_obj) => match &data_obj.content {
+                            ComplexObjectContent::Container(Container::Dictionary(dict)) => {
+                                HostDefaultData::try_from(dict.clone())
+                            }
+                            _ => Err(Self::Error::InvalidMessage(
+                                "Expected Dictionary for data property content".to_string(),
+                            )),
+                        },
+                        _ => Err(Self::Error::InvalidMessage(
+                            "Expected Object for data property".to_string(),
+                        )),
+                    }
+                }
+                _ => Err(Self::Error::InvalidMessage(
+                    "Expected Object for _hostDefaultData property".to_string(),
+                )),
+            })?;
 
         Ok(HostInfo {
             is_host_null,
@@ -148,6 +179,53 @@ impl TryFrom<ComplexObject> for HostInfo {
             use_runspace_host,
             host_default_data,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::messages::init_runspace_pool::{Coordinates, Size};
+
+    #[test]
+    fn test_host_info_serialization_deserialization() {
+        let original_host_info = HostInfo {
+            is_host_null: false,
+            is_host_ui_null: false,
+            is_host_raw_ui_null: false,
+            use_runspace_host: true,
+            host_default_data: HostDefaultData {
+                foreground_color: 7,
+                background_color: 0,
+                cursor_position: Coordinates { x: 0, y: 0 },
+                window_position: Coordinates { x: 0, y: 0 },
+                cursor_size: 25,
+                window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                buffer_size: Size {
+                    width: 120,
+                    height: 3000,
+                },
+                max_window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                max_physical_window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                window_title: "PowerShell".to_string(),
+                locale: "en-US".to_string(),
+                ui_locale: "en-US".to_string(),
+            },
+        };
+
+        let complex_object: ComplexObject = original_host_info.clone().into();
+        let deserialized_host_info = HostInfo::try_from(complex_object).unwrap();
+
+        assert_eq!(original_host_info, deserialized_host_info);
     }
 }
 

@@ -1,0 +1,43 @@
+[package]
+name = "ironposh-web"
+version = "0.1.0"
+authors = ["irving ou <jou@devolutions.net>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+
+[dependencies]
+wasm-bindgen = "0.2.84"
+console_error_panic_hook = { version = "0.1" }
+tsify = { version = "0.5.5", features = ["js"] }
+serde = { version = "1.0.227", features = ["derive"] }
+wasm-bindgen-futures = "0.4.54"
+ironposh-async = { path = "../ironposh-async" }
+ironposh-client-core = { path = "../ironposh-client-core" }
+ironposh-psrp = { path = "../ironposh-psrp" }
+js-sys = "0.3.81"
+web-sys = { version = "0.3.81", features = ["console", "Request", "RequestInit", "RequestMode", "Response", "Headers", "Window"] }
+tracing-wasm = "0.2.1"
+getrandom = { version = "0.2", features = ["js"] }
+anyhow = "1.0"
+futures = "0.3"
+wee_alloc = { version = "0.4", optional = true }
+gloo-net = { version = "0.6.0", features = ["websocket"] }
+uuid = { version = "1.18.1", features = ["v4"] }
+thiserror = "2.0.16"
+url = "2.5.7"
+tracing = "0.1.41"
+serde-wasm-bindgen = "0.6.5"
+
+[features]
+default = []
+wee_alloc = ["dep:wee_alloc"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.34"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"

@@ -1,5 +1,7 @@
 use std::{fmt::Display, net::IpAddr};
 
+use crate::connector::conntion_pool::{AuthenticatedHttpChannel, ConnectionId};
+
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 
 #[derive(Debug, Clone)]
@@ -51,6 +53,10 @@ impl HttpBody {
     pub fn is_encrypted(&self) -> bool {
         matches!(self, HttpBody::Encrypted(_))
     }
+
+    pub(crate) fn empty() -> HttpBody {
+        HttpBody::None
+    }
 }
 
 impl HttpBody {
@@ -88,15 +94,19 @@ impl HttpBody {
     pub fn as_str(&self) -> Result<&str, crate::PwshCoreError> {
         match self {
             HttpBody::Xml(content) => Ok(content),
-            HttpBody::Encrypted(_) => {
-                Err(crate::PwshCoreError::InternalError(
-                    "Cannot convert binary encrypted content to &str".to_owned(),
-                ))
-            }
+            HttpBody::Encrypted(_) => Err(crate::PwshCoreError::InternalError(
+                "Cannot convert binary encrypted content to &str".to_owned(),
+            )),
             HttpBody::Text(content) => Ok(content),
             HttpBody::None => Ok(""),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct HttpRequestAction {
+    pub connection_id: ConnectionId,
+    pub request: HttpRequest,
 }
 
 #[derive(Debug, Clone)]
@@ -166,7 +176,47 @@ impl Body for Encrypted {
 pub struct HttpResponse {
     pub status_code: u16,
     pub headers: Vec<(String, String)>,
-    pub body: Option<HttpBody>,
+    pub body: HttpBody,
+}
+
+/// A targeted HTTP response that includes both the response data and the connection it came from.
+/// This struct is opaque and immutable, ensuring type safety for response handling.
+#[derive(Debug)]
+pub struct HttpResponseTargeted {
+    pub(crate) response: HttpResponse,
+    pub(crate) connection_id: ConnectionId,
+    pub(crate) authenticated: Option<AuthenticatedHttpChannel>,
+}
+
+impl HttpResponseTargeted {
+    /// Creates a new HttpResponseTargeted from an HttpResponse and ConnectionId.
+    /// This is the only way to construct this struct, ensuring controlled creation.
+    pub fn new(
+        response: HttpResponse,
+        connection_id: ConnectionId,
+        authentication_cert: Option<AuthenticatedHttpChannel>,
+    ) -> Self {
+        Self {
+            response,
+            connection_id,
+            authenticated: authentication_cert,
+        }
+    }
+
+    /// Gets a reference to the HTTP response data
+    pub fn response(&self) -> &HttpResponse {
+        &self.response
+    }
+
+    /// Gets the connection ID this response came from
+    pub fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
+
+    /// Destructures into the contained response and connection ID
+    pub fn into_parts(self) -> (HttpResponse, ConnectionId) {
+        (self.response, self.connection_id)
+    }
 }
 
 #[derive(Debug)]
@@ -194,11 +244,12 @@ impl HttpBuilder {
         self.cookie = Some(cookie);
     }
 
-    pub fn with_auth_header(&mut self, header: String) {
+    pub fn with_auth_header(&mut self, header: String) -> &mut Self {
         self.headers.push(("Authorization".to_string(), header));
+        self
     }
 
-    fn build_url(&self, path: &str) -> String {
+    fn build_url(&self) -> String {
         let scheme_str = match self.scheme {
             crate::connector::Scheme::Http => "http",
             crate::connector::Scheme::Https => "https",
@@ -211,7 +262,7 @@ impl HttpBuilder {
 
         format!(
             "{}://{}:{}{}?PSVersion=7.4.11",
-            scheme_str, server_str, self.port, path
+            scheme_str, server_str, self.port, "/wsman"
         )
     }
 
@@ -242,53 +293,13 @@ impl HttpBuilder {
         headers
     }
 
-    pub fn post(&mut self, path: &str, body: HttpBody) -> HttpRequest {
+    pub fn post(&mut self, body: HttpBody) -> HttpRequest {
         HttpRequest {
             method: Method::Post,
-            url: self.build_url(path),
+            url: self.build_url(),
             headers: self.build_headers(Some(&body)),
             body: Some(body),
             cookie: self.cookie.clone(),
         }
     }
-
-    pub fn get(&mut self, path: &str) -> HttpRequest {
-        HttpRequest {
-            method: Method::Get,
-            url: self.build_url(path),
-            headers: self.build_headers(None),
-            body: Some(HttpBody::None),
-            cookie: self.cookie.clone(),
-        }
-    }
-
-    // pub fn get(&self, path: &str) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Get,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(None),
-    //         body: None,
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
-
-    // pub fn put(&self, path: &str, body: String) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Put,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(Some(&body)),
-    //         body: Some(body),
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
-
-    // pub fn delete(&self, path: &str) -> HttpRequest<String> {
-    //     HttpRequest {
-    //         method: Method::Delete,
-    //         url: self.build_url(path),
-    //         headers: self.build_headers(None),
-    //         body: None,
-    //         cookie: self.cookie.clone(),
-    //     }
-    // }
 }

@@ -1,64 +1,59 @@
 use crate::{
-    connector::http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
-    host::{HostCallRequest, HostCallResponse, HostCallScope},
-    pipeline::PipelineCommand,
+    connector::{
+        conntion_pool::{ConnectionPool, TrySend},
+        http::HttpResponseTargeted,
+    },
+    host::{HostCall, HostCallScope, Submission},
+    pipeline::PipelineSpec,
     powershell::PipelineHandle,
-    runspace_pool::{RunspacePool, pool::AcceptResponsResult},
+    runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
 };
-use ironposh_psrp::{PipelineOutput, PsValue};
-use tracing::{debug, error, info, instrument};
+use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
+use tracing::{error, info, instrument, warn};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
     PipelineCreated {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
     },
     PipelineFinished {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
     },
     PipelineOutput {
-        powershell: PipelineHandle,
+        pipeline: PipelineHandle,
         output: PipelineOutput,
+    },
+    ErrorRecord {
+        error_record: ErrorRecord,
+        handle: PipelineHandle,
     },
 }
 
 impl UserEvent {
     pub fn pipeline_id(&self) -> uuid::Uuid {
         match self {
-            UserEvent::PipelineCreated { powershell }
-            | UserEvent::PipelineFinished { powershell }
-            | UserEvent::PipelineOutput { powershell, .. } => powershell.id(),
+            UserEvent::PipelineCreated {
+                pipeline: powershell,
+            }
+            | UserEvent::PipelineFinished {
+                pipeline: powershell,
+            }
+            | UserEvent::PipelineOutput {
+                pipeline: powershell,
+                ..
+            } => powershell.id(),
+            UserEvent::ErrorRecord { handle, .. } => handle.id(),
         }
     }
 }
 
 #[derive(Debug)]
 pub enum ActiveSessionOutput {
-    SendBack(Vec<HttpRequest>),
+    SendBack(Vec<TrySend>),
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
-    HostCall(HostCallRequest),
+    HostCall(HostCall),
     OperationSuccess,
-}
-
-impl PartialEq for ActiveSessionOutput {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority() == other.priority()
-    }
-}
-
-impl Eq for ActiveSessionOutput {}
-
-impl PartialOrd for ActiveSessionOutput {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ActiveSessionOutput {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.priority().cmp(&other.priority())
-    }
 }
 
 impl ActiveSessionOutput {
@@ -72,29 +67,39 @@ impl ActiveSessionOutput {
         }
     }
 }
-
-#[derive(Debug)]
-pub enum PowershellOperations {
-    AddCommand { command: PipelineCommand },
+impl PartialEq for ActiveSessionOutput {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority() == other.priority()
+    }
+}
+impl Eq for ActiveSessionOutput {}
+impl PartialOrd for ActiveSessionOutput {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ActiveSessionOutput {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.priority().cmp(&other.priority())
+    }
 }
 
 #[derive(Debug)]
 pub enum UserOperation {
-    CreatePipeline {
+    InvokeWithSpec {
         uuid: uuid::Uuid,
+        spec: PipelineSpec,
     },
-    OperatePipeline {
-        powershell: PipelineHandle,
-        operation: PowershellOperations,
+    KillPipeline {
+        pipeline: PipelineHandle,
     },
-    InvokePipeline {
-        powershell: PipelineHandle,
-    },
-    /// Reply to a server-initiated host call (PipelineHostCall or RunspacePoolHostCall)
+    /// reply to a server-initiated host call
     SubmitHostResponse {
-        response: Box<HostCallResponse>,
+        submission: Submission,
+        scope: HostCallScope,
+        call_id: i64,
     },
-    /// Allow UI to abort a pending prompt cleanly (timeout, user cancelled)
+    /// cancel a pending host call (timeout / user cancelled)
     CancelHostCall {
         scope: HostCallScope,
         call_id: i64,
@@ -102,114 +107,106 @@ pub enum UserOperation {
     },
 }
 
-/// ActiveSession manages post-connection operations
+impl UserOperation {
+    pub fn operation_type(&self) -> &str {
+        match self {
+            UserOperation::InvokeWithSpec { .. } => "InvokeWithSpec",
+            UserOperation::KillPipeline { .. } => "KillPipeline",
+            UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse",
+            UserOperation::CancelHostCall { .. } => "CancelHostCall",
+        }
+    }
+}
+
+/// Manages post-connect PSRP operations. Produces `TrySend` for the caller to send.
 #[derive(Debug)]
 pub struct ActiveSession {
     runspace_pool: RunspacePool,
-    http_builder: HttpBuilder,
-    /// Tracks pending host calls by (scope, call_id) to validate responses
-    pending_host_calls: std::collections::HashMap<(HostCallScope, i64), ()>,
+    connection_pool: ConnectionPool,
 }
 
 impl ActiveSession {
-    pub fn new(runspace_pool: RunspacePool, http_builder: HttpBuilder) -> Self {
+    pub(crate) fn new(runspace_pool: RunspacePool, connection_pool: ConnectionPool) -> Self {
+        info!("ActiveSession: created new session");
         Self {
             runspace_pool,
-            http_builder,
-            pending_host_calls: std::collections::HashMap::new(),
+            connection_pool,
         }
     }
 
-    /// Handle a client-initiated operation
-    #[instrument(skip_all)]
+    /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
+    #[instrument(skip_all, fields(operation_type = operation.operation_type()))]
     pub fn accept_client_operation(
         &mut self,
         operation: UserOperation,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
-        info!(?operation, "Accepting client operation");
-
+        info!("ActiveSession: processing client operation");
         match operation {
-            UserOperation::CreatePipeline { uuid } => {
-                Ok(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                    powershell: self.runspace_pool.init_pipeline(uuid)?,
-                }))
+            UserOperation::InvokeWithSpec { uuid, spec } => {
+                info!(pipeline_uuid = %uuid, "invoking pipeline with spec");
+
+                // Single operation: create, populate, and invoke pipeline
+                let invoke_xml = self.runspace_pool.invoke_spec(uuid, spec)?;
+                info!(xml_length = invoke_xml.len(), "built invoke XML request");
+                info!(unencrypted_invoke_xml = %invoke_xml, "outgoing unencrypted invoke SOAP");
+
+                // Send the invoke request
+                let send_invoke = self.connection_pool.send(&invoke_xml)?;
+                info!(invoke_request = ?send_invoke, "queued invoke request");
+
+                Ok(ActiveSessionOutput::SendBack(vec![send_invoke]))
             }
-            UserOperation::OperatePipeline {
-                powershell,
-                operation,
+
+            UserOperation::KillPipeline { pipeline } => {
+                info!(pipeline_id = %pipeline.id(), "killing pipeline");
+
+                // 1) Build the Signal request
+                let kill_xml = self.runspace_pool.kill_pipeline(pipeline)?;
+                info!(xml_length = kill_xml.len(), "built kill XML request");
+
+                // 2) Send signal
+                let ts_send = self.connection_pool.send(&kill_xml)?;
+                info!(signal_request = ?ts_send, "queued signal request");
+
+                Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
+            }
+            UserOperation::SubmitHostResponse {
+                submission, scope, ..
             } => {
-                match operation {
-                    PowershellOperations::AddCommand { command } => {
-                        self.runspace_pool.add_command(powershell, command)?;
+                match submission {
+                    Submission::Send(response) => match scope {
+                        HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
+                            command_id,
+                            response.call_id,
+                            response.method_id,
+                            response.method_name,
+                            response.method_result,
+                            response.method_exception,
+                        ),
+                        HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
+                            response.call_id,
+                            response.method_id,
+                            response.method_name,
+                            response.method_result,
+                            response.method_exception,
+                        ),
+                    },
+                    Submission::NoSend => {
+                        // Void method - no response needed
+                        Ok(ActiveSessionOutput::OperationSuccess)
                     }
                 }
-                Ok(ActiveSessionOutput::OperationSuccess)
             }
-            UserOperation::InvokePipeline { powershell } => {
-                let command_request = self.runspace_pool.invoke_pipeline_request(powershell);
 
-                match command_request {
-                    Ok(request) => {
-                        let response = self.http_builder.post("/wsman", HttpBody::Xml(request));
-                        Ok(ActiveSessionOutput::SendBack(vec![response]))
-                    }
-                    Err(e) => Ok(ActiveSessionOutput::SendBackError(e)),
-                }
-            }
-            UserOperation::SubmitHostResponse { response } => {
-                let HostCallResponse {
-                    call_scope,
-                    call_id,
-                    method_id,
-                    method_name,
-                    method_result: result,
-                    method_exception: error,
-                } = *response;
-                // Validate that this host call is actually pending
-                let key = (call_scope.clone(), call_id);
-                if !self.pending_host_calls.contains_key(&key) {
-                    return Err(crate::PwshCoreError::InvalidState(
-                        "Host call not found or already completed",
-                    ));
-                }
-
-                // Remove from pending calls
-                self.pending_host_calls.remove(&key);
-
-                // Create the appropriate host response message based on scope
-                match call_scope {
-                    HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
-                        command_id,
-                        call_id,
-                        method_id,
-                        method_name,
-                        result,
-                        error,
-                    ),
-                    HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
-                        call_id,
-                        method_id,
-                        method_name,
-                        result,
-                        error,
-                    ),
-                }
-            }
             UserOperation::CancelHostCall {
                 scope,
                 call_id,
-                reason: _reason,
+                reason: _,
             } => {
-                // Remove from pending calls if it exists
-                let key = (scope.clone(), call_id);
-                self.pending_host_calls.remove(&key);
-
-                // For cancellation, send an error response
-                let error_msg = format!("Host call {call_id} was cancelled");
-                let error = Some(PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Str(
-                    error_msg,
-                )));
-
+                // send an error response back
+                let err = Some(PsValue::Primitive(PsPrimitiveValue::Str(format!(
+                    "Host call {call_id} was cancelled"
+                ))));
                 match scope {
                     HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
                         command_id,
@@ -217,106 +214,111 @@ impl ActiveSession {
                         0,
                         "Cancelled".to_string(),
                         None,
-                        error,
+                        err,
                     ),
                     HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
                         call_id,
                         0,
                         "Cancelled".to_string(),
                         None,
-                        error,
+                        err,
                     ),
                 }
             }
         }
     }
 
-    /// Handle a server response
-    #[instrument(skip(self, response))]
+    /// Server response → plaintext XML via pool → PSRP accept → outputs (events / more sends)
+    #[instrument(skip(self, response), fields(
+        conn_id = response.connection_id().inner(),
+        status_code = response.response().status_code,
+        body_length = response.response().body.len(),
+        has_auth = response.authenticated.is_some()
+    ))]
     pub fn accept_server_response(
         &mut self,
-        response: HttpResponse,
+        response: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        let body = response.body.ok_or(crate::PwshCoreError::InvalidState(
-            "Expected a body in server response",
-        ))?;
+        info!("ActiveSession: processing server response");
 
-        debug!("Response body length: {}", body.len());
+        // 1) Decrypt & state-transition inside the pool, get plaintext SOAP
+        let xml_body = self.connection_pool.accept(response)?;
 
-        let xml_body: String = if let HttpBody::Encrypted(_) = body {
-            todo!("Implement decryption of encrypted body");
+        // Log the full decrypted response for error analysis when needed
+        if xml_body.contains("<s:Fault") || xml_body.contains("HTTP 5") || xml_body.len() < 500 {
+            warn!(
+                decrypted_xml = %xml_body,
+                decrypted_xml_length = xml_body.len(),
+                "decrypted server response (full content logged for debugging)"
+            );
         } else {
-            todo!("Handle non-encrypted body in accept_server_response");
-        };
+            info!(
+                decrypted_xml_length = xml_body.len(),
+                "decrypted server response"
+            );
+        }
 
+        // 2) Feed PSRP
         let results = self.runspace_pool.accept_response(xml_body).map_err(|e| {
             error!("RunspacePool.accept_response failed: {:#}", e);
             e
         })?;
+        info!(result_count = results.len(), "PSRP processed response");
 
-        let mut step_output = Vec::new();
-        debug!(?results, "RunspacePool accept_response results");
-
-        for (index, result) in results.into_iter().enumerate() {
-            debug!("Processing result {}: {:?}", index, result);
-
-            match result {
+        // 3) Translate PSRP results to outputs
+        let mut outs = Vec::new();
+        for (idx, res_accepted) in results.into_iter().enumerate() {
+            info!(index = idx, "processing PSRP result");
+            match res_accepted {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
-                    debug!(
-                        "Creating receive request for streams: {:?}",
-                        desired_streams
-                    );
-                    let receive_request = self
-                        .runspace_pool
-                        .fire_receive(desired_streams)
-                        .map_err(|e| {
-                            error!("Failed to create receive request: {:#}", e);
-                            e
-                        })?;
-                    let response = self
-                        .http_builder
-                        .post("/wsman", HttpBody::Xml(receive_request));
-                    step_output.push(ActiveSessionOutput::SendBack(vec![response]));
+                    info!(streams= ?desired_streams,"creating receive request for streams");
+                    let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
+                    let ts = self.connection_pool.send(&recv_xml)?;
+                    info!(try_send= ?ts,"queued receive request");
+                    outs.push(ActiveSessionOutput::SendBack(vec![ts]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
-                    debug!(?pipeline, "Pipeline created");
-                    step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
-                        powershell: pipeline,
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
+                        pipeline,
                     }));
                 }
                 AcceptResponsResult::PipelineFinished(pipeline) => {
-                    debug!(?pipeline, "Pipeline finished");
-                    step_output.push(ActiveSessionOutput::UserEvent(
-                        UserEvent::PipelineFinished {
-                            powershell: pipeline,
-                        },
+                    info!(pipeline_id= %pipeline.id(),"pipeline finished");
+                    outs.push(ActiveSessionOutput::UserEvent(
+                        UserEvent::PipelineFinished { pipeline },
                     ));
                 }
                 AcceptResponsResult::HostCall(host_call) => {
-                    debug!(host_call = ?host_call, "Received host call request");
-                    // Track this host call as pending
-                    let scope: HostCallScope = host_call.call_type.clone();
-                    let key = (scope, host_call.call_id);
-                    self.pending_host_calls.insert(key, ());
-
-                    step_output.push(ActiveSessionOutput::HostCall(host_call));
+                    info!(call_id=host_call.call_id(),method= %host_call.method_name(),"received host call");
+                    outs.push(ActiveSessionOutput::HostCall(host_call));
                 }
                 AcceptResponsResult::PipelineOutput { output, handle } => {
-                    debug!("Pipeline output: {:?}", output);
-                    step_output.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
+                    info!(pipeline_id= %handle.id(),output_type= ?output,"pipeline output received");
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineOutput {
+                        pipeline: handle,
                         output,
-                        powershell: handle,
+                    }));
+                }
+                AcceptResponsResult::ErrorRecord {
+                    error_record,
+                    handle,
+                } => {
+                    info!(pipeline_id= %handle.id(),error_record = ?error_record, "ErrorRecord received");
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::ErrorRecord {
+                        error_record,
+                        handle,
                     }));
                 }
             }
         }
 
-        step_output.sort();
-        debug!("Returning {} step outputs", step_output.len());
-        Ok(step_output)
+        outs.sort();
+        info!(output_count = outs.len(), "returning ActiveSession outputs");
+        Ok(outs)
     }
 
-    /// Send a pipeline host response back to the server
+    /// Build + send a pipeline host response, then queue a receive for that pipeline.
+    #[instrument(skip(self, result, error), fields(command_id = %command_id, call_id, method_name = %method_name))]
     fn send_pipeline_host_response(
         &mut self,
         command_id: uuid::Uuid,
@@ -326,15 +328,16 @@ impl ActiveSession {
         result: Option<PsValue>,
         error: Option<PsValue>,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
-        // Only send a response if we have a result or error to report
-        // Void methods (like Write, WriteLine, WriteProgress) don't need responses
+        use ironposh_psrp::PipelineHostResponse;
+
+        // void methods: nothing to send
         if result.is_none() && error.is_none() {
+            info!("void method, no response to send");
             return Ok(ActiveSessionOutput::OperationSuccess);
         }
 
-        use ironposh_psrp::PipelineHostResponse;
-
-        let host_response = PipelineHostResponse::builder()
+        info!("building pipeline host response");
+        let host_resp = PipelineHostResponse::builder()
             .call_id(call_id)
             .method_id(method_id)
             .method_name(method_name)
@@ -342,27 +345,30 @@ impl ActiveSession {
             .method_exception_opt(error)
             .build();
 
-        // Fragment and send via RunspacePool
-        let request = self
+        // 1) Fragment to XML
+        let send_xml = self
             .runspace_pool
-            .send_pipeline_host_response(command_id, host_response)?;
-        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
+            .send_pipeline_host_response(command_id, host_resp)?;
+        info!(send_xml_length = send_xml.len(), "built host response XML");
+        info!(unencrypted_host_response_xml = %send_xml, "outgoing unencrypted pipeline host response SOAP");
 
-        // Queue a receive after sending the response
-        let receive_request = self.runspace_pool.fire_receive(
-            crate::runspace_pool::DesiredStream::pipeline_streams(command_id),
-        )?;
-        let receive_http_response = self
-            .http_builder
-            .post("/wsman", HttpBody::Xml(receive_request));
+        // 2) Send
+        let ts_send = self.connection_pool.send(&send_xml)?;
+        info!(send_request = ?ts_send, "queued host response send");
 
-        Ok(ActiveSessionOutput::SendBack(vec![
-            http_response,
-            receive_http_response,
-        ]))
+        // 3) Queue receive for this pipeline's streams
+        let recv_xml = self
+            .runspace_pool
+            .fire_receive(DesiredStream::pipeline_streams(command_id))?;
+        info!(unencrypted_pipeline_recv_xml = %recv_xml, "outgoing unencrypted pipeline receive SOAP");
+        let ts_recv = self.connection_pool.send(&recv_xml)?;
+        info!(recv_request = ?ts_recv, "queued host response receive");
+
+        Ok(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]))
     }
 
-    /// Send a runspace pool host response back to the server
+    /// Build + send a runspace-pool host response, then queue a receive for pool streams.
+    #[instrument(skip(self, result, error), fields(call_id, method_name = %method_name))]
     fn send_runspace_pool_host_response(
         &mut self,
         call_id: i64,
@@ -371,15 +377,16 @@ impl ActiveSession {
         result: Option<PsValue>,
         error: Option<PsValue>,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
-        // Only send a response if we have a result or error to report
-        // Void methods (like Write, WriteLine, WriteProgress) don't need responses
+        use ironposh_psrp::RunspacePoolHostResponse;
+
+        // void methods: nothing to send
         if result.is_none() && error.is_none() {
+            info!("void method, no response to send");
             return Ok(ActiveSessionOutput::OperationSuccess);
         }
 
-        use ironposh_psrp::RunspacePoolHostResponse;
-
-        let host_response = RunspacePoolHostResponse::builder()
+        info!("building runspace pool host response");
+        let host_resp = RunspacePoolHostResponse::builder()
             .call_id(call_id)
             .method_id(method_id)
             .method_name(method_name)
@@ -387,23 +394,28 @@ impl ActiveSession {
             .method_exception_opt(error)
             .build();
 
-        // Fragment and send via RunspacePool
-        let request = self
+        // 1) Fragment to XML
+        let send_xml = self
             .runspace_pool
-            .send_runspace_pool_host_response(host_response)?;
-        let http_response = self.http_builder.post("/wsman", HttpBody::Xml(request));
+            .send_runspace_pool_host_response(host_resp)?;
+        info!(
+            send_xml_length = send_xml.len(),
+            "built pool host response XML"
+        );
+        info!(unencrypted_pool_host_response_xml = %send_xml, "outgoing unencrypted pool host response SOAP");
 
-        // Queue a receive after sending the response
-        let receive_request = self
+        // 2) Send
+        let ts_send = self.connection_pool.send(&send_xml)?;
+        info!(send_request = ?ts_send, "queued pool host response send");
+
+        // 3) Queue receive for pool streams
+        let recv_xml = self
             .runspace_pool
-            .fire_receive(crate::runspace_pool::DesiredStream::runspace_pool_streams())?;
-        let receive_http_response = self
-            .http_builder
-            .post("/wsman", HttpBody::Xml(receive_request));
+            .fire_receive(DesiredStream::runspace_pool_streams())?;
+        info!(unencrypted_pool_recv_xml = %recv_xml, "outgoing unencrypted pool receive SOAP");
+        let ts_recv = self.connection_pool.send(&recv_xml)?;
+        info!(recv_request = ?ts_recv, "queued pool host response receive");
 
-        Ok(ActiveSessionOutput::SendBack(vec![
-            http_response,
-            receive_http_response,
-        ]))
+        Ok(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]))
     }
 }

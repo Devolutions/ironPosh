@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
+
 ///  https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/c8c85974-ffd7-4455-84a8-e49016c20683
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PsPrimitiveValue {
     Str(String),
     Bool(bool),
@@ -10,6 +12,7 @@ pub enum PsPrimitiveValue {
     I64(i64),
     U64(u64),
     Guid(String),
+    Char(char),
     Nil,
     Bytes(Vec<u8>),
     Version(String),
@@ -27,6 +30,7 @@ impl Display for PsPrimitiveValue {
             PsPrimitiveValue::I64(i) => write!(f, "{i}"),
             PsPrimitiveValue::U64(u) => write!(f, "{u}"),
             PsPrimitiveValue::Guid(g) => write!(f, "{g}"),
+            PsPrimitiveValue::Char(c) => write!(f, "{c}"),
             PsPrimitiveValue::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
             PsPrimitiveValue::Bytes(_bytes) => write!(f, "System.Byte[]"),
             PsPrimitiveValue::Version(v) => write!(f, "{v}"),
@@ -79,6 +83,12 @@ impl From<u32> for PsPrimitiveValue {
 impl From<i64> for PsPrimitiveValue {
     fn from(i: i64) -> Self {
         PsPrimitiveValue::I64(i)
+    }
+}
+
+impl From<char> for PsPrimitiveValue {
+    fn from(c: char) -> Self {
+        PsPrimitiveValue::Char(c)
     }
 }
 

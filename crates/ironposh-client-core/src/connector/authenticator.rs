@@ -56,7 +56,7 @@ impl SspiConfig {
 /// a mutable borrow to the future that holds both the builder and the mut ref of provider, and we need to keep the
 /// context around during the suspension.
 #[derive(Debug)]
-pub struct AuthContext<P: Sspi> {
+pub struct SspiConext<P: Sspi> {
     pub(crate) provider: P,
     // Box<T> provides a stable heap address; we keep borrows within the same `AuthFurniture`.
     cred: Box<P::CredentialsHandle>,
@@ -66,13 +66,13 @@ pub struct AuthContext<P: Sspi> {
     sspi_auth_config: SspiConfig,
 }
 
-impl AuthContext<Ntlm> {
+impl SspiConext<Ntlm> {
     pub fn new_ntlm(id: ClientAuthIdentity, config: SspiConfig) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id, config)
     }
 }
 
-impl AuthContext<Negotiate> {
+impl SspiConext<Negotiate> {
     pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
@@ -86,7 +86,7 @@ impl AuthContext<Negotiate> {
     }
 }
 
-impl AuthContext<Kerberos> {
+impl SspiConext<Kerberos> {
     pub fn new_kerberos(
         id: ClientAuthIdentity,
         kerberos_config: KerberosConfig,
@@ -100,7 +100,7 @@ impl AuthContext<Kerberos> {
     }
 }
 
-impl<P> AuthContext<P>
+impl<P> SspiConext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
@@ -125,7 +125,7 @@ where
     }
 }
 
-impl<P> AuthContext<P>
+impl<P> SspiConext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::AuthIdentity>,
 {
@@ -151,7 +151,7 @@ where
     }
 }
 
-impl<P> AuthContext<P>
+impl<P> SspiConext<P>
 where
     P: Sspi,
 {
@@ -212,7 +212,7 @@ impl SspiAuthenticator {
     #[instrument(skip(context, sec_ctx_holder))]
     pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
         response: Option<&HttpResponse>,
-        context: &'ctx mut AuthContext<P>,
+        context: &'ctx mut SspiConext<P>,
         sec_ctx_holder: &'builder mut Option<SecurityContextBuilder<'ctx, P>>,
         require_encryption: bool,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
@@ -313,7 +313,7 @@ impl SspiAuthenticator {
 
     #[instrument(skip_all)]
     pub fn process_initialized_sec_context<P: Sspi>(
-        furniture: &mut AuthContext<P>,
+        furniture: &mut SspiConext<P>,
         sec_context: SecContextInit,
     ) -> Result<ActionReqired, PwshCoreError>
     where

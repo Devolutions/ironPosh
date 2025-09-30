@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, fmt::Display};
 
+use serde::{Deserialize, Serialize};
+
 use super::{Container, PsEnums, PsPrimitiveValue, PsProperty, PsType};
 
 /*
@@ -15,7 +17,7 @@ The <Obj> element can include the following subelements in any order.
     Extended properties (section 2.2.5.2.9).
 
 */
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub struct ComplexObject {
     pub type_def: Option<PsType>,
     pub to_string: Option<String>,
@@ -56,7 +58,7 @@ impl Display for ComplexObject {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub enum ComplexObjectContent {
     /// If the Complex Object being serialized is an Extended Primitive Object, then the value of the primitive type is serialized as described in section 2.2.5.1.
     ///Example (compare with the serialization of a string without notes in section 2.2.5.1.1):

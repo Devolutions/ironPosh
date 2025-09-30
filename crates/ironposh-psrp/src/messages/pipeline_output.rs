@@ -1,17 +1,18 @@
 use std::fmt::Display;
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use super::PsValue;
 use crate::{MessageType, PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PipelineOutput {
     pub data: PsValue, // the actual output object (primitive or complex)
 }
 
 impl PipelineOutput {
-    pub fn format_as_ps_string(&self) -> Result<String, PowerShellRemotingError> {
+    pub fn format_as_displyable_string(&self) -> Result<String, PowerShellRemotingError> {
         let Some(output_str) = self.data.as_string() else {
             return Err(PowerShellRemotingError::OutputFormattingError(
                 "Pipeline output is not a string",

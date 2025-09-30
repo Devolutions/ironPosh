@@ -32,7 +32,7 @@ pub struct CreatePipeline {
     #[builder(default = false)]
     pub add_to_history: bool,
     pub host_info: HostInfo,
-    pub power_shell: PowerShellPipeline,
+    pub pipeline: PowerShellPipeline,
     #[builder(default = false)]
     pub is_nested: bool,
 }
@@ -95,7 +95,7 @@ impl From<CreatePipeline> for ComplexObject {
             "PowerShell".to_string(),
             PsProperty {
                 name: "PowerShell".to_string(),
-                value: PsValue::Object(ComplexObject::from(create_pipeline.power_shell)),
+                value: PsValue::Object(ComplexObject::from(create_pipeline.pipeline)),
             },
         );
 
@@ -188,7 +188,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             remote_stream_options,
             add_to_history,
             host_info,
-            power_shell,
+            pipeline: power_shell,
             is_nested,
         })
     }

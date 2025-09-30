@@ -22,7 +22,7 @@ const SOAP: &str = r#"
 "#;
 
 pub fn main() {
-    let mut parsed = ironposh_xml::parser::parse(SOAP).expect("Failed to parse XML");
+    let parsed = ironposh_xml::parser::parse(SOAP).expect("Failed to parse XML");
     let root = parsed.root();
     for child in root.children() {
         // println!("{:#?}", child);
