@@ -10,7 +10,6 @@ use crate::{error::WasmError, WasmPowerShellEvent};
 // PowerShell stream wrapper - this needs to be a simple struct
 #[wasm_bindgen]
 pub struct WasmPowerShellStream {
-    // We'll use interior mutability pattern
     inner: Receiver<UserEvent>,
 }
 
@@ -25,6 +24,9 @@ impl WasmPowerShellStream {
 impl WasmPowerShellStream {
     #[wasm_bindgen]
     pub async fn next(&mut self) -> Result<Option<WasmPowerShellEvent>, WasmError> {
+        let _next_span =
+            tracing::span!(tracing::Level::DEBUG, "WasmPowerShellStream::next").entered();
+
         debug!("waiting for next PowerShell event");
         let event = self.inner.next().await;
         if let Some(event) = event {

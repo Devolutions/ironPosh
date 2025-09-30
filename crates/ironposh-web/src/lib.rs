@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 pub mod client;
 pub mod conversions;
 pub mod error;
+pub mod hostcall;
 pub mod http_client;
 pub mod http_convert;
 pub mod stream;

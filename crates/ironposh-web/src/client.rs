@@ -1,6 +1,6 @@
 use crate::{
-    error::WasmError, http_client::GatewayHttpViaWSClient, types::WasmWinRmConfig,
-    WasmPowerShellStream,
+    error::WasmError, hostcall::handle_host_calls, http_client::GatewayHttpViaWSClient,
+    types::WasmWinRmConfig, WasmPowerShellStream,
 };
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::connector::WinRmConfig;
@@ -40,6 +40,10 @@ impl WasmPowerShellClient {
         let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.to_owned());
         let internal_config: WinRmConfig = config.into();
         let (client, task) = RemoteAsyncPowershellClient::open_task(internal_config, http_client);
+        let (client, host_io) = client.take_host_io();
+
+        let (host_call_rx, submitter) = host_io.into_parts();
+        wasm_bindgen_futures::spawn_local(handle_host_calls(host_call_rx, submitter));
 
         info!("spawning background task for PowerShell client");
         // Spawn background task

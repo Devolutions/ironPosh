@@ -116,9 +116,10 @@ const App: React.FC = () => {
 
       while (true) {
         const event = await stream.next();
+        console.log('Received event:', event);
         if (!event) break;
         if ('PipelineOutput' in event) {
-          setOutput(prev => prev + event.PipelineOutput.data);
+          setOutput(prev => prev + event.PipelineOutput.data + '\n');
         } else if ('PipelineError' in event) {
           setOutput(prev => prev + `ERROR: ${event.PipelineError.error}\n`);
         } else if ('PipelineFinished' in event) {
@@ -128,7 +129,6 @@ const App: React.FC = () => {
       }
 
       stream.free();
-      setOutput(`Command: ${command}\n\nOutput will appear here once command execution is integrated...`);
     } catch (error) {
       setOutput(`Error: ${error}`);
     }
