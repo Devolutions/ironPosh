@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use tsify::Tsify;
 use wasm_bindgen::JsValue;
 
@@ -48,6 +49,11 @@ impl WasmError {
 
 impl From<WasmError> for IronPoshError {
     fn from(value: WasmError) -> Self {
+        error!(
+            error_code = value.name(),
+            error_message = %value,
+            "converting WasmError to IronPoshError"
+        );
         IronPoshError {
             code: value.name().to_string(),
             message: value.to_string(),
@@ -57,6 +63,11 @@ impl From<WasmError> for IronPoshError {
 
 impl From<WasmError> for JsValue {
     fn from(value: WasmError) -> Self {
+        error!(
+            error_code = value.name(),
+            error_message = %value,
+            "converting WasmError to JsValue"
+        );
         let api_error: IronPoshError = value.into();
         api_error.into()
     }

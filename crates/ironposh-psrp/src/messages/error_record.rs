@@ -96,15 +96,17 @@ impl ErrorRecord {
                 .as_ref()
                 .and_then(|c| c.message.as_ref())
                 .map(|s| normalize(s))
-                && !cat.is_empty() {
-                    push_line(&mut out, cat, opts.trim);
-                }
+            && !cat.is_empty()
+        {
+            push_line(&mut out, cat, opts.trim);
+        }
 
         // 3) Position block (from InvocationInfo if present)
         if opts.include_position
-            && let Some(pos) = extract_position_block(&self.invocation_info) {
-                push_line(&mut out, pos, opts.trim);
-            }
+            && let Some(pos) = extract_position_block(&self.invocation_info)
+        {
+            push_line(&mut out, pos, opts.trim);
+        }
 
         out
     }

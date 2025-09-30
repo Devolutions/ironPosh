@@ -77,4 +77,3 @@ impl TryFrom<UserEvent> for WasmPowerShellEvent {
         Ok(res)
     }
 }
-

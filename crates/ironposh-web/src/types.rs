@@ -5,7 +5,6 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 use crate::error::WasmError;
 
-
 // WASM-compatible structs with tsify for TypeScript generation
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]

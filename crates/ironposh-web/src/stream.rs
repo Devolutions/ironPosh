@@ -2,9 +2,8 @@ use std::convert::TryInto;
 
 use futures::{channel::mpsc::Receiver, StreamExt};
 use ironposh_client_core::connector::active_session::UserEvent;
-use js_sys::Promise;
+use tracing::{debug, error, info};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::future_to_promise;
 
 use crate::{error::WasmError, WasmPowerShellEvent};
 
@@ -17,6 +16,7 @@ pub struct WasmPowerShellStream {
 
 impl WasmPowerShellStream {
     pub(crate) fn new(receiver: Receiver<UserEvent>) -> Self {
+        info!("creating new PowerShell stream");
         Self { inner: receiver }
     }
 }
@@ -25,11 +25,21 @@ impl WasmPowerShellStream {
 impl WasmPowerShellStream {
     #[wasm_bindgen]
     pub async fn next(&mut self) -> Result<Option<WasmPowerShellEvent>, WasmError> {
+        debug!("waiting for next PowerShell event");
         let event = self.inner.next().await;
         if let Some(event) = event {
-            let wasm_powershell_event: WasmPowerShellEvent = event.try_into()?;
+            debug!(?event, "received PowerShell event");
+            let wasm_powershell_event: WasmPowerShellEvent = event.try_into().map_err(|e| {
+                error!(?e, "failed to convert PowerShell event");
+                e
+            })?;
+            debug!(
+                event_type = ?wasm_powershell_event,
+                "converted PowerShell event successfully"
+            );
             return Ok(Some(wasm_powershell_event));
         }
+        info!("PowerShell stream ended");
         Ok(None)
     }
 }

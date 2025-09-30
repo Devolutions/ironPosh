@@ -20,13 +20,14 @@ const App: React.FC = () => {
     gateway_token: '',
   });
   const [connected, setConnected] = useState(false);
-  const [client, setClient] = useState<any>(null);
+  const [client, setClient] = useState<ironposh.WasmPowerShellClient | null>(null);
 
   // Initialize WASM on component mount
   useEffect(() => {
     init().then(() => {
       setWasmReady(true);
       ironposh.set_panic_hook();
+      ironposh.init_tracing_with_level("Debug");
     }).catch(err => {
       console.error('Failed to initialize WASM:', err);
       setOutput(`Failed to initialize WASM: ${err}`);
@@ -111,7 +112,22 @@ const App: React.FC = () => {
     setOutput('Running command...');
 
     try {
-      // TODO: Implement actual command execution using ironposh-web client
+      let stream = await client.execute_command(command);
+
+      while (true) {
+        const event = await stream.next();
+        if (!event) break;
+        if ('PipelineOutput' in event) {
+          setOutput(prev => prev + event.PipelineOutput.data);
+        } else if ('PipelineError' in event) {
+          setOutput(prev => prev + `ERROR: ${event.PipelineError.error}\n`);
+        } else if ('PipelineFinished' in event) {
+          setOutput(prev => prev + '\nCommand execution finished.\n');
+          break;
+        }
+      }
+
+      stream.free();
       setOutput(`Command: ${command}\n\nOutput will appear here once command execution is integrated...`);
     } catch (error) {
       setOutput(`Error: ${error}`);

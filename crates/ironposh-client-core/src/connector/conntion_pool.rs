@@ -59,6 +59,15 @@ pub enum TrySend {
     AuthNeeded { auth_sequence: PostConAuthSequence },
 }
 
+impl TrySend {
+    pub fn get_connection_id(&self) -> ConnectionId {
+        match self {
+            TrySend::JustSend { conn_id, .. } => *conn_id,
+            TrySend::AuthNeeded { auth_sequence } => auth_sequence.conn_id,
+        }
+    }
+}
+
 // === Helper: unwrap a TrySend to JustSend during Connected handoff ===
 pub trait TrySendExt {
     fn expect_just_send(self) -> JustSendOut;
@@ -423,9 +432,9 @@ pub enum SecContextInited {
 }
 
 impl PostConAuthSequence {
-    pub fn prepare<'a, 'b>(
-        &'a mut self,
-    ) -> (&'a mut SspiAuthSequence, SecurityContextBuilderHolder<'b>) {
+    pub fn prepare<'b>(
+        &mut self,
+    ) -> (&mut SspiAuthSequence, SecurityContextBuilderHolder<'b>) {
         (&mut self.auth_sequence, SecurityContextBuilderHolder::new())
     }
 
