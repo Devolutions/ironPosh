@@ -1,6 +1,9 @@
 use std::convert::TryInto;
 
-use futures::{channel::mpsc::Receiver, StreamExt};
+use futures::{
+    channel::{mpsc::Receiver, oneshot},
+    StreamExt,
+};
 use ironposh_client_core::{connector::active_session::UserEvent, powershell::PipelineHandle};
 use tracing::{debug, error, info};
 use wasm_bindgen::prelude::*;
@@ -12,14 +15,19 @@ use crate::{error::WasmError, WasmPowerShellEvent};
 pub struct WasmPowerShellStream {
     inner: Receiver<UserEvent>,
     pipeline_handle: Option<PipelineHandle>,
+    kill_sender: Option<oneshot::Sender<PipelineHandle>>,
 }
 
 impl WasmPowerShellStream {
-    pub(crate) fn new(receiver: Receiver<UserEvent>) -> Self {
+    pub(crate) fn new(
+        receiver: Receiver<UserEvent>,
+        kill_sender: oneshot::Sender<PipelineHandle>,
+    ) -> Self {
         info!("creating new PowerShell stream");
         Self {
             inner: receiver,
             pipeline_handle: None,
+            kill_sender: Some(kill_sender),
         }
     }
 }
@@ -55,5 +63,30 @@ impl WasmPowerShellStream {
         }
 
         result
+    }
+
+    #[wasm_bindgen]
+    pub fn kill(&mut self) -> Result<(), WasmError> {
+        let _kill_span =
+            tracing::span!(tracing::Level::DEBUG, "WasmPowerShellStream::kill").entered();
+
+        let Some(pipeline_handle) = self.pipeline_handle.take() else {
+            debug!("no pipeline handle available, cannot send kill signal");
+            return Ok(());
+        };
+
+        let Some(kill_sender) = self.kill_sender.take() else {
+            debug!("kill signal already sent, ignoring");
+            return Ok(());
+        };
+
+        debug!("killing PowerShell pipeline");
+
+        kill_sender.send(pipeline_handle).map_err(|e| {
+            error!(?e, "failed to send kill signal");
+            WasmError::Generic("failed to send kill signal".into())
+        })?;
+
+        Ok(())
     }
 }
