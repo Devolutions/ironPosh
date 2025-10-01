@@ -3,12 +3,12 @@ use crate::{
     types::WasmWinRmConfig, WasmPowerShellStream,
 };
 use ironposh_async::RemoteAsyncPowershellClient;
-use ironposh_client_core::connector::WinRmConfig;
+use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
 use js_sys::{Function, Promise};
 use tracing::{error, info};
 use url::Url;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::future_to_promise;
+use wasm_bindgen_futures::{future_to_promise, spawn_local};
 
 // Main PowerShell client
 #[wasm_bindgen]
@@ -85,6 +85,16 @@ impl WasmPowerShellClient {
             error!(?e, "failed to send PowerShell script");
             e
         })?;
+
+        let (kill_tx, mut kill_rx) = futures::channel::oneshot::channel::<PipelineHandle>();
+
+        spawn_local(async move {
+            let Ok(pipeline_handle) = kill_rx.await else {
+                return;
+            };
+
+            let _ = self.client.kill_pipeline(pipeline_handle).await;
+        });
 
         let stream = crate::stream::WasmPowerShellStream::new(stream);
         info!("PowerShell command stream created successfully");

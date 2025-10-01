@@ -16,6 +16,7 @@ tracing = "0.1.41"
 sspi = { path = "C:\\dev\\sspi-rs", features = ["ring"] }
 url = "2.5.7"
 whoami = "1.6.1"
+serde = { version = "1.0.228", features = ["derive"] }
 # sspi = { version = "0.16.1", features = ["ring"] }
 
 

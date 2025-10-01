@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A handle to a PowerShell pipeline managed by a `RunspacePool`.
@@ -5,7 +6,7 @@ use uuid::Uuid;
 /// This struct is a lightweight, copyable identifier for a specific pipeline.
 /// All operations on the pipeline are performed via methods on the `RunspacePool`
 /// that take this handle as an argument.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PipelineHandle {
     pub(crate) id: uuid::Uuid,
 }

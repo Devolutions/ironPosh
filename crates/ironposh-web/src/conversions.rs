@@ -51,9 +51,9 @@ impl From<WasmWinRmConfig> for WinRmConfig {
 }
 
 // Convert internal UserEvent to WASM event
-impl TryFrom<UserEvent> for WasmPowerShellEvent {
+impl TryFrom<&UserEvent> for WasmPowerShellEvent {
     type Error = crate::error::WasmError;
-    fn try_from(value: UserEvent) -> Result<Self, Self::Error> {
+    fn try_from(value: &UserEvent) -> Result<Self, Self::Error> {
         let res = match value {
             UserEvent::PipelineCreated { pipeline } => WasmPowerShellEvent::PipelineCreated {
                 pipeline_id: pipeline.id().to_string(),

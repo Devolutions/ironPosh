@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use futures::{channel::mpsc::Receiver, StreamExt};
-use ironposh_client_core::connector::active_session::UserEvent;
+use ironposh_client_core::{connector::active_session::UserEvent, powershell::PipelineHandle};
 use tracing::{debug, error, info};
 use wasm_bindgen::prelude::*;
 
@@ -11,12 +11,16 @@ use crate::{error::WasmError, WasmPowerShellEvent};
 #[wasm_bindgen]
 pub struct WasmPowerShellStream {
     inner: Receiver<UserEvent>,
+    pipeline_handle: Option<PipelineHandle>,
 }
 
 impl WasmPowerShellStream {
     pub(crate) fn new(receiver: Receiver<UserEvent>) -> Self {
         info!("creating new PowerShell stream");
-        Self { inner: receiver }
+        Self {
+            inner: receiver,
+            pipeline_handle: None,
+        }
     }
 }
 
@@ -29,7 +33,8 @@ impl WasmPowerShellStream {
 
         debug!("waiting for next PowerShell event");
         let event = self.inner.next().await;
-        if let Some(event) = event {
+
+        let result = if let Some(event) = &event {
             debug!(?event, "received PowerShell event");
             let wasm_powershell_event: WasmPowerShellEvent = event.try_into().map_err(|e| {
                 error!(?e, "failed to convert PowerShell event");
@@ -39,9 +44,16 @@ impl WasmPowerShellStream {
                 event_type = ?wasm_powershell_event,
                 "converted PowerShell event successfully"
             );
-            return Ok(Some(wasm_powershell_event));
+
+            Ok(Some(wasm_powershell_event))
+        } else {
+            Ok(None)
+        };
+
+        if let Some(UserEvent::PipelineCreated { pipeline }) = event {
+            self.pipeline_handle = Some(pipeline);
         }
-        info!("PowerShell stream ended");
-        Ok(None)
+
+        result
     }
 }
