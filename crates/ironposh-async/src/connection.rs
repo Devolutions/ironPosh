@@ -22,6 +22,7 @@ pub fn establish_connection<C: HttpClient>(
     client: C,
 ) -> (
     ConnectionHandle,
+    HostIo,
     impl std::future::Future<Output = anyhow::Result<()>>,
 )
 where
@@ -164,19 +165,13 @@ where
 
     let joined_task = async move { join!(active_session_task, multiplex_pipeline_task).0 };
 
-    (
-        ConnectionHandle {
-            pipeline_input_tx,
-            host_io,
-        },
-        joined_task,
-    )
+    (ConnectionHandle { pipeline_input_tx }, host_io, joined_task)
 }
 
 /// Handle for communicating with the established connection
+#[derive(Clone)]
 pub struct ConnectionHandle {
     pub pipeline_input_tx: mpsc::Sender<PipelineInput>,
-    pub host_io: crate::HostIo,
 }
 
 pub enum PipelineInput {

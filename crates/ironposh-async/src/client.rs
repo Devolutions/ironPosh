@@ -12,22 +12,24 @@ use crate::{
 };
 
 /// Async PowerShell client for executing commands and managing sessions
+#[derive(Clone)]
 pub struct RemoteAsyncPowershellClient {
     handle: ConnectionHandle,
 }
 
 impl RemoteAsyncPowershellClient {
     /// Create a new client and background task for the given configuration
+    /// Returns (client, host_io, connection_task)
     pub fn open_task(
         config: WinRmConfig,
         client: impl HttpClient,
-    ) -> (Self, impl std::future::Future<Output = anyhow::Result<()>>)
+    ) -> (Self, crate::HostIo, impl std::future::Future<Output = anyhow::Result<()>>)
     where
         Self: Sized,
     {
-        let (handle, task) = connection::establish_connection(config, client);
+        let (handle, host_io, task) = connection::establish_connection(config, client);
 
-        (Self { handle }, task)
+        (Self { handle }, host_io, task)
     }
 
     /// Execute a PowerShell command and return its output
@@ -81,18 +83,5 @@ impl RemoteAsyncPowershellClient {
             .context("Failed to send KillPipeline operation")?;
 
         Ok(())
-    }
-
-    /// Take ownership of the host I/O interface for handling PowerShell host calls
-    pub fn take_host_io(self) -> (Self, crate::HostIo) {
-        let host_io = self.handle.host_io;
-        let new_handle = connection::ConnectionHandle {
-            pipeline_input_tx: self.handle.pipeline_input_tx,
-            host_io: crate::HostIo {
-                host_call_rx: futures::channel::mpsc::unbounded().1, // dummy receiver
-                submitter: host_io.submitter.clone(),
-            },
-        };
-        (Self { handle: new_handle }, host_io)
     }
 }
