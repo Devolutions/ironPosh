@@ -2,9 +2,16 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import type { WasmPowerShellClient, WasmWinRmConfig } from "ironposh-web";
-import * as ironposhWeb from "ironposh-web";
+import {
+  WasmPowerShellClient,
+  WasmWinRmConfig,
+} from "../../../crates/ironposh-web/pkg";
+import init_wasm, {
+  init_tracing_with_level,
+  set_panic_hook,
+} from "../../../crates/ironposh-web/pkg/ironposh_web";
 import { createHostCallHandler } from "./hostcall-handler";
+import wasm from "../../../crates/ironposh-web/pkg/ironposh_web_bg.wasm?url";
 
 export interface PowerShellConnectionConfig {
   gateway_url: string;
@@ -123,9 +130,10 @@ export class PowerShellTerminalElement extends HTMLElement {
 
     // Load ironposh-web WASM module
     try {
-      await ironposhWeb.default();
-      ironposhWeb.set_panic_hook();
-      ironposhWeb.init_tracing_with_level({ Info: undefined } as any);
+      console.log("Loading WASM from", wasm);
+      await init_wasm(wasm);
+      set_panic_hook();
+      init_tracing_with_level({ Info: undefined } as any);
 
       this.terminal.writeln("✓ WASM module loaded successfully");
       this.emitEvent({ type: "ready", detail: undefined });
@@ -176,10 +184,7 @@ export class PowerShellTerminalElement extends HTMLElement {
       });
 
       // Create PowerShell client
-      this.client = ironposhWeb.WasmPowerShellClient.connect(
-        wasmConfig,
-        hostCallHandler
-      );
+      this.client = WasmPowerShellClient.connect(wasmConfig, hostCallHandler);
 
       this.terminal.writeln("✓ Connected successfully!");
       this.terminal.writeln("");

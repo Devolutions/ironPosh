@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import type { JsHostCall } from "ironposh-web";
+import type { JsHostCall } from "../../../crates/ironposh-web/pkg/ironposh_web";
 
 export interface HostCallHandlerConfig {
   terminal: Terminal;
