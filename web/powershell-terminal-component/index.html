@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PowerShell Terminal Component - Dev</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1e1e1e;
+      color: #fff;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    .terminal-wrapper {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    input, button {
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #2d2d2d;
+      color: #fff;
+    }
+    button {
+      cursor: pointer;
+      background: #0e639c;
+    }
+    button:hover {
+      background: #1177bb;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>PowerShell Terminal Component</h1>
+
+    <div class="controls">
+      <input type="text" id="gateway_url" placeholder="Gateway URL" value="ws://localhost:8080">
+      <input type="text" id="gateway_token" placeholder="Gateway Token" value="token123">
+      <input type="text" id="server" placeholder="Server IP" value="192.168.1.100">
+      <input type="number" id="port" placeholder="Port" value="5985">
+      <input type="text" id="username" placeholder="Username" value="Administrator">
+      <input type="password" id="password" placeholder="Password">
+      <label>
+        <input type="checkbox" id="https"> Use HTTPS
+      </label>
+      <button id="connect">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <button id="clear">Clear</button>
+    </div>
+
+    <div class="terminal-wrapper">
+      <powershell-terminal id="terminal"></powershell-terminal>
+    </div>
+  </div>
+
+  <script type="module">
+    import './src/powershell-terminal.ts';
+
+    const terminal = document.getElementById('terminal');
+    const connectBtn = document.getElementById('connect');
+    const disconnectBtn = document.getElementById('disconnect');
+    const clearBtn = document.getElementById('clear');
+
+    terminal.addEventListener('ready', () => {
+      console.log('Terminal ready');
+    });
+
+    terminal.addEventListener('connected', () => {
+      console.log('Connected');
+      connectBtn.disabled = true;
+      disconnectBtn.disabled = false;
+    });
+
+    terminal.addEventListener('disconnected', () => {
+      console.log('Disconnected');
+      connectBtn.disabled = false;
+      disconnectBtn.disabled = true;
+    });
+
+    terminal.addEventListener('error', (e) => {
+      console.error('Terminal error:', e.detail);
+    });
+
+    connectBtn.addEventListener('click', async () => {
+      const config = {
+        gateway_url: document.getElementById('gateway_url').value,
+        gateway_token: document.getElementById('gateway_token').value,
+        server: document.getElementById('server').value,
+        port: parseInt(document.getElementById('port').value),
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        use_https: document.getElementById('https').checked
+      };
+
+      try {
+        await terminal.connect(config);
+      } catch (error) {
+        console.error('Connection failed:', error);
+      }
+    });
+
+    disconnectBtn.addEventListener('click', () => {
+      terminal.disconnect();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      terminal.clear();
+    });
+  </script>
+</body>
+</html>
