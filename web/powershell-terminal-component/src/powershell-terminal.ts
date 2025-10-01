@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { WasmPowerShellClient, WasmWinRmConfig } from "ironposh-web";
+import * as ironposhWeb from "ironposh-web";
 import { createHostCallHandler } from "./hostcall-handler";
 
 export interface PowerShellConnectionConfig {
@@ -50,7 +51,6 @@ export class PowerShellTerminalElement extends HTMLElement {
   private client: WasmPowerShellClient | null = null;
   private connected: boolean = false;
   private resizeObserver: ResizeObserver | null = null;
-  private wasmModule: any = null;
   private currentLine: string = "";
   private abortController: AbortController | null = null;
 
@@ -123,12 +123,10 @@ export class PowerShellTerminalElement extends HTMLElement {
 
     // Load ironposh-web WASM module
     try {
-      const module = await import("ironposh-web");
-      await module.default();
-      module.set_panic_hook();
-      module.init_tracing_with_level({ Info: undefined } as any);
+      await ironposhWeb.default();
+      ironposhWeb.set_panic_hook();
+      ironposhWeb.init_tracing_with_level({ Info: undefined } as any);
 
-      this.wasmModule = module;
       this.terminal.writeln("✓ WASM module loaded successfully");
       this.emitEvent({ type: "ready", detail: undefined });
     } catch (error) {
@@ -147,7 +145,7 @@ export class PowerShellTerminalElement extends HTMLElement {
   }
 
   async connect(config: PowerShellConnectionConfig): Promise<void> {
-    if (!this.terminal || !this.wasmModule) {
+    if (!this.terminal) {
       throw new Error("Terminal not initialized");
     }
 
@@ -178,7 +176,7 @@ export class PowerShellTerminalElement extends HTMLElement {
       });
 
       // Create PowerShell client
-      this.client = this.wasmModule.WasmPowerShellClient.connect(
+      this.client = ironposhWeb.WasmPowerShellClient.connect(
         wasmConfig,
         hostCallHandler
       );
