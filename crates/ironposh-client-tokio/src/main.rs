@@ -42,10 +42,9 @@ async fn main() -> anyhow::Result<()> {
     let http_client = ReqwestHttpClient::new();
 
     // Create the PowerShell client
-    let (client, connection_task) = RemoteAsyncPowershellClient::open_task(config, http_client);
+    let (mut client, host_io, connection_task) = RemoteAsyncPowershellClient::open_task(config, http_client);
 
     // Extract host I/O for handling host calls
-    let (mut client, host_io) = client.take_host_io();
     let (host_call_rx, submitter) = host_io.into_parts();
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
 

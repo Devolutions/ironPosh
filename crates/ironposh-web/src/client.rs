@@ -48,8 +48,8 @@ impl WasmPowerShellClient {
 
         let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.to_owned());
         let internal_config: WinRmConfig = config.into();
-        let (client, task) = RemoteAsyncPowershellClient::open_task(internal_config, http_client);
-        let (client, host_io) = client.take_host_io();
+        let (client, host_io, task) =
+            RemoteAsyncPowershellClient::open_task(internal_config, http_client);
 
         let (host_call_rx, submitter) = host_io.into_parts();
 
@@ -86,17 +86,22 @@ impl WasmPowerShellClient {
             e
         })?;
 
-        let (kill_tx, mut kill_rx) = futures::channel::oneshot::channel::<PipelineHandle>();
-
+        let (kill_tx, kill_rx) = futures::channel::oneshot::channel::<PipelineHandle>();
+        let mut client_clone = self.client.clone();
         spawn_local(async move {
             let Ok(pipeline_handle) = kill_rx.await else {
                 return;
             };
 
-            let _ = self.client.kill_pipeline(pipeline_handle).await;
+            let _ = client_clone
+                .kill_pipeline(pipeline_handle)
+                .await
+                .inspect_err(|e| {
+                    error!(?e, "failed to kill PowerShell pipeline");
+                });
         });
 
-        let stream = crate::stream::WasmPowerShellStream::new(stream);
+        let stream = crate::stream::WasmPowerShellStream::new(stream, kill_tx);
         info!("PowerShell command stream created successfully");
         Ok(stream)
     }
