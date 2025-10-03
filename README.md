@@ -2,6 +2,8 @@
 
 A Rust implementation of the WinRM (Windows Remote Management) and PowerShell Remoting Protocol (PSRP) for remote Windows system management.
 
+> **⚠️ WARNING: This project is still under active development and not yet mature. Use at your own risk. APIs may change without notice, and there may be bugs or incomplete features. Not recommended for production use.**
+
 ## Overview
 
 IronWinRM provides a comprehensive set of libraries and clients for communicating with Windows systems via WinRM and executing PowerShell commands remotely. The project is built as a Cargo workspace with multiple specialized crates supporting different use cases including async/sync operations, terminal interfaces, and WebAssembly integration.
@@ -146,6 +148,18 @@ Or use the `-v` flag with supported clients for increased verbosity.
 ## License
 
 See LICENSE file for details.
+
+## Project Status
+
+This project is in active development and should be considered **experimental**. While functional for many use cases, it has not been extensively tested in production environments. Known limitations and areas for improvement include:
+
+- Limited real-world testing and validation
+- API stability not guaranteed
+- Incomplete error handling in some scenarios
+- Documentation may be incomplete or outdated
+- Some features may be partially implemented
+
+**Use this software at your own risk.** It is provided "as is" without warranty of any kind. Users should thoroughly test in their own environments before relying on it for critical operations.
 
 ## Contributing
 
