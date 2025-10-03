@@ -28,7 +28,7 @@ pub enum WasmError {
         source: url::ParseError,
         target: String,
     },
-    
+
     #[error("Invalid Argument: {0}")]
     InvalidArgument(String),
 }

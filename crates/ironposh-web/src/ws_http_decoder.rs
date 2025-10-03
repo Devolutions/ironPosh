@@ -146,11 +146,11 @@ impl HttpResponseDecoder {
             BodyMode::None => {
                 debug!("body mode None, completing");
                 let (headers, _) = parse_headers(&self.buf[..hend])?;
-                return Ok(Some(HttpResponse {
+                Ok(Some(HttpResponse {
                     status_code: status,
                     headers,
                     body: HttpBody::None,
-                }));
+                }))
             }
             BodyMode::Fixed(clen) => {
                 let body = &self.buf[hend + 4..];
@@ -173,11 +173,11 @@ impl HttpResponseDecoder {
                 info!(body_length = clen, "fixed-length body complete");
                 let (headers, content_type) = parse_headers(&self.buf[..hend])?;
                 let http_body = classify_body(body, content_type.as_deref())?;
-                return Ok(Some(HttpResponse {
+                Ok(Some(HttpResponse {
                     status_code: status,
                     headers,
                     body: http_body,
-                }));
+                }))
             }
             BodyMode::Chunked => {
                 // parse chunk stream incrementally from chunk_cursor..buf.len()
@@ -301,11 +301,10 @@ fn parse_status_and_body_mode(hdr: &[u8]) -> Result<(u16, BodyMode), WasmError> 
                 if let Ok(n) = v.parse::<usize>() {
                     content_len = Some(n);
                 }
-            } else if n == "transfer-encoding" {
-                if v.to_ascii_lowercase().contains("chunked") {
+            } else if n == "transfer-encoding"
+                && v.to_ascii_lowercase().contains("chunked") {
                     chunked = true;
                 }
-            }
         }
     }
 
@@ -381,15 +380,15 @@ fn classify_body(body_bytes: &[u8], content_type: Option<&str>) -> Result<HttpBo
             || ct.contains("multipart/encrypted")
         {
             if let Ok(text) = std::str::from_utf8(body_bytes) {
-                return Ok(HttpBody::Text(text.to_string()));
+                Ok(HttpBody::Text(text.to_string()))
             } else {
-                return Ok(HttpBody::Encrypted(body_bytes.to_vec()));
+                Ok(HttpBody::Encrypted(body_bytes.to_vec()))
             }
         } else {
             let text = std::str::from_utf8(body_bytes).map_err(|_| {
                 WasmError::IOError("Body not valid UTF-8 for text content-type".into())
             })?;
-            return Ok(HttpBody::Text(text.to_string()));
+            Ok(HttpBody::Text(text.to_string()))
         }
     } else if let Ok(text) = std::str::from_utf8(body_bytes) {
         Ok(HttpBody::Text(text.to_string()))

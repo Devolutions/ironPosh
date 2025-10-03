@@ -517,10 +517,7 @@ impl From<&HostCall> for JsHostCall {
                 return_type: VoidReturnType::new(),
             },
             HostCall::WriteProgress { transport } => JsHostCall::WriteProgress {
-                params: (
-                    transport.params.0,
-                    format!("{:?}", transport.params.1),
-                ),
+                params: (transport.params.0, format!("{:?}", transport.params.1)),
                 return_type: VoidReturnType::new(),
             },
             HostCall::WriteVerboseLine { transport } => JsHostCall::WriteVerboseLine {
@@ -613,10 +610,7 @@ impl From<&HostCall> for JsHostCall {
                 return_type: SizeReturnType::new(),
             },
             HostCall::SetBufferSize { transport } => JsHostCall::SetBufferSize {
-                params: (
-                    transport.params.0.width,
-                    transport.params.0.height,
-                ),
+                params: (transport.params.0.width, transport.params.0.height),
                 return_type: VoidReturnType::new(),
             },
             HostCall::GetWindowSize { .. } => JsHostCall::GetWindowSize {
@@ -624,10 +618,7 @@ impl From<&HostCall> for JsHostCall {
                 return_type: SizeReturnType::new(),
             },
             HostCall::SetWindowSize { transport } => JsHostCall::SetWindowSize {
-                params: (
-                    transport.params.0.width,
-                    transport.params.0.height,
-                ),
+                params: (transport.params.0.width, transport.params.0.height),
                 return_type: VoidReturnType::new(),
             },
             HostCall::GetWindowTitle { .. } => JsHostCall::GetWindowTitle {

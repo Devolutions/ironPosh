@@ -9,7 +9,7 @@ use ironposh_client_core::{
     pipeline::PipelineSpec,
     powershell::PipelineHandle,
 };
-use tracing::{Instrument, Level, Span, info, info_span, span};
+use tracing::{Instrument, Level, info, info_span, span};
 
 use crate::{HostIo, HostSubmitter, HttpClient, session};
 
