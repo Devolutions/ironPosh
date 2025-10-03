@@ -68,7 +68,7 @@ impl WasmPowerShellStream {
     #[wasm_bindgen]
     pub fn kill(&mut self) -> Result<(), WasmError> {
         let _kill_span =
-            tracing::span!(tracing::Level::DEBUG, "WasmPowerShellStream::kill").entered();
+            tracing::span!(tracing::Level::INFO, "WasmPowerShellStream::kill").entered();
 
         let Some(pipeline_handle) = self.pipeline_handle.take() else {
             debug!("no pipeline handle available, cannot send kill signal");
@@ -80,7 +80,7 @@ impl WasmPowerShellStream {
             return Ok(());
         };
 
-        debug!("killing PowerShell pipeline");
+        info!("killing PowerShell pipeline");
 
         kill_sender.send(pipeline_handle).map_err(|e| {
             error!(?e, "failed to send kill signal");

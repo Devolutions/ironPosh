@@ -19,17 +19,23 @@ pub struct RemoteAsyncPowershellClient {
 
 impl RemoteAsyncPowershellClient {
     /// Create a new client and background task for the given configuration
-    /// Returns (client, host_io, connection_task)
+    /// Returns (client, host_io, session_event_rx, connection_task)
     pub fn open_task(
         config: WinRmConfig,
         client: impl HttpClient,
-    ) -> (Self, crate::HostIo, impl std::future::Future<Output = anyhow::Result<()>>)
+    ) -> (
+        Self,
+        crate::HostIo,
+        futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
+        impl std::future::Future<Output = anyhow::Result<()>>,
+    )
     where
         Self: Sized,
     {
-        let (handle, host_io, task) = connection::establish_connection(config, client);
+        let (handle, host_io, session_event_rx, task) =
+            connection::establish_connection(config, client);
 
-        (Self { handle }, host_io, task)
+        (Self { handle }, host_io, session_event_rx, task)
     }
 
     /// Execute a PowerShell command and return its output
@@ -52,6 +58,12 @@ impl RemoteAsyncPowershellClient {
             })
             .await
             .context("Failed to send CreatePipeline operation")?;
+
+        self.handle
+            .pipeline_input_tx
+            .flush()
+            .await
+            .context("Failed to flush pipeline input")?;
 
         Ok(rx)
     }

@@ -1,5 +1,6 @@
 mod hostcall;
 pub use hostcall::*;
+use ironposh_async::SessionEvent;
 use ironposh_psrp::PipelineOutput;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -20,6 +21,8 @@ pub struct WasmWinRmConfig {
     pub locale: Option<String>,
     pub gateway_url: String,
     pub gateway_token: String,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
@@ -57,5 +60,30 @@ impl WasmPipelineOutput {
     pub fn to_object(&self) -> Result<JsValue, WasmError> {
         let obj = serde_wasm_bindgen::to_value(&self.output)?;
         Ok(obj)
+    }
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub enum JsSessionEvent {
+    ConnectionStarted,
+    ConnectionEstablished,
+    ActiveSessionStarted,
+    ActiveSessionEnded,
+    #[serde(rename = "error")]
+    Error(String),
+    Closed,
+}
+
+impl From<SessionEvent> for JsSessionEvent {
+    fn from(value: SessionEvent) -> Self {
+        match value {
+            SessionEvent::ConnectionStarted => JsSessionEvent::ConnectionStarted,
+            SessionEvent::ConnectionEstablished => JsSessionEvent::ConnectionEstablished,
+            SessionEvent::ActiveSessionStarted => JsSessionEvent::ActiveSessionStarted,
+            SessionEvent::ActiveSessionEnded => JsSessionEvent::ActiveSessionEnded,
+            SessionEvent::Error(e) => JsSessionEvent::Error(e),
+            SessionEvent::Closed => JsSessionEvent::Closed,
+        }
     }
 }

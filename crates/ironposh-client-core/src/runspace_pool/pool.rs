@@ -259,7 +259,7 @@ impl RunspacePool {
         debug!(target: "soap", "parsing SOAP envelope");
 
         let parsed = ironposh_xml::parser::parse(soap_envelope.as_str()).map_err(|e| {
-            error!(target: "xml", error = %e, "failed to parse XML");
+            error!(target: "xml", error = %e, xml = soap_envelope, "failed to parse XML");
             e
         })?;
 
@@ -877,7 +877,12 @@ impl RunspacePool {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
-            .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
+            .ok_or(PwshCoreError::InvalidState(
+                "Pipeline handle not found, pipeline_id",
+            ))
+            .inspect_err(|_| {
+                error!(pipeline_id = ?&handle.id(), "Pipeline handle not found ");
+            })?;
 
         if pipeline.state == PsInvocationState::Stopped
             || pipeline.state == PsInvocationState::Completed

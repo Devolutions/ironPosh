@@ -28,6 +28,9 @@ pub enum WasmError {
         source: url::ParseError,
         target: String,
     },
+    
+    #[error("Invalid Argument: {0}")]
+    InvalidArgument(String),
 }
 
 unsafe impl Send for WasmError {}
@@ -43,6 +46,7 @@ impl WasmError {
             WasmError::PowerShellError(_) => "PowerShellError",
             WasmError::SerializationError(_) => "SerializationError",
             WasmError::UrlParseError { .. } => "UrlParseError",
+            WasmError::InvalidArgument(_) => "InvalidArgument",
         }
     }
 }

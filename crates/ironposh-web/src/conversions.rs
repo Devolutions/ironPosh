@@ -10,6 +10,11 @@ use ironposh_psrp::messages::init_runspace_pool::{HostDefaultData, HostInfo, Siz
 // Convert WASM config to internal config
 impl From<WasmWinRmConfig> for WinRmConfig {
     fn from(config: WasmWinRmConfig) -> Self {
+        let size = Size {
+            width: config.cols as i32,
+            height: config.rows as i32,
+        };
+
         WinRmConfig {
             server: (
                 ServerAddress::parse(&config.server).expect("Invalid server address"),
@@ -27,22 +32,10 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             host_info: HostInfo::builder()
                 .host_default_data(
                     HostDefaultData::builder()
-                        .buffer_size(Size {
-                            width: 120,
-                            height: 30,
-                        })
-                        .window_size(Size {
-                            width: 120,
-                            height: 30,
-                        })
-                        .max_window_size(Size {
-                            width: 120,
-                            height: 30,
-                        })
-                        .max_physical_window_size(Size {
-                            width: 120,
-                            height: 30,
-                        })
+                        .buffer_size(size.clone())
+                        .window_size(size.clone())
+                        .max_window_size(size.clone())
+                        .max_physical_window_size(size)
                         .build(),
                 )
                 .build(),

@@ -10,6 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "gateway-token-service": "file:../gateway-token-service",
     "powershell-terminal-component": "file:../powershell-terminal-component",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

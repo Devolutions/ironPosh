@@ -1,7 +1,8 @@
 use crate::{
     error::WasmError, hostcall::handle_host_calls, http_client::GatewayHttpViaWSClient,
-    types::WasmWinRmConfig, WasmPowerShellStream,
+    types::WasmWinRmConfig, JsSessionEvent, WasmPowerShellStream,
 };
+use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
 use js_sys::{Function, Promise};
@@ -20,6 +21,9 @@ pub struct WasmPowerShellClient {
 extern "C" {
     #[wasm_bindgen(typescript_type = "(js_host_call: JsHostCall) => Promise<any> | any")]
     pub type HostCallHandler;
+
+    #[wasm_bindgen(typescript_type = "(session_event: JsSessionEvent) => void")]
+    pub type SessionEventHandler;
 }
 
 #[wasm_bindgen]
@@ -28,11 +32,19 @@ impl WasmPowerShellClient {
     pub fn connect(
         config: WasmWinRmConfig,
         host_call_handler: HostCallHandler,
+        session_event_handler: SessionEventHandler,
     ) -> Result<Self, WasmError> {
         info!(
             gateway_url = %config.gateway_url,
             "connecting PowerShell client"
         );
+
+        if !host_call_handler.is_function() || !session_event_handler.is_function() {
+            error!("host_call_handler or session_event_handler is not a function");
+            return Err(WasmError::InvalidArgument(
+                "host_call_handler and session_event_handler must be functions".into(),
+            ));
+        }
 
         let url = Url::parse(&config.gateway_url).map_err(|e| {
             error!(
@@ -48,17 +60,28 @@ impl WasmPowerShellClient {
 
         let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.to_owned());
         let internal_config: WinRmConfig = config.into();
-        let (client, host_io, task) =
+        let (client, host_io, session_event_rx, task) =
             RemoteAsyncPowershellClient::open_task(internal_config, http_client);
 
-        let (host_call_rx, submitter) = host_io.into_parts();
+        // Spawn session event handler task
+        spawn_local(async move {
+            let mut session_event_rx = session_event_rx;
+            let session_event_handler = session_event_handler.unchecked_into::<Function>();
+            while let Some(event) = session_event_rx.next().await {
+                let event: JsSessionEvent = event.into();
+                if let Err(e) = session_event_handler.call1(&JsValue::NULL, &event.into()) {
+                    error!(?e, "failed to call session event handler");
+                }
+            }
+            info!("session event handler task exiting");
+        });
 
-        let host_call_handler = host_call_handler.unchecked_into::<Function>();
+        let (host_call_rx, submitter) = host_io.into_parts();
 
         wasm_bindgen_futures::spawn_local(handle_host_calls(
             host_call_rx,
             submitter,
-            host_call_handler,
+            host_call_handler.unchecked_into(),
         ));
 
         info!("spawning background task for PowerShell client");

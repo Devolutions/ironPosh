@@ -66,6 +66,9 @@ pub async fn start_active_session_loop(
                         // Convert ActiveSessionOutput into new HTTPs / UI events
                         for out in step_results {
                             match out {
+                                ActiveSessionOutput::Ignore => {
+                                    // Do nothing
+                                }
                                 ActiveSessionOutput::SendBack(reqs) => {
                                     info!(
                                         target: "network",
@@ -195,8 +198,12 @@ pub async fn start_active_session_loop(
                             ActiveSessionOutput::SendBackError(e) => {
                                 error!(target: "session", error = %e, "session step failed");
                                 return Err(anyhow::anyhow!("Session step failed: {e}"));
+                            },
+                            ActiveSessionOutput::Ignore => {
+                                // Do nothing
                             }
                         }
+
                     }
                     None => {
                         info!("User input channel disconnected");
@@ -221,6 +228,9 @@ async fn process_session_outputs(
 ) -> anyhow::Result<()> {
     for step_result in step_results {
         match step_result {
+            ActiveSessionOutput::Ignore => {
+                // Do nothing
+            }
             ActiveSessionOutput::SendBack(_) => {
                 // This should be handled at the caller level
                 warn!("SendBack should not reach process_session_outputs");

@@ -54,6 +54,7 @@ pub enum ActiveSessionOutput {
     UserEvent(UserEvent),
     HostCall(HostCall),
     OperationSuccess,
+    Ignore,
 }
 
 impl ActiveSessionOutput {
@@ -64,6 +65,7 @@ impl ActiveSessionOutput {
             ActiveSessionOutput::SendBackError(_) => 3,
             ActiveSessionOutput::UserEvent(_) => 4,
             ActiveSessionOutput::OperationSuccess => 5,
+            ActiveSessionOutput::Ignore => 6,
         }
     }
 }
@@ -161,7 +163,15 @@ impl ActiveSession {
                 info!(pipeline_id = %pipeline.id(), "killing pipeline");
 
                 // 1) Build the Signal request
-                let kill_xml = self.runspace_pool.kill_pipeline(pipeline)?;
+                let kill_xml = self.runspace_pool.kill_pipeline(pipeline);
+                let kill_xml = match kill_xml {
+                    Ok(kill_xml) => kill_xml,
+                    Err(e) => {
+                        error!(error = ?e, "failed to build kill XML");
+                        return Ok(ActiveSessionOutput::Ignore);
+                    }
+                };
+
                 info!(xml_length = kill_xml.len(), "built kill XML request");
 
                 // 2) Send signal
@@ -263,6 +273,7 @@ impl ActiveSession {
             error!("RunspacePool.accept_response failed: {:#}", e);
             e
         })?;
+
         info!(result_count = results.len(), "PSRP processed response");
 
         // 3) Translate PSRP results to outputs

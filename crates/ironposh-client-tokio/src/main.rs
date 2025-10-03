@@ -42,7 +42,8 @@ async fn main() -> anyhow::Result<()> {
     let http_client = ReqwestHttpClient::new();
 
     // Create the PowerShell client
-    let (mut client, host_io, connection_task) = RemoteAsyncPowershellClient::open_task(config, http_client);
+    let (mut client, host_io, _session_event_rx, connection_task) =
+        RemoteAsyncPowershellClient::open_task(config, http_client);
 
     // Extract host I/O for handling host calls
     let (host_call_rx, submitter) = host_io.into_parts();

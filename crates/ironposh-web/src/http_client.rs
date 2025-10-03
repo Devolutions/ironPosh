@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use anyhow::Result;
-use futures::{lock::Mutex, SinkExt, StreamExt};
+use futures::{lock::Mutex, SinkExt};
 use gloo_net::websocket::futures::WebSocket;
 use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
@@ -13,7 +13,8 @@ use tracing::{debug, error, info, instrument};
 
 use crate::{
     error::WasmError,
-    http_convert::{deserialize_http_response, serialize_http_request},
+    http_convert::serialize_http_request,
+    ws_http_decoder::{next_ws, HttpResponseDecoder},
 };
 
 // HTTP client implementation for WASM
@@ -180,6 +181,15 @@ impl WebsocketStream {
 
         let mut ws = self.ws.lock().await;
 
+        if !matches!(
+            ws.state(),
+            gloo_net::websocket::State::Connecting | gloo_net::websocket::State::Open
+        ) {
+            let state = ws.state();
+            error!(?state, "WebSocket is not open");
+            return Err(WasmError::WebSocket(format!("WebSocket is not open: {:?}", state)).into());
+        };
+
         // Send the serialized HTTP request over WebSocket
         ws.send(gloo_net::websocket::Message::Bytes(http_request_bytes))
             .await
@@ -191,45 +201,43 @@ impl WebsocketStream {
                 ))
             })?;
 
-        // Wait for the response from the gateway
-        let message = ws.next().await.ok_or_else(|| {
-            error!("WebSocket closed before receiving response");
-            WasmError::IOError("WebSocket closed before receiving response".to_string())
-        })??;
+        // Stream response frames using the decoder
+        const MAX_RESPONSE_SIZE: usize = 16 * 1024 * 1024; // 16MB
 
-        // Extract bytes from the WebSocket message
-        let response_bytes = match message {
-            gloo_net::websocket::Message::Bytes(bytes) => bytes,
-            gloo_net::websocket::Message::Text(text) => {
-                error!(
-                    text_length = text.len(),
-                    "expected binary WebSocket message, got text"
+        let mut decoder = HttpResponseDecoder::new(MAX_RESPONSE_SIZE);
+
+        loop {
+            let msg = next_ws(&mut ws).await.map_err(|e| {
+                error!(?e, "WebSocket read error");
+                WasmError::IOError(format!("WS read error: {:?}", e))
+            })?;
+
+            let bytes = match msg {
+                gloo_net::websocket::Message::Bytes(b) => b,
+                gloo_net::websocket::Message::Text(t) => {
+                    error!(
+                        text_length = t.len(),
+                        "expected binary WebSocket message, got text"
+                    );
+                    return Err(WasmError::IOError(format!(
+                        "Expected binary WS frame, got text (len={}): {}",
+                        t.len(),
+                        t
+                    ))
+                    .into());
+                }
+            };
+
+            debug!(bytes_length = bytes.len(), "received WebSocket frame");
+
+            if let Some(resp) = decoder.feed(&bytes)? {
+                info!(
+                    status_code = resp.status_code,
+                    "HTTP response decoded successfully"
                 );
-                return Err(WasmError::IOError(format!(
-                    "Expected binary WebSocket message, got text: {}",
-                    text
-                ))
-                .into());
+                return Ok(resp);
             }
-        };
-
-        debug!(
-            response_bytes_length = response_bytes.len(),
-            "received HTTP response over WebSocket"
-        );
-
-        // Deserialize the HTTP response from HTTP/1.1 wire format
-        let response = deserialize_http_response(&response_bytes).map_err(|e| {
-            error!(?e, "failed to deserialize HTTP response");
-            WasmError::IOError(format!("Failed to deserialize HTTP response: {}", e))
-        })?;
-
-        debug!(
-            status_code = response.status_code,
-            "HTTP response deserialized successfully"
-        );
-
-        Ok(response)
+        }
     }
 }
 

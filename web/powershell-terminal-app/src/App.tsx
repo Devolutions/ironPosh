@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import 'powershell-terminal-component';
 import type { PowerShellConnectionConfig } from './types';
+import { generateAppToken, generateSessionToken, processToken, uuidv4 } from 'gateway-token-service';
 
 // Declare custom element for TypeScript
 declare global {
@@ -14,7 +15,8 @@ declare global {
 
 interface ConnectionFormData {
   gateway_url: string;
-  gateway_token: string;
+  gateway_webapp_username: string;
+  gateway_webapp_password: string;
   server: string;
   port: number;
   username: string;
@@ -27,13 +29,14 @@ function App() {
   const [isReady, setIsReady] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [formData, setFormData] = useState<ConnectionFormData>({
-    gateway_url: 'ws://localhost:8080',
-    gateway_token: 'token123',
-    server: '192.168.1.100',
-    port: 5985,
-    username: 'Administrator',
-    password: '',
-    use_https: false
+    gateway_url: import.meta.env.VITE_PWSH_TER_GATEWAY_URL || 'http://localhost:7272',
+    gateway_webapp_username: import.meta.env.VITE_PWSH_TER_GATEWAY_WEBAPP_USERNAME || '',
+    gateway_webapp_password: import.meta.env.VITE_PWSH_TER_GATEWAY_WEBAPP_PASSWORD || '',
+    server: import.meta.env.VITE_PWSH_TER_SERVER || '192.168.1.100',
+    port: parseInt(import.meta.env.VITE_PWSH_TER_PORT || '5985'),
+    username: import.meta.env.VITE_PWSH_TER_USERNAME || 'Administrator',
+    password: import.meta.env.VITE_PWSH_TER_PASSWORD || '',
+    use_https: import.meta.env.VITE_PWSH_TER_USE_HTTPS === 'true'
   });
 
   useEffect(() => {
@@ -76,20 +79,41 @@ function App() {
   const handleConnect = async () => {
     if (!terminalRef.current || !isReady) return;
 
-    const config: PowerShellConnectionConfig = {
-      gateway_url: formData.gateway_url,
-      gateway_token: formData.gateway_token,
-      server: formData.server,
-      port: formData.port,
-      username: formData.username,
-      password: formData.password,
-      use_https: formData.use_https
-    };
-
     try {
+      // Generate tokens
+      const sessionId = uuidv4();
+      const protocolStr = 'winrm-http-pwsh';
+      const sessionTokenParameters = {
+        content_type: 'ASSOCIATION',
+        protocol: protocolStr,
+        destination: `tcp://${formData.server}:${formData.port}`,
+        lifetime: 60,
+        session_id: sessionId,
+      };
+
+      console.log('Generating gateway tokens...');
+      const appToken = await generateAppToken(
+        formData.gateway_url,
+        formData.gateway_webapp_username,
+        formData.gateway_webapp_password
+      );
+      const sessionToken = await generateSessionToken(formData.gateway_url, sessionTokenParameters, appToken);
+      const gatewayUrlWithToken = processToken(formData.gateway_url, sessionToken, sessionId);
+
+      const config: PowerShellConnectionConfig = {
+        gateway_url: gatewayUrlWithToken,
+        gateway_token: sessionToken,
+        server: formData.server,
+        port: formData.port,
+        username: formData.username,
+        password: formData.password,
+        use_https: formData.use_https
+      };
+
       await terminalRef.current.connect(config);
     } catch (error) {
       console.error('Connection failed:', error);
+      alert(`Connection failed: ${error}`);
     }
   };
 
@@ -129,20 +153,33 @@ function App() {
             value={formData.gateway_url}
             onChange={handleInputChange}
             disabled={isConnected}
-            placeholder="ws://localhost:8080"
+            placeholder="http://localhost:7272"
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="gateway_token">Gateway Token:</label>
+          <label htmlFor="gateway_webapp_username">Gateway Webapp Username:</label>
           <input
             type="text"
-            id="gateway_token"
-            name="gateway_token"
-            value={formData.gateway_token}
+            id="gateway_webapp_username"
+            name="gateway_webapp_username"
+            value={formData.gateway_webapp_username}
             onChange={handleInputChange}
             disabled={isConnected}
-            placeholder="token123"
+            placeholder="webapp-user"
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="gateway_webapp_password">Gateway Webapp Password:</label>
+          <input
+            type="password"
+            id="gateway_webapp_password"
+            name="gateway_webapp_password"
+            value={formData.gateway_webapp_password}
+            onChange={handleInputChange}
+            disabled={isConnected}
+            placeholder="webapp-password"
           />
         </div>
 

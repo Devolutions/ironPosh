@@ -1,8 +1,9 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import "@xterm/xterm/css/xterm.css";
+import xtermCss from "@xterm/xterm/css/xterm.css?inline";
 import {
+  JsSessionEvent,
   WasmPowerShellClient,
   WasmWinRmConfig,
 } from "../../../crates/ironposh-web/pkg";
@@ -56,15 +57,20 @@ export class PowerShellTerminalElement extends HTMLElement {
   private terminal: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private client: WasmPowerShellClient | null = null;
-  private connected: boolean = false;
   private resizeObserver: ResizeObserver | null = null;
   private currentLine: string = "";
-  private abortController: AbortController | null = null;
+  private state: "idle" | "connecting" | "connected" | "closed" = "idle";
+  private runningController: AbortController | null = null;
+  private isRunning = false;
 
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.abortController = new AbortController();
+  }
+
+  private setState(newState: typeof this.state) {
+    this.state = newState;
+    this.setAttribute("state", newState);
   }
 
   emitEvent(event: PowerShellTerminalEvent) {
@@ -76,13 +82,15 @@ export class PowerShellTerminalElement extends HTMLElement {
   async connectedCallback() {
     // Create container for terminal
     const container = document.createElement("div");
-    container.style.width = "100%";
-    container.style.height = "100%";
     container.className = "terminal-container";
 
-    // Add xterm.css to shadow DOM
-    const style = document.createElement("style");
-    style.textContent = `
+    // Inject xterm.css into shadow DOM
+    const xtermStyle = document.createElement("style");
+    xtermStyle.textContent = xtermCss;
+
+    // Add minimal custom styles
+    const customStyle = document.createElement("style");
+    customStyle.textContent = `
       :host {
         display: block;
         width: 100%;
@@ -94,19 +102,14 @@ export class PowerShellTerminalElement extends HTMLElement {
       }
     `;
 
-    this.shadowRoot!.appendChild(style);
+    this.shadowRoot!.appendChild(xtermStyle);
+    this.shadowRoot!.appendChild(customStyle);
     this.shadowRoot!.appendChild(container);
 
     // Initialize terminal
     this.terminal = new Terminal({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: 'Consolas, "Courier New", monospace',
-      theme: {
-        background: "#012456",
-        foreground: "#ffffff",
-        cursor: "#ffffff",
-      },
     });
 
     this.fitAddon = new FitAddon();
@@ -157,6 +160,8 @@ export class PowerShellTerminalElement extends HTMLElement {
       throw new Error("Terminal not initialized");
     }
 
+    this.setState("connecting");
+
     this.terminal.writeln(
       `Connecting to ${config.server}:${config.port || 5985}...`
     );
@@ -172,6 +177,8 @@ export class PowerShellTerminalElement extends HTMLElement {
         use_https: config.use_https || false,
         domain: "",
         locale: "en-US",
+        cols: this.terminal.cols,
+        rows: this.terminal.rows,
       };
 
       // Create host call handler with terminal integration
@@ -184,18 +191,34 @@ export class PowerShellTerminalElement extends HTMLElement {
       });
 
       // Create PowerShell client
-      this.client = WasmPowerShellClient.connect(wasmConfig, hostCallHandler);
+      await new Promise((resolve, reject) => {
+        this.client = WasmPowerShellClient.connect(
+          wasmConfig,
+          hostCallHandler,
+          (event) => {
+            if (event === "ActiveSessionStarted") {
+              this.setState("connected");
+              resolve(undefined);
+            }
+
+            if (typeof event === "object" && "error" in event) {
+              this.setState("closed");
+              reject(new Error(event.error));
+            }
+          }
+        );
+      });
+
+      this.setState("connected");
 
       this.terminal.writeln("✓ Connected successfully!");
       this.terminal.writeln("");
       this.terminal.write("PS> ");
-      this.connected = true;
 
       // Set up terminal input handling
       this.terminal.onData((data) => {
-        if (this.connected) {
-          this.handleInput(data);
-        }
+        if (this.state !== "connected") return;
+        this.handleInput(data);
       });
 
       this.emitEvent({ type: "connected", detail: undefined });
@@ -209,89 +232,113 @@ export class PowerShellTerminalElement extends HTMLElement {
   private handleInput(data: string): void {
     if (!this.terminal) return;
 
-    // Handle Enter key
+    // Ctrl+C
+    if (data === "\u0003") {
+      if (this.isRunning && this.runningController) {
+        this.terminal.write("^C\r\n");
+        this.runningController.abort(new Error("Canceled by user"));
+        // prompt comes from executeScript.finally
+      } else {
+        this.currentLine = "";
+        this.terminal.write("^C\r\nPS> ");
+      }
+      return;
+    }
+
+    // Enter
     if (data === "\r") {
       this.terminal.write("\r\n");
       const command = this.currentLine.trim();
       this.currentLine = "";
 
-      if (command) {
-        this.executeScript(command, this.abortController!.signal).catch(
-          (error) => {
-            this.terminal!.writeln(`\x1b[31mError: ${error}\x1b[0m`);
-            this.emitEvent({ type: "error", detail: error as Error });
-          }
-        );
-      } else {
+      if (!command) {
         this.terminal.write("PS> ");
+        return;
       }
+
+      if (this.isRunning) {
+        this.terminal.writeln(
+          "(a command is already running — press Ctrl+C to cancel)"
+        );
+        this.terminal.write("PS> ");
+        return;
+      }
+
+      const controller = new AbortController();
+      this.runningController = controller;
+      this.isRunning = true;
+
+      this.executeScript(command, controller.signal)
+        .catch((err) => {
+          this.terminal!.writeln(`\x1b[31mError: ${err}\x1b[0m`);
+          this.emitEvent({ type: "error", detail: err as Error });
+        })
+        .finally(() => {
+          this.isRunning = false;
+          this.runningController = null;
+          this.terminal!.writeln("");
+          this.terminal!.write("PS> ");
+        });
+
+      return;
     }
-    // Handle Backspace
-    else if (data === "\u007F" || data === "\b") {
+
+    // Backspace
+    if (data === "\u007F" || data === "\b") {
       if (this.currentLine.length > 0) {
         this.currentLine = this.currentLine.slice(0, -1);
         this.terminal.write("\b \b");
       }
+      return;
     }
-    // Handle Ctrl+C
-    else if (data === "\u0003") {
-      this.terminal.write("^C\r\n");
-      this.currentLine = "";
-      this.terminal.write("PS> ");
-      this.abortController?.abort();
-    }
-    // Regular character input
-    else if (data >= " " || data === "\t") {
+
+    // Regular printable / tab
+    if (data >= " " || data === "\t") {
       this.currentLine += data;
       this.terminal.write(data);
     }
   }
 
-  async executeScript(script: string, abort: AbortSignal): Promise<void> {
-    if (!this.connected || !this.client || !this.terminal) {
+  async executeScript(script: string, signal: AbortSignal): Promise<void> {
+    if (this.state !== "connected" || !this.client || !this.terminal) {
       throw new Error("Not connected");
     }
 
-    try {
-      let pipeline_id_holder: string | null = null;
-      // Execute script (not command - run_script for interactive terminal)
-      const stream = await this.client.execute_command(script);
-      // Process stream events
-      while (true) {
-        const event = await stream.next();
-        if (abort.aborted) {
-          this.terminal.writeln("^C");
-          await stream.kill();
-        }
+    let created = false;
+    let killRequested = false;
+    const stream = await this.client.execute_command(script);
 
-        if (!event) {
-          break;
-        }
-
-        if ("PipelineCreated" in event) {
-          pipeline_id_holder = event.PipelineCreated.pipeline_id;
-        }
-
-        if ("PipelineFinished" in event) {
-          break;
-        }
-
-        if ("PipelineOutput" in event) {
-          let output = event.PipelineOutput.data;
-          this.terminal.write(output);
-        }
+    while (true) {
+      if (signal.aborted && !killRequested && created) {
+        killRequested = true;
+        stream.kill();
       }
-    } catch (error) {
-      this.terminal.writeln(`\x1b[31mError: ${error}\x1b[0m`);
-      this.emitEvent({ type: "error", detail: error as Error });
-    } finally {
-      this.terminal.write("PS> ");
+
+      const event = await stream.next();
+      if (!event) break;
+
+      if ("PipelineCreated" in event) {
+        created = true;
+        if (killRequested) void stream.kill();
+        continue;
+      }
+      if ("PipelineOutput" in event) {
+        this.terminal.write(event.PipelineOutput.data);
+        continue;
+      }
+      if ("PipelineError" in event) {
+        const err = event.PipelineError.error;
+        this.terminal.writeln(`\x1b[31mError: ${err}\x1b[0m`);
+        this.emitEvent({ type: "error", detail: new Error(err) });
+        continue;
+      }
+      if ("PipelineFinished" in event) break;
     }
   }
 
   disconnect(): void {
-    if (this.connected) {
-      this.connected = false;
+    if (this.state === "connected" && this.terminal) {
+      this.setState("closed");
       if (this.terminal) {
         this.terminal.writeln("");
         this.terminal.writeln("Disconnected");
@@ -307,7 +354,7 @@ export class PowerShellTerminalElement extends HTMLElement {
   clear(): void {
     if (this.terminal) {
       this.terminal.clear();
-      if (this.connected) {
+      if (this.state === "connected") {
         this.terminal.write("PS> ");
       }
     }

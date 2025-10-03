@@ -11,6 +11,7 @@ pub mod http_convert;
 pub mod stream;
 pub mod types;
 pub mod websocket;
+pub mod ws_http_decoder;
 
 // Re-export the main types for JS/TS
 pub use client::WasmPowerShellClient;

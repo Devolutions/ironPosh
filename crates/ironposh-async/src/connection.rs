@@ -9,7 +9,7 @@ use ironposh_client_core::{
     pipeline::PipelineSpec,
     powershell::PipelineHandle,
 };
-use tracing::{Instrument, info, info_span};
+use tracing::{Instrument, Level, Span, info, info_span, span};
 
 use crate::{HostIo, HostSubmitter, HttpClient, session};
 
@@ -23,6 +23,7 @@ pub fn establish_connection<C: HttpClient>(
 ) -> (
     ConnectionHandle,
     HostIo,
+    mpsc::UnboundedReceiver<crate::SessionEvent>,
     impl std::future::Future<Output = anyhow::Result<()>>,
 )
 where
@@ -35,6 +36,10 @@ where
     let (host_call_tx, host_call_rx) = mpsc::unbounded();
     let (host_resp_tx, host_resp_rx) = mpsc::unbounded();
 
+    // Create session event channel
+    let (session_event_tx, session_event_rx) = mpsc::unbounded();
+    let session_event_tx_2 = session_event_tx.clone();
+
     // Create host I/O interface for the consumer
     let host_io = HostIo {
         host_call_rx,
@@ -43,6 +48,9 @@ where
 
     let user_input_tx_clone = user_input_tx.clone();
     let active_session_task = async move {
+        // Emit ConnectionStarted event
+        let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionStarted);
+
         let mut connector = Connector::new(config);
         info!("Created connector, starting connection...");
 
@@ -51,13 +59,29 @@ where
         let (active_session, next_request) = loop {
             let step_result = connector
                 .step(response.take())
-                .context("Failed to step through connector")?;
+                .context("Failed to step through connector");
+
+            let step_result = match step_result {
+                Ok(result) => result,
+                Err(e) => {
+                    let _ =
+                        session_event_tx.unbounded_send(crate::SessionEvent::Error(e.to_string()));
+                    return Err(e);
+                }
+            };
 
             info!(step_result = ?step_result.name(), "Processing step result");
 
             match step_result {
                 ConnectorStepResult::SendBack { try_send } => {
-                    response = Some(client.send_request(try_send).await?);
+                    match client.send_request(try_send).await {
+                        Ok(resp) => response = Some(resp),
+                        Err(e) => {
+                            let _ = session_event_tx
+                                .unbounded_send(crate::SessionEvent::Error(e.to_string()));
+                            return Err(e);
+                        }
+                    }
                 }
                 ConnectorStepResult::Connected {
                     active_session,
@@ -68,9 +92,14 @@ where
             }
         };
 
+        // Emit ConnectionEstablished event
+        let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionEstablished);
         info!("Connection established, entering active session loop");
 
-        session::start_active_session_loop(
+        // Emit ActiveSessionStarted event
+        let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionStarted);
+
+        let result = session::start_active_session_loop(
             next_request,
             *active_session,
             client,
@@ -81,15 +110,23 @@ where
             host_resp_rx,
         )
         .instrument(info_span!("ActiveSession"))
-        .await?;
+        .await;
 
-        info!("Active session loop ended");
-
-        Ok(())
+        match result {
+            Ok(_) => {
+                info!("Active session loop ended");
+                let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionEnded);
+                Ok(())
+            }
+            Err(e) => {
+                let _ = session_event_tx.unbounded_send(crate::SessionEvent::Error(e.to_string()));
+                Err(e)
+            }
+        }
     }
     .instrument(info_span!("MainTask"));
 
-    let (pipeline_input_tx, mut pipeline_input_rx) = mpsc::channel(10);
+    let (pipeline_input_tx, mut pipeline_input_rx) = mpsc::channel(100);
     let multiplex_pipeline_task = async move {
         let pipeline_map =
             std::sync::Arc::new(futures::lock::Mutex::new(std::collections::HashMap::<
@@ -101,6 +138,7 @@ where
 
         let from_server = async move {
             while let Some(server_output_event) = server_output_rx.next().await {
+                info!(?server_output_event, "Received server output event");
                 let uuid = server_output_event.pipeline_id();
                 let mut map = pipeline_map.lock().await;
                 if let Some(sender) = map.get_mut(&uuid) {
@@ -120,11 +158,12 @@ where
             }
 
             Ok::<(), anyhow::Error>(())
-        };
+        }.instrument(span!(Level::INFO,"PipelineServerHandlerLoop"));
 
         let pipeline_map = pipeline_map_clone;
         let from_user = async move {
             while let Some(input) = pipeline_input_rx.next().await {
+                info!(?input, "Received pipeline input");
                 match input {
                     PipelineInput::Invoke {
                         uuid,
@@ -157,15 +196,25 @@ where
             }
 
             Ok::<(), anyhow::Error>(())
-        };
+        }
+        .instrument(span!(Level::INFO, "PipelineInputHanderLoop"));
 
         let (x, y) = join!(from_server, from_user);
         x.and(y)
     };
 
-    let joined_task = async move { join!(active_session_task, multiplex_pipeline_task).0 };
+    let joined_task = async move {
+        let res = join!(active_session_task, multiplex_pipeline_task);
+        let _ = session_event_tx_2.unbounded_send(crate::SessionEvent::Closed);
+        res.0.and(res.1)
+    };
 
-    (ConnectionHandle { pipeline_input_tx }, host_io, joined_task)
+    (
+        ConnectionHandle { pipeline_input_tx },
+        host_io,
+        session_event_rx,
+        joined_task,
+    )
 }
 
 /// Handle for communicating with the established connection
@@ -174,6 +223,7 @@ pub struct ConnectionHandle {
     pub pipeline_input_tx: mpsc::Sender<PipelineInput>,
 }
 
+#[derive(Debug)]
 pub enum PipelineInput {
     Invoke {
         uuid: uuid::Uuid,

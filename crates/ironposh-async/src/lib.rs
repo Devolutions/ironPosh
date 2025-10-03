@@ -13,6 +13,23 @@ pub mod client;
 // Re-export the main client
 pub use client::RemoteAsyncPowershellClient;
 
+/// Session lifecycle events
+#[derive(Debug, Clone)]
+pub enum SessionEvent {
+    /// Connection process has started
+    ConnectionStarted,
+    /// Connection has been established successfully
+    ConnectionEstablished,
+    /// Active session loop has started
+    ActiveSessionStarted,
+    /// Active session loop has ended normally
+    ActiveSessionEnded,
+    /// An error occurred during connection or session
+    Error(String),
+    /// Session has been closed
+    Closed,
+}
+
 /// Host I/O interface for handling PowerShell host calls
 pub struct HostIo {
     /// Host calls coming from the runspace/pipelines
