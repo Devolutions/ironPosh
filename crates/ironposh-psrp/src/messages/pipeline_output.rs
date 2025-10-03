@@ -4,7 +4,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::PsValue;
-use crate::{MessageType, PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType};
+use crate::{
+    MessageType, PowerShellRemotingError, PowerShellRemotingMessage, PsObjectWithType,
+    PsPrimitiveValue,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PipelineOutput {
@@ -12,6 +15,15 @@ pub struct PipelineOutput {
 }
 
 impl PipelineOutput {
+    pub fn assume_primitive_string(&self) -> Result<&String, PowerShellRemotingError> {
+        match &self.data {
+            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Ok(s),
+            _ => Err(PowerShellRemotingError::OutputFormattingError(
+                "Pipeline output is not a string",
+            )),
+        }
+    }
+
     pub fn format_as_displyable_string(&self) -> Result<String, PowerShellRemotingError> {
         let Some(output_str) = self.data.as_string() else {
             return Err(PowerShellRemotingError::OutputFormattingError(

@@ -1,11 +1,15 @@
 use std::convert::TryFrom;
 
-use crate::types::{WasmPowerShellEvent, WasmWinRmConfig};
+use crate::{
+    error::WasmError,
+    types::{WasmPowerShellEvent, WasmWinRmConfig},
+};
 use ironposh_client_core::{
     connector::active_session::UserEvent,
     connector::{config::AuthenticatorConfig, http::ServerAddress, Scheme, WinRmConfig},
 };
 use ironposh_psrp::messages::init_runspace_pool::{HostDefaultData, HostInfo, Size};
+use tracing::warn;
 
 // Convert WASM config to internal config
 impl From<WasmWinRmConfig> for WinRmConfig {
@@ -56,7 +60,22 @@ impl TryFrom<&UserEvent> for WasmPowerShellEvent {
             },
             UserEvent::PipelineOutput { pipeline, output } => WasmPowerShellEvent::PipelineOutput {
                 pipeline_id: pipeline.id().to_string(),
-                data: output.format_as_displyable_string()?,
+                data: match output.assume_primitive_string() {
+                    Ok(str) => str.clone(),
+                    Err(_) => {
+                        warn!("Pipeline output is not a primitive string, attempting to format as displayable string");
+                        let res = output
+                            .format_as_displyable_string()
+                            .map_err(|e| {
+                                WasmError::Generic(format!(
+                                    "{e}, failed to format Pipeline output as string"
+                                ))
+                            })?
+                            .clone();
+
+                        res
+                    }
+                },
             },
             UserEvent::ErrorRecord {
                 error_record,

@@ -179,6 +179,9 @@ fn run_event_loop(
         for step in steps {
             info!(step = ?step, "processing step result");
             match step {
+                ActiveSessionOutput::Ignore => {
+                    info!(target: "session", "ignoring step result");
+                }
                 ActiveSessionOutput::SendBack(http_requests) => {
                     info!(
                         target: "network",

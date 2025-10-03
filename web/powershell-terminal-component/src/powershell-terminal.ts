@@ -181,6 +181,8 @@ export class PowerShellTerminalElement extends HTMLElement {
         rows: this.terminal.rows,
       };
 
+      console.log("Connecting with config:", { ...config, password: "*****" });
+
       // Create host call handler with terminal integration
       const hostCallHandler = createHostCallHandler({
         terminal: this.terminal,
@@ -323,7 +325,7 @@ export class PowerShellTerminalElement extends HTMLElement {
         continue;
       }
       if ("PipelineOutput" in event) {
-        this.terminal.write(event.PipelineOutput.data);
+        this.terminal.writeln(event.PipelineOutput.data);
         continue;
       }
       if ("PipelineError" in event) {
