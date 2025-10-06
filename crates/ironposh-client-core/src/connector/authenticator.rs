@@ -218,7 +218,7 @@ impl SspiAuthenticator {
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
     where
         P: Sspi + SspiImpl,
-        'ctx: 'builder,
+        'builder: 'ctx,
         'builder: 'generator,
         <P as SspiImpl>::CredentialsHandle: Debug,
     {

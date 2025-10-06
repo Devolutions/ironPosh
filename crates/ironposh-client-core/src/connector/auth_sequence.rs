@@ -176,7 +176,7 @@ impl SspiAuthSequence {
         sec_ctx_holder: &'builder mut SecurityContextBuilderHolder<'ctx>,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
     where
-        'ctx: 'builder,
+        'builder: 'ctx,
         'builder: 'generator,
     {
         Ok(match &mut self.context {
