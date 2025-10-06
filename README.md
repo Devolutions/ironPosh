@@ -49,6 +49,7 @@ The project is organized into several core components:
 
 - Rust 2024 edition or later
 - For WebAssembly: wasm-pack and wasm-bindgen
+- For web applications: [Devolutions Gateway](https://github.com/Devolutions/devolutions-gateway) must be running
 - Target Windows system with WinRM enabled
 
 ### Building
@@ -92,7 +93,9 @@ Command line options:
 
 #### Web Client
 
-The web client provides a React-based interface for PowerShell remoting:
+The web client provides a React-based interface for PowerShell remoting.
+
+**Prerequisites**: The web applications require [Devolutions Gateway](https://github.com/Devolutions/devolutions-gateway) to be running for token-based authentication and gateway functionality.
 
 ```bash
 cd web/powershell-run-command
@@ -118,7 +121,10 @@ ironwinrm/
 │   ├── ironposh-winrm/          # WinRM protocol implementation
 │   └── ironposh-xml/            # XML parser and builder
 └── web/
-    └── powershell-run-command/  # React web interface
+    ├── gateway-token-service/      # Gateway token service (requires Devolutions Gateway)
+    ├── powershell-run-command/     # React web interface (requires Devolutions Gateway)
+    ├── powershell-terminal-app/    # PowerShell terminal application (requires Devolutions Gateway)
+    └── powershell-terminal-component/  # PowerShell terminal component (requires Devolutions Gateway)
 ```
 
 ### Testing
