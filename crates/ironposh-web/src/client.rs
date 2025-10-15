@@ -58,7 +58,7 @@ impl WasmPowerShellClient {
             }
         })?;
 
-        let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.to_owned());
+        let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.clone());
         let internal_config: WinRmConfig = config.into();
         let (client, host_io, session_event_rx, task) =
             RemoteAsyncPowershellClient::open_task(internal_config, http_client);
@@ -87,9 +87,10 @@ impl WasmPowerShellClient {
         info!("spawning background task for PowerShell client");
         // Spawn background task
         wasm_bindgen_futures::spawn_local(async move {
+            #[expect(clippy::large_futures)]
             if let Err(e) = task.await {
                 error!(?e, "background task failed");
-                web_sys::console::error_1(&format!("Background task failed: {}", e).into());
+                web_sys::console::error_1(&format!("Background task failed: {e}").into());
             }
         });
 

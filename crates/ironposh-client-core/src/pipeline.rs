@@ -3,7 +3,7 @@ use ironposh_psrp::{CommandParameter, PsValue};
 use crate::runspace_pool::PsInvocationState;
 
 /// Represents a single parameter for a command
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Parameter {
     Named { name: String, value: PsValue },
     Positional { value: PsValue },
@@ -11,7 +11,7 @@ pub enum Parameter {
 }
 
 /// Represents a single PowerShell command in business logic terms
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PipelineCommand {
     pub command_text: String,
     pub is_script: bool,
@@ -19,7 +19,7 @@ pub struct PipelineCommand {
 }
 
 /// Represents a pipeline specification at the API boundary
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PipelineSpec {
     pub commands: Vec<PipelineCommand>,
 }
@@ -50,8 +50,8 @@ impl PipelineCommand {
         self
     }
 
-    pub fn new_output_stream() -> PipelineCommand {
-        PipelineCommand::new_command("Out-String".to_string()).with_parameter(Parameter::Switch {
+    pub fn new_output_stream() -> Self {
+        Self::new_command("Out-String".to_string()).with_parameter(Parameter::Switch {
             name: "-Stream".to_owned(),
             value: true,
         })
@@ -104,8 +104,7 @@ impl Pipeline {
     /// Convert the business-level pipeline to a protocol-level PowerShellPipeline
     pub(crate) fn to_protocol_pipeline(
         &self,
-    ) -> Result<ironposh_psrp::messages::create_pipeline::PowerShellPipeline, crate::PwshCoreError>
-    {
+    ) -> ironposh_psrp::messages::create_pipeline::PowerShellPipeline {
         use ironposh_psrp::Command;
 
         // Convert all commands to protocol commands
@@ -121,13 +120,13 @@ impl Pipeline {
                             .iter()
                             .map(|param| match param {
                                 Parameter::Named { name, value } => {
-                                    CommandParameter::named(name.to_string(), value.clone())
+                                    CommandParameter::named(name.clone(), value.clone())
                                 }
                                 Parameter::Positional { value } => {
                                     CommandParameter::positional(value.clone())
                                 }
                                 Parameter::Switch { name, value } => {
-                                    CommandParameter::named(name.to_string(), *value)
+                                    CommandParameter::named(name.clone(), *value)
                                 }
                             })
                             .collect(),
@@ -136,12 +135,10 @@ impl Pipeline {
             })
             .collect();
 
-        Ok(
-            ironposh_psrp::messages::create_pipeline::PowerShellPipeline::builder()
-                .is_nested(false)
-                .redirect_shell_error_output_pipe(true)
-                .cmds(protocol_commands)
-                .build(),
-        )
+        ironposh_psrp::messages::create_pipeline::PowerShellPipeline::builder()
+            .is_nested(false)
+            .redirect_shell_error_output_pipe(true)
+            .cmds(protocol_commands)
+            .build()
     }
 }

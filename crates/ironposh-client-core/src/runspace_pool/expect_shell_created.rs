@@ -9,10 +9,10 @@ pub struct ExpectShellCreated {
 }
 
 impl ExpectShellCreated {
-    pub fn accept(self, response: String) -> Result<RunspacePool, crate::PwshCoreError> {
-        let ExpectShellCreated { mut runspace_pool } = self;
+    pub fn accept(self, response: &str) -> Result<RunspacePool, crate::PwshCoreError> {
+        let Self { mut runspace_pool } = self;
 
-        let parsed = ironposh_xml::parser::parse(response.as_str())?;
+        let parsed = ironposh_xml::parser::parse(response)?;
 
         let soap_response = SoapEnvelope::from_node(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;

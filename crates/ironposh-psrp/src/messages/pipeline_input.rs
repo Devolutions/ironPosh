@@ -6,7 +6,7 @@ pub struct PipelineInput {
 
 impl PipelineInput {
     pub fn new(data: PsValue) -> Self {
-        PipelineInput { data }
+        Self { data }
     }
 }
 

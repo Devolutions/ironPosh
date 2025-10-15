@@ -1,5 +1,5 @@
 /// Error type for host operations
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostError {
     NotImplemented,
     InvalidParameters,
@@ -11,11 +11,11 @@ pub enum HostError {
 impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HostError::NotImplemented => write!(f, "Operation not implemented"),
-            HostError::InvalidParameters => write!(f, "Invalid parameters"),
-            HostError::RequestReturnMismatch => write!(f, "Request and return types do not match"),
-            HostError::Cancelled => write!(f, "Operation cancelled"),
-            HostError::Other(msg) => write!(f, "{msg}"),
+            Self::NotImplemented => write!(f, "Operation not implemented"),
+            Self::InvalidParameters => write!(f, "Invalid parameters"),
+            Self::RequestReturnMismatch => write!(f, "Request and return types do not match"),
+            Self::Cancelled => write!(f, "Operation cancelled"),
+            Self::Other(msg) => write!(f, "{msg}"),
         }
     }
 }

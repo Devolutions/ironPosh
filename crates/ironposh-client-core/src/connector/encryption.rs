@@ -11,6 +11,7 @@ use crate::{
     },
 };
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum EncryptionOptions {
     IncludeHeader {
@@ -160,19 +161,14 @@ impl EncryptionProvider {
             body_type = ?data,
             "Decrypting HTTP body"
         );
-        let encrypted_data = match data {
-            HttpBody::Encrypted(encrypted_data) => {
-                debug!(
-                    encrypted_data_len = encrypted_data.len(),
-                    "Processing encrypted HTTP body"
-                );
-                encrypted_data
-            }
-            _ => {
-                debug!("Body is not encrypted, returning as-is");
-                return Ok(data.as_str()?.to_owned());
-            }
+        let HttpBody::Encrypted(encrypted_data) = data else {
+            debug!("Body is not encrypted, returning as-is");
+            return Ok(data.as_str()?.to_owned());
         };
+        debug!(
+            encrypted_data_len = encrypted_data.len(),
+            "Processing encrypted HTTP body"
+        );
 
         // Parse the multipart/encrypted body to extract the binary payload
         let binary_payload = extract_binary_payload(&encrypted_data)?;
@@ -259,7 +255,6 @@ impl EncryptionProvider {
     }
 
     /// Extract the binary payload from a multipart/encrypted HTTP body
-
     fn wrap(
         &mut self,
         data: &mut [u8],
@@ -365,20 +360,24 @@ fn extract_binary_payload(data: &[u8]) -> Result<Vec<u8>, PwshCoreError> {
         );
 
         // Look for either the next boundary or the closing boundary
-        let binary_end = if let Some(next_boundary_pos) =
-            find_subsequence(&data[binary_start..], boundary_bytes)
-        {
-            debug!(next_boundary_pos = next_boundary_pos, "Found next boundary");
-            binary_start + next_boundary_pos
-        } else if let Some(closing_pos) =
-            find_subsequence(&data[binary_start..], closing_boundary_bytes)
-        {
-            debug!(closing_pos = closing_pos, "Found closing boundary");
-            binary_start + closing_pos
-        } else {
-            debug!("No boundary found, using end of data");
-            data.len()
-        };
+        let binary_end = find_subsequence(&data[binary_start..], boundary_bytes).map_or_else(
+            || {
+                find_subsequence(&data[binary_start..], closing_boundary_bytes).map_or_else(
+                    || {
+                        debug!("No boundary found, using end of data");
+                        data.len()
+                    },
+                    |closing_pos| {
+                        debug!(closing_pos = closing_pos, "Found closing boundary");
+                        binary_start + closing_pos
+                    },
+                )
+            },
+            |next_boundary_pos| {
+                debug!(next_boundary_pos = next_boundary_pos, "Found next boundary");
+                binary_start + next_boundary_pos
+            },
+        );
 
         if binary_end > binary_start {
             let payload_len = binary_end - binary_start;

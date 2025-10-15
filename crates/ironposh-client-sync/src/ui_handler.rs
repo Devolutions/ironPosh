@@ -27,7 +27,8 @@ impl UIHanlder {
         }
     }
 
-    pub fn run(&mut self, mut terminal: Terminal) -> anyhow::Result<()> {
+    #[expect(clippy::too_many_lines)]
+    pub fn run(&self, mut terminal: Terminal) -> anyhow::Result<()> {
         let mut io = terminal.stdio(); // stdio-like wrapper
         let mut current_pipeline: Option<PipelineHandle> = None;
 
@@ -77,7 +78,7 @@ impl UIHanlder {
             'receive: while let Ok(event) = self.unified_rx.recv() {
                 debug!("Received UI event");
                 let read_outcome = io.try_read_line()?;
-                if let Some(ReadOutcome::Interrupt) = read_outcome {
+                if matches!(read_outcome, Some(ReadOutcome::Interrupt)) {
                     debug!("Interrupt detected during event processing");
                     let Some(pipeline) = current_pipeline.take() else {
                         debug!("No active pipeline to interrupt, continuing");
@@ -105,13 +106,11 @@ impl UIHanlder {
                             }
                             UiOp::Print(s) => {
                                 debug!(text = %s, "Printing text to terminal");
-                                use std::io::Write;
                                 writeln!(io, "{s}")?;
                             }
                         }
                         io.render()?;
                         debug!("UI operation processed and rendered");
-                        continue 'receive;
                     }
                     UIInputEvent::UserEvent(user_event) => {
                         debug!("Processing user event");
@@ -119,7 +118,6 @@ impl UIHanlder {
                             active_session::UserEvent::PipelineCreated { pipeline } => {
                                 info!(pipeline_id = %pipeline.id(), "Pipeline created, setting as current");
                                 current_pipeline = Some(pipeline);
-                                continue 'receive;
                             }
                             active_session::UserEvent::PipelineFinished { pipeline: _ } => {
                                 info!("Pipeline finished, clearing current pipeline");
@@ -144,9 +142,8 @@ impl UIHanlder {
                                         debug!(error = %e, "Failed to format pipeline output");
                                         let _ = writeln!(io, "Error formatting output: {e}");
                                     }
-                                };
+                                }
                                 let _ = io.render(); // best-effort
-                                continue 'receive;
                             }
                             active_session::UserEvent::ErrorRecord {
                                 error_record,
@@ -155,7 +152,6 @@ impl UIHanlder {
                                 info!(pipeline_id = %handle.id(), error_record = ?error_record, "Received ErrorRecord from pipeline");
                                 let _ = writeln!(io, "{}", error_record.render_concise());
                                 let _ = io.render(); // best-effort
-                                continue 'receive;
                             }
                         }
                     }

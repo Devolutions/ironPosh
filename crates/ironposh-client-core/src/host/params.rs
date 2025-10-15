@@ -100,7 +100,7 @@ impl FromParams for (i64, methods::ProgressRecord) {
                             ComplexObjectContent::PsEnums(enums) => Some(enums.value),
                             _ => None,
                         },
-                        _ => None,
+                        PsValue::Primitive(_) => None,
                     })
                     .unwrap_or(0);
 
@@ -117,7 +117,7 @@ impl FromParams for (i64, methods::ProgressRecord) {
 
                 Ok((source_id, progress_record))
             }
-            _ => Err(HostError::InvalidParameters),
+            PsValue::Primitive(_) => Err(HostError::InvalidParameters),
         }
     }
 }
@@ -215,9 +215,9 @@ impl FromParams for methods::Coordinates {
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
 
-                Ok(methods::Coordinates { x, y })
+                Ok(Self { x, y })
             }
-            _ => Err(HostError::InvalidParameters),
+            PsValue::Primitive(_) => Err(HostError::InvalidParameters),
         }
     }
 }
@@ -276,14 +276,14 @@ impl FromParams for methods::Rectangle {
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
 
-                Ok(methods::Rectangle {
+                Ok(Self {
                     left,
                     top,
                     right,
                     bottom,
                 })
             }
-            _ => Err(HostError::InvalidParameters),
+            PsValue::Primitive(_) => Err(HostError::InvalidParameters),
         }
     }
 }
@@ -374,14 +374,14 @@ impl FromParams for methods::BufferCell {
                     .and_then(|prop| prop.value.as_i32())
                     .ok_or(HostError::InvalidParameters)?;
 
-                Ok(methods::BufferCell {
+                Ok(Self {
                     character,
                     foreground,
                     background,
                     flags,
                 })
             }
-            _ => Err(HostError::InvalidParameters),
+            PsValue::Primitive(_) => Err(HostError::InvalidParameters),
         }
     }
 }

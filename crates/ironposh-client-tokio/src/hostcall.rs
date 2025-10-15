@@ -74,19 +74,19 @@ async fn process_host_call(
                     // For Get methods, try to return a default string
                     match host_call {
                         HostCall::GetVersion { transport } => {
-                            let (_, rt) = transport.into_parts();
+                            let ((), rt) = transport.into_parts();
                             rt.accept_result("1.0".to_string())
                         }
                         HostCall::GetInstanceId { transport } => {
-                            let (_, rt) = transport.into_parts();
+                            let ((), rt) = transport.into_parts();
                             rt.accept_result(uuid::Uuid::new_v4())
                         }
                         HostCall::GetCurrentCulture { transport } => {
-                            let (_, rt) = transport.into_parts();
+                            let ((), rt) = transport.into_parts();
                             rt.accept_result("en-US".to_string())
                         }
                         HostCall::GetCurrentUICulture { transport } => {
-                            let (_, rt) = transport.into_parts();
+                            let ((), rt) = transport.into_parts();
                             rt.accept_result("en-US".to_string())
                         }
                         _ => {
@@ -122,14 +122,11 @@ pub async fn handle_host_calls(
         match process_host_call(host_call, &ui_tx).await {
             Ok(submission) => {
                 // Submit the response back
-                if let Err(e) = submitter
-                    .submit(HostResponse {
-                        call_id,
-                        scope,
-                        submission,
-                    })
-                    .await
-                {
+                if let Err(e) = submitter.submit(HostResponse {
+                    call_id,
+                    scope,
+                    submission,
+                }) {
                     error!(error = %e, "failed to submit host call response");
                     break;
                 }

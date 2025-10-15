@@ -43,6 +43,7 @@ pub enum ConnectionState {
 }
 
 // =============================== TrySend API ===============================
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum TrySend {
     /// We had an Idle socket: body was sealed inside the pool and the conn was
@@ -62,8 +63,8 @@ pub enum TrySend {
 impl TrySend {
     pub fn get_connection_id(&self) -> ConnectionId {
         match self {
-            TrySend::JustSend { conn_id, .. } => *conn_id,
-            TrySend::AuthNeeded { auth_sequence } => auth_sequence.conn_id,
+            Self::JustSend { conn_id, .. } => *conn_id,
+            Self::AuthNeeded { auth_sequence } => auth_sequence.conn_id,
         }
     }
 }
@@ -81,8 +82,8 @@ pub struct JustSendOut {
 impl TrySendExt for TrySend {
     fn expect_just_send(self) -> JustSendOut {
         match self {
-            TrySend::JustSend { request, conn_id } => JustSendOut { request, conn_id },
-            other => panic!("expected JustSend, got {other:?}"),
+            Self::JustSend { request, conn_id } => JustSendOut { request, conn_id },
+            other @ Self::AuthNeeded { .. } => panic!("expected JustSend, got {other:?}"),
         }
     }
 }
@@ -229,6 +230,7 @@ impl ConnectionPool {
         Ok(try_send)
     }
 
+    #[expect(clippy::too_many_lines)]
     #[instrument(skip(self, response), fields(
         conn_id = response.connection_id.inner(),
         status_code = response.response.status_code,
@@ -256,48 +258,45 @@ impl ConnectionPool {
             ConnectionState::PreAuth => {
                 info!(conn_id = connection_id.inner(), "handling PreAuth response");
 
-                match encryption {
-                    Some(encryption_provider) => {
-                        let AuthenticatedHttpChannel {
-                            mut encryption_provider,
-                            conn_id: _,
-                        } = encryption_provider;
+                if let Some(encryption_provider) = encryption {
+                    let AuthenticatedHttpChannel {
+                        mut encryption_provider,
+                        conn_id: _,
+                    } = encryption_provider;
 
-                        let body = encryption_provider.decrypt(response.body)?;
-                        if response.status_code >= 400 {
-                            error!(
-                                conn_id = connection_id.inner(),
-                                status_code = response.status_code,
-                                decrypted_error_body = %body,
-                                "server returned error response with decrypted body"
-                            );
-                        } else {
-                            info!(
-                                conn_id = connection_id.inner(),
-                                decrypted_length = body.len(),
-                                "decrypted PreAuth response, moving to Idle"
-                            );
-                        }
-
-                        *state = ConnectionState::Idle {
-                            enc: EncryptionOptions::Sspi {
-                                encryption_provider,
-                            },
-                        };
-
-                        Ok(body)
-                    }
-                    None => {
-                        // Unreachable
+                    let body = encryption_provider.decrypt(response.body)?;
+                    if response.status_code >= 400 {
                         error!(
                             conn_id = connection_id.inner(),
-                            "PreAuth response missing encryption provider"
+                            status_code = response.status_code,
+                            decrypted_error_body = %body,
+                            "server returned error response with decrypted body"
                         );
-
-                        Err(PwshCoreError::InvalidState(
-                            "PreAuth response missing encryption provider",
-                        ))
+                    } else {
+                        info!(
+                            conn_id = connection_id.inner(),
+                            decrypted_length = body.len(),
+                            "decrypted PreAuth response, moving to Idle"
+                        );
                     }
+
+                    *state = ConnectionState::Idle {
+                        enc: EncryptionOptions::Sspi {
+                            encryption_provider,
+                        },
+                    };
+
+                    Ok(body)
+                } else {
+                    // Unreachable
+                    error!(
+                        conn_id = connection_id.inner(),
+                        "PreAuth response missing encryption provider"
+                    );
+
+                    Err(PwshCoreError::InvalidState(
+                        "PreAuth response missing encryption provider",
+                    ))
                 }
             }
             ConnectionState::Pending {
@@ -438,7 +437,7 @@ impl PostConAuthSequence {
 
     pub fn process_sec_ctx_init(
         mut self,
-        sec_context: crate::connector::authenticator::SecContextInit,
+        sec_context: &crate::connector::authenticator::SecContextInit,
     ) -> Result<SecContextInited, PwshCoreError> {
         match self
             .auth_sequence
@@ -454,7 +453,7 @@ impl PostConAuthSequence {
                 })
             }
             super::auth_sequence::SecCtxInited::Done(mut token) => {
-                let PostConAuthSequence {
+                let Self {
                     auth_sequence,
                     queued_xml,
                     conn_id,

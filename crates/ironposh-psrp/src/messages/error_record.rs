@@ -1,9 +1,11 @@
+use std::{borrow::Cow, collections::BTreeMap, fmt::Write};
+
 use crate::MessageType;
 use crate::ps_value::{
     ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
     PsValue,
 };
-use std::{borrow::Cow, collections::BTreeMap};
+
 use tracing::{debug, error};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
@@ -87,7 +89,7 @@ impl ErrorRecord {
         let mut out = String::new();
 
         // 1) Primary message
-        push_line(&mut out, normalize(&self.message), opts.trim);
+        push_line(&mut out, &normalize(&self.message), opts.trim);
 
         // 2) Category line (short diagnostic summary)
         if opts.include_category
@@ -98,14 +100,14 @@ impl ErrorRecord {
                 .map(|s| normalize(s))
             && !cat.is_empty()
         {
-            push_line(&mut out, cat, opts.trim);
+            push_line(&mut out, &cat, opts.trim);
         }
 
         // 3) Position block (from InvocationInfo if present)
         if opts.include_position
-            && let Some(pos) = extract_position_block(&self.invocation_info)
+            && let Some(pos) = extract_position_block(self.invocation_info.as_ref())
         {
-            push_line(&mut out, pos, opts.trim);
+            push_line(&mut out, &pos, opts.trim);
         }
 
         out
@@ -123,6 +125,7 @@ impl PsObjectWithType for ErrorRecord {
 }
 
 impl From<ErrorRecord> for ComplexObject {
+    #[expect(clippy::too_many_lines)]
     fn from(record: ErrorRecord) -> Self {
         let mut extended_properties = BTreeMap::new();
 
@@ -272,7 +275,7 @@ impl From<ErrorRecord> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Management.Automation.ErrorRecord"),
@@ -293,7 +296,7 @@ impl TryFrom<PsValue> for ErrorRecord {
     fn try_from(value: PsValue) -> Result<Self, Self::Error> {
         match value {
             PsValue::Object(obj) => Self::try_from(obj),
-            _ => Err(Self::Error::InvalidMessage(
+            PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(
                 "Expected ComplexObject for ErrorRecord".to_string(),
             )),
         }
@@ -303,6 +306,7 @@ impl TryFrom<PsValue> for ErrorRecord {
 impl TryFrom<ComplexObject> for ErrorRecord {
     type Error = crate::PowerShellRemotingError;
 
+    #[expect(clippy::too_many_lines)]
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         // Debug logging to understand what properties are actually available
         debug!(?value.extended_properties, "ErrorRecord extended_properties");
@@ -334,7 +338,7 @@ impl TryFrom<ComplexObject> for ErrorRecord {
                                     _ => None,
                                 })
                         }
-                        _ => None,
+                        PsValue::Primitive(_) => None,
                     })
             })
             .or_else(|| {
@@ -372,18 +376,20 @@ impl TryFrom<ComplexObject> for ErrorRecord {
                                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                                 _ => None,
                             }),
-                        _ => None,
+                        PsValue::Primitive(_) => None,
                     })
             });
 
         let was_thrown_from_throw_statement = value
             .extended_properties
             .get("WasThrownFromThrowStatement")
-            .map(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-                _ => false,
-            })
-            .unwrap_or(false);
+            .is_some_and(|prop| {
+                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
+                    b
+                } else {
+                    false
+                }
+            });
 
         let fully_qualified_error_id = value
             .extended_properties
@@ -415,11 +421,13 @@ impl TryFrom<ComplexObject> for ErrorRecord {
         let serialize_extended_info = value
             .extended_properties
             .get("SerializeExtendedInfo")
-            .map(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-                _ => false,
-            })
-            .unwrap_or(false);
+            .is_some_and(|prop| {
+                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
+                    b
+                } else {
+                    false
+                }
+            });
 
         // Parse error category
         let error_category =
@@ -482,7 +490,7 @@ impl TryFrom<ComplexObject> for ErrorRecord {
                 None
             };
 
-        Ok(ErrorRecord::builder()
+        Ok(Self::builder()
             .message(message)
             .command_name(command_name)
             .was_thrown_from_throw_statement(was_thrown_from_throw_statement)
@@ -503,7 +511,7 @@ fn normalize(s: &str) -> String {
     s.replace("_x000D__x000A_", "\r\n")
 }
 
-fn push_line(buf: &mut String, s: String, trim: bool) {
+fn push_line(buf: &mut String, s: &str, trim: bool) {
     if s.is_empty() {
         return;
     }
@@ -517,7 +525,7 @@ fn push_line(buf: &mut String, s: String, trim: bool) {
         if !buf.is_empty() && !buf.ends_with('\n') {
             buf.push('\n');
         }
-        buf.push_str(&s);
+        buf.push_str(s);
         if !s.ends_with('\n') {
             buf.push('\n');
         }
@@ -526,10 +534,9 @@ fn push_line(buf: &mut String, s: String, trim: bool) {
 
 /// Extract a ready-to-print "at path:line char:col\n+ code\n+  ~~" block
 /// from InvocationInfo when available. Falls back gracefully.
-fn extract_position_block(invocation_info: &Option<PsValue>) -> Option<String> {
-    let obj = match invocation_info {
-        Some(PsValue::Object(o)) => o,
-        _ => return None,
+fn extract_position_block(invocation_info: Option<&PsValue>) -> Option<String> {
+    let Some(PsValue::Object(obj)) = invocation_info else {
+        return None;
     };
 
     // 1) If PowerShell already provided PositionMessage, use it.
@@ -559,7 +566,8 @@ fn extract_position_block(invocation_info: &Option<PsValue>) -> Option<String> {
 
     let mut block = String::new();
     if !script.is_empty() || line > 0 || col > 0 {
-        block.push_str(&format!(
+        write!(
+            block,
             "at {}{}{}",
             if script.is_empty() {
                 "<unknown>"
@@ -569,14 +577,15 @@ fn extract_position_block(invocation_info: &Option<PsValue>) -> Option<String> {
             if line > 0 {
                 format!(":{line}")
             } else {
-                "".into()
+                String::new()
             },
             if col > 0 {
                 format!(" char:{col}")
             } else {
-                "".into()
+                String::new()
             },
-        ));
+        )
+        .unwrap();
     }
 
     if !line_text.is_empty() {
@@ -617,7 +626,7 @@ fn get_str(map: &BTreeMap<String, PsProperty>, key: &str) -> Option<String> {
         PsValue::Primitive(PsPrimitiveValue::Char(c)) => Some(c.to_string()),
         // Or nest the value as an object ToString()
         PsValue::Object(o) => o.to_string.clone(),
-        _ => None,
+        PsValue::Primitive(_) => None,
     })
 }
 

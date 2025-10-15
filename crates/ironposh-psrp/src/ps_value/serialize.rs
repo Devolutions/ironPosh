@@ -17,7 +17,7 @@ pub struct RefIdMap<'a, T> {
     pub next_id: u32,
 }
 
-impl<'a, T> RefIdMap<'a, T> {
+impl<T> RefIdMap<'_, T> {
     pub fn new() -> Self {
         RefIdMap {
             map: HashMap::new(),
@@ -55,18 +55,18 @@ where
 impl<'a> PsPrimitiveValue {
     pub fn to_element(&'a self) -> Result<Element<'a>> {
         Ok(match self {
-            PsPrimitiveValue::Str(s) => Element::new("S").set_text_owned(s.clone()),
-            PsPrimitiveValue::Bool(b) => Element::new("B").set_text_owned(b.to_string()),
-            PsPrimitiveValue::I32(i) => Element::new("I32").set_text_owned(i.to_string()),
-            PsPrimitiveValue::U32(u) => Element::new("U32").set_text_owned(u.to_string()),
-            PsPrimitiveValue::I64(i) => Element::new("I64").set_text_owned(i.to_string()),
-            PsPrimitiveValue::U64(u) => Element::new("U64").set_text_owned(u.to_string()),
-            PsPrimitiveValue::Guid(g) => Element::new("G").set_text_owned(g.clone()),
-            PsPrimitiveValue::Char(c) => Element::new("C").set_text_owned((*c as u32).to_string()),
-            PsPrimitiveValue::Nil => Element::new("Nil"), // empty tag
-            PsPrimitiveValue::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
-            PsPrimitiveValue::Version(v) => Element::new("Version").set_text_owned(v.clone()),
-            PsPrimitiveValue::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
+            Self::Str(s) => Element::new("S").set_text_owned(s.clone()),
+            Self::Bool(b) => Element::new("B").set_text_owned(b.to_string()),
+            Self::I32(i) => Element::new("I32").set_text_owned(i.to_string()),
+            Self::U32(u) => Element::new("U32").set_text_owned(u.to_string()),
+            Self::I64(i) => Element::new("I64").set_text_owned(i.to_string()),
+            Self::U64(u) => Element::new("U64").set_text_owned(u.to_string()),
+            Self::Guid(g) => Element::new("G").set_text_owned(g.clone()),
+            Self::Char(c) => Element::new("C").set_text_owned((*c as u32).to_string()),
+            Self::Nil => Element::new("Nil"), // empty tag
+            Self::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
+            Self::Version(v) => Element::new("Version").set_text_owned(v.clone()),
+            Self::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
         })
     }
 }
@@ -84,8 +84,8 @@ impl<'a> PsValue {
         types_map: &mut RefIdMap<'a, PsType>,
     ) -> Result<Element<'a>> {
         match self {
-            PsValue::Primitive(ps_primitive_value) => Ok(ps_primitive_value.to_element()?),
-            PsValue::Object(complex_object) => complex_object.to_element(objects_map, types_map),
+            Self::Primitive(ps_primitive_value) => Ok(ps_primitive_value.to_element()?),
+            Self::Object(complex_object) => complex_object.to_element(objects_map, types_map),
         }
     }
 }
@@ -104,7 +104,7 @@ impl<'a> PsProperty {
 }
 
 impl<'a> PsType {
-    pub fn to_element(&'a self, type_maps: &mut RefIdMap<'a, PsType>) -> Result<Element<'a>> {
+    pub fn to_element(&'a self, type_maps: &mut RefIdMap<'a, Self>) -> Result<Element<'a>> {
         if type_maps.contains(self) {
             // If this type has already been serialized, return a reference element.
             let ref_id = type_maps.map.get(self).unwrap();
@@ -139,21 +139,21 @@ impl<'a> Container {
         Ok(match self {
             // Stacks, Queues, and Lists all serialize to an <LST> tag.
             // The <TN> in the parent <Obj> is what differentiates their type.
-            Container::Stack(values) => {
+            Self::Stack(values) => {
                 let mut element = Element::new("STK");
                 for value in values {
                     element = element.add_child(value.to_element(objects_map, types_map)?);
                 }
                 element
             }
-            Container::Queue(values) => {
+            Self::Queue(values) => {
                 let mut element = Element::new("QUE");
                 for value in values {
                     element = element.add_child(value.to_element(objects_map, types_map)?);
                 }
                 element
             }
-            Container::List(values) => {
+            Self::List(values) => {
                 let mut element = Element::new("LST");
                 for value in values {
                     element = element.add_child(value.to_element(objects_map, types_map)?);
@@ -161,7 +161,7 @@ impl<'a> Container {
                 element
             }
             // Dictionaries serialize to a <DCT> tag with <En> entries.
-            Container::Dictionary(map) => {
+            Self::Dictionary(map) => {
                 let mut element = Element::new("DCT");
                 for (key, value) in map {
                     let key_element = key
@@ -192,7 +192,7 @@ impl<'a> ComplexObject {
 
     pub fn to_element(
         &'a self,
-        objects_map: &mut RefIdMap<'a, ComplexObject>,
+        objects_map: &mut RefIdMap<'a, Self>,
         types_map: &mut RefIdMap<'a, PsType>,
     ) -> Result<Element<'a>> {
         let ref_id = if let Some(obj_ref_id) = objects_map.map.get(self) {

@@ -19,18 +19,20 @@ pub enum Container {
 impl Display for Container {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Container::Stack(_) => write!(f, "System.Collections.Stack"),
-            Container::Queue(_) => write!(f, "System.Collections.Queue"),
-            Container::List(items) => {
-                let s: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+            Self::Stack(_) => write!(f, "System.Collections.Stack"),
+            Self::Queue(_) => write!(f, "System.Collections.Queue"),
+            Self::List(items) => {
+                let s: Vec<String> = items.iter().map(ToString::to_string).collect();
                 write!(f, "{}", s.join(" "))
             }
-            Container::Dictionary(_) => write!(f, "System.Collections.Hashtable"),
+            Self::Dictionary(_) => write!(f, "System.Collections.Hashtable"),
         }
     }
 }
 
-/// Enums specify a value of an enumeration. An enumeration is a distinct type consisting of a set of named constants. Every enumeration type has an underlying type, which can be any integral type. The default underlying type of the enumeration elements is a 32-bit integer (see section 2.2.5.1.11). Enums never have adapted properties (see section 2.2.5.3.4.1).
+/// Enums specify a value of an enumeration.
+/// 
+/// An enumeration is a distinct type consisting of a set of named constants. Every enumeration type has an underlying type, which can be any integral type. The default underlying type of the enumeration elements is a 32-bit integer (see section 2.2.5.1.11). Enums never have adapted properties (see section 2.2.5.3.4.1).
 /// XML Element: element corresponding to the primitive integer type (see section 2.2.5.1) that is underlying the enumeration type.
 /// XML Contents: value of the enumeration converted to the underlying type.
 ///

@@ -39,14 +39,14 @@ unsafe impl Sync for WasmError {}
 impl WasmError {
     pub fn name(&self) -> &str {
         match self {
-            WasmError::IOError(_) => "IOError",
-            WasmError::IronPoshError(_) => "IronPoshError",
-            WasmError::Generic(_) => "GenericError",
-            WasmError::WebSocket(_) => "WebSocketError",
-            WasmError::PowerShellError(_) => "PowerShellError",
-            WasmError::SerializationError(_) => "SerializationError",
-            WasmError::UrlParseError { .. } => "UrlParseError",
-            WasmError::InvalidArgument(_) => "InvalidArgument",
+            Self::IOError(_) => "IOError",
+            Self::IronPoshError(_) => "IronPoshError",
+            Self::Generic(_) => "GenericError",
+            Self::WebSocket(_) => "WebSocketError",
+            Self::PowerShellError(_) => "PowerShellError",
+            Self::SerializationError(_) => "SerializationError",
+            Self::UrlParseError { .. } => "UrlParseError",
+            Self::InvalidArgument(_) => "InvalidArgument",
         }
     }
 }
@@ -58,7 +58,7 @@ impl From<WasmError> for IronPoshError {
             error_message = %value,
             "converting WasmError to IronPoshError"
         );
-        IronPoshError {
+        Self {
             code: value.name().to_string(),
             message: value.to_string(),
         }

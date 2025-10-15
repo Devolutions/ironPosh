@@ -26,7 +26,7 @@ impl<'a> TryFrom<crate::parser::Node<'a, 'a>> for crate::builder::Element<'a> {
     }
 }
 
-pub fn parse<'a>(xml: &'a str) -> Result<Document<'a>, crate::XmlError> {
+pub fn parse(xml: &str) -> Result<Document<'_>, crate::XmlError> {
     roxmltree::Document::parse(xml).map_err(crate::XmlError::ParserError)
 }
 

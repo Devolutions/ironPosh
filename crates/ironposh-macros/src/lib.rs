@@ -195,16 +195,14 @@ fn generate_simple_xml_visitor_impl(
     let match_arms: Vec<TokenStream2> = field_entries
         .iter()
         .filter_map(|entry| {
-            if let Some(tag_name_type) = &entry.tag_name_type {
-                let field_name = &entry.field_name;
-                Some(quote! {
-                    crate::cores::#tag_name_type::TAG_NAME => {
-                        self.#field_name = Some(ironposh_xml::parser::XmlDeserialize::from_node(child)?);
-                    }
-                })
-            } else {
-                None
+            entry.tag_name_type.as_ref().map(|tag_name_type| {
+        let field_name = &entry.field_name;
+        quote! {
+            crate::cores::#tag_name_type::TAG_NAME => {
+                self.#field_name = Some(ironposh_xml::parser::XmlDeserialize::from_node(child)?);
             }
+        }
+    })
         })
         .collect();
 

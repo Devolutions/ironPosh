@@ -11,6 +11,7 @@ use crate::{
 use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
 use tracing::{error, info, instrument, warn};
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
     PipelineCreated {
@@ -32,21 +33,22 @@ pub enum UserEvent {
 impl UserEvent {
     pub fn pipeline_id(&self) -> uuid::Uuid {
         match self {
-            UserEvent::PipelineCreated {
+            Self::PipelineCreated {
                 pipeline: powershell,
             }
-            | UserEvent::PipelineFinished {
+            | Self::PipelineFinished {
                 pipeline: powershell,
             }
-            | UserEvent::PipelineOutput {
+            | Self::PipelineOutput {
                 pipeline: powershell,
                 ..
             } => powershell.id(),
-            UserEvent::ErrorRecord { handle, .. } => handle.id(),
+            Self::ErrorRecord { handle, .. } => handle.id(),
         }
     }
 }
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ActiveSessionOutput {
     SendBack(Vec<TrySend>),
@@ -60,12 +62,12 @@ pub enum ActiveSessionOutput {
 impl ActiveSessionOutput {
     pub fn priority(&self) -> u8 {
         match self {
-            ActiveSessionOutput::HostCall { .. } => 1,
-            ActiveSessionOutput::SendBack(_) => 2,
-            ActiveSessionOutput::SendBackError(_) => 3,
-            ActiveSessionOutput::UserEvent(_) => 4,
-            ActiveSessionOutput::OperationSuccess => 5,
-            ActiveSessionOutput::Ignore => 6,
+            Self::HostCall { .. } => 1,
+            Self::SendBack(_) => 2,
+            Self::SendBackError(_) => 3,
+            Self::UserEvent(_) => 4,
+            Self::OperationSuccess => 5,
+            Self::Ignore => 6,
         }
     }
 }
@@ -86,6 +88,7 @@ impl Ord for ActiveSessionOutput {
     }
 }
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum UserOperation {
     InvokeWithSpec {
@@ -112,10 +115,10 @@ pub enum UserOperation {
 impl UserOperation {
     pub fn operation_type(&self) -> &str {
         match self {
-            UserOperation::InvokeWithSpec { .. } => "InvokeWithSpec",
-            UserOperation::KillPipeline { .. } => "KillPipeline",
-            UserOperation::SubmitHostResponse { .. } => "SubmitHostResponse",
-            UserOperation::CancelHostCall { .. } => "CancelHostCall",
+            Self::InvokeWithSpec { .. } => "InvokeWithSpec",
+            Self::KillPipeline { .. } => "KillPipeline",
+            Self::SubmitHostResponse { .. } => "SubmitHostResponse",
+            Self::CancelHostCall { .. } => "CancelHostCall",
         }
     }
 }
@@ -163,7 +166,7 @@ impl ActiveSession {
                 info!(pipeline_id = %pipeline.id(), "killing pipeline");
 
                 // 1) Build the Signal request
-                let kill_xml = self.runspace_pool.kill_pipeline(pipeline);
+                let kill_xml = self.runspace_pool.kill_pipeline(&pipeline);
                 let kill_xml = match kill_xml {
                     Ok(kill_xml) => kill_xml,
                     Err(e) => {
@@ -269,7 +272,7 @@ impl ActiveSession {
         }
 
         // 2) Feed PSRP
-        let results = self.runspace_pool.accept_response(xml_body).map_err(|e| {
+        let results = self.runspace_pool.accept_response(&xml_body).map_err(|e| {
             error!("RunspacePool.accept_response failed: {:#}", e);
             e
         })?;
@@ -359,7 +362,7 @@ impl ActiveSession {
         // 1) Fragment to XML
         let send_xml = self
             .runspace_pool
-            .send_pipeline_host_response(command_id, host_resp)?;
+            .send_pipeline_host_response(command_id, &host_resp)?;
         info!(send_xml_length = send_xml.len(), "built host response XML");
         info!(unencrypted_host_response_xml = %send_xml, "outgoing unencrypted pipeline host response SOAP");
 
@@ -408,7 +411,7 @@ impl ActiveSession {
         // 1) Fragment to XML
         let send_xml = self
             .runspace_pool
-            .send_runspace_pool_host_response(host_resp)?;
+            .send_runspace_pool_host_response(&host_resp)?;
         info!(
             send_xml_length = send_xml.len(),
             "built pool host response XML"

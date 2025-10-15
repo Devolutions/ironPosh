@@ -32,19 +32,20 @@ impl GuestTerm {
     }
 
     pub fn apply(&mut self, op: TerminalOp) {
-        use TerminalOp::*;
         match op {
-            FeedBytes(bytes) => self.feed(&bytes),
-            CursorHome => self.feed(b"\x1b[H"),
-            SetCursor { x, y } => self.feed(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes()),
-            ClearScreen => self.feed(b"\x1b[2J\x1b[H"),
-            ClearScrollback => self.feed(b"\x1b[3J\x1b[2J\x1b[H"),
-            Resize { rows, cols } => {
+            TerminalOp::FeedBytes(bytes) => self.feed(&bytes),
+            TerminalOp::CursorHome => self.feed(b"\x1b[H"),
+            TerminalOp::SetCursor { x, y } => {
+                self.feed(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
+            }
+            TerminalOp::ClearScreen => self.feed(b"\x1b[2J\x1b[H"),
+            TerminalOp::ClearScrollback => self.feed(b"\x1b[3J\x1b[2J\x1b[H"),
+            TerminalOp::Resize { rows, cols } => {
                 self.parser.screen_mut().set_size(rows, cols);
                 self.prev = None;
                 self.dirty = true;
             }
-            FillRect {
+            TerminalOp::FillRect {
                 left,
                 top,
                 right,
@@ -109,11 +110,10 @@ impl GuestTerm {
             return None;
         }
         let screen = self.parser.screen().clone();
-        let mut bytes = if let Some(prev) = &self.prev {
-            screen.state_diff(prev)
-        } else {
-            screen.state_formatted()
-        };
+        let mut bytes = self
+            .prev
+            .as_ref()
+            .map_or_else(|| screen.state_formatted(), |prev| screen.state_diff(prev));
         bytes.extend_from_slice(&screen.cursor_state_formatted());
         self.prev = Some(screen);
         self.dirty = false;

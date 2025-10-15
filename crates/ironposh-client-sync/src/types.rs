@@ -5,6 +5,7 @@ use ironposh_client_core::connector::UserOperation;
 use ironposh_terminal::TerminalOp;
 
 /// Represents the next step in the event loop
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum NextStep {
     NetworkResponse(HttpResponseTargeted),
@@ -14,8 +15,8 @@ pub enum NextStep {
 impl fmt::Display for NextStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NextStep::NetworkResponse(_) => write!(f, "NetworkResponse"),
-            NextStep::UserRequest(_) => write!(f, "UserRequest"),
+            Self::NetworkResponse(_) => write!(f, "NetworkResponse"),
+            Self::UserRequest(_) => write!(f, "UserRequest"),
         }
     }
 }
@@ -24,9 +25,11 @@ impl fmt::Display for NextStep {
 #[derive(Debug)]
 pub enum UiOp {
     Apply(Vec<TerminalOp>), // render ops (cursor move, clear, fill, bytes…)
-    Print(String),          // for plain text lines if you want
+    #[expect(dead_code)]
+    Print(String), // for plain text lines if you want
 }
 /// Unified input event for the main loop - combines UI operations and user events
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum UIInputEvent {
     /// UI operation (rendering, printing)

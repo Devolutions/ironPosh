@@ -22,6 +22,7 @@ pub(crate) struct GatewayHttpViaWSClient {
     gateway_url: url::Url,
     connection_map: Rc<Mutex<std::collections::HashMap<ConnectionId, WebsocketStream>>>,
     // We here assume that the token is short lived but can be reused for multiple connections in parallel
+    #[expect(dead_code)]
     token: String,
 }
 
@@ -75,7 +76,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                         };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
-                    match auth_sequence.process_sec_ctx_init(init)? {
+                    match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             let HttpRequestAction {
                                 connection_id,
@@ -143,7 +144,7 @@ impl GatewayHttpViaWSClient {
                 s.clone()
             } else {
                 info!(?con_id, gateway_url = %self.gateway_url, "creating new WebSocket connection");
-                let stream = WebsocketStream::new(self.gateway_url.clone())?;
+                let stream = WebsocketStream::new(&self.gateway_url)?;
                 map.insert(*con_id, stream.clone());
                 stream
             }
@@ -169,7 +170,7 @@ impl WebsocketStream {
         info!(?request.method, url = %request.url, "serializing HTTP request");
         let http_request_bytes = serialize_http_request(&request).map_err(|e| {
             error!(?e, "failed to serialize HTTP request");
-            WasmError::IOError(format!("Failed to serialize HTTP request: {}", e))
+            WasmError::IOError(format!("Failed to serialize HTTP request: {e}"))
         })?;
 
         debug!(
@@ -187,18 +188,15 @@ impl WebsocketStream {
         ) {
             let state = ws.state();
             error!(?state, "WebSocket is not open");
-            return Err(WasmError::WebSocket(format!("WebSocket is not open: {:?}", state)).into());
-        };
+            return Err(WasmError::WebSocket(format!("WebSocket is not open: {state:?}")).into());
+        }
 
         // Send the serialized HTTP request over WebSocket
         ws.send(gloo_net::websocket::Message::Bytes(http_request_bytes))
             .await
             .map_err(|e| {
                 error!(?e, "failed to send HTTP request over WebSocket");
-                WasmError::IOError(format!(
-                    "Failed to send HTTP request over WebSocket: {:?}",
-                    e
-                ))
+                WasmError::IOError(format!("Failed to send HTTP request over WebSocket: {e:?}"))
             })?;
 
         // Stream response frames using the decoder
@@ -209,7 +207,7 @@ impl WebsocketStream {
         loop {
             let msg = next_ws(&mut ws).await.map_err(|e| {
                 error!(?e, "WebSocket read error");
-                WasmError::IOError(format!("WS read error: {:?}", e))
+                WasmError::IOError(format!("WS read error: {e:?}"))
             })?;
 
             let bytes = match msg {
@@ -242,14 +240,14 @@ impl WebsocketStream {
 }
 
 impl WebsocketStream {
-    pub fn new(url: url::Url) -> Result<Self, WasmError> {
+    pub fn new(url: &url::Url) -> Result<Self, WasmError> {
         info!(
             url = %url,
             "opening WebSocket connection"
         );
         let ws = WebSocket::open(url.as_str()).map_err(|e| {
             error!(?e, url = %url, "failed to open WebSocket");
-            WasmError::IOError(format!("Failed to open WebSocket: {:?}", e))
+            WasmError::IOError(format!("Failed to open WebSocket: {e:?}"))
         })?;
 
         info!(url = %url, "WebSocket connection opened successfully");

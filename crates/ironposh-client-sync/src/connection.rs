@@ -13,7 +13,7 @@ pub struct RemotePowershell {
 
 impl RemotePowershell {
     /// Establish connection to the PowerShell remote server
-    pub fn open(config: WinRmConfig, client: &mut dyn HttpClient) -> Result<Self, anyhow::Error> {
+    pub fn open(config: WinRmConfig, client: &dyn HttpClient) -> Result<Self, anyhow::Error> {
         let mut connector = Connector::new(config);
         let mut response = None;
 

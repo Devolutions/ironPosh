@@ -72,8 +72,8 @@ pub enum ConnectorStepResult {
 impl ConnectorStepResult {
     pub fn name(&self) -> &'static str {
         match self {
-            ConnectorStepResult::SendBack { .. } => "SendBack",
-            ConnectorStepResult::Connected { .. } => "Connected",
+            Self::SendBack { .. } => "SendBack",
+            Self::Connected { .. } => "Connected",
         }
     }
 }
@@ -81,8 +81,8 @@ impl ConnectorStepResult {
 impl ConnectorStepResult {
     pub fn priority(&self) -> u8 {
         match self {
-            ConnectorStepResult::SendBack { .. } => 1,
-            ConnectorStepResult::Connected { .. } => 3,
+            Self::SendBack { .. } => 1,
+            Self::Connected { .. } => 3,
         }
     }
 }
@@ -105,10 +105,10 @@ pub enum ConnectorState {
 impl ConnectorState {
     fn state_name(&self) -> &'static str {
         match self {
-            ConnectorState::Idle => "Idle",
-            ConnectorState::Connecting { .. } => "Connecting",
-            ConnectorState::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
-            ConnectorState::Connected => "Connected",
+            Self::Idle => "Idle",
+            Self::Connecting { .. } => "Connecting",
+            Self::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
+            Self::Connected => "Connected",
         }
     }
 }
@@ -190,7 +190,7 @@ impl Connector {
                 let xml = connection_pool.accept(targeted_response)?;
 
                 // Advance runspace handshake
-                let mut runspace_pool = expect_shell_created.accept(xml)?;
+                let runspace_pool = expect_shell_created.accept(&xml)?;
                 let receive_xml =
                     runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
                 info!(connecting_receive_xml = %receive_xml, "outgoing unencrypted connecting receive SOAP");
@@ -212,7 +212,7 @@ impl Connector {
                 )?;
                 let xml = connection_pool.accept(targeted_response)?;
 
-                let results = runspace_pool.accept_response(xml)?;
+                let results = runspace_pool.accept_response(&xml)?;
                 let Some(AcceptResponsResult::ReceiveResponse { desired_streams }) = results
                     .into_iter()
                     .find(|r| matches!(r, AcceptResponsResult::ReceiveResponse { .. }))
@@ -222,7 +222,7 @@ impl Connector {
                     ));
                 };
 
-                if let RunspacePoolState::NegotiationSent = runspace_pool.state {
+                if runspace_pool.state == RunspacePoolState::NegotiationSent {
                     let receive_xml = runspace_pool.fire_receive(desired_streams)?;
                     let try_send = connection_pool.send(&receive_xml)?;
                     let new_state = ConnectorState::ConnectReceiveCycle {
@@ -230,7 +230,7 @@ impl Connector {
                         connection_pool,
                     };
                     (new_state, ConnectorStepResult::SendBack { try_send })
-                } else if let RunspacePoolState::Opened = runspace_pool.state {
+                } else if runspace_pool.state == RunspacePoolState::Opened {
                     // Hand off to ActiveSession: it should carry the pool forward
                     let next_receive_xml = runspace_pool.fire_receive(desired_streams)?;
                     let next_req = connection_pool.send(&next_receive_xml)?;

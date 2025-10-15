@@ -25,7 +25,7 @@ impl From<ApartmentState> for ComplexObject {
             ApartmentState::Unknown => "Unknown".to_string(),
         };
 
-        ComplexObject {
+        Self {
             type_def: Some(type_def),
             to_string: Some(to_string),
             content: ComplexObjectContent::PsEnums(PsEnums {

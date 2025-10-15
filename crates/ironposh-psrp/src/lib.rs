@@ -39,6 +39,6 @@ pub enum PowerShellRemotingError {
 
 impl From<std::io::Error> for PowerShellRemotingError {
     fn from(err: std::io::Error) -> Self {
-        PowerShellRemotingError::IoError(err.to_string())
+        Self::IoError(err.to_string())
     }
 }

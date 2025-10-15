@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 ///
 /// The data contains an extended property named "ApplicationPrivateData" with a value that is
 /// either a Primitive Dictionary or a Null Value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ApplicationPrivateData {
     /// The application private data as a dictionary of string keys to primitive values
     pub data: Option<BTreeMap<String, PsValue>>,
@@ -23,13 +23,7 @@ pub struct ApplicationPrivateData {
 impl ApplicationPrivateData {
     /// Create a new ApplicationPrivateData with no data (null value)
     pub fn new() -> Self {
-        Self { data: None }
-    }
-}
-
-impl Default for ApplicationPrivateData {
-    fn default() -> Self {
-        Self::new()
+        Self::default()
     }
 }
 
@@ -47,24 +41,24 @@ impl From<ApplicationPrivateData> for ComplexObject {
     fn from(app_data: ApplicationPrivateData) -> Self {
         let mut extended_properties = BTreeMap::new();
 
-        let application_private_data_value = match app_data.data {
-            Some(data) => {
-                // Convert BTreeMap<String, PsPrimitiveValue> to BTreeMap<PsValue, PsValue>
-                let ps_dict: BTreeMap<PsValue, PsValue> = data
-                    .into_iter()
-                    .map(|(k, v)| (PsValue::Primitive(PsPrimitiveValue::Str(k)), v))
-                    .collect();
+        let application_private_data_value =
+            app_data
+                .data
+                .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |data| {
+                    // Convert BTreeMap<String, PsPrimitiveValue> to BTreeMap<PsValue, PsValue>
+                    let ps_dict: BTreeMap<PsValue, PsValue> = data
+                        .into_iter()
+                        .map(|(k, v)| (PsValue::Primitive(PsPrimitiveValue::Str(k)), v))
+                        .collect();
 
-                PsValue::Object(ComplexObject {
-                    type_def: Some(PsType::ps_primitive_dictionary()),
-                    to_string: None,
-                    content: ComplexObjectContent::Container(Container::Dictionary(ps_dict)),
-                    adapted_properties: BTreeMap::new(),
-                    extended_properties: BTreeMap::new(),
-                })
-            }
-            None => PsValue::Primitive(PsPrimitiveValue::Nil),
-        };
+                    PsValue::Object(Self {
+                        type_def: Some(PsType::ps_primitive_dictionary()),
+                        to_string: None,
+                        content: ComplexObjectContent::Container(Container::Dictionary(ps_dict)),
+                        adapted_properties: BTreeMap::new(),
+                        extended_properties: BTreeMap::new(),
+                    })
+                });
 
         extended_properties.insert(
             "ApplicationPrivateData".to_string(),
@@ -74,7 +68,7 @@ impl From<ApplicationPrivateData> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -95,7 +89,10 @@ impl TryFrom<ComplexObject> for ApplicationPrivateData {
                 Self::Error::InvalidMessage("Missing ApplicationPrivateData property".to_string())
             })?;
 
-        let data = if let PsValue::Primitive(PsPrimitiveValue::Nil) = &app_data_property.value {
+        let data = if matches!(
+            &app_data_property.value,
+            PsValue::Primitive(PsPrimitiveValue::Nil)
+        ) {
             None
         } else {
             let PsValue::Object(obj) = &app_data_property.value else {
@@ -125,6 +122,6 @@ impl TryFrom<ComplexObject> for ApplicationPrivateData {
             Some(result)
         };
 
-        Ok(ApplicationPrivateData { data })
+        Ok(Self { data })
     }
 }

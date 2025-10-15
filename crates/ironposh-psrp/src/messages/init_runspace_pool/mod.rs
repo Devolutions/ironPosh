@@ -90,7 +90,7 @@ impl From<InitRunspacePool> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             content: ComplexObjectContent::Standard,
             extended_properties,
             ..Default::default()

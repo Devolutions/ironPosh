@@ -3,7 +3,12 @@ pub mod header;
 pub use header::*;
 
 use crate::{
-    cores::{Attribute, Tag, Time, WsUuid, namespace::Namespace, tag_name::*, tag_value::Text},
+    cores::{
+        Attribute, Tag, Time, WsUuid,
+        namespace::Namespace,
+        tag_name::{Action, Envelope},
+        tag_value::Text,
+    },
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
 };
@@ -54,22 +59,18 @@ pub enum WsAction {
 impl WsAction {
     pub fn as_str(&self) -> &str {
         match self {
-            WsAction::Create => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
-            WsAction::Delete => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete",
-            WsAction::Get => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",
-            WsAction::Put => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put",
-            WsAction::Command => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
-            WsAction::CommandResponse => {
+            Self::Create => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
+            Self::Delete => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete",
+            Self::Get => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",
+            Self::Put => "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put",
+            Self::Command => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
+            Self::CommandResponse => {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandResponse"
             }
-            WsAction::ShellReceive => {
-                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"
-            } // See note below
-            WsAction::ShellCreate => {
-                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create"
-            }
-            WsAction::Send => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send",
-            WsAction::Signal => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal",
+            Self::ShellReceive => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive", // See note below
+            Self::ShellCreate => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create",
+            Self::Send => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send",
+            Self::Signal => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal",
         }
     }
 }
@@ -77,7 +78,7 @@ impl WsAction {
 impl WsMan {
     pub fn invoke<'a>(
         &'a self,
-        action: WsAction,
+        action: &WsAction,
         resource_uri: Option<&'a str>,
         resource_body: SoapBody<'a>,
         option_set: Option<header::OptionSetValue>,
@@ -151,7 +152,7 @@ impl WsMan {
             .with_declaration(Namespace::MsWsmanSchema);
 
         if add_rsp_declaration {
-            soap = soap.with_declaration(Namespace::WsmanShell)
+            soap = soap.with_declaration(Namespace::WsmanShell);
         }
 
         soap

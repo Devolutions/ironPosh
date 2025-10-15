@@ -18,20 +18,20 @@ pub enum PSInvocationState {
 impl PSInvocationState {
     pub fn as_i32(&self) -> i32 {
         match self {
-            PSInvocationState::NotStarted => 0,
-            PSInvocationState::Running => 1,
-            PSInvocationState::Stopping => 2,
-            PSInvocationState::Stopped => 3,
-            PSInvocationState::Completed => 4,
-            PSInvocationState::Failed => 5,
-            PSInvocationState::Disconnected => 6,
+            Self::NotStarted => 0,
+            Self::Running => 1,
+            Self::Stopping => 2,
+            Self::Stopped => 3,
+            Self::Completed => 4,
+            Self::Failed => 5,
+            Self::Disconnected => 6,
         }
     }
 
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            PSInvocationState::Completed | PSInvocationState::Failed | PSInvocationState::Stopped
+            Self::Completed | Self::Failed | Self::Stopped
         )
     }
 }
@@ -41,13 +41,13 @@ impl TryFrom<i32> for PSInvocationState {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(PSInvocationState::NotStarted),
-            1 => Ok(PSInvocationState::Running),
-            2 => Ok(PSInvocationState::Stopping),
-            3 => Ok(PSInvocationState::Stopped),
-            4 => Ok(PSInvocationState::Completed),
-            5 => Ok(PSInvocationState::Failed),
-            6 => Ok(PSInvocationState::Disconnected),
+            0 => Ok(Self::NotStarted),
+            1 => Ok(Self::Running),
+            2 => Ok(Self::Stopping),
+            3 => Ok(Self::Stopped),
+            4 => Ok(Self::Completed),
+            5 => Ok(Self::Failed),
+            6 => Ok(Self::Disconnected),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
                 "Invalid PSInvocationState value: {value}"
             ))),
@@ -94,7 +94,7 @@ impl From<PipelineStateMessage> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -132,7 +132,7 @@ impl TryFrom<ComplexObject> for PipelineStateMessage {
             .get("ExceptionAsErrorRecord")
             .map(|prop| prop.value.clone());
 
-        Ok(PipelineStateMessage {
+        Ok(Self {
             pipeline_state,
             exception_as_error_record,
         })

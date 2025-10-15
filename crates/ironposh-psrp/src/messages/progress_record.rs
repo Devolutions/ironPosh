@@ -14,15 +14,15 @@ pub enum ProgressRecordType {
 impl ProgressRecordType {
     pub fn as_i32(&self) -> i32 {
         match self {
-            ProgressRecordType::Processing => 0,
-            ProgressRecordType::Completed => 1,
+            Self::Processing => 0,
+            Self::Completed => 1,
         }
     }
 
     pub fn as_string(&self) -> &'static str {
         match self {
-            ProgressRecordType::Processing => "Processing",
-            ProgressRecordType::Completed => "Completed",
+            Self::Processing => "Processing",
+            Self::Completed => "Completed",
         }
     }
 }
@@ -32,8 +32,8 @@ impl TryFrom<i32> for ProgressRecordType {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(ProgressRecordType::Processing),
-            1 => Ok(ProgressRecordType::Completed),
+            0 => Ok(Self::Processing),
+            1 => Ok(Self::Completed),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
                 "Invalid ProgressRecordType value: {value}"
             ))),
@@ -127,7 +127,7 @@ impl From<ProgressRecord> for ComplexObject {
             },
         );
 
-        let progress_type_obj = ComplexObject {
+        let progress_type_obj = Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Management.Automation.ProgressRecordType"),
@@ -162,7 +162,7 @@ impl From<ProgressRecord> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -228,14 +228,14 @@ impl TryFrom<ComplexObject> for ProgressRecord {
                     _ => None,
                 });
 
-        let percent_complete = value
-            .extended_properties
-            .get("PercentComplete")
-            .map(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(percent)) => *percent,
-                _ => -1,
-            })
-            .unwrap_or(-1);
+        let percent_complete =
+            value
+                .extended_properties
+                .get("PercentComplete")
+                .map_or(-1, |prop| match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::I32(percent)) => *percent,
+                    _ => -1,
+                });
 
         let progress_type = value
             .extended_properties
@@ -247,7 +247,7 @@ impl TryFrom<ComplexObject> for ProgressRecord {
                     }
                     _ => None,
                 },
-                _ => None,
+                PsValue::Primitive(_) => None,
             })
             .unwrap_or(ProgressRecordType::Processing);
 
@@ -260,7 +260,7 @@ impl TryFrom<ComplexObject> for ProgressRecord {
                     _ => None,
                 });
 
-        Ok(ProgressRecord::builder()
+        Ok(Self::builder()
             .activity(activity)
             .activity_id(activity_id)
             .status_description(status_description)

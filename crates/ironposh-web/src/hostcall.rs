@@ -96,6 +96,7 @@ macro_rules! handle_host_call {
 }
 
 /// This should definately be handled by JS side, but for now we leave it like this so at least the session's loop is not blocked
+#[expect(clippy::too_many_lines)]
 pub async fn handle_host_calls(
     mut host_call_rx: futures::channel::mpsc::UnboundedReceiver<HostCall>,
     submitter: ironposh_async::HostSubmitter,
@@ -243,7 +244,6 @@ pub async fn handle_host_calls(
                 scope,
                 submission,
             })
-            .await
             .is_err()
         {
             error!("failed to submit host call response");

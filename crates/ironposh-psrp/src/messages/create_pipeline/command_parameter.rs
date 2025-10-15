@@ -31,10 +31,11 @@ impl From<CommandParameter> for ComplexObject {
             "N".to_string(),
             PsProperty {
                 name: "N".to_string(),
-                value: match param.name {
-                    Some(name) => PsValue::Primitive(PsPrimitiveValue::Str(name)),
-                    None => PsValue::Primitive(PsPrimitiveValue::Nil),
-                },
+                value: param
+                    .name
+                    .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |name| {
+                        PsValue::Primitive(PsPrimitiveValue::Str(name))
+                    }),
             },
         );
 
@@ -46,7 +47,7 @@ impl From<CommandParameter> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -67,14 +68,14 @@ impl TryFrom<ComplexObject> for CommandParameter {
                 .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
-        let name = match &get_property("N")?.value {
-            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-            PsValue::Primitive(PsPrimitiveValue::Nil) => None,
-            _ => None,
+        let name = if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = &get_property("N")?.value {
+            Some(s.clone())
+        } else {
+            None
         };
 
         let value = get_property("V")?.value.clone();
 
-        Ok(CommandParameter { name, value })
+        Ok(Self { name, value })
     }
 }

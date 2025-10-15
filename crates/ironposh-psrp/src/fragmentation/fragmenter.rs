@@ -47,7 +47,7 @@ impl Fragmenter {
         let mut fragments = Vec::new();
 
         if let Some(remaining_size) = remaining_size {
-            let (fragment1, remaining) = safe_split_at(remaining_bytes, remaining_size);
+            let (frag1, remaining) = safe_split_at(remaining_bytes, remaining_size);
             let end = remaining.is_empty();
 
             remaining_bytes = remaining;
@@ -55,7 +55,7 @@ impl Fragmenter {
             let fragment = Fragment::new(
                 self.outgoing_counter,
                 fragment_id,
-                fragment1.to_vec(),
+                frag1.to_vec(),
                 start,
                 end,
             );
@@ -124,7 +124,7 @@ impl Fragmenter {
 
             fragements.extend(message_fragments);
 
-            remaing_size = self.max_fragment_size - fragements.last().map_or(0, |last| last.len());
+            remaing_size = self.max_fragment_size - fragements.last().map_or(0, Vec::len);
             if remaing_size == 0 {
                 remaing_size = self.max_fragment_size; // Reset for next message
             }

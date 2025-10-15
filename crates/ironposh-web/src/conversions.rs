@@ -19,7 +19,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             height: config.rows as i32,
         };
 
-        WinRmConfig {
+        Self {
             server: (
                 ServerAddress::parse(&config.server).expect("Invalid server address"),
                 config.port,
@@ -52,37 +52,36 @@ impl TryFrom<&UserEvent> for WasmPowerShellEvent {
     type Error = crate::error::WasmError;
     fn try_from(value: &UserEvent) -> Result<Self, Self::Error> {
         let res = match value {
-            UserEvent::PipelineCreated { pipeline } => WasmPowerShellEvent::PipelineCreated {
+            UserEvent::PipelineCreated { pipeline } => Self::PipelineCreated {
                 pipeline_id: pipeline.id().to_string(),
             },
-            UserEvent::PipelineFinished { pipeline } => WasmPowerShellEvent::PipelineFinished {
+            UserEvent::PipelineFinished { pipeline } => Self::PipelineFinished {
                 pipeline_id: pipeline.id().to_string(),
             },
-            UserEvent::PipelineOutput { pipeline, output } => WasmPowerShellEvent::PipelineOutput {
+            UserEvent::PipelineOutput { pipeline, output } => Self::PipelineOutput {
                 pipeline_id: pipeline.id().to_string(),
-                data: match output.assume_primitive_string() {
-                    Ok(str) => str.clone(),
-                    Err(_) => {
-                        warn!("Pipeline output is not a primitive string, attempting to format as displayable string");
-                        let res = output
-                            .format_as_displyable_string()
-                            .map_err(|e| {
-                                WasmError::Generic(format!(
-                                    "{e}, failed to format Pipeline output as string"
-                                ))
-                            })?
-                            .clone();
+                data: if let Ok(str) = output.assume_primitive_string() {
+                    str.clone()
+                } else {
+                    warn!("Pipeline output is not a primitive string, attempting to format as displayable string");
+                    let res = output
+                        .format_as_displyable_string()
+                        .map_err(|e| {
+                            WasmError::Generic(format!(
+                                "{e}, failed to format Pipeline output as string"
+                            ))
+                        })?
+                        ;
 
-                        res
-                    }
+                    res
                 },
             },
             UserEvent::ErrorRecord {
                 error_record,
                 handle,
-            } => WasmPowerShellEvent::PipelineError {
+            } => Self::PipelineError {
                 pipeline_id: handle.id().to_string(),
-                error: format!("{:?}", error_record),
+                error: format!("{error_record:?}"),
             },
         };
 

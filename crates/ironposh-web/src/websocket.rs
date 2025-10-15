@@ -10,7 +10,7 @@ pub struct WebsocketStream {
 }
 
 impl WebsocketStream {
-    pub fn new(url: Url) -> Result<Self, WasmError> {
+    pub fn new(url: &Url) -> Result<Self, WasmError> {
         info!(url = %url, "opening WebSocket stream");
         let s = url.as_str().to_string();
         let ws = WebSocket::open(&s).map_err(|e| {

@@ -4,6 +4,7 @@ use crate::ps_value::{
 };
 use std::{borrow::Cow, collections::BTreeMap};
 
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct HostInfo {
     #[builder(default = false)]
@@ -19,7 +20,7 @@ pub struct HostInfo {
 
 impl HostInfo {
     pub fn enabled_all(host_data: HostDefaultData) -> Self {
-        HostInfo {
+        Self {
             is_host_null: true,
             is_host_ui_null: true,
             is_host_raw_ui_null: true,
@@ -70,7 +71,7 @@ impl From<HostInfo> for ComplexObject {
             "data".to_string(),
             PsProperty {
                 name: "data".to_string(),
-                value: PsValue::Object(ComplexObject {
+                value: PsValue::Object(Self {
                     type_def: Some(PsType {
                         type_names: vec![
                             Cow::Borrowed("System.Collections.Hashtable"),
@@ -87,7 +88,7 @@ impl From<HostInfo> for ComplexObject {
             },
         )]);
 
-        let host_data_obj = ComplexObject {
+        let host_data_obj = Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -103,7 +104,7 @@ impl From<HostInfo> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -162,17 +163,17 @@ impl TryFrom<ComplexObject> for HostInfo {
                                 "Expected Dictionary for data property content".to_string(),
                             )),
                         },
-                        _ => Err(Self::Error::InvalidMessage(
+                        PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(
                             "Expected Object for data property".to_string(),
                         )),
                     }
                 }
-                _ => Err(Self::Error::InvalidMessage(
+                PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(
                     "Expected Object for _hostDefaultData property".to_string(),
                 )),
             })?;
 
-        Ok(HostInfo {
+        Ok(Self {
             is_host_null,
             is_host_ui_null,
             is_host_raw_ui_null,

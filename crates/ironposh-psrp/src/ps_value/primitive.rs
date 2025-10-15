@@ -23,89 +23,89 @@ pub enum PsPrimitiveValue {
 impl Display for PsPrimitiveValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PsPrimitiveValue::Str(s) => write!(f, "{s}"),
-            PsPrimitiveValue::Bool(b) => write!(f, "{b}"),
-            PsPrimitiveValue::I32(i) => write!(f, "{i}"),
-            PsPrimitiveValue::U32(u) => write!(f, "{u}"),
-            PsPrimitiveValue::I64(i) => write!(f, "{i}"),
-            PsPrimitiveValue::U64(u) => write!(f, "{u}"),
-            PsPrimitiveValue::Guid(g) => write!(f, "{g}"),
-            PsPrimitiveValue::Char(c) => write!(f, "{c}"),
-            PsPrimitiveValue::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
-            PsPrimitiveValue::Bytes(_bytes) => write!(f, "System.Byte[]"),
-            PsPrimitiveValue::Version(v) => write!(f, "{v}"),
-            PsPrimitiveValue::DateTime(d) => write!(f, "{d}"),
+            Self::Str(s) => write!(f, "{s}"),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::I32(i) => write!(f, "{i}"),
+            Self::U32(u) => write!(f, "{u}"),
+            Self::I64(i) => write!(f, "{i}"),
+            Self::U64(u) => write!(f, "{u}"),
+            Self::Guid(g) => write!(f, "{g}"),
+            Self::Char(c) => write!(f, "{c}"),
+            Self::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
+            Self::Bytes(_bytes) => write!(f, "System.Byte[]"),
+            Self::Version(v) => write!(f, "{v}"),
+            Self::DateTime(d) => write!(f, "{d}"),
         }
     }
 }
 
 impl From<()> for PsPrimitiveValue {
-    fn from(_: ()) -> Self {
-        PsPrimitiveValue::Nil
+    fn from(_value: ()) -> Self {
+        Self::Nil
     }
 }
 
 impl From<uuid::Uuid> for PsPrimitiveValue {
     fn from(guid: uuid::Uuid) -> Self {
-        PsPrimitiveValue::Guid(guid.to_string().to_uppercase())
+        Self::Guid(guid.to_string().to_uppercase())
     }
 }
 
 impl From<&str> for PsPrimitiveValue {
     fn from(s: &str) -> Self {
-        PsPrimitiveValue::Str(s.to_string())
+        Self::Str(s.to_string())
     }
 }
 
 impl From<String> for PsPrimitiveValue {
     fn from(s: String) -> Self {
-        PsPrimitiveValue::Str(s)
+        Self::Str(s)
     }
 }
 
 impl From<bool> for PsPrimitiveValue {
     fn from(b: bool) -> Self {
-        PsPrimitiveValue::Bool(b)
+        Self::Bool(b)
     }
 }
 
 impl From<i32> for PsPrimitiveValue {
     fn from(i: i32) -> Self {
-        PsPrimitiveValue::I32(i)
+        Self::I32(i)
     }
 }
 impl From<u32> for PsPrimitiveValue {
     fn from(u: u32) -> Self {
-        PsPrimitiveValue::U32(u)
+        Self::U32(u)
     }
 }
 
 impl From<i64> for PsPrimitiveValue {
     fn from(i: i64) -> Self {
-        PsPrimitiveValue::I64(i)
+        Self::I64(i)
     }
 }
 
 impl From<char> for PsPrimitiveValue {
     fn from(c: char) -> Self {
-        PsPrimitiveValue::Char(c)
+        Self::Char(c)
     }
 }
 
 impl From<u64> for PsPrimitiveValue {
     fn from(u: u64) -> Self {
-        PsPrimitiveValue::U64(u)
+        Self::U64(u)
     }
 }
 
 impl From<Vec<u8>> for PsPrimitiveValue {
     fn from(bytes: Vec<u8>) -> Self {
-        PsPrimitiveValue::Bytes(bytes)
+        Self::Bytes(bytes)
     }
 }
 
 impl From<&[u8]> for PsPrimitiveValue {
     fn from(bytes: &[u8]) -> Self {
-        PsPrimitiveValue::Bytes(bytes.to_vec())
+        Self::Bytes(bytes.to_vec())
     }
 }

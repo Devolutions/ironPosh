@@ -149,9 +149,8 @@ impl<'a> ironposh_xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
     }
 
     fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.attribute.ok_or(ironposh_xml::XmlError::InvalidXml(
-            "No attribute found".to_string(),
-        ))
+        self.attribute
+            .ok_or_else(|| ironposh_xml::XmlError::InvalidXml("No attribute found".to_string()))
     }
 }
 

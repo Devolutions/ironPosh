@@ -20,7 +20,7 @@ pub struct PSVersionTable {
 
 impl Default for PSVersionTable {
     fn default() -> Self {
-        PSVersionTable {
+        Self {
             ps_semantic_version: "7.4.11".to_string(),
             ps_remoting_protocol_version: "2.3".to_string(),
             ps_compatible_versions: vec![
@@ -71,7 +71,7 @@ impl From<PSVersionTable> for ComplexObject {
             .map(|v| PsValue::Primitive(PsPrimitiveValue::Version(v)))
             .collect();
 
-        let compatible_versions_obj = ComplexObject {
+        let compatible_versions_obj = Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Version[]"),
@@ -134,7 +134,7 @@ impl From<PSVersionTable> for ComplexObject {
             PsValue::Primitive(PsPrimitiveValue::Str(version_table.git_commit_id)),
         );
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
@@ -154,20 +154,18 @@ impl TryFrom<ComplexObject> for PSVersionTable {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let entries = match value.content {
-            ComplexObjectContent::Container(Container::Dictionary(dict)) => dict,
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "Expected Dictionary for PSVersionTable".to_string(),
-                ));
-            }
+        let ComplexObjectContent::Container(Container::Dictionary(entries)) = value.content else {
+            return Err(Self::Error::InvalidMessage(
+                "Expected Dictionary for PSVersionTable".to_string(),
+            ));
         };
 
         let get_string_value = |key: &str| -> Result<String, Self::Error> {
             let key_value = PsValue::Primitive(PsPrimitiveValue::Str(key.to_string()));
             match entries.get(&key_value) {
-                Some(PsValue::Primitive(PsPrimitiveValue::Str(s))) => Ok(s.clone()),
-                Some(PsValue::Primitive(PsPrimitiveValue::Version(s))) => Ok(s.clone()),
+                Some(PsValue::Primitive(
+                    PsPrimitiveValue::Str(s) | PsPrimitiveValue::Version(s),
+                )) => Ok(s.clone()),
                 Some(_) => Err(Self::Error::InvalidMessage(format!(
                     "Property '{key}' is not a String or Version"
                 ))),
@@ -197,10 +195,9 @@ impl TryFrom<ComplexObject> for PSVersionTable {
                         let mut version_strings = Vec::new();
                         for version in versions {
                             match version {
-                                PsValue::Primitive(PsPrimitiveValue::Str(s)) => {
-                                    version_strings.push(s.clone());
-                                }
-                                PsValue::Primitive(PsPrimitiveValue::Version(s)) => {
+                                PsValue::Primitive(
+                                    PsPrimitiveValue::Str(s) | PsPrimitiveValue::Version(s),
+                                ) => {
                                     version_strings.push(s.clone());
                                 }
                                 _ => {
@@ -232,7 +229,7 @@ impl TryFrom<ComplexObject> for PSVersionTable {
             }
         };
 
-        Ok(PSVersionTable {
+        Ok(Self {
             ps_semantic_version,
             ps_remoting_protocol_version,
             ps_compatible_versions,
@@ -248,33 +245,19 @@ impl TryFrom<ComplexObject> for PSVersionTable {
 }
 
 /// Represents the ApplicationArguments structure in PowerShell Remoting
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct ApplicationArguments {
     pub ps_version_table: Option<PSVersionTable>,
     pub additional_arguments: BTreeMap<String, PsValue>,
 }
 
-impl Default for ApplicationArguments {
-    fn default() -> Self {
-        ApplicationArguments {
-            ps_version_table: Some(PSVersionTable::default()),
-            additional_arguments: BTreeMap::new(),
-        }
-    }
-}
-
 impl ApplicationArguments {
     /// Create an empty ApplicationArguments (renders as Nil in XML)
     pub fn empty() -> Self {
-        ApplicationArguments {
+        Self {
             ps_version_table: None,
             additional_arguments: BTreeMap::new(),
         }
-    }
-
-    /// Create ApplicationArguments with default PSVersionTable
-    pub fn with_default_version_table() -> Self {
-        ApplicationArguments::default()
     }
 
     /// Check if this ApplicationArguments is empty
@@ -300,7 +283,7 @@ impl From<ApplicationArguments> for ComplexObject {
             entries.insert(PsValue::Primitive(PsPrimitiveValue::Str(key)), value);
         }
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
@@ -320,13 +303,10 @@ impl TryFrom<ComplexObject> for ApplicationArguments {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let entries = match value.content {
-            ComplexObjectContent::Container(Container::Dictionary(dict)) => dict,
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "Expected Dictionary for ApplicationArguments".to_string(),
-                ));
-            }
+        let ComplexObjectContent::Container(Container::Dictionary(entries)) = value.content else {
+            return Err(Self::Error::InvalidMessage(
+                "Expected Dictionary for ApplicationArguments".to_string(),
+            ));
         };
 
         let mut ps_version_table = None;
@@ -339,7 +319,7 @@ impl TryFrom<ComplexObject> for ApplicationArguments {
                         PsValue::Object(obj) => {
                             ps_version_table = Some(PSVersionTable::try_from(obj)?);
                         }
-                        _ => {
+                        PsValue::Primitive(_) => {
                             return Err(Self::Error::InvalidMessage(
                                 "PSVersionTable is not an Object".to_string(),
                             ));
@@ -357,7 +337,7 @@ impl TryFrom<ComplexObject> for ApplicationArguments {
             }
         }
 
-        Ok(ApplicationArguments {
+        Ok(Self {
             ps_version_table,
             additional_arguments,
         })
@@ -386,14 +366,14 @@ mod tests {
 
     #[test]
     fn test_application_arguments_with_version_table() {
-        let args = ApplicationArguments::with_default_version_table();
+        let args = ApplicationArguments::default();
         assert!(!args.is_empty());
         assert!(args.ps_version_table.is_some());
     }
 
     #[test]
     fn test_application_arguments_serialization_deserialization() {
-        let original_args = ApplicationArguments::with_default_version_table();
+        let original_args = ApplicationArguments::default();
 
         let complex_object: ComplexObject = original_args.clone().into();
         let deserialized_args = ApplicationArguments::try_from(complex_object).unwrap();
@@ -403,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_application_arguments_with_additional_args() {
-        let mut args = ApplicationArguments::with_default_version_table();
+        let mut args = ApplicationArguments::default();
         args.additional_arguments.insert(
             "CustomKey".to_string(),
             PsValue::Primitive(PsPrimitiveValue::Str("CustomValue".to_string())),

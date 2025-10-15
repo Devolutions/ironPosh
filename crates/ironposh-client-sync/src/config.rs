@@ -99,10 +99,10 @@ pub enum AuthMethod {
 impl std::fmt::Display for AuthMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthMethod::Basic => write!(f, "basic"),
-            AuthMethod::Ntlm => write!(f, "ntlm"),
-            AuthMethod::Kerberos => write!(f, "kerberos"),
-            AuthMethod::Negotiate => write!(f, "negotiate"),
+            Self::Basic => write!(f, "basic"),
+            Self::Ntlm => write!(f, "ntlm"),
+            Self::Kerberos => write!(f, "kerberos"),
+            Self::Negotiate => write!(f, "negotiate"),
         }
     }
 }
@@ -154,6 +154,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
+#[expect(clippy::too_many_lines)]
 pub fn create_connector_config(
     args: &Args,
     cols: u16,
@@ -197,7 +198,7 @@ pub fn create_connector_config(
                 ironposh_client_core::credentials::ClientUserName::new(&args.username, domain)?;
 
             let identity = ironposh_client_core::credentials::ClientAuthIdentity::new(
-                client_username.clone(),
+                client_username,
                 args.password.clone(),
             );
 

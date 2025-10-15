@@ -21,16 +21,16 @@ pub enum RunspacePoolStateValue {
 impl RunspacePoolStateValue {
     pub fn as_i32(&self) -> i32 {
         match self {
-            RunspacePoolStateValue::BeforeOpen => 0,
-            RunspacePoolStateValue::Opening => 1,
-            RunspacePoolStateValue::Opened => 2,
-            RunspacePoolStateValue::Closed => 3,
-            RunspacePoolStateValue::Closing => 4,
-            RunspacePoolStateValue::Broken => 5,
-            RunspacePoolStateValue::NegotiationSent => 6,
-            RunspacePoolStateValue::NegotiationSucceeded => 7,
-            RunspacePoolStateValue::Connecting => 8,
-            RunspacePoolStateValue::Disconnected => 9,
+            Self::BeforeOpen => 0,
+            Self::Opening => 1,
+            Self::Opened => 2,
+            Self::Closed => 3,
+            Self::Closing => 4,
+            Self::Broken => 5,
+            Self::NegotiationSent => 6,
+            Self::NegotiationSucceeded => 7,
+            Self::Connecting => 8,
+            Self::Disconnected => 9,
         }
     }
 }
@@ -40,16 +40,16 @@ impl TryFrom<i32> for RunspacePoolStateValue {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(RunspacePoolStateValue::BeforeOpen),
-            1 => Ok(RunspacePoolStateValue::Opening),
-            2 => Ok(RunspacePoolStateValue::Opened),
-            3 => Ok(RunspacePoolStateValue::Closed),
-            4 => Ok(RunspacePoolStateValue::Closing),
-            5 => Ok(RunspacePoolStateValue::Broken),
-            6 => Ok(RunspacePoolStateValue::NegotiationSent),
-            7 => Ok(RunspacePoolStateValue::NegotiationSucceeded),
-            8 => Ok(RunspacePoolStateValue::Connecting),
-            9 => Ok(RunspacePoolStateValue::Disconnected),
+            0 => Ok(Self::BeforeOpen),
+            1 => Ok(Self::Opening),
+            2 => Ok(Self::Opened),
+            3 => Ok(Self::Closed),
+            4 => Ok(Self::Closing),
+            5 => Ok(Self::Broken),
+            6 => Ok(Self::NegotiationSent),
+            7 => Ok(Self::NegotiationSucceeded),
+            8 => Ok(Self::Connecting),
+            9 => Ok(Self::Disconnected),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
                 "Invalid RunspacePoolState value: {value}"
             ))),
@@ -96,7 +96,7 @@ impl From<RunspacePoolStateMessage> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -134,7 +134,7 @@ impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
             .get("ExceptionAsErrorRecord")
             .map(|prop| prop.value.clone());
 
-        Ok(RunspacePoolStateMessage {
+        Ok(Self {
             runspace_state,
             exception_as_error_record,
         })

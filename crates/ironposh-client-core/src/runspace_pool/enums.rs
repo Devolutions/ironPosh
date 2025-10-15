@@ -1,4 +1,4 @@
-use ironposh_psrp::RunspacePoolStateValue;
+use ironposh_psrp::{PSInvocationState, RunspacePoolStateValue};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum PowerShellState {
@@ -17,16 +17,16 @@ pub enum PsInvocationState {
     Disconnected = 6,
 }
 
-impl From<ironposh_psrp::PSInvocationState> for PsInvocationState {
-    fn from(value: ironposh_psrp::PSInvocationState) -> Self {
+impl From<PSInvocationState> for PsInvocationState {
+    fn from(value: PSInvocationState) -> Self {
         match value {
-            ironposh_psrp::PSInvocationState::NotStarted => PsInvocationState::NotStarted,
-            ironposh_psrp::PSInvocationState::Running => PsInvocationState::Running,
-            ironposh_psrp::PSInvocationState::Stopping => PsInvocationState::Stopping,
-            ironposh_psrp::PSInvocationState::Stopped => PsInvocationState::Stopped,
-            ironposh_psrp::PSInvocationState::Completed => PsInvocationState::Completed,
-            ironposh_psrp::PSInvocationState::Failed => PsInvocationState::Failed,
-            ironposh_psrp::PSInvocationState::Disconnected => PsInvocationState::Disconnected,
+            PSInvocationState::NotStarted => Self::NotStarted,
+            PSInvocationState::Running => Self::Running,
+            PSInvocationState::Stopping => Self::Stopping,
+            PSInvocationState::Stopped => Self::Stopped,
+            PSInvocationState::Completed => Self::Completed,
+            PSInvocationState::Failed => Self::Failed,
+            PSInvocationState::Disconnected => Self::Disconnected,
         }
     }
 }
@@ -50,16 +50,16 @@ pub enum RunspacePoolState {
 impl From<&RunspacePoolStateValue> for RunspacePoolState {
     fn from(value: &RunspacePoolStateValue) -> Self {
         match value {
-            RunspacePoolStateValue::BeforeOpen => RunspacePoolState::BeforeOpen,
-            RunspacePoolStateValue::Opening => RunspacePoolState::Opening,
-            RunspacePoolStateValue::Opened => RunspacePoolState::Opened,
-            RunspacePoolStateValue::Closed => RunspacePoolState::Closed,
-            RunspacePoolStateValue::Closing => RunspacePoolState::Closing,
-            RunspacePoolStateValue::Broken => RunspacePoolState::Broken,
-            RunspacePoolStateValue::NegotiationSent => RunspacePoolState::NegotiationSent,
-            RunspacePoolStateValue::NegotiationSucceeded => RunspacePoolState::NegotiationSucceeded,
-            RunspacePoolStateValue::Connecting => RunspacePoolState::Connecting,
-            RunspacePoolStateValue::Disconnected => RunspacePoolState::Disconnected,
+            RunspacePoolStateValue::BeforeOpen => Self::BeforeOpen,
+            RunspacePoolStateValue::Opening => Self::Opening,
+            RunspacePoolStateValue::Opened => Self::Opened,
+            RunspacePoolStateValue::Closed => Self::Closed,
+            RunspacePoolStateValue::Closing => Self::Closing,
+            RunspacePoolStateValue::Broken => Self::Broken,
+            RunspacePoolStateValue::NegotiationSent => Self::NegotiationSent,
+            RunspacePoolStateValue::NegotiationSucceeded => Self::NegotiationSucceeded,
+            RunspacePoolStateValue::Connecting => Self::Connecting,
+            RunspacePoolStateValue::Disconnected => Self::Disconnected,
         }
     }
 }

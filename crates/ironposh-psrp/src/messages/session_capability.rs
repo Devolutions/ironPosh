@@ -69,7 +69,7 @@ impl From<SessionCapability> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -112,7 +112,7 @@ impl TryFrom<ComplexObject> for SessionCapability {
                     _ => None,
                 });
 
-        Ok(SessionCapability {
+        Ok(Self {
             protocol_version,
             ps_version,
             serialization_version,

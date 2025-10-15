@@ -11,19 +11,19 @@ pub struct CommandLineValue {
     pub arguments: Vec<String>,
 }
 
-impl<'a> TagValue<'a> for CommandLineValue {
+impl TagValue<'_> for CommandLineValue {
     fn append_to_element(
         self,
         mut element: ironposh_xml::builder::Element,
     ) -> ironposh_xml::builder::Element {
-        let command_element = self
-            .command
-            .map(|cmd| {
+        let command_element = self.command.map_or_else(
+            || Tag::from_name(Command).with_value(()).into_element(),
+            |cmd| {
                 Tag::from_name(Command)
                     .with_value(Text::from(cmd))
                     .into_element()
-            })
-            .unwrap_or(Tag::from_name(Command).with_value(()).into_element());
+            },
+        );
 
         element = element.add_child(command_element);
 
@@ -53,7 +53,7 @@ impl<'a> ironposh_xml::parser::XmlVisitor<'a> for CommandLineValueVisitor {
         for node in nodes {
             match (node.tag_name().name(), node.tag_name().namespace()) {
                 (Command::TAG_NAME, Command::NAMESPACE) => {
-                    let cmd_text = node.text().map(|t| t.to_string());
+                    let cmd_text = node.text().map(ToString::to_string);
                     self.command_line = cmd_text;
                 }
                 (Arguments::TAG_NAME, Arguments::NAMESPACE) => {
@@ -80,7 +80,7 @@ impl<'a> ironposh_xml::parser::XmlVisitor<'a> for CommandLineValueVisitor {
     }
 }
 
-impl<'a> ironposh_xml::parser::XmlDeserialize<'a> for CommandLineValue {
+impl ironposh_xml::parser::XmlDeserialize<'_> for CommandLineValue {
     type Visitor = CommandLineValueVisitor;
 
     fn visitor() -> Self::Visitor {

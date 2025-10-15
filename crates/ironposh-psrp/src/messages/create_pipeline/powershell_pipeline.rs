@@ -32,10 +32,10 @@ impl From<PowerShellPipeline> for ComplexObject {
         let cmds: Vec<PsValue> = pipeline
             .cmds
             .into_iter()
-            .map(|cmd| PsValue::Object(ComplexObject::from(cmd)))
+            .map(|cmd| PsValue::Object(Self::from(cmd)))
             .collect();
 
-        let cmds_obj = ComplexObject {
+        let cmds_obj = Self {
             type_def: Some(PsType::array_list()),
             to_string: None,
             content: ComplexObjectContent::Container(Container::List(cmds)),
@@ -73,7 +73,7 @@ impl From<PowerShellPipeline> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -120,21 +120,20 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
                     ));
                 }
             },
-            _ => {
+            PsValue::Primitive(_) => {
                 return Err(Self::Error::InvalidMessage(
                     "Cmds must be an object".to_string(),
                 ));
             }
         };
 
-        let history = match value.extended_properties.get("History") {
-            Some(prop) => match &prop.value {
+        let history = value
+            .extended_properties
+            .get("History")
+            .map_or_else(String::new, |prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
-                PsValue::Primitive(PsPrimitiveValue::Nil) => String::new(),
                 _ => String::new(),
-            },
-            None => String::new(),
-        };
+            });
 
         let redirect_shell_error_output_pipe =
             match &get_property("RedirectShellErrorOutputPipe")?.value {
@@ -142,7 +141,7 @@ impl TryFrom<ComplexObject> for PowerShellPipeline {
                 _ => false,
             };
 
-        Ok(PowerShellPipeline {
+        Ok(Self {
             is_nested,
             cmds,
             history,

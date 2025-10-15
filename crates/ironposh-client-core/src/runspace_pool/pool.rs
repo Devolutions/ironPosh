@@ -54,7 +54,7 @@ impl DesiredStream {
     }
 
     pub(crate) fn runspace_pool_streams() -> Vec<Self> {
-        vec![DesiredStream {
+        vec![Self {
             name: "stdout".to_string(),
             command_id: None,
         }]
@@ -62,11 +62,11 @@ impl DesiredStream {
 
     pub(crate) fn pipeline_streams(command_id: Uuid) -> Vec<Self> {
         vec![
-            DesiredStream {
+            Self {
                 name: "stdout".to_string(),
                 command_id: Some(command_id),
             },
-            DesiredStream {
+            Self {
                 name: "stderr".to_string(),
                 command_id: Some(command_id),
             },
@@ -74,13 +74,14 @@ impl DesiredStream {
     }
 
     pub(crate) fn stdout_for_command(command_id: Uuid) -> Self {
-        DesiredStream {
+        Self {
             name: "stdout".to_string(),
             command_id: Some(command_id),
         }
     }
 }
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum AcceptResponsResult {
     ReceiveResponse {
@@ -99,6 +100,7 @@ pub enum AcceptResponsResult {
     },
 }
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum PwshMessageResponse {
     HostCall(HostCall),
@@ -115,9 +117,9 @@ pub enum PwshMessageResponse {
 impl PwshMessageResponse {
     pub fn name(&self) -> &str {
         match self {
-            PwshMessageResponse::HostCall(_) => "HostCall",
-            PwshMessageResponse::PipelineOutput { .. } => "PipelineOutput",
-            PwshMessageResponse::ErrorRecord { .. } => "ErrorRecord",
+            Self::HostCall(_) => "HostCall",
+            Self::PipelineOutput { .. } => "PipelineOutput",
+            Self::ErrorRecord { .. } => "ErrorRecord",
         }
     }
 }
@@ -125,14 +127,14 @@ impl PwshMessageResponse {
 impl From<PwshMessageResponse> for AcceptResponsResult {
     fn from(response: PwshMessageResponse) -> Self {
         match response {
-            PwshMessageResponse::HostCall(host_call) => AcceptResponsResult::HostCall(host_call),
+            PwshMessageResponse::HostCall(host_call) => Self::HostCall(host_call),
             PwshMessageResponse::PipelineOutput { output, handle } => {
-                AcceptResponsResult::PipelineOutput { output, handle }
+                Self::PipelineOutput { output, handle }
             }
             PwshMessageResponse::ErrorRecord {
                 error_record,
                 handle,
-            } => AcceptResponsResult::ErrorRecord {
+            } => Self::ErrorRecord {
                 error_record,
                 handle,
             },
@@ -157,7 +159,7 @@ pub struct RunspacePool {
     pub(super) session_capability: Option<SessionCapability>,
     pub(super) pipelines: HashMap<uuid::Uuid, Pipeline>,
     pub(super) fragmenter: fragmentation::Fragmenter,
-    pub(super) runspace_pool_desired_stream_is_pooling: bool,
+    pub(super) desired_stream_is_pooling: bool,
 }
 
 impl RunspacePool {
@@ -240,7 +242,7 @@ impl RunspacePool {
 
     // We should accept the pipeline id here, but for now let's ignore it
     pub(crate) fn fire_receive(
-        &mut self,
+        &self,
         desired_streams: Vec<DesiredStream>,
     ) -> Result<String, crate::PwshCoreError> {
         debug_assert!(!desired_streams.is_empty(), "At least one desired stream");
@@ -251,14 +253,15 @@ impl RunspacePool {
             .to_xml_string()?)
     }
 
+    #[expect(clippy::too_many_lines)]
     #[instrument(skip(self, soap_envelope), fields(envelope_length = soap_envelope.len()))]
     pub(crate) fn accept_response(
         &mut self,
-        soap_envelope: String,
+        soap_envelope: &str,
     ) -> Result<Vec<AcceptResponsResult>, crate::PwshCoreError> {
         debug!(target: "soap", "parsing SOAP envelope");
 
-        let parsed = ironposh_xml::parser::parse(soap_envelope.as_str()).map_err(|e| {
+        let parsed = ironposh_xml::parser::parse(soap_envelope).map_err(|e| {
             error!(target: "xml", error = %e, xml = soap_envelope, "failed to parse XML");
             e
         })?;
@@ -273,9 +276,7 @@ impl RunspacePool {
         if soap_envelope.body.as_ref().receive_response.is_some() {
             debug!(target: "receive", "processing receive response");
 
-            let (streams, command_state) = self
-                .shell
-                .accept_receive_response(&soap_envelope)
+            let (streams, command_state) = WinRunspace::accept_receive_response(&soap_envelope)
                 .map_err(|e| {
                     error!(target: "receive", error = %e, "failed to accept receive response");
                     e
@@ -283,7 +284,7 @@ impl RunspacePool {
 
             let streams_ids = streams
                 .iter()
-                .filter_map(|stream| stream.command_id().cloned())
+                .filter_map(|stream| stream.command_id().copied())
                 .collect::<Vec<_>>();
 
             let is_there_a_stream_has_no_command_id =
@@ -294,7 +295,7 @@ impl RunspacePool {
                     target: "receive",
                     "stream without command_id found, should be runspace pool stream"
                 );
-                self.runspace_pool_desired_stream_is_pooling = false
+                self.desired_stream_is_pooling = false;
             }
 
             debug!(
@@ -311,12 +312,12 @@ impl RunspacePool {
 
             debug!(
                 target: "pwsh",
-                response_names = ?handle_pwsh_response.iter().map(|r| r.name()).collect::<Vec<_>>(),
+                response_names = ?handle_pwsh_response.iter().map(PwshMessageResponse::name).collect::<Vec<_>>(),
                 response_count = handle_pwsh_response.len(),
                 "handled PowerShell responses"
             );
 
-            result.extend(handle_pwsh_response.into_iter().map(|resp| resp.into()));
+            result.extend(handle_pwsh_response.into_iter().map(Into::into));
 
             if let Some(command_state) = command_state
                 && command_state.is_done()
@@ -352,10 +353,10 @@ impl RunspacePool {
 
                 stream_set
                     .into_iter()
-                    .map(|stream| DesiredStream::new("stdout", stream.to_owned().into()))
+                    .map(|stream| DesiredStream::new("stdout", stream.into()))
                     .collect::<Vec<_>>()
-            } else if !self.runspace_pool_desired_stream_is_pooling {
-                self.runspace_pool_desired_stream_is_pooling = true;
+            } else if !self.desired_stream_is_pooling {
+                self.desired_stream_is_pooling = true;
                 DesiredStream::runspace_pool_streams()
             } else {
                 vec![]
@@ -371,9 +372,11 @@ impl RunspacePool {
 
             self.pipelines
                 .get_mut(&pipeline_id)
-                .ok_or(crate::PwshCoreError::InvalidResponse(
-                    "Pipeline not found for command response".into(),
-                ))?
+                .ok_or_else(|| {
+                    crate::PwshCoreError::InvalidResponse(
+                        "Pipeline not found for command response".into(),
+                    )
+                })?
                 .state = PsInvocationState::Running;
 
             result.push(AcceptResponsResult::ReceiveResponse {
@@ -431,6 +434,7 @@ impl RunspacePool {
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)
+    #[expect(clippy::too_many_lines)]
     #[instrument(skip(self, responses))]
     fn handle_pwsh_responses(
         &mut self,
@@ -583,11 +587,11 @@ impl RunspacePool {
                         result.push(PwshMessageResponse::PipelineOutput {
                             output,
                             handle: PipelineHandle {
-                                id: *stream.command_id().ok_or(
+                                id: *stream.command_id().ok_or_else(|| {
                                     crate::PwshCoreError::InvalidResponse(
                                         "PipelineOutput message must have a command_id".into(),
-                                    ),
-                                )?,
+                                    )
+                                })?,
                             },
                         });
                     }
@@ -614,11 +618,11 @@ impl RunspacePool {
                         result.push(PwshMessageResponse::ErrorRecord {
                             error_record,
                             handle: PipelineHandle {
-                                id: *stream.command_id().ok_or(
+                                id: *stream.command_id().ok_or_else(|| {
                                     crate::PwshCoreError::InvalidResponse(
                                         "ErrorRecord message must have a command_id".into(),
-                                    ),
-                                )?,
+                                    )
+                                })?,
                             },
                         });
                     }
@@ -736,12 +740,9 @@ impl RunspacePool {
         );
 
         // Find the pipeline by command_id
-        let pipeline = self
-            .pipelines
-            .get_mut(command_id)
-            .ok_or(PwshCoreError::InvalidResponse(
-                "Pipeline not found for command_id".into(),
-            ))?;
+        let pipeline = self.pipelines.get_mut(command_id).ok_or_else(|| {
+            PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
+        })?;
 
         pipeline.add_progress_record(progress_record);
 
@@ -777,12 +778,9 @@ impl RunspacePool {
         };
 
         // Find the pipeline by command_id
-        let pipeline = self
-            .pipelines
-            .get_mut(command_id)
-            .ok_or(PwshCoreError::InvalidResponse(
-                "Pipeline not found for command_id".into(),
-            ))?;
+        let pipeline = self.pipelines.get_mut(command_id).ok_or_else(|| {
+            PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
+        })?;
 
         pipeline.add_information_record(info_record);
 
@@ -817,12 +815,9 @@ impl RunspacePool {
         };
 
         // Find the pipeline by command_id
-        let pipeline = self
-            .pipelines
-            .get_mut(command_id)
-            .ok_or(PwshCoreError::InvalidResponse(
-                "Pipeline not found for command_id".into(),
-            ))?;
+        let pipeline = self.pipelines.get_mut(command_id).ok_or_else(|| {
+            PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
+        })?;
         // Update the pipeline state
         pipeline.state = PsInvocationState::from(pipeline_state.pipeline_state);
 
@@ -832,7 +827,7 @@ impl RunspacePool {
     #[instrument(skip_all)]
     pub fn invoke_pipeline_request(
         &mut self,
-        handle: PipelineHandle,
+        handle: &PipelineHandle,
     ) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
@@ -844,7 +839,7 @@ impl RunspacePool {
         info!(pipeline_id = %handle.id(), "Invoking pipeline");
 
         // Convert business pipeline to protocol pipeline and build CreatePipeline message
-        let protocol_pipeline = pipeline.to_protocol_pipeline()?;
+        let protocol_pipeline = pipeline.to_protocol_pipeline();
         let create_pipeline = CreatePipeline::builder()
             .pipeline(protocol_pipeline)
             .host_info(self.host_info.clone())
@@ -868,12 +863,12 @@ impl RunspacePool {
             arguments,
             None,
             None,
-        )?;
+        );
 
         Ok(request.into().to_xml_string()?)
     }
 
-    pub fn kill_pipeline(&mut self, handle: PipelineHandle) -> Result<String, PwshCoreError> {
+    pub fn kill_pipeline(&mut self, handle: &PipelineHandle) -> Result<String, PwshCoreError> {
         let pipeline = self
             .pipelines
             .get_mut(&handle.id())
@@ -949,12 +944,12 @@ impl RunspacePool {
     pub fn send_pipeline_host_response(
         &mut self,
         command_id: uuid::Uuid,
-        host_response: ironposh_psrp::PipelineHostResponse,
+        host_response: &ironposh_psrp::PipelineHostResponse,
     ) -> Result<String, PwshCoreError> {
         // Fragment the host response message
         let fragmented =
             self.fragmenter
-                .fragment(&host_response, self.id, Some(command_id), None)?;
+                .fragment(host_response, self.id, Some(command_id), None)?;
 
         // Encode fragments as base64
         let arguments = fragmented
@@ -965,7 +960,7 @@ impl RunspacePool {
         // Create WS-Man Send request (send data to stdin)
         let request =
             self.shell
-                .send_data_request(&self.connection, Some(command_id), arguments)?;
+                .send_data_request(&self.connection, Some(command_id), &arguments)?;
 
         Ok(request.into().to_xml_string()?)
     }
@@ -973,11 +968,11 @@ impl RunspacePool {
     /// Send a runspace pool host response to the server
     pub fn send_runspace_pool_host_response(
         &mut self,
-        host_response: ironposh_psrp::RunspacePoolHostResponse,
+        host_response: &ironposh_psrp::RunspacePoolHostResponse,
     ) -> Result<String, PwshCoreError> {
         // Fragment the host response message
         let fragmented = self.fragmenter.fragment(
-            &host_response,
+            host_response,
             self.id,
             None, // No command ID for runspace pool messages
             None,
@@ -993,7 +988,7 @@ impl RunspacePool {
         let request = self.shell.send_data_request(
             &self.connection,
             None, // No command ID for runspace pool
-            arguments,
+            &arguments,
         )?;
 
         Ok(request.into().to_xml_string()?)
@@ -1043,6 +1038,6 @@ impl RunspacePool {
         }
 
         // 3) Invoke the pipeline using existing logic
-        self.invoke_pipeline_request(handle)
+        self.invoke_pipeline_request(&handle)
     }
 }

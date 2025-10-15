@@ -212,7 +212,7 @@ impl<'a> StdTerm<'a> {
     }
 }
 
-impl<'a> IoWrite for StdTerm<'a> {
+impl IoWrite for StdTerm<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         // Normalize newlines: LF -> CRLF unless already CRLF
         for &b in buf {
@@ -238,7 +238,7 @@ impl<'a> IoWrite for StdTerm<'a> {
     }
 }
 
-impl<'a> Drop for StdTerm<'a> {
+impl Drop for StdTerm<'_> {
     fn drop(&mut self) {
         // Best-effort flush on scope exit; ignore errors in Drop.
         let _ = IoWrite::flush(self);

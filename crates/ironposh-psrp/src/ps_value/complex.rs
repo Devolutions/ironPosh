@@ -79,10 +79,10 @@ pub enum ComplexObjectContent {
 impl Display for ComplexObjectContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ComplexObjectContent::ExtendedPrimitive(p) => p.fmt(f),
-            ComplexObjectContent::Container(c) => c.fmt(f),
-            ComplexObjectContent::PsEnums(e) => e.fmt(f),
-            ComplexObjectContent::Standard => write!(f, "System.Object"), // Fallback
+            Self::ExtendedPrimitive(p) => p.fmt(f),
+            Self::Container(c) => c.fmt(f),
+            Self::PsEnums(e) => e.fmt(f),
+            Self::Standard => write!(f, "System.Object"), // Fallback
         }
     }
 }

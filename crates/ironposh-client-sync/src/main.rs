@@ -32,8 +32,8 @@ fn establish_connection(
     TrySend,
     UreqHttpClient,
 )> {
-    let mut client = UreqHttpClient::new();
-    let remote_ps = RemotePowershell::open(config, &mut client)?;
+    let client = UreqHttpClient::new();
+    let remote_ps = RemotePowershell::open(config, &client)?;
     let (active_session, next_request) = remote_ps.into_components();
     Ok((active_session, next_request, client))
 }
@@ -92,14 +92,13 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     let (ui_tx, ui_rx) = mpsc::channel::<UIInputEvent>();
 
     // Spawn network handler
-    let mut network_handler =
-        NetworkHandler::new(network_request_rx, network_response_tx, http_client);
+    let network_handler = NetworkHandler::new(network_request_rx, network_response_tx, http_client);
     let network_handle = thread::spawn(move || {
         network_handler.run();
     });
 
     // Spawn user input/UI handler (now takes unified_rx)
-    let mut user_input_handler = UIHanlder::new(user_request_tx.clone(), ui_rx);
+    let user_input_handler = UIHanlder::new(user_request_tx, ui_rx);
     let user_handle = thread::spawn(move || {
         let _ = user_input_handler
             .run(terminal)
@@ -114,10 +113,10 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
     // Run the main event loop
     run_event_loop(
         active_session,
-        network_response_rx,
-        user_request_rx,
-        network_request_tx,
-        ui_tx,
+        &network_response_rx,
+        &user_request_rx,
+        &network_request_tx,
+        &ui_tx,
     )
     .inspect_err(|e| error!("Error in main event loop: {}", e))?;
 
@@ -128,17 +127,18 @@ fn run_app(args: &Args) -> anyhow::Result<()> {
 }
 
 /// Main event loop that processes network responses and user requests
+#[expect(clippy::too_many_lines)]
 #[instrument(level = "info", skip_all)]
 fn run_event_loop(
     mut active_session: ironposh_client_core::connector::active_session::ActiveSession,
-    network_response_rx: mpsc::Receiver<HttpResponseTargeted>,
-    user_request_rx: mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
-    network_request_tx: mpsc::Sender<TrySend>,
-    ui_tx: mpsc::Sender<UIInputEvent>,
+    network_response_rx: &mpsc::Receiver<HttpResponseTargeted>,
+    user_request_rx: &mpsc::Receiver<ironposh_client_core::connector::UserOperation>,
+    network_request_tx: &mpsc::Sender<TrySend>,
+    ui_tx: &mpsc::Sender<UIInputEvent>,
 ) -> anyhow::Result<()> {
     'main: loop {
         // Use select! equivalent for synchronous channels
-        let next_step = select_sync(&network_response_rx, &user_request_rx)?;
+        let next_step = select_sync(network_response_rx, user_request_rx)?;
 
         info!(next_step = %next_step, "processing step");
 
@@ -262,7 +262,7 @@ fn run_event_loop(
                             result_transport.accept_result(())
                         }
                         HostCall::WriteProgress { transport } => {
-                            let (params, result_transport) = transport.into_parts();
+                            let (_params, result_transport) = transport.into_parts();
 
                             result_transport.accept_result(())
                         }
@@ -308,7 +308,6 @@ fn select_sync(
                     Err(TryRecvError::Empty) => {
                         // Both channels empty, wait a bit and try again
                         thread::sleep(std::time::Duration::from_millis(10));
-                        continue;
                     }
                     Err(TryRecvError::Disconnected) => {
                         return Err(anyhow::anyhow!("User request channel disconnected"));

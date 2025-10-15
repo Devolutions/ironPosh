@@ -103,17 +103,12 @@ define_namespaces! {
 // -----------------------------------------------------------------------------
 //                   OPTIONAL GROUPING / DECLARATION TYPES
 // -----------------------------------------------------------------------------
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NamespaceDeclaration(Vec<Namespace>);
 
-impl Default for NamespaceDeclaration {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 impl NamespaceDeclaration {
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self::default()
     }
     pub fn namespaces(&self) -> &[Namespace] {
         &self.0

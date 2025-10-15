@@ -33,6 +33,7 @@ pub struct Command {
 }
 
 impl From<Command> for ComplexObject {
+    #[expect(clippy::too_many_lines)]
     fn from(command: Command) -> Self {
         let mut extended_properties = BTreeMap::new();
 
@@ -61,7 +62,7 @@ impl From<Command> for ComplexObject {
             .map(|param| PsValue::Object(param.into()))
             .collect();
 
-        let args_obj = ComplexObject {
+        let args_obj = Self {
             type_def: Some(PsType::array_list()),
             to_string: cmd_str.clone().into(),
             content: ComplexObjectContent::Container(Container::List(args_values)),
@@ -81,12 +82,10 @@ impl From<Command> for ComplexObject {
             "UseLocalScope".to_string(),
             PsProperty {
                 name: "UseLocalScope".to_string(),
-                value: match command.use_local_scope {
-                    Some(use_local_scope) => {
-                        PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope))
-                    }
-                    None => PsValue::Primitive(PsPrimitiveValue::Nil),
-                },
+                value: command.use_local_scope.map_or(
+                    PsValue::Primitive(PsPrimitiveValue::Nil),
+                    |use_local_scope| PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope)),
+                ),
             },
         );
 
@@ -154,7 +153,7 @@ impl From<Command> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: Some(cmd_str),
             content: ComplexObjectContent::Standard,
@@ -198,39 +197,37 @@ impl TryFrom<ComplexObject> for Command {
                 ComplexObjectContent::Container(Container::List(list)) => {
                     let mut command_params = Vec::new();
                     for item in list {
-                        if let PsValue::Object(param_obj) = item {
-                            match CommandParameter::try_from(param_obj.clone()) {
-                                Ok(param) => command_params.push(param),
-                                Err(_) => continue,
-                            }
+                        if let PsValue::Object(param_obj) = item
+                            && let Ok(param) = CommandParameter::try_from(param_obj.clone())
+                        {
+                            command_params.push(param);
                         }
                     }
                     command_params
                 }
                 _ => vec![],
             },
-            _ => vec![],
+            PsValue::Primitive(_) => vec![],
         };
 
-        let use_local_scope = match value.extended_properties.get("UseLocalScope") {
-            Some(prop) => match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => Some(*b),
-                PsValue::Primitive(PsPrimitiveValue::Nil) => None,
-                _ => None,
-            },
-            None => None,
+        let use_local_scope = if let Some(prop) = value.extended_properties.get("UseLocalScope")
+            && let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = &prop.value
+        {
+            Some(*b)
+        } else {
+            None
         };
 
         let get_merge_property = |name: &str| -> PipelineResultTypes {
-            match value.extended_properties.get(name) {
-                Some(prop) => match &prop.value {
+            value
+                .extended_properties
+                .get(name)
+                .map_or_else(PipelineResultTypes::default, |prop| match &prop.value {
                     PsValue::Object(obj) => {
                         PipelineResultTypes::try_from(obj.clone()).unwrap_or_default()
                     }
-                    _ => PipelineResultTypes::default(),
-                },
-                None => PipelineResultTypes::default(),
-            }
+                    PsValue::Primitive(_) => PipelineResultTypes::default(),
+                })
         };
 
         let merge_my_result = get_merge_property("MergeMyResult");
@@ -242,7 +239,7 @@ impl TryFrom<ComplexObject> for Command {
         let merge_verbose = get_merge_property("MergeVerbose");
         let merge_warning = get_merge_property("MergeWarning");
 
-        Ok(Command {
+        Ok(Self {
             cmd,
             is_script,
             args,
