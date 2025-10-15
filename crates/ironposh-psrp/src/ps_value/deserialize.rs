@@ -11,27 +11,18 @@ use tracing::trace;
 
 type Result<T> = std::result::Result<T, ironposh_xml::XmlError>;
 
-/// ================================================================================================
-/// PsPrimitiveValue Visitor and XmlDeserialize Implementation
-/// (Kept for backwards compatibility - primitives don't need context)
-/// ================================================================================================
+/// A visitor for XML deserialization.
+///
+/// Kept for backward compatibility as primitives don't need context.
+#[derive(Default)]
 pub struct PsPrimitiveValueVisitor<'a> {
     value: Option<PsPrimitiveValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for PsPrimitiveValueVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> PsPrimitiveValueVisitor<'a> {
+impl PsPrimitiveValueVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            value: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 
@@ -149,10 +140,7 @@ impl<'a> XmlDeserialize<'a> for PsPrimitiveValue {
     }
 }
 
-/// ================================================================================================
-/// Context-Aware Deserialization System for Type and Object References
-/// ================================================================================================
-/// Context for deserialization that maintains reference maps
+/// Context for deserialization that maintains reference maps.
 #[derive(Debug, Default)]
 pub struct DeserializationContext {
     /// Maps RefId to PsType for type references (<TNRef RefId="...">)
@@ -256,25 +244,16 @@ pub trait PsXmlDeserialize<'a>: Sized {
 }
 
 /// Context-aware PsType visitor that handles type references
+#[derive(Default)]
 pub struct PsTypeContextVisitor<'a> {
     type_names: Vec<Cow<'static, str>>,
     resolved_type: Option<PsType>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for PsTypeContextVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> PsTypeContextVisitor<'a> {
+impl PsTypeContextVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            type_names: Vec::new(),
-            resolved_type: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 
@@ -377,6 +356,7 @@ impl<'a> PsXmlDeserialize<'a> for PsType {
 }
 
 /// Context-aware ComplexObject visitor that uses context for type resolution
+#[derive(Default)]
 pub struct ComplexObjectContextVisitor<'a> {
     type_def: Option<PsType>,
     to_string: Option<String>,
@@ -386,22 +366,9 @@ pub struct ComplexObjectContextVisitor<'a> {
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for ComplexObjectContextVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> ComplexObjectContextVisitor<'a> {
+impl ComplexObjectContextVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 
@@ -532,23 +499,15 @@ impl<'a> PsXmlDeserialize<'a> for ComplexObject {
 }
 
 /// Context-aware PsValue visitor
+#[derive(Default)]
 pub struct PsValueContextVisitor<'a> {
     value: Option<PsValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for PsValueContextVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> PsValueContextVisitor<'a> {
+impl PsValueContextVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            value: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 
@@ -631,23 +590,15 @@ impl<'a> PsXmlDeserialize<'a> for PsValue {
 }
 
 /// Context-aware Container visitor
+#[derive(Default)]
 pub struct ContainerContextVisitor<'a> {
     container: Option<Container>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for ContainerContextVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> ContainerContextVisitor<'a> {
+impl ContainerContextVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            container: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 
@@ -765,25 +716,16 @@ impl<'a> PsXmlDeserialize<'a> for Container {
 }
 
 /// Context-aware PsProperty visitor
+#[derive(Default)]
 pub struct PsPropertyContextVisitor<'a> {
     name: Option<String>,
     value: Option<PsValue>,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Default for PsPropertyContextVisitor<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> PsPropertyContextVisitor<'a> {
+impl PsPropertyContextVisitor<'_> {
     pub fn new() -> Self {
-        Self {
-            name: None,
-            value: None,
-            _phantom: std::marker::PhantomData,
-        }
+        Self::default()
     }
 }
 

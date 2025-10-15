@@ -58,7 +58,7 @@ pub struct HostResponse {
 
 impl HostSubmitter {
     /// Submit a host call response back to the session
-    pub async fn submit(&self, resp: HostResponse) -> anyhow::Result<()> {
+    pub fn submit(&self, resp: HostResponse) -> anyhow::Result<()> {
         self.0
             .unbounded_send(resp)
             .map_err(|_| anyhow::anyhow!("Host response channel closed"))?;

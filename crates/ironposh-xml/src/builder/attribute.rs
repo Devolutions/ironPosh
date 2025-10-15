@@ -41,7 +41,7 @@ impl<'a> Attribute<'a> {
         Attribute {
             name,
             value: value.into(),
-            namespace: namespace.map(|ns| ns.into()),
+            namespace: namespace.map(Into::into),
         }
     }
 

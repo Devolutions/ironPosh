@@ -65,7 +65,7 @@ impl From<ValueWrapper> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -102,7 +102,7 @@ impl TryFrom<&ComplexObject> for ValueWrapper {
                 )
             })?;
 
-        Ok(ValueWrapper { type_name, value })
+        Ok(Self { type_name, value })
     }
 }
 
@@ -131,7 +131,7 @@ impl From<Coordinates> for ComplexObject {
                 value: PsValue::Primitive(PsPrimitiveValue::I32(coords.y)),
             },
         );
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -159,7 +159,7 @@ impl TryFrom<&ComplexObject> for Coordinates {
                 })
         };
 
-        Ok(Coordinates {
+        Ok(Self {
             x: get_i32("x")?,
             y: get_i32("y")?,
         })
@@ -189,7 +189,7 @@ impl From<Size> for ComplexObject {
                 value: PsValue::Primitive(PsPrimitiveValue::I32(size.height)),
             },
         );
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -217,7 +217,7 @@ impl TryFrom<&ComplexObject> for Size {
                 })
         };
 
-        Ok(Size {
+        Ok(Self {
             width: get_i32("width")?,
             height: get_i32("height")?,
         })
@@ -250,27 +250,24 @@ pub struct HostDefaultData {
 
 #[cfg(feature = "crossterm")]
 fn console_color_to_i32(color: Color) -> i32 {
-    use Color::*;
     match color {
-        Black => 0,
-        DarkBlue => 1,
-        DarkGreen => 2,
-        DarkCyan => 3,
-        DarkRed => 4,
-        DarkMagenta => 5,
-        DarkYellow => 6,
-        Grey => 7,
-        DarkGrey => 8,
-        Blue => 9,
-        Green => 10,
-        Cyan => 11,
-        Red => 12,
-        Magenta => 13,
-        Yellow => 14,
-        White => 15,
+        Color::Black => 0,
+        Color::DarkBlue => 1,
+        Color::DarkGreen => 2,
+        Color::DarkCyan => 3,
+        Color::DarkRed => 4,
+        Color::DarkMagenta => 5,
+        Color::DarkYellow => 6,
         // Map non-16-color values to nearest (Grey as fallback)
-        Rgb { .. } | AnsiValue(_) => 7,
-        Reset => 7,
+        Color::Grey | Color::Rgb { .. } | Color::AnsiValue(_) | Color::Reset => 7,
+        Color::DarkGrey => 8,
+        Color::Blue => 9,
+        Color::Green => 10,
+        Color::Cyan => 11,
+        Color::Red => 12,
+        Color::Magenta => 13,
+        Color::Yellow => 14,
+        Color::White => 15,
     }
 }
 
@@ -294,39 +291,36 @@ impl HostDefaultData {
         let bg_color = Color::Black; // -> 0
 
         // Convert to console color integers
-        let fg_i32 = console_color_to_i32(fg_color);
-        let bg_i32 = console_color_to_i32(bg_color);
+        let foreground_color = console_color_to_i32(fg_color);
+        let background_color = console_color_to_i32(bg_color);
 
         // Convert terminal dimensions to i32
-        let cols_i32 = cols as i32;
-        let rows_i32 = rows as i32;
-        let cursor_x_i32 = cursor_x as i32;
-        let cursor_y_i32 = cursor_y as i32;
+        let cols = cols as i32;
+        let rows = rows as i32;
+        let x = cursor_x as i32;
+        let y = cursor_y as i32;
 
         Ok(Self {
-            foreground_color: fg_i32,
-            background_color: bg_i32,
-            cursor_position: Coordinates {
-                x: cursor_x_i32,
-                y: cursor_y_i32,
-            },
+            foreground_color,
+            background_color,
+            cursor_position: Coordinates { x, y },
             window_position: Coordinates { x: 0, y: 0 }, // Not exposed by crossterm
             cursor_size: 25,                             // Default cursor size (0-100%)
             buffer_size: Size {
-                width: cols_i32,
-                height: rows_i32,
+                width: cols,
+                height: rows,
             },
             window_size: Size {
-                width: cols_i32,
-                height: rows_i32,
+                width: cols,
+                height: rows,
             },
             max_window_size: Size {
-                width: cols_i32,
-                height: rows_i32,
+                width: cols,
+                height: rows,
             },
             max_physical_window_size: Size {
-                width: cols_i32,
-                height: rows_i32,
+                width: cols,
+                height: rows,
             },
             window_title: "PowerShell".to_string(),
             locale: "en-US".to_string(),
@@ -397,7 +391,7 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
             dict.get(&PsValue::Primitive(PsPrimitiveValue::I32(key)))
                 .and_then(|v| match v {
                     PsValue::Object(obj) => ValueWrapper::try_from(obj).ok(),
-                    _ => None,
+                    PsValue::Primitive(_) => None,
                 })
                 .ok_or_else(|| {
                     Self::Error::InvalidMessage(format!(
@@ -431,7 +425,7 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
             let wrapper = get_value_wrapper(key)?;
             match wrapper.value {
                 PsValue::Object(obj) => Coordinates::try_from(&obj),
-                _ => Err(Self::Error::InvalidMessage(format!(
+                PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(format!(
                     "Expected Coordinates object for key {key}"
                 ))),
             }
@@ -441,13 +435,13 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
             let wrapper = get_value_wrapper(key)?;
             match wrapper.value {
                 PsValue::Object(obj) => Size::try_from(&obj),
-                _ => Err(Self::Error::InvalidMessage(format!(
+                PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(format!(
                     "Expected Size object for key {key}"
                 ))),
             }
         };
 
-        Ok(HostDefaultData {
+        Ok(Self {
             foreground_color: get_i32_from_wrapper(0)?,
             background_color: get_i32_from_wrapper(1)?,
             cursor_position: get_coords_from_wrapper(2)?,

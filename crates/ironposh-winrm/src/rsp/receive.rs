@@ -76,13 +76,13 @@ pub enum CommandStateValueState {
 impl CommandStateValueState {
     pub fn value(&self) -> &'static str {
         match self {
-            CommandStateValueState::Done => {
+            Self::Done => {
                 "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done"
             }
-            CommandStateValueState::Pending => {
+            Self::Pending => {
                 "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending"
             }
-            CommandStateValueState::Running => {
+            Self::Running => {
                 "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running"
             }
         }
@@ -95,13 +95,13 @@ impl TryFrom<&str> for CommandStateValueState {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Done" => {
-                Ok(CommandStateValueState::Done)
+                Ok(Self::Done)
             }
             "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Pending" => {
-                Ok(CommandStateValueState::Pending)
+                Ok(Self::Pending)
             }
             "http://schemas.microsoft.com/powershell/Microsoft.PowerShell/CommandState/Running" => {
-                Ok(CommandStateValueState::Running)
+                Ok(Self::Running)
             }
             _ => Err(XmlError::GenericError(format!(
                 "Unknown CommandStateValueState: {value}"

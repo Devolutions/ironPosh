@@ -65,7 +65,7 @@ impl From<PipelineHostResponse> for ComplexObject {
         );
 
         // Host method identifier (mi)
-        let method_id_obj = ComplexObject {
+        let method_id_obj = Self {
             type_def: Some(PsType::remote_host_method_id()),
             to_string: Some(host_response.method_name),
             content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
@@ -105,7 +105,7 @@ impl From<PipelineHostResponse> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -163,7 +163,7 @@ impl TryFrom<ComplexObject> for PipelineHostResponse {
             .get("me")
             .map(|prop| prop.value.clone());
 
-        Ok(PipelineHostResponse {
+        Ok(Self {
             call_id: *call_id,
             method_id: *method_id,
             method_name,

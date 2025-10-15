@@ -61,7 +61,7 @@ impl From<PipelineHostCall> for ComplexObject {
         );
 
         // Host method identifier (mi)
-        let method_id_obj = ComplexObject {
+        let method_id_obj = Self {
             type_def: Some(PsType::remote_host_method_id()),
             to_string: Some(host_call.method_name),
             content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
@@ -80,7 +80,7 @@ impl From<PipelineHostCall> for ComplexObject {
         );
 
         // Method parameters (mp) as ArrayList
-        let parameters_obj = ComplexObject {
+        let parameters_obj = Self {
             type_def: Some(PsType::array_list()),
             to_string: None,
             content: ComplexObjectContent::Container(Container::List(host_call.parameters)),
@@ -96,7 +96,7 @@ impl From<PipelineHostCall> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
@@ -144,25 +144,25 @@ impl TryFrom<ComplexObject> for PipelineHostCall {
         let method_name = mi_obj.to_string.clone().unwrap_or_default();
 
         // Extract method parameters (mp)
-        let mp_property = value.extended_properties.get("mp").ok_or_else(|| {
+        let mp = value.extended_properties.get("mp").ok_or_else(|| {
             Self::Error::InvalidMessage("Missing method parameters (mp) property".to_string())
         })?;
 
-        let PsValue::Object(mp_obj) = &mp_property.value else {
+        let PsValue::Object(obj) = &mp.value else {
             return Err(Self::Error::InvalidMessage(
                 "Method parameters (mp) is not an object".to_string(),
             ));
         };
 
         let parameters =
-            if let ComplexObjectContent::Container(Container::List(params)) = &mp_obj.content {
+            if let ComplexObjectContent::Container(Container::List(params)) = &obj.content {
                 params.clone()
             } else {
                 // Empty list case
                 Vec::new()
             };
 
-        Ok(PipelineHostCall {
+        Ok(Self {
             call_id: *call_id,
             method_id,
             method_name,

@@ -10,7 +10,7 @@ pub struct PipelineRepresentation {
 
 impl PipelineRepresentation {
     pub fn new(id: uuid::Uuid) -> Self {
-        PipelineRepresentation {
+        Self {
             id,
             state: PsInvocationState::NotStarted,
         }

@@ -20,13 +20,13 @@ impl<'a> std::convert::From<&'a str> for Text<'a> {
     }
 }
 
-impl<'a> std::convert::From<String> for Text<'a> {
+impl std::convert::From<String> for Text<'_> {
     fn from(value: String) -> Self {
         Text(value.into())
     }
 }
 
-impl<'a> AsRef<str> for Text<'a> {
+impl AsRef<str> for Text<'_> {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
@@ -103,9 +103,9 @@ impl<'a> XmlVisitor<'a> for TextVisitor<'a> {
     }
 
     fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.value.ok_or(ironposh_xml::XmlError::InvalidXml(
-            "No text found in the node".to_string(),
-        ))
+        self.value.ok_or_else(|| {
+            ironposh_xml::XmlError::InvalidXml("No text found in the node".to_string())
+        })
     }
 }
 
@@ -175,8 +175,8 @@ impl<'a> TagValue<'a> for Empty {
 }
 
 impl From<()> for Empty {
-    fn from(_: ()) -> Self {
-        Empty
+    fn from(_value: ()) -> Self {
+        Self
     }
 }
 
@@ -229,11 +229,9 @@ impl<'a> XmlVisitor<'a> for WsUuidVisitor {
         if let Some(text) = child.text() {
             let uuid_str = text.trim();
             // Handle WS-Management format: "uuid:9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C"
-            let uuid_part = if let Some(stripped) = uuid_str.strip_prefix("uuid:") {
-                stripped
-            } else {
-                uuid_str
-            };
+            let uuid_part = uuid_str
+                .strip_prefix("uuid:")
+                .map_or(uuid_str, |stripped| stripped);
 
             match uuid::Uuid::parse_str(uuid_part) {
                 Ok(uuid) => self.value = Some(WsUuid(uuid)),
@@ -249,9 +247,9 @@ impl<'a> XmlVisitor<'a> for WsUuidVisitor {
     }
 
     fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.value.ok_or(ironposh_xml::XmlError::InvalidXml(
-            "No UUID found in the node".to_string(),
-        ))
+        self.value.ok_or_else(|| {
+            ironposh_xml::XmlError::InvalidXml("No UUID found in the node".to_string())
+        })
     }
 }
 
@@ -269,7 +267,7 @@ impl<'a> XmlDeserialize<'a> for WsUuid {
 
 impl From<uuid::Uuid> for WsUuid {
     fn from(value: uuid::Uuid) -> Self {
-        WsUuid(value)
+        Self(value)
     }
 }
 
@@ -362,9 +360,9 @@ impl<'a> XmlVisitor<'a> for TimeVisitor {
     }
 
     fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.value.ok_or(ironposh_xml::XmlError::InvalidXml(
-            "No time found in the node".to_string(),
-        ))
+        self.value.ok_or_else(|| {
+            ironposh_xml::XmlError::InvalidXml("No time found in the node".to_string())
+        })
     }
 }
 
@@ -382,13 +380,13 @@ impl<'a> XmlDeserialize<'a> for Time {
 
 impl From<f64> for Time {
     fn from(value: f64) -> Self {
-        Time(value)
+        Self(value)
     }
 }
 
 impl From<u32> for Time {
     fn from(value: u32) -> Self {
-        Time(value as f64)
+        Self(f64::from(value))
     }
 }
 
@@ -443,9 +441,9 @@ impl<'a> XmlVisitor<'a> for UnparsedVisitor<'a> {
     }
 
     fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.value.ok_or(ironposh_xml::XmlError::InvalidXml(
-            "No content found in the node".to_string(),
-        ))
+        self.value.ok_or_else(|| {
+            ironposh_xml::XmlError::InvalidXml("No content found in the node".to_string())
+        })
     }
 }
 

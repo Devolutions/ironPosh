@@ -33,30 +33,24 @@ pub struct SspiConfig {
 }
 
 impl SspiConfig {
-    pub fn new(target: String) -> Self {
-        if target.trim().starts_with("HTTP/") {
-            // OK
-        } else {
-            // Assume it's a bare hostname, prepend "HTTP/"
-            let target = format!("HTTP/{target}");
-            return SspiConfig {
-                target_name: target,
-            };
-        };
-
-        SspiConfig {
+    pub fn new(mut target: String) -> Self {
+        if !target.trim().starts_with("HTTP/") {
+            target = format!("HTTP/{target}");
+        }
+        Self {
             target_name: target,
         }
     }
 }
 
 /// Caller-owned "Context" the generator borrows.
+///
 /// Holds provider, credential handle, in/out buffers, and the ISC builder for the current round.
 /// The reason we need to hold the builder is that, during the generator suspension, the generator holds
 /// a mutable borrow to the future that holds both the builder and the mut ref of provider, and we need to keep the
 /// context around during the suspension.
 #[derive(Debug)]
-pub struct SspiConext<P: Sspi> {
+pub struct SspiContext<P: Sspi> {
     pub(crate) provider: P,
     // Box<T> provides a stable heap address; we keep borrows within the same `AuthFurniture`.
     cred: Box<P::CredentialsHandle>,
@@ -66,13 +60,13 @@ pub struct SspiConext<P: Sspi> {
     sspi_auth_config: SspiConfig,
 }
 
-impl SspiConext<Ntlm> {
+impl SspiContext<Ntlm> {
     pub fn new_ntlm(id: ClientAuthIdentity, config: SspiConfig) -> Result<Self, PwshCoreError> {
         Self::new_with_identity(Ntlm::new(), id, config)
     }
 }
 
-impl SspiConext<Negotiate> {
+impl SspiContext<Negotiate> {
     pub fn new_negotiate(
         id: ClientAuthIdentity,
         config: NegotiateConfig,
@@ -80,13 +74,13 @@ impl SspiConext<Negotiate> {
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Negotiate::new_client(config)?,
-            Credentials::AuthIdentity(id.into_inner()),
+            &Credentials::AuthIdentity(id.into_inner()),
             sspi_config,
         )
     }
 }
 
-impl SspiConext<Kerberos> {
+impl SspiContext<Kerberos> {
     pub fn new_kerberos(
         id: ClientAuthIdentity,
         kerberos_config: KerberosConfig,
@@ -94,25 +88,25 @@ impl SspiConext<Kerberos> {
     ) -> Result<Self, PwshCoreError> {
         Self::new_with_credential(
             Kerberos::new_client_from_config(kerberos_config)?,
-            Credentials::AuthIdentity(id.into_inner()),
+            &Credentials::AuthIdentity(id.into_inner()),
             sspi_config,
         )
     }
 }
 
-impl<P> SspiConext<P>
+impl<P> SspiContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::Credentials>,
 {
     pub fn new_with_credential(
         mut provider: P,
-        id: Credentials,
+        id: &Credentials,
         config: SspiConfig,
     ) -> Result<Self, PwshCoreError> {
         let acq = provider
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
-            .with_auth_data(&id);
+            .with_auth_data(id);
         let cred = acq.execute(&mut provider)?.credentials_handle;
 
         Ok(Self {
@@ -125,7 +119,7 @@ where
     }
 }
 
-impl<P> SspiConext<P>
+impl<P> SspiContext<P>
 where
     P: Sspi + SspiImpl<AuthenticationData = sspi::AuthIdentity>,
 {
@@ -151,7 +145,7 @@ where
     }
 }
 
-impl<P> SspiConext<P>
+impl<P> SspiContext<P>
 where
     P: Sspi,
 {
@@ -212,7 +206,7 @@ impl SspiAuthenticator {
     #[instrument(skip(context, sec_ctx_holder))]
     pub fn try_init_sec_context<'ctx, 'builder, 'generator, P>(
         response: Option<&HttpResponse>,
-        context: &'ctx mut SspiConext<P>,
+        context: &'ctx mut SspiContext<P>,
         sec_ctx_holder: &'builder mut Option<SecurityContextBuilder<'ctx, P>>,
         require_encryption: bool,
     ) -> Result<SecContextMaybeInit<'generator>, PwshCoreError>
@@ -312,9 +306,9 @@ impl SspiAuthenticator {
     }
 
     #[instrument(skip_all)]
-    pub fn process_initialized_sec_context<P: Sspi>(
-        furniture: &mut SspiConext<P>,
-        sec_context: SecContextInit,
+    pub fn process_initialized_sec_context<P>(
+        furniture: &mut SspiContext<P>,
+        sec_context: &SecContextInit,
     ) -> Result<ActionReqired, PwshCoreError>
     where
         P: Sspi + SspiImpl,

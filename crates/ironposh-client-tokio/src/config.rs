@@ -84,10 +84,10 @@ pub enum AuthMethod {
 impl std::fmt::Display for AuthMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthMethod::Basic => write!(f, "basic"),
-            AuthMethod::Ntlm => write!(f, "ntlm"),
-            AuthMethod::Kerberos => write!(f, "kerberos"),
-            AuthMethod::Negotiate => write!(f, "negotiate"),
+            Self::Basic => write!(f, "basic"),
+            Self::Ntlm => write!(f, "ntlm"),
+            Self::Kerberos => write!(f, "kerberos"),
+            Self::Negotiate => write!(f, "negotiate"),
         }
     }
 }

@@ -20,14 +20,11 @@ impl FragmentBuffer {
     }
 
     /// Add a fragment to this buffer if it's the expected next fragment
-    fn add_fragment(&mut self, fragment: Fragment) -> Result<(), PowerShellRemotingError> {
+    fn add_fragment(&mut self, fragment: Fragment) {
         if fragment.end {
             self.is_complete = true;
         }
-
         self.fragments.push(fragment);
-
-        Ok(())
     }
 
     /// Reassemble all fragments into complete message data
@@ -46,7 +43,7 @@ impl FragmentBuffer {
 
 /// Defragmenter handles defragmentation of incoming PowerShell remoting message fragments
 /// with internal state management
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Defragmenter {
     buffers: HashMap<u64, FragmentBuffer>,
 }
@@ -54,9 +51,7 @@ pub struct Defragmenter {
 impl Defragmenter {
     /// Create a new defragmenter
     pub fn new() -> Self {
-        Self {
-            buffers: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Process incoming packet data containing one or more fragments
@@ -86,7 +81,7 @@ impl Defragmenter {
 
             // Handle complete single-fragment message
             if fragment.start && fragment.end {
-                let message = self.parse_message(fragment.data)?;
+                let message = Self::parse_message(fragment.data)?;
                 completed_messages.push(message);
                 continue;
             }
@@ -103,12 +98,12 @@ impl Defragmenter {
             }
 
             // Add fragment to buffer
-            buffer.add_fragment(fragment)?;
+            buffer.add_fragment(fragment);
 
             // Check if message is complete
             if buffer.is_complete {
                 let complete_data = buffer.reassemble();
-                let message = self.parse_message(complete_data)?;
+                let message = Self::parse_message(complete_data)?;
                 completed_messages.push(message);
                 self.buffers.remove(&object_id);
             }
@@ -132,17 +127,8 @@ impl Defragmenter {
     }
 
     /// Parse a complete message from reassembled data
-    fn parse_message(
-        &self,
-        data: Vec<u8>,
-    ) -> Result<PowerShellRemotingMessage, PowerShellRemotingError> {
+    fn parse_message(data: Vec<u8>) -> Result<PowerShellRemotingMessage, PowerShellRemotingError> {
         let mut cursor = std::io::Cursor::new(data);
         PowerShellRemotingMessage::parse(&mut cursor)
-    }
-}
-
-impl Default for Defragmenter {
-    fn default() -> Self {
-        Self::new()
     }
 }

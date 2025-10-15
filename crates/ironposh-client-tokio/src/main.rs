@@ -66,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         // Execute command
         let mut stream = client.send_script(command).await?;
 
+        #[expect(clippy::never_loop)]
         while let Some(event) = stream.next().await {
             unimplemented!("{event:?}");
         }

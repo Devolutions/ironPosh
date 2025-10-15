@@ -260,7 +260,7 @@ impl HttpClient for UreqHttpClient {
                         };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
-                    match auth_sequence.process_sec_ctx_init(init)? {
+                    match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
                             // send challenge-response step on the same conn_id

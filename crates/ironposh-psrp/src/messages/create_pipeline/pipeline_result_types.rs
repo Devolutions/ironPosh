@@ -23,15 +23,14 @@ impl PipelineResultTypes {
 impl From<i32> for PipelineResultTypes {
     fn from(value: i32) -> Self {
         match value {
-            0x00 => PipelineResultTypes::None,
-            0x01 => PipelineResultTypes::Output,
-            0x02 => PipelineResultTypes::Error,
-            0x04 => PipelineResultTypes::Warning,
-            0x08 => PipelineResultTypes::Verbose,
-            0x10 => PipelineResultTypes::Debug,
-            0x20 => PipelineResultTypes::All,
-            0x40 => PipelineResultTypes::Null,
-            _ => PipelineResultTypes::None,
+            0x01 => Self::Output,
+            0x02 => Self::Error,
+            0x04 => Self::Warning,
+            0x08 => Self::Verbose,
+            0x10 => Self::Debug,
+            0x20 => Self::All,
+            0x40 => Self::Null,
+            _ => Self::None, // 0x00 is also None
         }
     }
 }
@@ -49,7 +48,7 @@ impl From<PipelineResultTypes> for ComplexObject {
             PipelineResultTypes::Null => Some("Null".to_string()),
         };
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType::pipeline_result_types()),
             to_string: to_string_value,
             content: ComplexObjectContent::PsEnums(PsEnums {
@@ -67,7 +66,7 @@ impl TryFrom<ComplexObject> for PipelineResultTypes {
     fn try_from(value: ComplexObject) -> Result<Self, crate::PowerShellRemotingError> {
         match value.content {
             ComplexObjectContent::PsEnums(PsEnums { value: val }) => {
-                Ok(PipelineResultTypes::from(val))
+                Ok(Self::from(val))
             }
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(
                 "PipelineResultTypes must be an enum".to_string(),

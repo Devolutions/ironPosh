@@ -35,7 +35,7 @@ impl ReqwestHttpClient {
             method = ?request.method,
             url = %request.url,
             headers_count = request.headers.len(),
-            body_length = request.body.as_ref().map(|b| b.len()).unwrap_or(0),
+            body_length = request.body.as_ref().map_or(0, HttpBody::len),
             "Starting HTTP request"
         );
 
@@ -125,7 +125,7 @@ impl HttpClient for ReqwestHttpClient {
                         };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
-                    match auth_sequence.process_sec_ctx_init(init)? {
+                    match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
                             let HttpRequestAction {

@@ -7,7 +7,7 @@ use crate::{
     PwshCoreError,
     connector::{
         authenticator::{
-            SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConext, SspiConfig,
+            SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiContext, SspiConfig,
             Token,
         },
         config::{AuthenticatorConfig, SspiAuthConfig},
@@ -17,11 +17,12 @@ use crate::{
     },
 };
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum SspiAuthContext {
-    Ntlm(SspiConext<sspi::ntlm::Ntlm>),
-    Kerberos(SspiConext<sspi::kerberos::Kerberos>),
-    Negotiate(SspiConext<sspi::negotiate::Negotiate>),
+    Ntlm(SspiContext<sspi::ntlm::Ntlm>),
+    Kerberos(SspiContext<sspi::kerberos::Kerberos>),
+    Negotiate(SspiContext<sspi::negotiate::Negotiate>),
 }
 
 pub struct SecurityContextBuilderHolder<'ctx> {
@@ -68,14 +69,14 @@ impl SspiAuthContext {
             SspiAuthConfig::NTLM {
                 identity,
                 target: target_name,
-            } => SspiConext::new_ntlm(identity, SspiConfig::new(target_name))
+            } => SspiContext::new_ntlm(identity, SspiConfig::new(target_name))
                 .map(SspiAuthContext::Ntlm),
 
             SspiAuthConfig::Kerberos {
                 identity,
                 kerberos_config,
                 target: target_name,
-            } => SspiConext::new_kerberos(
+            } => SspiContext::new_kerberos(
                 identity,
                 kerberos_config.into(),
                 SspiConfig::new(target_name),
@@ -95,27 +96,24 @@ impl SspiAuthContext {
                     ))
                 })?;
 
-                let config = match kerberos_config {
-                    Some(kerberos_config) => {
-                        let kerberos_config: sspi::kerberos::config::KerberosConfig =
-                            kerberos_config.into();
+                let config = if let Some(kerberos_config) = kerberos_config {
+                    let kerberos_config: sspi::kerberos::config::KerberosConfig =
+                        kerberos_config.into();
 
-                        NegotiateConfig::from_protocol_config(
-                            Box::new(kerberos_config),
-                            client_computer_name,
-                        )
-                    }
-                    None => {
-                        let ntlm_config = NtlmConfig::new(client_computer_name.clone());
+                    NegotiateConfig::from_protocol_config(
+                        Box::new(kerberos_config),
+                        client_computer_name,
+                    )
+                } else {
+                    let ntlm_config = NtlmConfig::new(client_computer_name.clone());
 
-                        NegotiateConfig::from_protocol_config(
-                            Box::new(ntlm_config),
-                            client_computer_name,
-                        )
-                    }
+                    NegotiateConfig::from_protocol_config(
+                        Box::new(ntlm_config),
+                        client_computer_name,
+                    )
                 };
 
-                SspiConext::new_negotiate(identity, config, sspi_config)
+                SspiContext::new_negotiate(identity, config, sspi_config)
                     .map(SspiAuthContext::Negotiate)
             }
         }
@@ -130,7 +128,7 @@ pub struct AuthSequenceConfig {
 impl AuthSequenceConfig {
     pub fn new(config: AuthenticatorConfig) -> Self {
         // require_encryption is now embedded in the AuthenticatorConfig::Sspi variant
-        AuthSequenceConfig {
+        Self {
             authenticator_config: config,
         }
     }
@@ -147,6 +145,7 @@ pub enum SecCtxInited {
     Done(Option<Token>),
 }
 
+#[expect(clippy::missing_fields_in_debug)]
 impl Debug for SspiAuthSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthSequence")
@@ -163,7 +162,7 @@ impl SspiAuthSequence {
         http_builder: HttpBuilder,
     ) -> Result<Self, crate::PwshCoreError> {
         let context = SspiAuthContext::new(sspi_auth_config)?;
-        Ok(SspiAuthSequence {
+        Ok(Self {
             context,
             http_builder,
             require_encryption,
@@ -201,16 +200,16 @@ impl SspiAuthSequence {
         })
     }
 
-    pub fn resume<'a>(
-        generator_holder: crate::connector::authenticator::GeneratorHolder<'a>,
+    pub fn resume(
+        generator_holder: crate::connector::authenticator::GeneratorHolder<'_>,
         kdc_response: Vec<u8>,
-    ) -> Result<SecContextMaybeInit<'a>, PwshCoreError> {
+    ) -> Result<SecContextMaybeInit<'_>, PwshCoreError> {
         SspiAuthenticator::resume(generator_holder, kdc_response)
     }
 
     pub(crate) fn process_initialized_sec_context(
         &mut self,
-        sec_context: crate::connector::authenticator::SecContextInit,
+        sec_context: &crate::connector::authenticator::SecContextInit,
     ) -> Result<SecCtxInited, PwshCoreError> {
         let res = match &mut self.context {
             SspiAuthContext::Ntlm(auth_context) => {
@@ -236,7 +235,7 @@ impl SspiAuthSequence {
     }
 
     pub fn when_finish(self) -> Authenticated {
-        let SspiAuthSequence {
+        let Self {
             context,
             http_builder,
             require_encryption,
@@ -278,6 +277,7 @@ pub struct PostConAuthSequence {
 }
 
 /// Drives auth for a newly created connection.
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum AuthSequence {
     Sspi(SspiAuthSequence),
@@ -317,10 +317,10 @@ impl AuthSequence {
                 require_encryption,
             } => {
                 let sspi_auth = SspiAuthSequence::new(sspi.clone(), *require_encryption, http)?;
-                Ok(AuthSequence::Sspi(sspi_auth))
+                Ok(Self::Sspi(sspi_auth))
             }
             AuthenticatorConfig::Basic { username, password } => {
-                Ok(AuthSequence::Basic(BasicAuthSequence {
+                Ok(Self::Basic(BasicAuthSequence {
                     username: username.clone(),
                     password: password.clone(),
                     http_builder: http,

@@ -15,7 +15,7 @@ pub struct PsType {
 
 impl PsType {
     pub fn ps_primitive_dictionary() -> Self {
-        PsType {
+        Self {
             type_names: vec![
                 Cow::Borrowed("System.Management.Automation.PSPrimitiveDictionary"),
                 Cow::Borrowed("System.Collections.Hashtable"),
@@ -25,7 +25,7 @@ impl PsType {
     }
 
     pub fn remote_host_method_id() -> Self {
-        PsType {
+        Self {
             type_names: vec![
                 Cow::Borrowed("System.Management.Automation.Remoting.RemoteHostMethodId"),
                 Cow::Borrowed("System.Enum"),
@@ -36,7 +36,7 @@ impl PsType {
     }
 
     pub fn array_list() -> Self {
-        PsType {
+        Self {
             type_names: vec![
                 Cow::Borrowed("System.Collections.ArrayList"),
                 Cow::Borrowed("System.Object"),
@@ -45,7 +45,7 @@ impl PsType {
     }
 
     pub fn pipeline_result_types() -> Self {
-        PsType {
+        Self {
             type_names: vec![
                 Cow::Borrowed("System.Management.Automation.Runspaces.PipelineResultTypes"),
                 Cow::Borrowed("System.Enum"),

@@ -18,16 +18,14 @@ pub enum ProtocolError {
 impl From<ProtocolError> for WasmError {
     fn from(e: ProtocolError) -> Self {
         match e {
-            ProtocolError::Incomplete(s) => WasmError::IOError(format!("Incomplete: {}", s)),
-            ProtocolError::Malformed(s) => WasmError::IOError(format!("Malformed: {}", s)),
-            ProtocolError::TooLarge => WasmError::IOError("Response too large".to_string()),
-            ProtocolError::Timeout => WasmError::IOError("Timeout".to_string()),
+            ProtocolError::Incomplete(s) => Self::IOError(format!("Incomplete: {s}")),
+            ProtocolError::Malformed(s) => Self::IOError(format!("Malformed: {s}")),
+            ProtocolError::TooLarge => Self::IOError("Response too large".to_string()),
+            ProtocolError::Timeout => Self::IOError("Timeout".to_string()),
             ProtocolError::UnexpectedTextFrame => {
-                WasmError::IOError("Unexpected text frame".to_string())
+                Self::IOError("Unexpected text frame".to_string())
             }
-            ProtocolError::WebsocketError(e) => {
-                WasmError::IOError(format!("WebSocket error: {:?}", e))
-            }
+            ProtocolError::WebsocketError(e) => Self::IOError(format!("WebSocket error: {e:?}")),
         }
     }
 }
@@ -91,6 +89,7 @@ impl HttpResponseDecoder {
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     pub fn feed(&mut self, bytes: &[u8]) -> Result<Option<HttpResponse>, WasmError> {
         if self.buf.len() + bytes.len() > self.max_size {
             error!(
@@ -129,7 +128,7 @@ impl HttpResponseDecoder {
                 }
 
                 // chunked init
-                if let BodyMode::Chunked = mode {
+                if mode == BodyMode::Chunked {
                     self.chunk_cursor = hend + 4;
                     debug!(chunk_cursor = self.chunk_cursor, "initialized chunked mode");
                 }
@@ -200,18 +199,17 @@ impl HttpResponseDecoder {
                                 headers,
                                 body: http_body,
                             }));
-                        } else {
-                            // need CRLFCRLF after trailers
-                            if let Some(off) = find_double_crlf_from(&self.buf, self.chunk_cursor) {
-                                debug!(offset = off, "found trailers end marker");
-                                self.chunk_cursor = off; // points after CRLFCRLF
-                                self.trailers_complete = true;
-                                // loop will complete at top
-                                continue;
-                            }
-                            debug!("need more data for trailers completion");
-                            return Ok(None);
                         }
+                        // need CRLFCRLF after trailers
+                        if let Some(off) = find_double_crlf_from(&self.buf, self.chunk_cursor) {
+                            debug!(offset = off, "found trailers end marker");
+                            self.chunk_cursor = off; // points after CRLFCRLF
+                            self.trailers_complete = true;
+                            // loop will complete at top
+                            continue;
+                        }
+                        debug!("need more data for trailers completion");
+                        return Ok(None);
                     }
 
                     // If mid-chunk, ensure we have enough to consume chunk data + CRLF
@@ -260,13 +258,10 @@ impl HttpResponseDecoder {
                             // terminal chunk: after this comes trailers then CRLFCRLF
                             self.chunk_done = true;
                             // fall through and let outer loop look for trailers completion
-                            continue;
-                        } else {
-                            debug!(chunk_size = size, "parsed chunk size");
-                            self.cur_chunk_remaining = Some(size);
-                            // loop will try to consume chunk data next
-                            continue;
                         }
+                        debug!(chunk_size = size, "parsed chunk size");
+                        self.cur_chunk_remaining = Some(size);
+                        // loop will try to consume chunk data next
                     } else {
                         debug!("need more data for chunk size line");
                         return Ok(None); // need more for size line
@@ -301,10 +296,9 @@ fn parse_status_and_body_mode(hdr: &[u8]) -> Result<(u16, BodyMode), WasmError> 
                 if let Ok(n) = v.parse::<usize>() {
                     content_len = Some(n);
                 }
-            } else if n == "transfer-encoding"
-                && v.to_ascii_lowercase().contains("chunked") {
-                    chunked = true;
-                }
+            } else if n == "transfer-encoding" && v.to_ascii_lowercase().contains("chunked") {
+                chunked = true;
+            }
         }
     }
 
@@ -325,6 +319,7 @@ fn parse_status_and_body_mode(hdr: &[u8]) -> Result<(u16, BodyMode), WasmError> 
     Ok((status, mode))
 }
 
+#[expect(clippy::type_complexity)]
 fn parse_headers(hdr: &[u8]) -> Result<(Vec<(String, String)>, Option<String>), WasmError> {
     let s = std::str::from_utf8(hdr).map_err(|_| WasmError::IOError("hdr utf8".into()))?;
     let mut lines = s.lines();
@@ -379,11 +374,10 @@ fn classify_body(body_bytes: &[u8], content_type: Option<&str>) -> Result<HttpBo
             || ct.contains("application/octet-stream")
             || ct.contains("multipart/encrypted")
         {
-            if let Ok(text) = std::str::from_utf8(body_bytes) {
-                Ok(HttpBody::Text(text.to_string()))
-            } else {
-                Ok(HttpBody::Encrypted(body_bytes.to_vec()))
-            }
+            std::str::from_utf8(body_bytes).map_or_else(
+                |_| Ok(HttpBody::Encrypted(body_bytes.to_vec())),
+                |text| Ok(HttpBody::Text(text.to_string())),
+            )
         } else {
             let text = std::str::from_utf8(body_bytes).map_err(|_| {
                 WasmError::IOError("Body not valid UTF-8 for text content-type".into())

@@ -109,7 +109,7 @@ impl Fragment {
         let fragment_data = data[21..21 + length].to_vec();
         let remaining = &data[21 + length..];
 
-        let fragment = Fragment::new(object_id, fragment_id, fragment_data, start, end);
+        let fragment = Self::new(object_id, fragment_id, fragment_data, start, end);
 
         Ok((fragment, remaining))
     }

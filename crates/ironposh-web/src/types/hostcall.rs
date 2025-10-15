@@ -435,100 +435,101 @@ pub enum JsHostCall {
 }
 
 impl From<&HostCall> for JsHostCall {
+    #[expect(clippy::too_many_lines)]
     fn from(host_call: &HostCall) -> Self {
         match host_call {
             // Host methods (1-10)
-            HostCall::GetName { .. } => JsHostCall::GetName {
+            HostCall::GetName { .. } => Self::GetName {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::GetVersion { .. } => JsHostCall::GetVersion {
+            HostCall::GetVersion { .. } => Self::GetVersion {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::GetInstanceId { .. } => JsHostCall::GetInstanceId {
+            HostCall::GetInstanceId { .. } => Self::GetInstanceId {
                 params: (),
                 return_type: UuidReturnType::new(),
             },
-            HostCall::GetCurrentCulture { .. } => JsHostCall::GetCurrentCulture {
+            HostCall::GetCurrentCulture { .. } => Self::GetCurrentCulture {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::GetCurrentUICulture { .. } => JsHostCall::GetCurrentUICulture {
+            HostCall::GetCurrentUICulture { .. } => Self::GetCurrentUICulture {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::SetShouldExit { transport } => JsHostCall::SetShouldExit {
+            HostCall::SetShouldExit { transport } => Self::SetShouldExit {
                 params: transport.params.0,
                 return_type: VoidReturnType::new(),
             },
-            HostCall::EnterNestedPrompt { .. } => JsHostCall::EnterNestedPrompt {
+            HostCall::EnterNestedPrompt { .. } => Self::EnterNestedPrompt {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::ExitNestedPrompt { .. } => JsHostCall::ExitNestedPrompt {
+            HostCall::ExitNestedPrompt { .. } => Self::ExitNestedPrompt {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::NotifyBeginApplication { .. } => JsHostCall::NotifyBeginApplication {
+            HostCall::NotifyBeginApplication { .. } => Self::NotifyBeginApplication {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::NotifyEndApplication { .. } => JsHostCall::NotifyEndApplication {
+            HostCall::NotifyEndApplication { .. } => Self::NotifyEndApplication {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
 
             // UI methods (11-26)
-            HostCall::ReadLine { .. } => JsHostCall::ReadLine {
+            HostCall::ReadLine { .. } => Self::ReadLine {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::ReadLineAsSecureString { .. } => JsHostCall::ReadLineAsSecureString {
+            HostCall::ReadLineAsSecureString { .. } => Self::ReadLineAsSecureString {
                 params: (),
                 return_type: BytesReturnType::new(),
             },
-            HostCall::Write1 { transport } => JsHostCall::Write1 {
+            HostCall::Write1 { transport } => Self::Write1 {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::Write2 { transport } => JsHostCall::Write2 {
+            HostCall::Write2 { transport } => Self::Write2 {
                 params: transport.params.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteLine1 { .. } => JsHostCall::WriteLine1 {
+            HostCall::WriteLine1 { .. } => Self::WriteLine1 {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteLine2 { transport } => JsHostCall::WriteLine2 {
+            HostCall::WriteLine2 { transport } => Self::WriteLine2 {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteLine3 { transport } => JsHostCall::WriteLine3 {
+            HostCall::WriteLine3 { transport } => Self::WriteLine3 {
                 params: transport.params.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteErrorLine { transport } => JsHostCall::WriteErrorLine {
+            HostCall::WriteErrorLine { transport } => Self::WriteErrorLine {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteDebugLine { transport } => JsHostCall::WriteDebugLine {
+            HostCall::WriteDebugLine { transport } => Self::WriteDebugLine {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteProgress { transport } => JsHostCall::WriteProgress {
+            HostCall::WriteProgress { transport } => Self::WriteProgress {
                 params: (transport.params.0, format!("{:?}", transport.params.1)),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteVerboseLine { transport } => JsHostCall::WriteVerboseLine {
+            HostCall::WriteVerboseLine { transport } => Self::WriteVerboseLine {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::WriteWarningLine { transport } => JsHostCall::WriteWarningLine {
+            HostCall::WriteWarningLine { transport } => Self::WriteWarningLine {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::Prompt { transport } => JsHostCall::Prompt {
+            HostCall::Prompt { transport } => Self::Prompt {
                 params: (
                     transport.params.0.clone(),
                     transport.params.1.clone(),
@@ -536,20 +537,20 @@ impl From<&HostCall> for JsHostCall {
                         .params
                         .2
                         .iter()
-                        .map(|f| format!("{:?}", f))
+                        .map(|f| format!("{f:?}"))
                         .collect(),
                 ),
                 return_type: HashMapReturnType::new(),
             },
-            HostCall::PromptForCredential1 { transport } => JsHostCall::PromptForCredential1 {
+            HostCall::PromptForCredential1 { transport } => Self::PromptForCredential1 {
                 params: transport.params.clone(),
                 return_type: CredentialReturnType::new(),
             },
-            HostCall::PromptForCredential2 { transport } => JsHostCall::PromptForCredential2 {
+            HostCall::PromptForCredential2 { transport } => Self::PromptForCredential2 {
                 params: transport.params.clone(),
                 return_type: CredentialReturnType::new(),
             },
-            HostCall::PromptForChoice { transport } => JsHostCall::PromptForChoice {
+            HostCall::PromptForChoice { transport } => Self::PromptForChoice {
                 params: (
                     transport.params.0.clone(),
                     transport.params.1.clone(),
@@ -557,7 +558,7 @@ impl From<&HostCall> for JsHostCall {
                         .params
                         .2
                         .iter()
-                        .map(|c| format!("{:?}", c))
+                        .map(|c| format!("{c:?}"))
                         .collect(),
                     transport.params.3,
                 ),
@@ -565,126 +566,126 @@ impl From<&HostCall> for JsHostCall {
             },
 
             // RawUI methods (27-51)
-            HostCall::GetForegroundColor { .. } => JsHostCall::GetForegroundColor {
+            HostCall::GetForegroundColor { .. } => Self::GetForegroundColor {
                 params: (),
                 return_type: I32ReturnType::new(),
             },
-            HostCall::SetForegroundColor { transport } => JsHostCall::SetForegroundColor {
+            HostCall::SetForegroundColor { transport } => Self::SetForegroundColor {
                 params: transport.params.0,
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetBackgroundColor { .. } => JsHostCall::GetBackgroundColor {
+            HostCall::GetBackgroundColor { .. } => Self::GetBackgroundColor {
                 params: (),
                 return_type: I32ReturnType::new(),
             },
-            HostCall::SetBackgroundColor { transport } => JsHostCall::SetBackgroundColor {
+            HostCall::SetBackgroundColor { transport } => Self::SetBackgroundColor {
                 params: transport.params.0,
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetCursorPosition { .. } => JsHostCall::GetCursorPosition {
+            HostCall::GetCursorPosition { .. } => Self::GetCursorPosition {
                 params: (),
                 return_type: CoordinatesReturnType::new(),
             },
-            HostCall::SetCursorPosition { transport } => JsHostCall::SetCursorPosition {
+            HostCall::SetCursorPosition { transport } => Self::SetCursorPosition {
                 params: (transport.params.0.x, transport.params.0.y),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetWindowPosition { .. } => JsHostCall::GetWindowPosition {
+            HostCall::GetWindowPosition { .. } => Self::GetWindowPosition {
                 params: (),
                 return_type: CoordinatesReturnType::new(),
             },
-            HostCall::SetWindowPosition { transport } => JsHostCall::SetWindowPosition {
+            HostCall::SetWindowPosition { transport } => Self::SetWindowPosition {
                 params: (transport.params.0.x, transport.params.0.y),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetCursorSize { .. } => JsHostCall::GetCursorSize {
+            HostCall::GetCursorSize { .. } => Self::GetCursorSize {
                 params: (),
                 return_type: I32ReturnType::new(),
             },
-            HostCall::SetCursorSize { transport } => JsHostCall::SetCursorSize {
+            HostCall::SetCursorSize { transport } => Self::SetCursorSize {
                 params: transport.params.0,
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetBufferSize { .. } => JsHostCall::GetBufferSize {
+            HostCall::GetBufferSize { .. } => Self::GetBufferSize {
                 params: (),
                 return_type: SizeReturnType::new(),
             },
-            HostCall::SetBufferSize { transport } => JsHostCall::SetBufferSize {
+            HostCall::SetBufferSize { transport } => Self::SetBufferSize {
                 params: (transport.params.0.width, transport.params.0.height),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetWindowSize { .. } => JsHostCall::GetWindowSize {
+            HostCall::GetWindowSize { .. } => Self::GetWindowSize {
                 params: (),
                 return_type: SizeReturnType::new(),
             },
-            HostCall::SetWindowSize { transport } => JsHostCall::SetWindowSize {
+            HostCall::SetWindowSize { transport } => Self::SetWindowSize {
                 params: (transport.params.0.width, transport.params.0.height),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetWindowTitle { .. } => JsHostCall::GetWindowTitle {
+            HostCall::GetWindowTitle { .. } => Self::GetWindowTitle {
                 params: (),
                 return_type: StringReturnType::new(),
             },
-            HostCall::SetWindowTitle { transport } => JsHostCall::SetWindowTitle {
+            HostCall::SetWindowTitle { transport } => Self::SetWindowTitle {
                 params: transport.params.0.clone(),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetMaxWindowSize { .. } => JsHostCall::GetMaxWindowSize {
+            HostCall::GetMaxWindowSize { .. } => Self::GetMaxWindowSize {
                 params: (),
                 return_type: SizeReturnType::new(),
             },
-            HostCall::GetMaxPhysicalWindowSize { .. } => JsHostCall::GetMaxPhysicalWindowSize {
+            HostCall::GetMaxPhysicalWindowSize { .. } => Self::GetMaxPhysicalWindowSize {
                 params: (),
                 return_type: SizeReturnType::new(),
             },
-            HostCall::GetKeyAvailable { .. } => JsHostCall::GetKeyAvailable {
+            HostCall::GetKeyAvailable { .. } => Self::GetKeyAvailable {
                 params: (),
                 return_type: BoolReturnType::new(),
             },
-            HostCall::ReadKey { transport } => JsHostCall::ReadKey {
+            HostCall::ReadKey { transport } => Self::ReadKey {
                 params: transport.params.0,
                 return_type: KeyInfoReturnType::new(),
             },
-            HostCall::FlushInputBuffer { .. } => JsHostCall::FlushInputBuffer {
+            HostCall::FlushInputBuffer { .. } => Self::FlushInputBuffer {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::SetBufferContents1 { transport } => JsHostCall::SetBufferContents1 {
+            HostCall::SetBufferContents1 { transport } => Self::SetBufferContents1 {
                 params: format!("{:?}", transport.params),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::SetBufferContents2 { transport } => JsHostCall::SetBufferContents2 {
+            HostCall::SetBufferContents2 { transport } => Self::SetBufferContents2 {
                 params: format!("{:?}", transport.params),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetBufferContents { transport } => JsHostCall::GetBufferContents {
+            HostCall::GetBufferContents { transport } => Self::GetBufferContents {
                 params: format!("{:?}", transport.params),
                 return_type: BufferCellArrayReturnType::new(),
             },
-            HostCall::ScrollBufferContents { transport } => JsHostCall::ScrollBufferContents {
+            HostCall::ScrollBufferContents { transport } => Self::ScrollBufferContents {
                 params: format!("{:?}", transport.params),
                 return_type: VoidReturnType::new(),
             },
 
             // Interactive session methods (52-56)
-            HostCall::PushRunspace { transport } => JsHostCall::PushRunspace {
+            HostCall::PushRunspace { transport } => Self::PushRunspace {
                 params: format!("{:?}", transport.params),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::PopRunspace { .. } => JsHostCall::PopRunspace {
+            HostCall::PopRunspace { .. } => Self::PopRunspace {
                 params: (),
                 return_type: VoidReturnType::new(),
             },
-            HostCall::GetIsRunspacePushed { .. } => JsHostCall::GetIsRunspacePushed {
+            HostCall::GetIsRunspacePushed { .. } => Self::GetIsRunspacePushed {
                 params: (),
                 return_type: BoolReturnType::new(),
             },
-            HostCall::GetRunspace { .. } => JsHostCall::GetRunspace {
+            HostCall::GetRunspace { .. } => Self::GetRunspace {
                 params: (),
                 return_type: PsValueReturnType::new(),
             },
             HostCall::PromptForChoiceMultipleSelection { transport } => {
-                JsHostCall::PromptForChoiceMultipleSelection {
+                Self::PromptForChoiceMultipleSelection {
                     params: (
                         transport.params.0.clone(),
                         transport.params.1.clone(),
@@ -692,7 +693,7 @@ impl From<&HostCall> for JsHostCall {
                             .params
                             .2
                             .iter()
-                            .map(|c| format!("{:?}", c))
+                            .map(|c| format!("{c:?}"))
                             .collect(),
                         transport.params.3.clone(),
                     ),

@@ -7,7 +7,7 @@ use ironposh_winrm::{
         shell_value::ShellValue,
     },
     soap::{SoapEnvelope, body::SoapBody},
-    ws_management::{self, OptionSetValue, SelectorSetValue, WsMan},
+    ws_management::{OptionSetValue, SelectorSetValue, WsAction, WsMan},
 };
 use ironposh_xml::builder::Element;
 use tracing::{debug, instrument};
@@ -99,7 +99,7 @@ impl WinRunspace {
         }
 
         ws_man.invoke(
-            ws_management::WsAction::Create,
+            &WsAction::Create,
             None,
             SoapBody::builder().shell(shell).build(),
             Some(option_set),
@@ -157,7 +157,7 @@ impl WinRunspace {
             .map(|shell_id| SelectorSetValue::new().add_selector("ShellId", shell_id));
 
         ws_man.invoke(
-            ws_management::WsAction::ShellReceive,
+            &WsAction::ShellReceive,
             Some(&self.resource_uri),
             SoapBody::builder().receive(receive_tag).build(),
             Some(option_set),
@@ -166,18 +166,17 @@ impl WinRunspace {
     }
 
     #[instrument(skip_all)]
-    pub(crate) fn accept_receive_response<'a>(
-        &mut self,
-        soap_envelope: &SoapEnvelope<'a>,
+    pub(crate) fn accept_receive_response(
+        soap_envelope: &SoapEnvelope<'_>,
     ) -> Result<(Vec<Stream>, Option<CommandState>), crate::PwshCoreError> {
         let receive_response = &soap_envelope
             .body
             .as_ref()
             .receive_response
             .as_ref()
-            .ok_or(crate::PwshCoreError::InvalidResponse(
-                "No ReceiveResponse found in response".into(),
-            ))?;
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse("No ReceiveResponse found in response".into())
+            })?;
 
         let streams = receive_response
             .value
@@ -202,14 +201,14 @@ impl WinRunspace {
     }
 
     #[instrument(skip_all)]
-    pub(crate) fn accept_create_response<'a>(
+    pub(crate) fn accept_create_response(
         &mut self,
-        soap_envelop: &SoapEnvelope<'a>,
+        soap_envelop: &SoapEnvelope<'_>,
     ) -> Result<(), crate::PwshCoreError> {
-        let shell = &soap_envelop.body.as_ref().shell.as_ref().ok_or(
-            crate::PwshCoreError::InvalidResponse("No shell found in response".into()),
-        )?;
-        let shell_id = shell.as_ref().shell_id.as_ref().map(|id| id.clone_value());
+        let shell = &soap_envelop.body.as_ref().shell.as_ref().ok_or_else(|| {
+            crate::PwshCoreError::InvalidResponse("No shell found in response".into())
+        })?;
+        let shell_id = shell.as_ref().shell_id.as_ref().map(Tag::clone_value);
         let resource_uri = &shell.as_ref().resource_uri;
         let owner = &shell.as_ref().owner;
         let client_ip = &shell.as_ref().client_ip;
@@ -224,13 +223,12 @@ impl WinRunspace {
         self.idle_time_out = idle_time_out.as_ref().map(|t| t.value.0);
         self.output_streams = output_stream
             .as_ref()
-            .map(|o| o.value.as_ref().to_string())
-            .unwrap_or_else(|| "stdout".to_string());
+            .map_or_else(|| "stdout".to_string(), |o| o.value.as_ref().to_string());
 
-        self.resource_uri = resource_uri
-            .as_ref()
-            .map(|r| r.value.as_ref().to_string())
-            .unwrap_or_else(|| self.resource_uri.clone());
+        self.resource_uri = resource_uri.as_ref().map_or_else(
+            || self.resource_uri.clone(),
+            |r| r.value.as_ref().to_string(),
+        );
 
         self.shell_run_time = shell_run_time
             .as_ref()
@@ -240,9 +238,14 @@ impl WinRunspace {
             .as_ref()
             .map(|t| t.value.as_ref().to_string());
 
-        let resource_created = soap_envelop.body.as_ref().resource_created.as_ref().ok_or(
-            crate::PwshCoreError::InvalidResponse("No ResourceCreated found in response".into()),
-        )?;
+        let resource_created = soap_envelop
+            .body
+            .as_ref()
+            .resource_created
+            .as_ref()
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse("No ResourceCreated found in response".into())
+            })?;
 
         let reference_parameters = resource_created.as_ref().reference_parameters.as_ref();
 
@@ -257,9 +260,9 @@ impl WinRunspace {
 
     /// Accept a SignalResponse and match it's message ID to a previously sent Signal request
     /// If matched, return the associated CommandId
-    pub(crate) fn accept_signal_response<'a>(
+    pub(crate) fn accept_signal_response(
         &mut self,
-        soap_envelope: &SoapEnvelope<'a>,
+        soap_envelope: &SoapEnvelope<'_>,
     ) -> Result<Option<Uuid>, crate::PwshCoreError> {
         let message_id = soap_envelope
             .header
@@ -271,12 +274,13 @@ impl WinRunspace {
             .value
             .0;
 
-        if let Some(command_id) = self.signal_messages.remove(&message_id) {
-            Ok(Some(command_id))
-        } else {
-            debug!(message_id = %message_id, "Received Signal response with unknown MessageId");
-            Ok(None)
-        }
+        self.signal_messages.remove(&message_id).map_or_else(
+            || {
+                debug!(message_id = %message_id, "Received Signal response with unknown MessageId");
+                Ok(None)
+            },
+            |command_id| Ok(Some(command_id)),
+        )
     }
 
     pub(crate) fn create_pipeline_request<'a>(
@@ -286,14 +290,14 @@ impl WinRunspace {
         arguments: Vec<String>,
         executable: Option<String>,
         no_shell: Option<bool>,
-    ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
+    ) -> impl Into<Element<'a>> {
         let command_line = CommandLineValue {
             command: executable,
             arguments,
         };
 
-        let request = connection.invoke(
-            ws_management::WsAction::Command,
+        connection.invoke(
+            &WsAction::Command,
             Some(self.resource_uri.as_ref()),
             SoapBody::builder()
                 .command_line(
@@ -305,9 +309,7 @@ impl WinRunspace {
                 no_shell.unwrap_or_default().to_string(),
             )),
             self.selector_set.clone().into(),
-        );
-
-        Ok(request)
+        )
     }
 
     /// Send data to the shell stdin (for host responses)
@@ -316,7 +318,7 @@ impl WinRunspace {
         &'a self,
         connection: &'a WsMan,
         command_id: Option<uuid::Uuid>,
-        data: Vec<String>,
+        data: &[String],
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
         use ironposh_winrm::{
             cores::{Tag, tag_name::Send},
@@ -324,18 +326,17 @@ impl WinRunspace {
         };
 
         // Add send tag with data
-        let send_tag = if let Some(cmd_id) = command_id {
-            // For pipeline-scoped sends, include CommandId
-            Tag::from_name(Send)
-                .with_value(Text::from(data.join("")))
-                .with_attribute(Attribute::CommandId(cmd_id))
-        } else {
-            // For runspace-scoped sends, no CommandId
-            Tag::from_name(Send).with_value(Text::from(data.join("")))
-        };
+        let send_tag = command_id.map_or_else(
+            || Tag::from_name(Send).with_value(Text::from(data.join(""))),
+            |cmd_id| {
+                Tag::from_name(Send)
+                    .with_value(Text::from(data.join("")))
+                    .with_attribute(Attribute::CommandId(cmd_id))
+            },
+        );
 
         let request = connection.invoke(
-            ws_management::WsAction::Send,
+            &WsAction::Send,
             Some(self.resource_uri.as_ref()),
             SoapBody::builder().send(send_tag).build(),
             Some(
@@ -348,18 +349,18 @@ impl WinRunspace {
         Ok(request)
     }
 
-    pub fn accept_commannd_response<'a>(
+    pub fn accept_commannd_response(
         &mut self,
-        soap_envelope: &SoapEnvelope<'a>,
+        soap_envelope: &SoapEnvelope<'_>,
     ) -> Result<Uuid, crate::PwshCoreError> {
         let command_id = soap_envelope
             .body
             .as_ref()
             .command_response
             .as_ref()
-            .ok_or(crate::PwshCoreError::InvalidResponse(
-                "No CommandResponse found in response".into(),
-            ))?
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse("No CommandResponse found in response".into())
+            })?
             .as_ref()
             .as_ref();
 
@@ -395,7 +396,7 @@ impl WinRunspace {
         let selector_set = self.selector_set.clone().into();
 
         let body = connection.invoke(
-            ws_management::WsAction::Signal,
+            &WsAction::Signal,
             Some(self.resource_uri.as_ref()),
             SoapBody::builder().signal(signal).build(),
             Some(option_set),
@@ -451,9 +452,9 @@ impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
                 Attribute::Name(name) => Some(name.to_string()),
                 _ => None,
             })
-            .ok_or(crate::PwshCoreError::InvalidResponse(
-                "Stream tag missing name attribute".into(),
-            ))?;
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse("Stream tag missing name attribute".into())
+            })?;
 
         let command_id = attributes.iter().find_map(|attr| match attr {
             Attribute::CommandId(id) => Some(id.to_owned()),
@@ -467,7 +468,7 @@ impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
                 crate::PwshCoreError::InvalidResponse("Failed to decode stream value".into())
             })?;
 
-        Ok(Stream {
+        Ok(Self {
             name,
             command_id,
             value,
@@ -495,9 +496,11 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
                 Attribute::CommandId(id) => Some(id),
                 _ => None,
             })
-            .ok_or(crate::PwshCoreError::InvalidResponse(
-                "CommandState tag missing command_id attribute".into(),
-            ))?;
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse(
+                    "CommandState tag missing command_id attribute".into(),
+                )
+            })?;
 
         let state = value
             .attributes
@@ -506,9 +509,11 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
                 Attribute::State(state) => Some(state.to_string()),
                 _ => None,
             })
-            .ok_or(crate::PwshCoreError::InvalidResponse(
-                "CommandState tag missing state attribute".into(),
-            ))?;
+            .ok_or_else(|| {
+                crate::PwshCoreError::InvalidResponse(
+                    "CommandState tag missing state attribute".into(),
+                )
+            })?;
 
         let exit_code = value
             .value
@@ -516,9 +521,9 @@ impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for Co
             .as_ref()
             .map(|exit_code| exit_code.value.0);
 
-        Ok(CommandState {
+        Ok(Self {
             command_id: *command_id,
-            state: state.to_string(),
+            state,
             exit_code,
         })
     }

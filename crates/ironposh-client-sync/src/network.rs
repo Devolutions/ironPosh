@@ -35,7 +35,7 @@ impl<T: HttpClient + Clone + Send + Sync + 'static> NetworkHandler<T> {
         skip(self),
         fields(processed_requests = 0u64, active_requests = 0u64)
     )]
-    pub fn run(&mut self) {
+    pub fn run(&self) {
         info!("network handler started, waiting for requests");
         let mut active_request_count = 0u64;
 
@@ -63,9 +63,9 @@ impl<T: HttpClient + Clone + Send + Sync + 'static> NetworkHandler<T> {
             thread::spawn(move || {
                 Self::handle_request_in_thread(
                     request,
-                    http_client,
-                    response_tx,
-                    request_type_for_thread,
+                    &http_client,
+                    &response_tx,
+                    &request_type_for_thread,
                 );
             });
 
@@ -89,9 +89,9 @@ impl<T: HttpClient + Clone + Send + Sync + 'static> NetworkHandler<T> {
     )]
     fn handle_request_in_thread(
         request: TrySend,
-        http_client: Arc<T>,
-        response_tx: mpsc::Sender<HttpResponseTargeted>,
-        request_type: String,
+        http_client: &Arc<T>,
+        response_tx: &mpsc::Sender<HttpResponseTargeted>,
+        request_type: &str,
     ) {
         info!("worker thread started for request");
 

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -67,7 +67,7 @@ impl TryFrom<&PowerShellRemotingMessage> for PipelineOutput {
                 "not a PipelineOutput message".into(),
             ));
         }
-        Ok(PipelineOutput {
+        Ok(Self {
             data: msg.parse_ps_message()?,
         })
     }
@@ -102,58 +102,52 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, PowerShellRemotingErr
         // Process the escaped sequence
         let escaped = captures.as_str();
         if let Some(hex_str) = escaped.strip_prefix("_x").and_then(|s| s.strip_suffix("_")) {
-            match u16::from_str_radix(hex_str, 16) {
-                Ok(code_unit) => {
-                    if let Some(high) = high_surrogate {
-                        // We have a high surrogate from before, try to form a surrogate pair
-                        if (0xDC00..=0xDFFF).contains(&code_unit) {
-                            // This is a low surrogate, form the pair
-                            let code_point = 0x10000
-                                + ((high as u32 - 0xD800) << 10)
-                                + (code_unit as u32 - 0xDC00);
-                            if let Some(ch) = char::from_u32(code_point) {
-                                result.push(ch);
-                            } else {
-                                // Invalid code point, add the escaped sequence as-is
-                                result.push_str(escaped);
-                            }
-                            high_surrogate = None;
-                        } else {
-                            // Not a low surrogate, add the previous high surrogate as-is and process this one
-                            result.push_str("_x");
-                            result.push_str(&format!("{high:04X}"));
-                            result.push('_');
-
-                            if (0xD800..=0xDBFF).contains(&code_unit) {
-                                high_surrogate = Some(code_unit);
-                            } else {
-                                if let Some(ch) = char::from_u32(code_unit as u32) {
-                                    result.push(ch);
-                                } else {
-                                    result.push_str(escaped);
-                                }
-                                high_surrogate = None;
-                            }
-                        }
-                    } else if (0xD800..=0xDBFF).contains(&code_unit) {
-                        // High surrogate, save it for the next iteration
-                        high_surrogate = Some(code_unit);
-                    } else {
-                        // Regular character or low surrogate without high surrogate
-                        if let Some(ch) = char::from_u32(code_unit as u32) {
+            if let Ok(code_unit) = u16::from_str_radix(hex_str, 16) {
+                if let Some(high) = high_surrogate {
+                    // We have a high surrogate from before, try to form a surrogate pair
+                    if (0xDC00..=0xDFFF).contains(&code_unit) {
+                        // This is a low surrogate, form the pair
+                        let code_point =
+                            0x10000 + ((high as u32 - 0xD800) << 10) + (code_unit as u32 - 0xDC00);
+                        if let Some(ch) = char::from_u32(code_point) {
                             result.push(ch);
                         } else {
-                            // Invalid character, add the escaped sequence as-is
+                            // Invalid code point, add the escaped sequence as-is
                             result.push_str(escaped);
                         }
                         high_surrogate = None;
+                    } else {
+                        // Not a low surrogate, add the previous high surrogate as-is and process this one
+                        write!(result, "_x{high:04X}_").unwrap();
+
+                        if (0xD800..=0xDBFF).contains(&code_unit) {
+                            high_surrogate = Some(code_unit);
+                        } else {
+                            if let Some(ch) = char::from_u32(code_unit as u32) {
+                                result.push(ch);
+                            } else {
+                                result.push_str(escaped);
+                            }
+                            high_surrogate = None;
+                        }
                     }
-                }
-                Err(_) => {
-                    // Invalid hex, add the escaped sequence as-is
-                    result.push_str(escaped);
+                } else if (0xD800..=0xDBFF).contains(&code_unit) {
+                    // High surrogate, save it for the next iteration
+                    high_surrogate = Some(code_unit);
+                } else {
+                    // Regular character or low surrogate without high surrogate
+                    if let Some(ch) = char::from_u32(code_unit as u32) {
+                        result.push(ch);
+                    } else {
+                        // Invalid character, add the escaped sequence as-is
+                        result.push_str(escaped);
+                    }
                     high_surrogate = None;
                 }
+            } else {
+                // Invalid hex, add the escaped sequence as-is
+                result.push_str(escaped);
+                high_surrogate = None;
             }
         } else {
             // Not a valid escape sequence, add as-is
@@ -171,9 +165,7 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, PowerShellRemotingErr
 
     // If we have an unmatched high surrogate at the end, add it as-is
     if let Some(high) = high_surrogate {
-        result.push_str("_x");
-        result.push_str(&format!("{high:04X}"));
-        result.push('_');
+        write!(result, "_x{high:04X}_").unwrap();
     }
 
     Ok(result)

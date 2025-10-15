@@ -17,7 +17,8 @@ use crate::{HostIo, HostSubmitter, HttpClient, session};
 ///
 /// This function creates the connection channels and establishes a WinRM connection,
 /// then starts the active session loop in the background.
-pub fn establish_connection<C: HttpClient>(
+#[expect(clippy::too_many_lines)]
+pub fn establish_connection<C>(
     config: WinRmConfig,
     client: C,
 ) -> (
@@ -27,7 +28,7 @@ pub fn establish_connection<C: HttpClient>(
     impl std::future::Future<Output = anyhow::Result<()>>,
 )
 where
-    C: 'static,
+    C: HttpClient + 'static,
 {
     let (mut user_input_tx, user_input_rx) = mpsc::channel(10);
     let (server_output_tx, mut server_output_rx) = mpsc::channel(10);
@@ -113,7 +114,7 @@ where
         .await;
 
         match result {
-            Ok(_) => {
+            Ok(()) => {
                 info!("Active session loop ended");
                 let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionEnded);
                 Ok(())

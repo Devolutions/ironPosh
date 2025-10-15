@@ -12,23 +12,26 @@ pub enum ServerAddress {
 
 impl ServerAddress {
     pub fn parse(value: &str) -> Result<Self, crate::PwshCoreError> {
-        if let Ok(ip) = value.parse::<IpAddr>() {
-            Ok(ServerAddress::Ip(ip))
-        } else if !value.trim().is_empty() {
-            Ok(ServerAddress::Domain(value.to_string()))
-        } else {
-            Err(crate::PwshCoreError::InvalidServerAddress(
-                "server address cannot be empty",
-            ))
-        }
+        value.parse::<IpAddr>().map_or_else(
+            |_| {
+                if value.trim().is_empty() {
+                    Err(crate::PwshCoreError::InvalidServerAddress(
+                        "server address cannot be empty",
+                    ))
+                } else {
+                    Ok(Self::Domain(value.to_string()))
+                }
+            },
+            |ip| Ok(Self::Ip(ip)),
+        )
     }
 }
 
 impl Display for ServerAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ServerAddress::Ip(ip) => write!(f, "{ip}"),
-            ServerAddress::Domain(domain) => write!(f, "{domain}"),
+            Self::Ip(ip) => write!(f, "{ip}"),
+            Self::Domain(domain) => write!(f, "{domain}"),
         }
     }
 }
@@ -51,54 +54,50 @@ pub enum HttpBody {
 
 impl HttpBody {
     pub fn is_encrypted(&self) -> bool {
-        matches!(self, HttpBody::Encrypted(_))
+        matches!(self, Self::Encrypted(_))
     }
 
-    pub(crate) fn empty() -> HttpBody {
-        HttpBody::None
+    pub(crate) fn empty() -> Self {
+        Self::None
     }
 }
 
 impl HttpBody {
     pub fn content_type(&self) -> &'static str {
         match self {
-            HttpBody::Xml(_) => "application/soap+xml; charset=utf-8",
-            HttpBody::Encrypted(_) => {
+            Self::Xml(_) => "application/soap+xml; charset=utf-8",
+            Self::Encrypted(_) => {
                 r#"multipart/encrypted;protocol="application/HTTP-SPNEGO-session-encrypted";boundary="Encrypted Boundary""#
             }
-            HttpBody::Text(_) => "text/plain; charset=utf-8",
-            HttpBody::None => "text/plain; charset=utf-8",
+            Self::Text(_) | Self::None => "text/plain; charset=utf-8",
         }
     }
 
     pub fn is_empty(&self) -> bool {
         match self {
-            HttpBody::Xml(content) => content.is_empty(),
-            HttpBody::Encrypted(content) => content.is_empty(),
-            HttpBody::Text(content) => content.is_empty(),
-            HttpBody::None => true,
+            Self::Xml(content) | Self::Text(content) => content.is_empty(),
+            Self::Encrypted(content) => content.is_empty(),
+            Self::None => true,
         }
     }
 
     /// Returns the length of the body content in bytes
     pub fn len(&self) -> usize {
         match self {
-            HttpBody::Xml(content) => content.len(),
-            HttpBody::Encrypted(content) => content.len(),
-            HttpBody::Text(content) => content.len(),
-            HttpBody::None => 0,
+            Self::Xml(content) | Self::Text(content) => content.len(),
+            Self::Encrypted(content) => content.len(),
+            Self::None => 0,
         }
     }
 
     /// Returns the body content as a string reference
     pub fn as_str(&self) -> Result<&str, crate::PwshCoreError> {
         match self {
-            HttpBody::Xml(content) => Ok(content),
-            HttpBody::Encrypted(_) => Err(crate::PwshCoreError::InternalError(
+            Self::Xml(content) | Self::Text(content) => Ok(content),
+            Self::Encrypted(_) => Err(crate::PwshCoreError::InternalError(
                 "Cannot convert binary encrypted content to &str".to_owned(),
             )),
-            HttpBody::Text(content) => Ok(content),
-            HttpBody::None => Ok(""),
+            Self::None => Ok(""),
         }
     }
 }

@@ -62,7 +62,7 @@ impl<'a> Declaration<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Declaration<'a> {
+impl std::fmt::Display for Declaration<'_> {
     /// Formats the declaration as an XML declaration string.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

@@ -37,7 +37,7 @@ pub struct KeyInfo {
     pub key_down: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgressRecord {
     pub activity: String,
     pub status_description: String,
@@ -49,7 +49,7 @@ pub struct ProgressRecord {
     pub record_type: i32, // ProgressRecordType
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldDescription {
     pub name: String,
     pub label: String,
@@ -59,13 +59,13 @@ pub struct FieldDescription {
     pub default_value: Option<PsValue>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceDescription {
     pub label: String,
     pub help_message: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PSCredential {
     pub user_name: String,
     pub password: Vec<u8>, // SecureString as bytes

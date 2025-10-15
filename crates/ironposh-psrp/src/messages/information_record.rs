@@ -39,6 +39,7 @@ impl PsObjectWithType for InformationRecord {
 }
 
 impl From<InformationRecord> for ComplexObject {
+    #[expect(clippy::too_many_lines)]
     fn from(record: InformationRecord) -> Self {
         let mut extended_properties = BTreeMap::new();
 
@@ -81,13 +82,8 @@ impl From<InformationRecord> for ComplexObject {
         if let Some(tags) = record.tags
             && !tags.is_empty()
         {
-            let tag_values: Vec<PsValue> = tags
-                .into_iter()
-                .map(|tag| PsValue::Primitive(PsPrimitiveValue::Str(tag)))
-                .collect();
-
             // Create array-like structure for tags
-            let tags_obj = ComplexObject {
+            let tags_obj = Self {
                 type_def: Some(PsType {
                     type_names: vec![
                         Cow::Borrowed("System.String[]"),
@@ -98,15 +94,16 @@ impl From<InformationRecord> for ComplexObject {
                 to_string: None,
                 content: ComplexObjectContent::Standard,
                 adapted_properties: BTreeMap::new(),
-                extended_properties: tag_values
+                extended_properties: tags
                     .into_iter()
                     .enumerate()
-                    .map(|(i, val)| {
+                    .map(|(i, tag)| {
+                        let value = PsValue::Primitive(PsPrimitiveValue::Str(tag));
                         (
                             i.to_string(),
                             PsProperty {
                                 name: i.to_string(),
-                                value: val,
+                                value,
                             },
                         )
                     })
@@ -172,7 +169,7 @@ impl From<InformationRecord> for ComplexObject {
             );
         }
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType {
                 type_names: vec![
                     Cow::Borrowed("System.Management.Automation.InformationRecord"),
@@ -191,6 +188,7 @@ impl From<InformationRecord> for ComplexObject {
 impl TryFrom<ComplexObject> for InformationRecord {
     type Error = crate::PowerShellRemotingError;
 
+    #[expect(clippy::too_many_lines)]
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let message_data = value
             .extended_properties
@@ -212,11 +210,13 @@ impl TryFrom<ComplexObject> for InformationRecord {
         let serialize_invocation_info = value
             .extended_properties
             .get("InformationalRecord_SerializeInvocationInfo")
-            .map(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-                _ => false,
-            })
-            .unwrap_or(false);
+            .is_some_and(|prop| {
+                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
+                    b
+                } else {
+                    false
+                }
+            });
 
         let source = value
             .extended_properties
@@ -247,7 +247,7 @@ impl TryFrom<ComplexObject> for InformationRecord {
                     }
                     if tags.is_empty() { None } else { Some(tags) }
                 }
-                _ => None,
+                PsValue::Primitive(_) => None,
             });
 
         let user = value
@@ -290,7 +290,7 @@ impl TryFrom<ComplexObject> for InformationRecord {
                 _ => None,
             });
 
-        Ok(InformationRecord::builder()
+        Ok(Self::builder()
             .message_data(message_data)
             .serialize_invocation_info(serialize_invocation_info)
             .source(source)

@@ -7,7 +7,7 @@ use crate::{
 };
 
 // Enumeration operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EnumerateValue<'a> {
     pub optimize_enumeration: Option<bool>,
     pub max_elements: Option<u32>,
@@ -16,11 +16,7 @@ pub struct EnumerateValue<'a> {
 
 impl<'a> EnumerateValue<'a> {
     pub fn new() -> Self {
-        Self {
-            optimize_enumeration: None,
-            max_elements: None,
-            filter: None,
-        }
+        Self::default()
     }
 
     pub fn with_optimization(mut self, optimize: bool) -> Self {
@@ -36,12 +32,6 @@ impl<'a> EnumerateValue<'a> {
     pub fn with_filter(mut self, filter: Text<'a>) -> Self {
         self.filter = Some(filter);
         self
-    }
-}
-
-impl<'a> Default for EnumerateValue<'a> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

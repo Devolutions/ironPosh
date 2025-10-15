@@ -133,7 +133,7 @@ impl<'a> Element<'a> {
     /// let element = Element::new("root")
     ///     .add_child(child);
     /// ```
-    pub fn add_child(mut self, child: Element<'a>) -> Self {
+    pub fn add_child(mut self, child: Self) -> Self {
         match self.content {
             Content::None | Content::Text(_) => {
                 self.content = Content::Elements(vec![child]);
@@ -145,7 +145,7 @@ impl<'a> Element<'a> {
         self
     }
 
-    pub fn add_children(mut self, children: Vec<Element<'a>>) -> Self {
+    pub fn add_children(mut self, children: Vec<Self>) -> Self {
         for child in children {
             self = self.add_child(child);
         }
@@ -318,7 +318,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 };
 
                 match namespaces_map.get(namespace) {
-                    Some(Some(alias)) => AliasStatus::NamespaceFoundWithAlias(alias.to_string()),
+                    Some(Some(alias)) => AliasStatus::NamespaceFoundWithAlias((*alias).to_string()),
                     /*
                     For cases where the namespace is found but no alias is provided. right now this is only used for
                        <creationXml

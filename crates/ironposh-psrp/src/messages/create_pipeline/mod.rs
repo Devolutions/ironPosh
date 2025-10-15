@@ -63,7 +63,7 @@ impl From<CreatePipeline> for ComplexObject {
             "ApartmentState".to_string(),
             PsProperty {
                 name: "ApartmentState".to_string(),
-                value: PsValue::Object(ComplexObject::from(create_pipeline.apartment_state)),
+                value: PsValue::Object(Self::from(create_pipeline.apartment_state)),
             },
         );
 
@@ -71,7 +71,7 @@ impl From<CreatePipeline> for ComplexObject {
             "RemoteStreamOptions".to_string(),
             PsProperty {
                 name: "RemoteStreamOptions".to_string(),
-                value: PsValue::Object(ComplexObject::from(create_pipeline.remote_stream_options)),
+                value: PsValue::Object(Self::from(create_pipeline.remote_stream_options)),
             },
         );
 
@@ -87,7 +87,7 @@ impl From<CreatePipeline> for ComplexObject {
             "HostInfo".to_string(),
             PsProperty {
                 name: "HostInfo".to_string(),
-                value: PsValue::Object(ComplexObject::from(create_pipeline.host_info)),
+                value: PsValue::Object(Self::from(create_pipeline.host_info)),
             },
         );
 
@@ -95,7 +95,7 @@ impl From<CreatePipeline> for ComplexObject {
             "PowerShell".to_string(),
             PsProperty {
                 name: "PowerShell".to_string(),
-                value: PsValue::Object(ComplexObject::from(create_pipeline.pipeline)),
+                value: PsValue::Object(Self::from(create_pipeline.pipeline)),
             },
         );
 
@@ -107,7 +107,7 @@ impl From<CreatePipeline> for ComplexObject {
             },
         );
 
-        ComplexObject {
+        Self {
             type_def: Some(PsType {
                 type_names: vec![Cow::Borrowed("System.Object")],
             }),
@@ -140,17 +140,16 @@ impl TryFrom<ComplexObject> for CreatePipeline {
                 ComplexObjectContent::PsEnums(PsEnums { value }) => match *value {
                     0 => ApartmentState::STA,
                     1 => ApartmentState::MTA,
-                    2 => ApartmentState::Unknown,
-                    _ => ApartmentState::Unknown,
+                    _ => ApartmentState::Unknown, // 2 is also Unknown
                 },
                 _ => ApartmentState::Unknown,
             },
-            _ => ApartmentState::Unknown,
+            PsValue::Primitive(_) => ApartmentState::Unknown,
         };
 
         let remote_stream_options = match &get_property("RemoteStreamOptions")?.value {
             PsValue::Object(obj) => RemoteStreamOptions::try_from(obj.clone())?,
-            _ => RemoteStreamOptions::None,
+            PsValue::Primitive(_) => RemoteStreamOptions::None,
         };
 
         let add_to_history = match &get_property("AddToHistory")?.value {
@@ -161,7 +160,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
         let host_info = match &get_property("HostInfo")?.value {
             PsValue::Object(obj) => HostInfo::try_from(obj.clone())
                 .map_err(|_| Self::Error::InvalidMessage("Failed to parse HostInfo".to_string()))?,
-            _ => {
+            PsValue::Primitive(_) => {
                 return Err(Self::Error::InvalidMessage(
                     "HostInfo must be an object".to_string(),
                 ));
@@ -170,7 +169,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
 
         let power_shell = match &get_property("PowerShell")?.value {
             PsValue::Object(obj) => PowerShellPipeline::try_from(obj.clone())?,
-            _ => {
+            PsValue::Primitive(_) => {
                 return Err(Self::Error::InvalidMessage(
                     "PowerShell must be an object".to_string(),
                 ));
@@ -182,7 +181,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             _ => false,
         };
 
-        Ok(CreatePipeline {
+        Ok(Self {
             no_input,
             apartment_state,
             remote_stream_options,

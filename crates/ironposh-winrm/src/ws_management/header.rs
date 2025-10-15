@@ -8,16 +8,14 @@ use tracing::warn;
 
 use crate::cores::{self, OptionTagName, Selector, Tag, TagName, TagValue, Text};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SelectorSetValue {
     pub selectors: HashMap<String, String>,
 }
 
 impl SelectorSetValue {
     pub fn new() -> Self {
-        Self {
-            selectors: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Add a selector as a key-value pair
@@ -36,12 +34,6 @@ impl SelectorSetValue {
 
     pub fn get(&self, name: &str) -> Option<&String> {
         self.selectors.get(name)
-    }
-}
-
-impl Default for SelectorSetValue {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -123,7 +115,7 @@ impl<'a> XmlVisitor<'a> for SelectorSetVisitor {
     }
 }
 
-impl<'a> XmlDeserialize<'a> for SelectorSetValue {
+impl XmlDeserialize<'_> for SelectorSetValue {
     type Visitor = SelectorSetVisitor;
 
     fn visitor() -> Self::Visitor {
@@ -133,22 +125,14 @@ impl<'a> XmlDeserialize<'a> for SelectorSetValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OptionSetValue {
     pub options: HashMap<String, String>,
 }
 
-impl Default for OptionSetValue {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl OptionSetValue {
     pub fn new() -> Self {
-        Self {
-            options: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Add an option as a key-value pair
@@ -245,7 +229,7 @@ impl<'a> XmlVisitor<'a> for OptionSetVisitor {
     }
 }
 
-impl<'a> XmlDeserialize<'a> for OptionSetValue {
+impl XmlDeserialize<'_> for OptionSetValue {
     type Visitor = OptionSetVisitor;
 
     fn visitor() -> Self::Visitor {

@@ -18,7 +18,15 @@ ironposh-async = { path = "../ironposh-async" }
 ironposh-client-core = { path = "../ironposh-client-core" }
 ironposh-psrp = { path = "../ironposh-psrp" }
 js-sys = "0.3.81"
-web-sys = { version = "0.3.81", features = ["console", "Request", "RequestInit", "RequestMode", "Response", "Headers", "Window"] }
+web-sys = { version = "0.3.81", features = [
+  "console",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Headers",
+  "Window",
+] }
 tracing-wasm = "0.2.1"
 getrandom = { version = "0.2", features = ["js"] }
 anyhow = "1.0"
@@ -43,3 +51,6 @@ wasm-bindgen-test = "0.3.34"
 [profile.release]
 # Tell `rustc` to optimize for small code size.
 opt-level = "s"
+
+[lints]
+workspace = true

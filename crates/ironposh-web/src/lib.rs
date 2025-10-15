@@ -1,3 +1,7 @@
+// These nursery lints get tripped by wasm-bindgen.
+#![allow(clippy::non_send_fields_in_send_ty)]
+#![allow(clippy::future_not_send)]
+
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
@@ -41,7 +45,7 @@ pub enum LogLevel {
 /// Initialize tracing for WASM with a custom max level
 /// Levels: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG, 5=TRACE
 #[wasm_bindgen]
-pub fn init_tracing_with_level(max_level: LogLevel) {
+pub fn init_tracing_with_level(max_level: &LogLevel) {
     use tracing::Level;
     use tracing_wasm::WASMLayerConfigBuilder;
 

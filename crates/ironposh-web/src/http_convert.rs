@@ -23,16 +23,15 @@ pub fn serialize_http_request(request: &HttpRequest) -> Result<Vec<u8>> {
     };
 
     // Request line
-    let request_line = format!("{} {} HTTP/1.1\r\n", method_str, path);
+    let request_line = format!("{method_str} {path} HTTP/1.1\r\n");
     buffer.extend_from_slice(request_line.as_bytes());
 
     // Host header (required for HTTP/1.1)
     if let Some(host) = url.host_str() {
-        let host_header = if let Some(port) = url.port() {
-            format!("Host: {}:{}\r\n", host, port)
-        } else {
-            format!("Host: {}\r\n", host)
-        };
+        let host_header = url.port().map_or_else(
+            || format!("Host: {host}\r\n"),
+            |port| format!("Host: {host}:{port}\r\n"),
+        );
         buffer.extend_from_slice(host_header.as_bytes());
     }
 
@@ -41,13 +40,13 @@ pub fn serialize_http_request(request: &HttpRequest) -> Result<Vec<u8>> {
         if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("content-length") {
             continue;
         }
-        let header_line = format!("{}: {}\r\n", name, value);
+        let header_line = format!("{name}: {value}\r\n");
         buffer.extend_from_slice(header_line.as_bytes());
     }
 
     // Cookie header if present
     if let Some(cookie) = &request.cookie {
-        let cookie_line = format!("Cookie: {}\r\n", cookie);
+        let cookie_line = format!("Cookie: {cookie}\r\n");
         buffer.extend_from_slice(cookie_line.as_bytes());
     }
 
@@ -78,7 +77,7 @@ pub fn serialize_http_request(request: &HttpRequest) -> Result<Vec<u8>> {
             HttpBody::None => {
                 // No body content
             }
-        };
+        }
     }
 
     // No body - just end headers
@@ -147,11 +146,10 @@ pub fn deserialize_http_response(bytes: &[u8]) -> Result<HttpResponse> {
             || ct.contains("multipart/encrypted")
         {
             // Could be encrypted SOAP - check if it's valid UTF-8
-            if let Ok(text) = std::str::from_utf8(body_bytes) {
-                HttpBody::Text(text.to_string())
-            } else {
-                HttpBody::Encrypted(body_bytes.to_vec())
-            }
+            std::str::from_utf8(body_bytes).map_or_else(
+                |_| HttpBody::Encrypted(body_bytes.to_vec()),
+                |text| HttpBody::Text(text.to_string()),
+            )
         } else {
             // Text-based content type
             let text = std::str::from_utf8(body_bytes)
@@ -160,11 +158,10 @@ pub fn deserialize_http_response(bytes: &[u8]) -> Result<HttpResponse> {
         }
     } else {
         // No content-type, try to parse as UTF-8, otherwise treat as encrypted
-        if let Ok(text) = std::str::from_utf8(body_bytes) {
-            HttpBody::Text(text.to_string())
-        } else {
-            HttpBody::Encrypted(body_bytes.to_vec())
-        }
+        std::str::from_utf8(body_bytes).map_or_else(
+            |_| HttpBody::Encrypted(body_bytes.to_vec()),
+            |text| HttpBody::Text(text.to_string()),
+        )
     };
 
     Ok(HttpResponse {

@@ -281,10 +281,12 @@ where
                 __phantom: std::marker::PhantomData,
                 __phantom_name: std::marker::PhantomData,
             })
-            .ok_or(ironposh_xml::XmlError::InvalidXml(format!(
-                "Tag visitor cannot built for tag: {}",
-                N::TAG_NAME
-            )))
+            .ok_or_else(|| {
+                ironposh_xml::XmlError::InvalidXml(format!(
+                    "Tag visitor cannot built for tag: {}",
+                    N::TAG_NAME
+                ))
+            })
     }
 }
 

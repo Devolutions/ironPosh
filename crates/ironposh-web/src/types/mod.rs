@@ -78,12 +78,12 @@ pub enum JsSessionEvent {
 impl From<SessionEvent> for JsSessionEvent {
     fn from(value: SessionEvent) -> Self {
         match value {
-            SessionEvent::ConnectionStarted => JsSessionEvent::ConnectionStarted,
-            SessionEvent::ConnectionEstablished => JsSessionEvent::ConnectionEstablished,
-            SessionEvent::ActiveSessionStarted => JsSessionEvent::ActiveSessionStarted,
-            SessionEvent::ActiveSessionEnded => JsSessionEvent::ActiveSessionEnded,
-            SessionEvent::Error(e) => JsSessionEvent::Error(e),
-            SessionEvent::Closed => JsSessionEvent::Closed,
+            SessionEvent::ConnectionStarted => Self::ConnectionStarted,
+            SessionEvent::ConnectionEstablished => Self::ConnectionEstablished,
+            SessionEvent::ActiveSessionStarted => Self::ActiveSessionStarted,
+            SessionEvent::ActiveSessionEnded => Self::ActiveSessionEnded,
+            SessionEvent::Error(e) => Self::Error(e),
+            SessionEvent::Closed => Self::Closed,
         }
     }
 }

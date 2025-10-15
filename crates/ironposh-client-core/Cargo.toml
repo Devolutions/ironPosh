@@ -13,12 +13,10 @@ ironposh-xml = { path = "../ironposh-xml" }
 typed-builder = "0.21.0"
 base64 = "0.22.1"
 tracing = "0.1.41"
-sspi = { path = "C:\\dev\\sspi-rs", features = ["ring"] }
 url = "2.5.7"
 whoami = "1.6.1"
 serde = { version = "1.0.228", features = ["derive"] }
-# sspi = { version = "0.16.1", features = ["ring"] }
-
+sspi = { version = "0.17", features = ["ring"] }
 
 [dev-dependencies]
 ureq = "2"
@@ -26,3 +24,6 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 regex = "1"
+
+[lints]
+workspace = true

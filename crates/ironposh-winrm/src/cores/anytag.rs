@@ -8,6 +8,7 @@ use crate::{
 #[macro_export]
 macro_rules! define_any_tag {
     ($enum_name:ident, $visitor_name:ident, $(($variant:ident, $tag_name:ty, $tag_type:ty)),* $(,)?) => {
+        #[expect(clippy::large_enum_variant)]
         #[derive(Debug, Clone)]
         pub enum $enum_name<'a> {
             $($variant($tag_type),)*

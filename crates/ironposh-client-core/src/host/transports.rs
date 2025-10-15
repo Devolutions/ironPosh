@@ -45,6 +45,7 @@ pub struct ResultTransport<M: Method> {
 }
 
 /// What gets passed back to the session
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Submission {
     Send(PipelineHostResponse),

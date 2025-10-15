@@ -23,7 +23,7 @@ impl From<RemoteStreamOptions> for ComplexObject {
             RemoteStreamOptions::AddInvocationInfo => "AddInvocationInfo".to_string(),
         };
 
-        ComplexObject {
+        Self {
             type_def: Some(type_def),
             to_string: Some(to_string),
             content: ComplexObjectContent::PsEnums(PsEnums {
@@ -41,8 +41,8 @@ impl TryFrom<ComplexObject> for RemoteStreamOptions {
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         match value.content {
             ComplexObjectContent::PsEnums(PsEnums { value }) => match value {
-                0 => Ok(RemoteStreamOptions::None),
-                1 => Ok(RemoteStreamOptions::AddInvocationInfo),
+                0 => Ok(Self::None),
+                1 => Ok(Self::AddInvocationInfo),
                 _ => Err(Self::Error::InvalidMessage(format!(
                     "Invalid RemoteStreamOptions value: {value}"
                 ))),

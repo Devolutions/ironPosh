@@ -66,7 +66,7 @@ impl RunspacePoolCreator {
             application_private_data: self.application_private_data,
             session_capability: self.session_capability,
             pipelines: self.pipelines,
-            runspace_pool_desired_stream_is_pooling: false,
+            desired_stream_is_pooling: false,
         }
     }
 }

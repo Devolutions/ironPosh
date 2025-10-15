@@ -11,7 +11,7 @@ pub trait Method: sealed::Sealed {
     fn should_send_response() -> bool;
 }
 
-pub(crate) mod sealed {
+pub mod sealed {
     pub trait Sealed {}
 }
 
@@ -39,7 +39,7 @@ impl FromParams for () {
 impl FromParams for String {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         a.first()
-            .and_then(|v| v.as_string())
+            .and_then(PsValue::as_string)
             .ok_or(HostError::InvalidParameters)
     }
 }
@@ -47,7 +47,7 @@ impl FromParams for String {
 impl FromParams for i32 {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         a.first()
-            .and_then(|v| v.as_i32())
+            .and_then(PsValue::as_i32)
             .ok_or(HostError::InvalidParameters)
     }
 }
@@ -55,7 +55,7 @@ impl FromParams for i32 {
 impl FromParams for i64 {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         a.first()
-            .and_then(|v| v.as_i64())
+            .and_then(PsValue::as_i64)
             .ok_or(HostError::InvalidParameters)
     }
 }
@@ -64,7 +64,7 @@ impl FromParams for (i32,) {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         let param = a
             .first()
-            .and_then(|v| v.as_i32())
+            .and_then(PsValue::as_i32)
             .ok_or(HostError::InvalidParameters)?;
         Ok((param,))
     }
@@ -74,7 +74,7 @@ impl FromParams for (String,) {
     fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
         let param = a
             .first()
-            .and_then(|v| v.as_string())
+            .and_then(PsValue::as_string)
             .ok_or(HostError::InvalidParameters)?;
         Ok((param,))
     }
@@ -82,43 +82,43 @@ impl FromParams for (String,) {
 
 // Basic return type conversions
 impl ToPs for String {
-    fn to_ps(v: String) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(PsValue::from(v))
     }
 }
 
 impl ToPs for i32 {
-    fn to_ps(v: i32) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(PsValue::from(v))
     }
 }
 
 impl ToPs for bool {
-    fn to_ps(v: bool) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(PsValue::from(v))
     }
 }
 
 impl ToPs for uuid::Uuid {
-    fn to_ps(v: uuid::Uuid) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(PsValue::from(v.to_string()))
     }
 }
 
 impl ToPs for Vec<u8> {
-    fn to_ps(v: Vec<u8>) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(PsValue::from(v))
     }
 }
 
 impl ToPs for PsValue {
-    fn to_ps(v: PsValue) -> Option<PsValue> {
+    fn to_ps(v: Self) -> Option<PsValue> {
         Some(v)
     }
 }
 
 impl ToPs for () {
-    fn to_ps(_: ()) -> Option<PsValue> {
+    fn to_ps(_value: ()) -> Option<PsValue> {
         None // Void methods don't return values
     }
 }
