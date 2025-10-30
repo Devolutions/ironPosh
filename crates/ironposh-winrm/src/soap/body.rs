@@ -5,6 +5,7 @@ use crate::{
     rsp::{
         commandline::CommandLineValue,
         receive::{ReceiveResponseValue, ReceiveValue},
+        send::SendValue,
         shell_value::ShellValue,
     },
     soap::fault::SoapFaultValue,
@@ -51,7 +52,7 @@ pub struct SoapBody<'a> {
     #[builder(default, setter(into, strip_option))]
     pub command_response: Option<Tag<'a, Tag<'a, WsUuid, CommandId>, CommandResponse>>,
     #[builder(default, setter(into, strip_option))]
-    pub send: Option<Tag<'a, Text<'a>, Send>>,
+    pub send: Option<Tag<'a, SendValue<'a>, Send>>,
     #[builder(default, setter(into, strip_option))]
     pub signal: Option<Tag<'a, Tag<'a, Text<'a>, SignalCode>, Signal>>,
     #[builder(default, setter(into, strip_option))]

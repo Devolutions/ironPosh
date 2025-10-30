@@ -313,27 +313,43 @@ impl WinRunspace {
     }
 
     /// Send data to the shell stdin (for host responses)
-    /// TODO: We should handle fragmentation properly
+    /// Each string in data is a base64-encoded PSRP fragment that should be sent
+    /// in its own <rsp:Stream> element to respect WinRM envelope size limits
     pub fn send_data_request<'a>(
         &'a self,
         connection: &'a WsMan,
         command_id: Option<uuid::Uuid>,
-        data: &[String],
+        data: &'a [String],
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
         use ironposh_winrm::{
-            cores::{Tag, tag_name::Send},
+            cores::{Tag, tag_name::{Send, Stream}},
+            rsp::send::SendValue,
             soap::body::SoapBody,
         };
 
-        // Add send tag with data
-        let send_tag = command_id.map_or_else(
-            || Tag::from_name(Send).with_value(Text::from(data.join(""))),
-            |cmd_id| {
-                Tag::from_name(Send)
-                    .with_value(Text::from(data.join("")))
-                    .with_attribute(Attribute::CommandId(cmd_id))
-            },
-        );
+        // Create a Stream tag for each fragment
+        // Each fragment is a base64-encoded PSRP fragment that goes in its own <rsp:Stream> element
+        let streams: Vec<Tag<Text, Stream>> = data
+            .iter()
+            .map(|fragment| {
+                Tag::from_name(Stream)
+                    .with_value(Text::from(fragment.as_str()))
+                    .with_attribute(Attribute::Name("stdin".into()))
+            })
+            .collect();
+
+        let send_value = SendValue::builder()
+            .streams(streams)
+            .build();
+
+        // Add send tag with SendValue containing multiple streams
+        let send_tag = if let Some(cmd_id) = command_id {
+            Tag::from_name(Send)
+                .with_value(send_value)
+                .with_attribute(Attribute::CommandId(cmd_id))
+        } else {
+            Tag::from_name(Send).with_value(send_value)
+        };
 
         let request = connection.invoke(
             &WsAction::Send,
