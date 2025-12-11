@@ -1,8 +1,7 @@
 use std::convert::TryFrom;
 
 use crate::{
-    error::WasmError,
-    types::{WasmPowerShellEvent, WasmWinRmConfig},
+    WasmErrorRecord, error::WasmError, types::{WasmPowerShellEvent, WasmWinRmConfig}
 };
 use ironposh_client_core::{
     connector::active_session::UserEvent,
@@ -81,7 +80,7 @@ impl TryFrom<&UserEvent> for WasmPowerShellEvent {
                 handle,
             } => Self::PipelineError {
                 pipeline_id: handle.id().to_string(),
-                error: format!("{error_record:?}"),
+                error: WasmErrorRecord::from(error_record),
             },
         };
 
