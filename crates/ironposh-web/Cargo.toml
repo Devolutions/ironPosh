@@ -29,8 +29,6 @@ web-sys = { version = "0.3.81", features = [
 ] }
 tracing-wasm = "0.2.1"
 getrandom = { version = "0.2", features = ["js"] }
-# getrandom 0.3.x (pulled by sspi/picky/rand) requires wasm_js feature + config flag
-getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 anyhow = "1.0"
 futures = "0.3"
 wee_alloc = { version = "0.4", optional = true }

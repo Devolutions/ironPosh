@@ -2138,21 +2138,25 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "picky"
-version = "7.0.0-rc.19"
+version = "7.0.0-rc.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "143fec6b7fa8ec91cbe1136f70ffa5de7e9627064da7bc3f7c0becc9b9493f8c"
+checksum = "4cdc52be663aebd70d7006ae305c87eb32a2b836d6c2f26f7e384f845d80b621"
 dependencies = [
  "base64",
  "block-buffer 0.11.0-rc.5",
  "block-padding",
  "crypto-bigint",
  "crypto-common 0.2.0-rc.4",
+ "crypto-primes",
+ "curve25519-dalek",
  "der",
  "digest 0.11.0-rc.3",
  "ecdsa",
  "ed25519",
  "ed25519-dalek",
  "elliptic-curve",
+ "ff",
+ "group",
  "hex",
  "hkdf",
  "inout",
@@ -2440,7 +2444,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3069,31 +3073,47 @@ dependencies = [
 
 [[package]]
 name = "sspi"
-version = "0.17.0"
+version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd0dd26ac316dc68526e95332572236eb6d2f45728ef31bf770d1387d60d0bc9"
+checksum = "70f8d436177e1f17d2efb8ec1b661068ad04fd282544dfd8369522168300a82e"
 dependencies = [
  "async-dnssd",
  "async-recursion",
  "bitflags 2.9.4",
+ "block-buffer 0.11.0-rc.5",
  "byteorder",
  "cfg-if 1.0.4",
  "crypto-bigint",
+ "crypto-common 0.2.0-rc.4",
  "crypto-mac",
+ "crypto-primes",
+ "curve25519-dalek",
+ "der",
+ "digest 0.11.0-rc.3",
+ "ed25519-dalek",
+ "ff",
  "futures",
  "getrandom 0.3.4",
+ "group",
  "hmac",
- "lazy_static",
  "md-5",
  "md4",
  "num-derive",
  "num-traits",
  "oid",
+ "p256",
+ "p384",
+ "p521",
+ "pem-rfc7468",
  "picky",
  "picky-asn1",
  "picky-asn1-der",
  "picky-asn1-x509",
  "picky-krb",
+ "pkcs1",
+ "pkcs8",
+ "primefield",
+ "primeorder",
  "rand 0.9.2",
  "reqwest",
  "rsa",
@@ -3102,6 +3122,8 @@ dependencies = [
  "serde_derive",
  "sha1",
  "sha2",
+ "signature",
+ "spki",
  "time",
  "tokio",
  "tracing",
