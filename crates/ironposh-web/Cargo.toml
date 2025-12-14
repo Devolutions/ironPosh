@@ -32,7 +32,7 @@ getrandom = { version = "0.2", features = ["js"] }
 anyhow = "1.0"
 futures = "0.3"
 wee_alloc = { version = "0.4", optional = true }
-gloo-net = { version = "0.6.0", features = ["websocket"] }
+gloo-net = { version = "0.6.0", features = ["http", "websocket"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 thiserror = "2.0.16"

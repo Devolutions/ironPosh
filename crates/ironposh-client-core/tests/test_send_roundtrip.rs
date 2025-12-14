@@ -3,15 +3,12 @@
 /// and successfully decoded/defragmented on the receiving end
 use base64::Engine;
 use ironposh_psrp::{
-    fragmentation::{Fragmenter, Defragmenter, DefragmentResult},
     SessionCapability,
+    fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
 };
 use ironposh_winrm::{
     cores::{Attribute, ReceiveResponse, Send, Tag, Text, tag_name::Stream},
-    rsp::{
-        send::SendValue,
-        receive::ReceiveResponseValue,
-    },
+    rsp::{receive::ReceiveResponseValue, send::SendValue},
     soap::{SoapEnvelope, body::SoapBody},
 };
 use ironposh_xml::{builder::Element, parser::XmlDeserialize};
@@ -33,7 +30,10 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         .expect("Failed to fragment message");
 
     println!("Fragmented into {} fragments", fragments.len());
-    assert!(fragments.len() > 1, "Message should be split into multiple fragments");
+    assert!(
+        fragments.len() > 1,
+        "Message should be split into multiple fragments"
+    );
 
     // 3. Base64 encode each fragment (as done in send_data_request)
     let base64_fragments: Vec<String> = fragments
@@ -51,9 +51,7 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         })
         .collect();
 
-    let send_value = SendValue::builder()
-        .streams(streams)
-        .build();
+    let send_value = SendValue::builder().streams(streams).build();
 
     let send_tag = Tag::from_name(Send)
         .with_value(send_value)
@@ -62,10 +60,15 @@ fn test_send_receive_roundtrip_with_fragmentation() {
 
     // 5. Serialize to XML (what gets sent over the wire)
     let send_element: Element = send_tag.into_element();
-    let send_xml = send_element.to_xml_string().expect("Failed to serialize Send to XML");
+    let send_xml = send_element
+        .to_xml_string()
+        .expect("Failed to serialize Send to XML");
 
     println!("Generated Send XML length: {} bytes", send_xml.len());
-    println!("Stream count in XML: {}", send_xml.matches("<rsp:Stream").count());
+    println!(
+        "Stream count in XML: {}",
+        send_xml.matches("<rsp:Stream").count()
+    );
 
     // Verify multiple Stream elements in XML
     let stream_count = send_xml.matches("<rsp:Stream").count();
@@ -101,9 +104,7 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         .receive_response(receive_response_tag)
         .build();
 
-    let envelope = SoapEnvelope::builder()
-        .body(body)
-        .build();
+    let envelope = SoapEnvelope::builder().body(body).build();
 
     // Skip actual XML serialization - just test parsing and decoding directly
     // since we know the streams match what we sent
@@ -130,7 +131,10 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         })
         .collect();
 
-    println!("Decoded {} fragments from response", decoded_fragments.len());
+    println!(
+        "Decoded {} fragments from response",
+        decoded_fragments.len()
+    );
     assert_eq!(decoded_fragments.len(), fragments.len());
 
     // 10. Defragment back to original message (as done in handle_pwsh_responses)
@@ -146,7 +150,11 @@ fn test_send_receive_roundtrip_with_fragmentation() {
     // 11. Verify we got the complete message back
     match result {
         DefragmentResult::Complete(messages) => {
-            assert_eq!(messages.len(), 1, "Should have exactly one complete message");
+            assert_eq!(
+                messages.len(),
+                1,
+                "Should have exactly one complete message"
+            );
 
             println!("✅ Round-trip successful! Message defragmented correctly.");
         }
@@ -173,9 +181,7 @@ fn create_large_session_capability() -> SessionCapability {
 /// Test that empty fragment list creates valid (but empty) Send element
 #[test]
 fn test_send_with_no_fragments() {
-    let send_value = SendValue::builder()
-        .streams(vec![])
-        .build();
+    let send_value = SendValue::builder().streams(vec![]).build();
 
     let send_tag = Tag::from_name(Send)
         .with_value(send_value)
@@ -208,7 +214,11 @@ fn test_send_with_single_fragment() {
         .expect("Failed to fragment");
 
     // Small message should result in single fragment
-    assert_eq!(fragments.len(), 1, "Small message should be single fragment");
+    assert_eq!(
+        fragments.len(),
+        1,
+        "Small message should be single fragment"
+    );
 
     let base64_fragment = base64::engine::general_purpose::STANDARD.encode(&fragments[0]);
 
@@ -216,9 +226,7 @@ fn test_send_with_single_fragment() {
         .with_value(Text::from(base64_fragment.as_str()))
         .with_attribute(Attribute::Name("stdin".into()));
 
-    let send_value = SendValue::builder()
-        .streams(vec![stream])
-        .build();
+    let send_value = SendValue::builder().streams(vec![stream]).build();
 
     let send_tag = Tag::from_name(Send)
         .with_value(send_value)

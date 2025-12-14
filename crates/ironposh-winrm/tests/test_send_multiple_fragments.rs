@@ -11,9 +11,9 @@ use uuid::Uuid;
 fn test_send_with_multiple_stream_fragments() {
     // Simulate 3 base64-encoded PSRP fragments
     let fragments = vec![
-        "AAAAAAAAAA==".to_string(),  // Fragment 1
-        "BBBBBBBBBB==".to_string(),  // Fragment 2
-        "CCCCCCCCCC==".to_string(),  // Fragment 3
+        "AAAAAAAAAA==".to_string(), // Fragment 1
+        "BBBBBBBBBB==".to_string(), // Fragment 2
+        "CCCCCCCCCC==".to_string(), // Fragment 3
     ];
 
     let command_id = Uuid::new_v4();
@@ -29,9 +29,7 @@ fn test_send_with_multiple_stream_fragments() {
         .collect();
 
     // Create SendValue with multiple streams
-    let send_value = SendValue::builder()
-        .streams(streams)
-        .build();
+    let send_value = SendValue::builder().streams(streams).build();
 
     // Create Send tag with CommandId
     let send_tag = Tag::from_name(Send)
@@ -47,7 +45,10 @@ fn test_send_with_multiple_stream_fragments() {
     // Verify the XML structure
     assert!(xml_string.contains("<rsp:Send"), "Should have Send element");
     assert!(
-        xml_string.contains(&format!("CommandId=\"{}\"", command_id.to_string().to_uppercase())),
+        xml_string.contains(&format!(
+            "CommandId=\"{}\"",
+            command_id.to_string().to_uppercase()
+        )),
         "Should have CommandId attribute"
     );
 
@@ -83,10 +84,7 @@ fn test_send_with_multiple_stream_fragments() {
 /// Test Send without CommandId (shell-level send)
 #[test]
 fn test_send_without_command_id() {
-    let fragments = vec![
-        "FRAGMENT1==".to_string(),
-        "FRAGMENT2==".to_string(),
-    ];
+    let fragments = vec!["FRAGMENT1==".to_string(), "FRAGMENT2==".to_string()];
 
     let streams: Vec<Tag<Text, Stream>> = fragments
         .iter()
@@ -97,9 +95,7 @@ fn test_send_without_command_id() {
         })
         .collect();
 
-    let send_value = SendValue::builder()
-        .streams(streams)
-        .build();
+    let send_value = SendValue::builder().streams(streams).build();
 
     let send_tag = Tag::from_name(Send)
         .with_value(send_value)
@@ -117,10 +113,7 @@ fn test_send_without_command_id() {
     );
 
     let stream_count = xml_string.matches("<rsp:Stream").count();
-    assert_eq!(
-        stream_count, 2,
-        "Should have exactly 2 Stream elements"
-    );
+    assert_eq!(stream_count, 2, "Should have exactly 2 Stream elements");
 }
 
 /// Test that large fragments (simulating >512KB response) are properly separated
@@ -144,9 +137,7 @@ fn test_send_large_response_multiple_fragments() {
         })
         .collect();
 
-    let send_value = SendValue::builder()
-        .streams(streams)
-        .build();
+    let send_value = SendValue::builder().streams(streams).build();
 
     let send_tag = Tag::from_name(Send)
         .with_value(send_value)
@@ -156,7 +147,10 @@ fn test_send_large_response_multiple_fragments() {
     let element: Element = send_tag.into_element();
     let xml_string = element.to_xml_string().unwrap();
 
-    println!("Generated large response Send XML (length: {} bytes)", xml_string.len());
+    println!(
+        "Generated large response Send XML (length: {} bytes)",
+        xml_string.len()
+    );
 
     // Verify we have 10 separate Stream elements
     let stream_count = xml_string.matches("<rsp:Stream").count();

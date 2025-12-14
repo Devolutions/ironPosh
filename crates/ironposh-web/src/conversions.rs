@@ -1,11 +1,18 @@
 use std::convert::TryFrom;
 
 use crate::{
-    WasmErrorRecord, error::WasmError, types::{WasmPowerShellEvent, WasmWinRmConfig}
+    error::WasmError,
+    types::{WasmAuthMethod, WasmPowerShellEvent, WasmWinRmConfig},
+    WasmErrorRecord,
 };
 use ironposh_client_core::{
     connector::active_session::UserEvent,
-    connector::{config::AuthenticatorConfig, http::ServerAddress, Scheme, WinRmConfig},
+    connector::{
+        config::{AuthenticatorConfig, KerberosConfig, SspiAuthConfig},
+        http::ServerAddress,
+        Scheme, WinRmConfig,
+    },
+    credentials::{ClientAuthIdentity, ClientUserName},
 };
 use ironposh_psrp::messages::init_runspace_pool::{HostDefaultData, HostInfo, Size};
 use tracing::warn;
@@ -13,35 +20,115 @@ use tracing::warn;
 // Convert WASM config to internal config
 impl From<WasmWinRmConfig> for WinRmConfig {
     fn from(config: WasmWinRmConfig) -> Self {
+        let WasmWinRmConfig {
+            auth,
+            server,
+            port,
+            use_https,
+            username,
+            password,
+            domain,
+            locale: _,
+            gateway_url: _,
+            gateway_token: _,
+            kdc_proxy_url,
+            client_computer_name,
+            cols,
+            rows,
+        } = config;
+
         let size = Size {
-            width: config.cols as i32,
-            height: config.rows as i32,
+            width: cols as i32,
+            height: rows as i32,
+        };
+
+        let server = ServerAddress::parse(&server).expect("Invalid server address");
+        let scheme = if use_https {
+            Scheme::Https
+        } else {
+            Scheme::Http
+        };
+
+        let host_info = HostInfo::builder()
+            .host_default_data(
+                HostDefaultData::builder()
+                    .buffer_size(size.clone())
+                    .window_size(size.clone())
+                    .max_window_size(size.clone())
+                    .max_physical_window_size(size)
+                    .build(),
+            )
+            .build();
+
+        let domain = domain.as_deref();
+        let authentication = match auth {
+            WasmAuthMethod::Basic => AuthenticatorConfig::Basic { username, password },
+            WasmAuthMethod::Ntlm => {
+                let client_username =
+                    ClientUserName::new(&username, domain).expect("Invalid username/domain");
+                let identity = ClientAuthIdentity::new(client_username, password.clone());
+
+                AuthenticatorConfig::Sspi {
+                    sspi: SspiAuthConfig::NTLM {
+                        target: server.to_string(),
+                        identity,
+                    },
+                    require_encryption: true,
+                }
+            }
+            WasmAuthMethod::Kerberos => {
+                let client_username =
+                    ClientUserName::new(&username, domain).expect("Invalid username/domain");
+                let identity = ClientAuthIdentity::new(client_username, password.clone());
+
+                let kdc_url = kdc_proxy_url
+                    .as_ref()
+                    .map(|url| url.parse().expect("Invalid kdc_proxy_url"));
+
+                AuthenticatorConfig::Sspi {
+                    sspi: SspiAuthConfig::Kerberos {
+                        target: server.to_string(),
+                        identity,
+                        kerberos_config: KerberosConfig {
+                            kdc_url,
+                            client_computer_name: client_computer_name
+                                .clone()
+                                .unwrap_or_else(|| server.to_string()),
+                        },
+                    },
+                    require_encryption: true,
+                }
+            }
+            WasmAuthMethod::Negotiate => {
+                let client_username =
+                    ClientUserName::new(&username, domain).expect("Invalid username/domain");
+                let identity = ClientAuthIdentity::new(client_username, password.clone());
+
+                let kdc_url = kdc_proxy_url
+                    .as_ref()
+                    .map(|url| url.parse().expect("Invalid kdc_proxy_url"));
+
+                AuthenticatorConfig::Sspi {
+                    sspi: SspiAuthConfig::Negotiate {
+                        target: server.to_string(),
+                        identity,
+                        kerberos_config: Some(KerberosConfig {
+                            kdc_url,
+                            client_computer_name: client_computer_name
+                                .clone()
+                                .unwrap_or_else(|| server.to_string()),
+                        }),
+                    },
+                    require_encryption: true,
+                }
+            }
         };
 
         Self {
-            server: (
-                ServerAddress::parse(&config.server).expect("Invalid server address"),
-                config.port,
-            ),
-            scheme: if config.use_https {
-                Scheme::Https
-            } else {
-                Scheme::Http
-            },
-            authentication: AuthenticatorConfig::Basic {
-                username: config.username,
-                password: config.password,
-            },
-            host_info: HostInfo::builder()
-                .host_default_data(
-                    HostDefaultData::builder()
-                        .buffer_size(size.clone())
-                        .window_size(size.clone())
-                        .max_window_size(size.clone())
-                        .max_physical_window_size(size)
-                        .build(),
-                )
-                .build(),
+            server: (server, port),
+            scheme,
+            authentication,
+            host_info,
         }
     }
 }
@@ -63,14 +150,11 @@ impl TryFrom<&UserEvent> for WasmPowerShellEvent {
                     str.clone()
                 } else {
                     warn!("Pipeline output is not a primitive string, attempting to format as displayable string");
-                    let res = output
-                        .format_as_displyable_string()
-                        .map_err(|e| {
-                            WasmError::Generic(format!(
-                                "{e}, failed to format Pipeline output as string"
-                            ))
-                        })?
-                        ;
+                    let res = output.format_as_displyable_string().map_err(|e| {
+                        WasmError::Generic(format!(
+                            "{e}, failed to format Pipeline output as string"
+                        ))
+                    })?;
 
                     res
                 },

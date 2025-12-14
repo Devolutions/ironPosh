@@ -1,5 +1,12 @@
-use crate::cores::{Tag, Text, tag_name::{Stream, TagName}, TagValue};
-use ironposh_xml::{builder::Element, parser::{XmlDeserialize, XmlVisitor}, XmlError};
+use crate::cores::{
+    Tag, TagValue, Text,
+    tag_name::{Stream, TagName},
+};
+use ironposh_xml::{
+    XmlError,
+    builder::Element,
+    parser::{XmlDeserialize, XmlVisitor},
+};
 
 /// Value for Send element containing multiple Stream elements
 /// Each Stream contains a base64-encoded PSRP fragment
@@ -31,8 +38,10 @@ impl<'a> XmlVisitor<'a> for SendValueVisitor<'a> {
         nodes: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
     ) -> Result<(), ironposh_xml::XmlError> {
         for node in nodes {
-            if matches!((node.tag_name().name(), node.tag_name().namespace()),
-                       (Stream::TAG_NAME, Stream::NAMESPACE)) {
+            if matches!(
+                (node.tag_name().name(), node.tag_name().namespace()),
+                (Stream::TAG_NAME, Stream::NAMESPACE)
+            ) {
                 let stream = Tag::from_node(node)?;
                 self.streams.push(stream);
             }

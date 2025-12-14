@@ -2,13 +2,17 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use futures::{lock::Mutex, SinkExt};
+use gloo_net::http::Request;
 use gloo_net::websocket::futures::WebSocket;
 use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
+    auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
     conntion_pool::{ConnectionId, SecContextInited, TrySend},
     http::{HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted},
+    NetworkProtocol, NetworkRequest,
 };
+use js_sys::Uint8Array;
 use tracing::{debug, error, info, instrument};
 
 use crate::{
@@ -64,16 +68,35 @@ impl HttpClient for GatewayHttpViaWSClient {
                 let mut auth_response: Option<HttpResponse> = None;
 
                 loop {
-                    // 1) Initialize security context
-                    let (seq, mut holder) = auth_sequence.prepare();
-                    let init =
-                        match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
+                    // 1) Initialize security context (may require KDC generator round-trips).
+                    let init = {
+                        let (seq, mut holder) = auth_sequence.prepare();
+                        let res = match seq
+                            .try_init_sec_context(auth_response.as_ref(), &mut holder)?
+                        {
                             SecContextMaybeInit::Initialized(sec) => sec,
-                            SecContextMaybeInit::RunGenerator { .. } => {
-                                error!("Kerberos authentication not supported in WASM");
-                                todo!("Kerbero not supported in WASM yet");
+                            SecContextMaybeInit::RunGenerator {
+                                mut packet,
+                                mut generator_holder,
+                            } => {
+                                info!("running generator for KDC communication (wasm)");
+                                loop {
+                                    let kdc_resp = Self::send_kdc_network_request(&packet).await?;
+                                    match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
+                                        SecContextMaybeInit::Initialized(sec) => break sec,
+                                        SecContextMaybeInit::RunGenerator {
+                                            packet: p2,
+                                            generator_holder: g2,
+                                        } => {
+                                            packet = p2;
+                                            generator_holder = g2;
+                                        }
+                                    }
+                                }
                             }
                         };
+                        res
+                    };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
                     match auth_sequence.process_sec_ctx_init(&init)? {
@@ -152,6 +175,47 @@ impl GatewayHttpViaWSClient {
 
         // -- Now it's safe to await without blocking other connections
         stream_rc.send_http(req).await
+    }
+
+    async fn send_kdc_network_request(packet: &NetworkRequest) -> Result<Vec<u8>, WasmError> {
+        info!(
+            protocol = ?packet.protocol,
+            url = %packet.url,
+            "sending KDC network request via gateway"
+        );
+        match packet.protocol {
+            NetworkProtocol::Http | NetworkProtocol::Https => {
+                let body = Uint8Array::from(packet.data.as_slice());
+
+                let response = Request::post(packet.url.as_str())
+                    .header("keep-alive", "true")
+                    .body(body)
+                    .map_err(|e| WasmError::IOError(format!("Failed to build KDC request: {e}")))?;
+
+                let response = response
+                    .send()
+                    .await
+                    .map_err(|e| WasmError::IOError(format!("Failed to send KDC request: {e}")))?;
+
+                if !response.ok() {
+                    return Err(WasmError::Generic(format!(
+                        "KDC proxy responded with status {} {}",
+                        response.status(),
+                        response.status_text()
+                    )));
+                }
+
+                let reply = response
+                    .binary()
+                    .await
+                    .map_err(|e| WasmError::IOError(format!("Failed to read KDC response: {e}")))?;
+
+                Ok(reply)
+            }
+            unsupported => Err(WasmError::Generic(format!(
+                "Unsupported KDC network protocol: {unsupported:?}"
+            ))),
+        }
     }
 }
 

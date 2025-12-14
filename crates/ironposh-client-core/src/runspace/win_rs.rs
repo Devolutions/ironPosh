@@ -322,7 +322,10 @@ impl WinRunspace {
         data: &'a [String],
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
         use ironposh_winrm::{
-            cores::{Tag, tag_name::{Send, Stream}},
+            cores::{
+                Tag,
+                tag_name::{Send, Stream},
+            },
             rsp::send::SendValue,
             soap::body::SoapBody,
         };
@@ -338,9 +341,7 @@ impl WinRunspace {
             })
             .collect();
 
-        let send_value = SendValue::builder()
-            .streams(streams)
-            .build();
+        let send_value = SendValue::builder().streams(streams).build();
 
         // Add send tag with SendValue containing multiple streams
         let send_tag = if let Some(cmd_id) = command_id {

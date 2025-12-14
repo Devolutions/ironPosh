@@ -31,7 +31,7 @@ impl Display for Container {
 }
 
 /// Enums specify a value of an enumeration.
-/// 
+///
 /// An enumeration is a distinct type consisting of a set of named constants. Every enumeration type has an underlying type, which can be any integral type. The default underlying type of the enumeration elements is a 32-bit integer (see section 2.2.5.1.11). Enums never have adapted properties (see section 2.2.5.3.4.1).
 /// XML Element: element corresponding to the primitive integer type (see section 2.2.5.1) that is underlying the enumeration type.
 /// XML Contents: value of the enumeration converted to the underlying type.

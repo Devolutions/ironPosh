@@ -65,9 +65,7 @@ impl TryFrom<ComplexObject> for PipelineResultTypes {
 
     fn try_from(value: ComplexObject) -> Result<Self, crate::PowerShellRemotingError> {
         match value.content {
-            ComplexObjectContent::PsEnums(PsEnums { value: val }) => {
-                Ok(Self::from(val))
-            }
+            ComplexObjectContent::PsEnums(PsEnums { value: val }) => Ok(Self::from(val)),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(
                 "PipelineResultTypes must be an enum".to_string(),
             )),

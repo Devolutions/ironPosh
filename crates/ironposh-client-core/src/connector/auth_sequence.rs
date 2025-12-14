@@ -7,8 +7,8 @@ use crate::{
     PwshCoreError,
     connector::{
         authenticator::{
-            SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiContext, SspiConfig,
-            Token,
+            SecContextMaybeInit, SecurityContextBuilder, SspiAuthenticator, SspiConfig,
+            SspiContext, Token,
         },
         config::{AuthenticatorConfig, SspiAuthConfig},
         conntion_pool::{ConnectionId, TrySend},

@@ -3,6 +3,9 @@ resolver = "3"
 # Define the members of the workspace. Currently, it includes the main crate.
 members = ["crates/*"]
 
+[patch.crates-io]
+sspi = { path = "D:/sspi-rs" }
+
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }

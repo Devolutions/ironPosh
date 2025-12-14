@@ -80,6 +80,14 @@ pub fn serialize_http_request(request: &HttpRequest) -> Result<Vec<u8>> {
         }
     }
 
+    // Some servers (notably WinRM/WSMan) require Content-Length for POST/PUT even
+    // when there is no body.
+    if matches!(request.method, Method::Post | Method::Put)
+        && matches!(&request.body, None | Some(HttpBody::None))
+    {
+        buffer.extend_from_slice(b"Content-Length: 0\r\n");
+    }
+
     // No body - just end headers
     buffer.extend_from_slice(b"\r\n");
 

@@ -12,6 +12,8 @@ use crate::error::WasmError;
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct WasmWinRmConfig {
+    #[serde(default)]
+    pub auth: WasmAuthMethod,
     pub server: String,
     pub port: u16,
     pub use_https: bool,
@@ -21,8 +23,20 @@ pub struct WasmWinRmConfig {
     pub locale: Option<String>,
     pub gateway_url: String,
     pub gateway_token: String,
+    pub kdc_proxy_url: Option<String>,
+    pub client_computer_name: Option<String>,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WasmAuthMethod {
+    #[default]
+    Basic,
+    Ntlm,
+    Kerberos,
+    Negotiate,
 }
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
