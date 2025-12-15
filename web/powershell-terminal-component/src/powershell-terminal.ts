@@ -22,6 +22,8 @@ export interface PowerShellConnectionConfig {
   username: string;
   password: string;
   use_https?: boolean;
+  kdc_proxy_url?: string;
+  client_computer_name?: string;
 }
 
 export interface PowerShellTerminalConfig {
@@ -179,6 +181,8 @@ export class PowerShellTerminalElement extends HTMLElement {
         locale: "en-US",
         cols: this.terminal.cols,
         rows: this.terminal.rows,
+        kdc_proxy_url: config.kdc_proxy_url,
+        client_computer_name: config.client_computer_name,
       };
 
       console.log("Connecting with config:", { ...config, password: "*****" });
@@ -329,9 +333,10 @@ export class PowerShellTerminalElement extends HTMLElement {
         continue;
       }
       if ("PipelineError" in event) {
-        const err = event.PipelineError.error;
-        this.terminal.writeln(`\x1b[31mError: ${err}\x1b[0m`);
-        this.emitEvent({ type: "error", detail: new Error(err) });
+        const errRecord = event.PipelineError.error;
+        const errMessage = errRecord.normal_formated_message || errRecord.fully_qualified_error_id || "Unknown error";
+        this.terminal.writeln(`\x1b[31mError: ${errMessage}\x1b[0m`);
+        this.emitEvent({ type: "error", detail: new Error(errMessage) });
         continue;
       }
       if ("PipelineFinished" in event) break;

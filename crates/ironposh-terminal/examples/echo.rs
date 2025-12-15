@@ -21,8 +21,9 @@ fn main() -> Result<()> {
 
             // Only handle actual key presses; ignore Repeat/Release
             if let Event::Key(KeyEvent { kind, .. }) = ev
-                && kind != KeyEventKind::Press {
-                    continue;
+                && kind != KeyEventKind::Press
+            {
+                continue;
             }
 
             match ev {
