@@ -3,6 +3,9 @@ name = "ironposh-web"
 version = "0.1.0"
 authors = ["irving ou <jou@devolutions.net>"]
 edition = "2018"
+description = "PowerShell Remoting over WinRM for WebAssembly"
+repository = "https://github.com/Devolutions/ironPosh"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
