@@ -68,6 +68,12 @@ jobs:
         working-directory: crates/ironposh-web
         run: wasm-pack build --target web
 
+      - name: Upload WASM pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironposh-web-pkg
+          path: crates/ironposh-web/pkg/
+
   web-build:
     name: Web Projects Build
     needs: wasm-build-test
