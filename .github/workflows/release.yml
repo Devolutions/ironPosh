@@ -9,8 +9,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  publish-wasm:
-    name: Publish WASM to NPM
+  # Build artifacts that will be attached to the release
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,9 +25,35 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build WASM
+      - name: Build WASM Package
         working-directory: crates/ironposh-web
         run: wasm-pack build --target web
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironposh-web-pkg
+          path: crates/ironposh-web/pkg/
+
+      # Add more build steps here as needed:
+      # - Build CLI binaries for different platforms
+      # - Build other npm packages
+
+  # Publish npm packages
+  publish-npm:
+    name: Publish to NPM
+    needs: build
+    runs-on: ubuntu-latest
+    # Set PUBLISH_NPM=true in repo variables to enable
+    if: ${{ vars.PUBLISH_NPM == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ironposh-web-pkg
+          path: crates/ironposh-web/pkg
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,22 +61,32 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish to NPM
+      - name: Publish ironposh-web
         working-directory: crates/ironposh-web/pkg
-        run: npm publish
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # Add more npm publish steps here as needed
+
+  # Create GitHub Release with artifacts
   create-release:
     name: Create GitHub Release
-    needs: publish-wasm
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
+          files: |
+            artifacts/**/*
