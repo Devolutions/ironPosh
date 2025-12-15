@@ -66,7 +66,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             WasmAuthMethod::Ntlm => {
                 let client_username =
                     ClientUserName::new(&username, domain).expect("Invalid username/domain");
-                let identity = ClientAuthIdentity::new(client_username, password.clone());
+                let identity = ClientAuthIdentity::new(client_username, password);
 
                 AuthenticatorConfig::Sspi {
                     sspi: SspiAuthConfig::NTLM {
@@ -79,7 +79,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             WasmAuthMethod::Kerberos => {
                 let client_username =
                     ClientUserName::new(&username, domain).expect("Invalid username/domain");
-                let identity = ClientAuthIdentity::new(client_username, password.clone());
+                let identity = ClientAuthIdentity::new(client_username, password);
 
                 let kdc_url = kdc_proxy_url
                     .as_ref()
@@ -92,7 +92,6 @@ impl From<WasmWinRmConfig> for WinRmConfig {
                         kerberos_config: KerberosConfig {
                             kdc_url,
                             client_computer_name: client_computer_name
-                                .clone()
                                 .unwrap_or_else(|| server.to_string()),
                         },
                     },
@@ -102,7 +101,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             WasmAuthMethod::Negotiate => {
                 let client_username =
                     ClientUserName::new(&username, domain).expect("Invalid username/domain");
-                let identity = ClientAuthIdentity::new(client_username, password.clone());
+                let identity = ClientAuthIdentity::new(client_username, password);
 
                 let kdc_url = kdc_proxy_url
                     .as_ref()
@@ -115,7 +114,6 @@ impl From<WasmWinRmConfig> for WinRmConfig {
                         kerberos_config: Some(KerberosConfig {
                             kdc_url,
                             client_computer_name: client_computer_name
-                                .clone()
                                 .unwrap_or_else(|| server.to_string()),
                         }),
                     },

@@ -20,10 +20,9 @@ fn main() -> Result<()> {
             let ev = event::read()?;
 
             // Only handle actual key presses; ignore Repeat/Release
-            if let Event::Key(KeyEvent { kind, .. }) = ev {
-                if kind != KeyEventKind::Press {
+            if let Event::Key(KeyEvent { kind, .. }) = ev
+                && kind != KeyEventKind::Press {
                     continue;
-                }
             }
 
             match ev {
