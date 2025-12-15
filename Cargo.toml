@@ -4,7 +4,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [patch.crates-io]
-sspi = { path = "D:/sspi-rs" }
+sspi = { git = "https://github.com/Devolutions/sspi-rs", rev = "ab9ea0fc99d0ba111f11d8d7e8dc3e8d3ab85dff" }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
