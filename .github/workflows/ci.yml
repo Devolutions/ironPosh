@@ -95,6 +95,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
+      - name: Build Gateway Token Service
+        working-directory: web/gateway-token-service
+        run: |
+          npm ci
+          npm run build
+
       - name: Build Terminal Component
         working-directory: web/powershell-terminal-component
         run: |
