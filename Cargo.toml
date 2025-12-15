@@ -32,3 +32,8 @@ wildcard_imports = { level = "allow" }
 
 #nursery exceptions
 missing_const_for_fn = { level = "allow" }
+# Allow for tests with conditional compilation
+too_many_lines = { level = "allow" }
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn" }  # Allow cfg(disabled_temporarily) without error

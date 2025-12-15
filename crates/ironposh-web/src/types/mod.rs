@@ -120,7 +120,7 @@ impl From<&ErrorRecord> for WasmErrorRecord {
             command_name: value.command_name.clone(),
             was_thrown_from_throw_statement: value.was_thrown_from_throw_statement,
             fully_qualified_error_id: value.fully_qualified_error_id.clone(),
-            target_object: value.target_object.as_ref().map(Clone::clone),
+            target_object: value.target_object.clone(),
             error_category: value.error_category.as_ref().map(|ec| ec.category),
             serialize_extended_info: value.serialize_extended_info,
         }
