@@ -719,7 +719,7 @@ mod tests {
     fn test_command_not_found_error() {
         let category = ErrorCategory::builder()
             .category(13)
-            .activity(Some("".to_string()))
+            .activity(Some(String::new()))
             .reason(Some("CommandNotFoundException".to_string()))
             .target_name(Some("ea".to_string()))
             .target_type(Some("String".to_string()))

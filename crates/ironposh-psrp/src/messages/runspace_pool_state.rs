@@ -162,7 +162,7 @@ mod tests {
         let exception = PsValue::Primitive(PsPrimitiveValue::Str("Test error".to_string()));
         let state = RunspacePoolStateMessage::builder()
             .runspace_state(RunspacePoolStateValue::Broken)
-            .exception_as_error_record(Some(exception.clone()))
+            .exception_as_error_record(Some(exception))
             .build();
 
         let complex_obj = ComplexObject::from(state.clone());

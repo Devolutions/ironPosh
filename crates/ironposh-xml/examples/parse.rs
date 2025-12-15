@@ -45,7 +45,7 @@ pub fn main() {
                         println!(
                             "|  Child Tag Type: {:?}",
                             great_great_grandchild.node_type()
-                        )
+                        );
                     }
                     println!("==========================");
                 }

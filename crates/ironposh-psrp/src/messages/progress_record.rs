@@ -290,7 +290,7 @@ mod tests {
             .seconds_remaining(Some(30))
             .build();
 
-        let complex_obj = ComplexObject::from(record.clone());
+        let complex_obj = ComplexObject::from(record);
         let roundtrip = ProgressRecord::try_from(complex_obj).unwrap();
 
         // Parent activity ID should be None due to builder transform filtering negative values

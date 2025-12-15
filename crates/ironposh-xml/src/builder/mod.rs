@@ -129,12 +129,12 @@ mod tests {
         assert!(
             xml_string.starts_with(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?> "#)
         );
-        assert!(xml_string.contains(r#"<ns1:root"#));
+        assert!(xml_string.contains(r"<ns1:root"));
         assert!(xml_string.contains(r#"xmlns:ns1="http://example.com/ns1""#));
         assert!(xml_string.contains(r#"xmlns:ns2="http://example.com/ns2""#));
         assert!(xml_string.contains(r#"attr1="value1""#));
         assert!(xml_string.contains(r#"<ns2:child attr2="value2"/>"#));
-        assert!(xml_string.ends_with(r#"</ns1:root>"#));
+        assert!(xml_string.ends_with(r"</ns1:root>"));
     }
 
     #[test]
@@ -476,7 +476,7 @@ mod tests {
         let xml_string = builder.to_xml_string().unwrap();
         // Check key components due to HashMap ordering
         assert!(xml_string.contains(r#"<root xmlns:ns1="http://example.com/ns1""#));
-        assert!(xml_string.contains(r#"<ns2:child"#));
+        assert!(xml_string.contains(r"<ns2:child"));
         assert!(xml_string.contains(r#"xmlns:override="http://example.com/ns1""#));
         assert!(xml_string.contains(r#"xmlns:ns2="http://example.com/ns2""#));
         assert!(xml_string.ends_with("/></root>"));
