@@ -61,7 +61,7 @@ jobs:
         run: NODE_AUTH_TOKEN="" npm publish --provenance --access public
 
       - name: Update Artifactory Cache
-        run: gh workflow run update-artifactory-cache.yml --repo Devolutions/scheduled-tasks -f package_name='@devolutions/ironposh-web'
+        run: gh workflow run update-artifactory-cache.yml --repo Devolutions/scheduled-tasks --field package_name="ironposh-web"
         env:
           GH_TOKEN: ${{ secrets.DEVOLUTIONSBOT_WRITE_TOKEN }}
 
