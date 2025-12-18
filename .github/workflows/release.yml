@@ -59,8 +59,6 @@ jobs:
       - name: Publish to NPM
         working-directory: crates/ironposh-web/pkg
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.DEVOLUTIONSBOT_WRITE_TOKEN }}
 
       - name: Update Artifactory Cache
         run: gh workflow run update-artifactory-cache.yml --repo Devolutions/scheduled-tasks --field package_name="@devolutions/ironposh-web"
