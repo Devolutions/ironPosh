@@ -3,13 +3,8 @@ name: Release
 on:
   push:
     tags:
-      # Use prefixed tags for different release types
       # npm/ironposh-web/v1.0.0 - Release WASM npm package
-      # rust/v1.0.0            - Release all Rust crates (future)
-      # cli/v1.0.0             - Release CLI binaries (future)
       - "npm/ironposh-web/v*"
-      - "rust/v*"
-      - "cli/v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -26,7 +21,6 @@ jobs:
     name: Release ironposh-web (npm)
     runs-on: ubuntu-latest
     environment: npm-publish
-    if: startsWith(github.ref, 'refs/tags/npm/ironposh-web/')
     permissions:
       contents: read
       id-token: write  # Required for npm provenance (OIDC)
