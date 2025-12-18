@@ -10,6 +10,12 @@ on:
       - "npm/ironposh-web/v*"
       - "rust/v*"
       - "cli/v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., npm/ironposh-web/v0.1.1)'
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
