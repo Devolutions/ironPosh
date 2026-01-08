@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xml:lang="en-US"
+    xmlns:s="http://wrong.namespace.example.com/soap"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReceiveResponse</a:Action>
+        <a:MessageID>uuid:12345678-1234-1234-1234-123456789012</a:MessageID>
+    </s:Header>
+    <s:Body>
+        <rsp:ReceiveResponse>
+            <rsp:Stream Name="stdout">SGVsbG8gV29ybGQ=</rsp:Stream>
+        </rsp:ReceiveResponse>
+    </s:Body>
+</s:Envelope>

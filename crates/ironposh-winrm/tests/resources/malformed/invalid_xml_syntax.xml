@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+    <s:Header>
+        <a:Action>http://test</Action>  <!-- mismatched tags -->
+    </s:Header>
+    <s:Body>
+    </s:Body>
+</s:Envelope>

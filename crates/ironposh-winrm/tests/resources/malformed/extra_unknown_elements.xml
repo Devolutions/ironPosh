@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd"
+    xmlns:custom="http://example.com/custom">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReceiveResponse</a:Action>
+        <a:MessageID>uuid:12345678-1234-1234-1234-123456789012</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+        <custom:UnknownHeader>Some unknown header value</custom:UnknownHeader>
+        <custom:AnotherUnknown attr="value">
+            <custom:Nested>Nested content</custom:Nested>
+        </custom:AnotherUnknown>
+    </s:Header>
+    <s:Body>
+        <rsp:ReceiveResponse>
+            <rsp:Stream Name="stdout">SGVsbG8gV29ybGQ=</rsp:Stream>
+            <custom:UnknownElement>Should be ignored</custom:UnknownElement>
+        </rsp:ReceiveResponse>
+        <custom:ExtraBodyElement>This should also be ignored</custom:ExtraBodyElement>
+    </s:Body>
+</s:Envelope>
