@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, Scheme, WinRmConfig},
-    AuthenticatorConfig, SspiAuthConfig,
+    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig},
+    AuthenticatorConfig, SspiAuthConfig, TransportSecurity,
 };
 use ironposh_psrp::{HostDefaultData, Size};
 use std::sync::OnceLock;
@@ -76,12 +76,17 @@ pub struct Args {
     #[arg(long, help = "Client computer name for Kerberos authentication")]
     pub client_computer_name: Option<String>,
 
-    /// Use HTTPS instead of HTTP
+    /// Use HTTPS instead of HTTP (TLS provides security, SSPI sealing not needed)
     #[arg(long, help = "Use HTTPS (default: HTTP)")]
     pub https: bool,
 
-    #[arg(long, help = "No sspi encrypted session", default_value_t = false)]
-    pub no_encryption: bool,
+    /// DANGEROUS: Use HTTP without SSPI message sealing.
+    /// Only use for testing/debugging. Post-auth messages will be unencrypted!
+    #[arg(
+        long,
+        help = "DANGEROUS: HTTP without SSPI sealing (insecure, for testing only)"
+    )]
+    pub http_insecure: bool,
 
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
@@ -154,17 +159,21 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 }
 
 /// Create connector configuration from command line arguments
-#[expect(clippy::too_many_lines)]
 pub fn create_connector_config(
     args: &Args,
     cols: u16,
     rows: u16,
 ) -> Result<WinRmConfig, anyhow::Error> {
     let server = ServerAddress::parse(&args.server)?;
-    let scheme = if args.https {
-        Scheme::Https
+
+    // Determine transport security from CLI flags
+    let transport = if args.https {
+        TransportSecurity::Https
+    } else if args.http_insecure {
+        tracing::warn!("Using HTTP without SSPI sealing - this is INSECURE!");
+        TransportSecurity::HttpInsecure
     } else {
-        Scheme::Http
+        TransportSecurity::Http
     };
 
     let domain = if args.domain.trim().is_empty() {
@@ -185,13 +194,10 @@ pub fn create_connector_config(
                 client_username,
                 args.password.clone(),
             );
-            AuthenticatorConfig::Sspi {
-                sspi: SspiAuthConfig::NTLM {
-                    target: args.server.clone(),
-                    identity,
-                },
-                require_encryption: !args.no_encryption,
-            }
+            AuthenticatorConfig::Sspi(SspiAuthConfig::NTLM {
+                target: args.server.clone(),
+                identity,
+            })
         }
         AuthMethod::Kerberos => {
             let client_username =
@@ -204,22 +210,16 @@ pub fn create_connector_config(
 
             let kdc_url = args.kdc_url.as_ref().map(|url| url.parse()).transpose()?;
 
-            AuthenticatorConfig::Sspi {
-                sspi: SspiAuthConfig::Kerberos {
-                    target: args.server.clone(),
-                    identity,
-                    kerberos_config: KerberosConfig {
-                        kdc_url,
-                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
-                            || {
-                                whoami::fallible::hostname()
-                                    .unwrap_or_else(|_| "localhost".to_string())
-                            },
-                        ),
-                    },
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Kerberos {
+                target: args.server.clone(),
+                identity,
+                kerberos_config: KerberosConfig {
+                    kdc_url,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
+                    }),
                 },
-                require_encryption: !args.no_encryption,
-            }
+            })
         }
         AuthMethod::Negotiate => {
             let client_username =
@@ -228,22 +228,16 @@ pub fn create_connector_config(
                 client_username,
                 args.password.clone(),
             );
-            AuthenticatorConfig::Sspi {
-                sspi: SspiAuthConfig::Negotiate {
-                    target: args.server.clone(),
-                    identity,
-                    kerberos_config: Some(KerberosConfig {
-                        kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
-                        client_computer_name: args.client_computer_name.clone().unwrap_or_else(
-                            || {
-                                whoami::fallible::hostname()
-                                    .unwrap_or_else(|_| "localhost".to_string())
-                            },
-                        ),
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
+                target: args.server.clone(),
+                identity,
+                kerberos_config: Some(KerberosConfig {
+                    kdc_url: args.kdc_url.as_ref().map(|url| url.parse()).transpose()?,
+                    client_computer_name: args.client_computer_name.clone().unwrap_or_else(|| {
+                        whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string())
                     }),
-                },
-                require_encryption: !args.no_encryption,
-            }
+                }),
+            })
         }
     };
 
@@ -271,7 +265,7 @@ pub fn create_connector_config(
 
     Ok(WinRmConfig {
         server: (server, args.port),
-        scheme,
+        transport,
         authentication: auth,
         host_info,
     })

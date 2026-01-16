@@ -99,7 +99,7 @@ impl From<&WinRmConfig> for ConnectionPoolConfig {
     fn from(w: &WinRmConfig) -> Self {
         Self {
             server: w.server.clone(),
-            scheme: w.scheme.clone(),
+            scheme: w.transport.scheme(),
         }
     }
 }
@@ -137,7 +137,7 @@ impl ConnectionPool {
         HttpBuilder::new(
             self.sever_config.server.clone(),
             self.sever_config.port,
-            self.sever_config.scheme.clone(),
+            self.sever_config.scheme,
         )
     }
 

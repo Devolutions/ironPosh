@@ -134,6 +134,7 @@ impl TryFrom<ComplexObject> for PipelineHostCall {
 
         let method_id = match &mi_obj.content {
             ComplexObjectContent::PsEnums(ps_enums) => ps_enums.value,
+            ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(value)) => *value,
             _ => {
                 return Err(Self::Error::InvalidMessage(
                     "Method identifier content is not an I32 or Enum".to_string(),

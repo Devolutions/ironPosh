@@ -8,6 +8,7 @@ pub mod powershell;
 pub mod runspace;
 pub mod runspace_pool;
 
+pub use connector::TransportSecurity;
 pub use connector::config::{AuthenticatorConfig, KerberosConfig, SspiAuthConfig};
 pub use credentials::ClientAuthIdentity;
 

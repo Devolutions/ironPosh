@@ -83,12 +83,52 @@ export async function generateSessionToken(
   return response.text();
 }
 
+export type GatewayTransport = 'Tcp' | 'Tls';
+
 export function processToken(
   gatewayAddress: string,
   token: string,
-  sessionId: string
+  sessionId: string,
+  transport: GatewayTransport = 'Tcp'
 ): string {
-  return `${gatewayAddress}/jet/fwd/tcp/${sessionId}?token=${token}`;
+  const fwdPath = transport === 'Tls' ? 'tls' : 'tcp';
+  return `${gatewayAddress}/jet/fwd/${fwdPath}/${sessionId}?token=${token}`;
+}
+
+export function getProtocolForTransport(transport: GatewayTransport): string {
+  return transport === 'Tls' ? 'winrm-https-pwsh' : 'winrm-http-pwsh';
+}
+
+export function getDestinationScheme(transport: GatewayTransport): string {
+  return transport === 'Tls' ? 'tls' : 'tcp';
+}
+
+export type SecurityWarning = 'GatewayChannelInsecure' | 'DestinationChannelInsecure' | 'BothChannelsInsecure';
+
+export function checkSecurity(
+  gatewayUrl: string,
+  transport: GatewayTransport,
+  forceInsecure: boolean = false
+): SecurityWarning[] {
+  const gatewaySecure = gatewayUrl.startsWith('wss://') || gatewayUrl.startsWith('https://');
+  const sspiEnabled = transport === 'Tcp' && !forceInsecure;
+  const destinationSecure = transport === 'Tls' || sspiEnabled;
+
+  // SSPI is end-to-end encryption - if enabled, data is always secure regardless of gateway
+  if (sspiEnabled) {
+    return []; // End-to-end SSPI encryption - always secure
+  }
+
+  // No SSPI - check both channels
+  if (gatewaySecure && destinationSecure) {
+    return []; // WSS + TLS
+  } else if (!gatewaySecure && !destinationSecure) {
+    return ['BothChannelsInsecure']; // WS + TCP without SSPI
+  } else if (!gatewaySecure) {
+    return ['GatewayChannelInsecure']; // WS + TLS (gateway exposed)
+  } else {
+    return ['DestinationChannelInsecure']; // WSS + TCP without SSPI (destination exposed)
+  }
 }
 
 export function uuidv4(): string {

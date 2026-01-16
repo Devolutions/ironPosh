@@ -2,7 +2,9 @@ use std::convert::TryFrom;
 
 use crate::{
     error::WasmError,
-    types::{WasmAuthMethod, WasmPowerShellEvent, WasmWinRmConfig},
+    types::{
+        GatewayTransport, SecurityWarning, WasmAuthMethod, WasmPowerShellEvent, WasmWinRmConfig,
+    },
     WasmErrorRecord,
 };
 use ironposh_client_core::{
@@ -10,21 +12,60 @@ use ironposh_client_core::{
     connector::{
         config::{AuthenticatorConfig, KerberosConfig, SspiAuthConfig},
         http::ServerAddress,
-        Scheme, WinRmConfig,
+        TransportSecurity, WinRmConfig,
     },
     credentials::{ClientAuthIdentity, ClientUserName},
 };
 use ironposh_psrp::messages::init_runspace_pool::{HostDefaultData, HostInfo, Size};
 use tracing::warn;
 
-// Convert WASM config to internal config
+// =============================================================================
+// Security Check
+// =============================================================================
+
+impl WasmWinRmConfig {
+    /// Check the configuration for security issues and return any warnings.
+    /// Returns an empty vec if the configuration is secure.
+    ///
+    /// Security model:
+    /// - SSPI (TCP + !force_insecure) provides END-TO-END encryption.
+    ///   Data is encrypted in the browser and decrypted only at the target server.
+    ///   Gateway just forwards encrypted bytes, so gateway channel security doesn't matter.
+    /// - TLS provides encryption for the destination channel only.
+    ///   Gateway channel security matters in this case.
+    pub fn check_security(&self) -> Vec<SecurityWarning> {
+        let gateway_secure = self.gateway_url.starts_with("wss://");
+
+        // Check if SSPI sealing is enabled (TCP transport without force_insecure)
+        let sspi_enabled = matches!(self.destination.transport, GatewayTransport::Tcp)
+            && !self.force_insecure.unwrap_or(false);
+
+        // SSPI is end-to-end encryption - if enabled, data is always secure regardless of gateway
+        if sspi_enabled {
+            return vec![]; // End-to-end SSPI encryption - always secure
+        }
+
+        // No SSPI - check both channels
+        let destination_secure = matches!(self.destination.transport, GatewayTransport::Tls);
+
+        match (gateway_secure, destination_secure) {
+            (true, true) => vec![],                                         // WSS + TLS
+            (false, false) => vec![SecurityWarning::BothChannelsInsecure],  // WS + TCP without SSPI
+            (false, true) => vec![SecurityWarning::GatewayChannelInsecure], // WS + TLS (gateway exposed)
+            (true, false) => vec![SecurityWarning::DestinationChannelInsecure], // WSS + TCP without SSPI
+        }
+    }
+}
+
+// =============================================================================
+// Config Conversion
+// =============================================================================
+
 impl From<WasmWinRmConfig> for WinRmConfig {
     fn from(config: WasmWinRmConfig) -> Self {
         let WasmWinRmConfig {
             auth,
-            server,
-            port,
-            use_https,
+            destination,
             username,
             password,
             domain,
@@ -35,6 +76,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             client_computer_name,
             cols,
             rows,
+            force_insecure,
         } = config;
 
         let size = Size {
@@ -42,11 +84,27 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             height: rows as i32,
         };
 
-        let server = ServerAddress::parse(&server).expect("Invalid server address");
-        let scheme = if use_https {
-            Scheme::Https
-        } else {
-            Scheme::Http
+        let server =
+            ServerAddress::parse(&destination.host).expect("Invalid destination host address");
+
+        // Determine transport security based on gateway transport mode:
+        // - TLS: Gateway wraps connection in TLS → SSPI sealing OFF (TLS provides encryption)
+        // - TCP: Gateway uses plain TCP → SSPI sealing ON (unless force_insecure)
+        let transport = match destination.transport {
+            GatewayTransport::Tls => {
+                // TLS provides encryption, SSPI sealing not needed
+                TransportSecurity::Https
+            }
+            GatewayTransport::Tcp => {
+                if force_insecure.unwrap_or(false) {
+                    // User explicitly disabled SSPI sealing - DANGEROUS!
+                    warn!("SSPI encryption disabled on TCP transport - connection is INSECURE!");
+                    TransportSecurity::HttpInsecure
+                } else {
+                    // Default: SSPI sealing enabled
+                    TransportSecurity::Http
+                }
+            }
         };
 
         let host_info = HostInfo::builder()
@@ -68,13 +126,10 @@ impl From<WasmWinRmConfig> for WinRmConfig {
                     ClientUserName::new(&username, domain).expect("Invalid username/domain");
                 let identity = ClientAuthIdentity::new(client_username, password);
 
-                AuthenticatorConfig::Sspi {
-                    sspi: SspiAuthConfig::NTLM {
-                        target: server.to_string(),
-                        identity,
-                    },
-                    require_encryption: true,
-                }
+                AuthenticatorConfig::Sspi(SspiAuthConfig::NTLM {
+                    target: destination.host.clone(),
+                    identity,
+                })
             }
             WasmAuthMethod::Kerberos => {
                 let client_username =
@@ -85,18 +140,15 @@ impl From<WasmWinRmConfig> for WinRmConfig {
                     .as_ref()
                     .map(|url| url.parse().expect("Invalid kdc_proxy_url"));
 
-                AuthenticatorConfig::Sspi {
-                    sspi: SspiAuthConfig::Kerberos {
-                        target: server.to_string(),
-                        identity,
-                        kerberos_config: KerberosConfig {
-                            kdc_url,
-                            client_computer_name: client_computer_name
-                                .unwrap_or_else(|| server.to_string()),
-                        },
+                AuthenticatorConfig::Sspi(SspiAuthConfig::Kerberos {
+                    target: destination.host.clone(),
+                    identity,
+                    kerberos_config: KerberosConfig {
+                        kdc_url,
+                        client_computer_name: client_computer_name
+                            .unwrap_or_else(|| destination.host.clone()),
                     },
-                    require_encryption: true,
-                }
+                })
             }
             WasmAuthMethod::Negotiate => {
                 let client_username =
@@ -107,24 +159,21 @@ impl From<WasmWinRmConfig> for WinRmConfig {
                     .as_ref()
                     .map(|url| url.parse().expect("Invalid kdc_proxy_url"));
 
-                AuthenticatorConfig::Sspi {
-                    sspi: SspiAuthConfig::Negotiate {
-                        target: server.to_string(),
-                        identity,
-                        kerberos_config: Some(KerberosConfig {
-                            kdc_url,
-                            client_computer_name: client_computer_name
-                                .unwrap_or_else(|| server.to_string()),
-                        }),
-                    },
-                    require_encryption: true,
-                }
+                AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
+                    target: destination.host.clone(),
+                    identity,
+                    kerberos_config: Some(KerberosConfig {
+                        kdc_url,
+                        client_computer_name: client_computer_name
+                            .unwrap_or_else(|| destination.host.clone()),
+                    }),
+                })
             }
         };
 
         Self {
-            server: (server, port),
-            scheme,
+            server: (server, destination.port),
+            transport,
             authentication,
             host_info,
         }

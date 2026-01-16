@@ -123,13 +123,15 @@ impl SspiAuthContext {
 #[derive(Debug, Clone)]
 pub struct AuthSequenceConfig {
     pub authenticator_config: AuthenticatorConfig,
+    /// Whether SSPI message sealing is required (derived from TransportSecurity)
+    pub require_sspi_sealing: bool,
 }
 
 impl AuthSequenceConfig {
-    pub fn new(config: AuthenticatorConfig) -> Self {
-        // require_encryption is now embedded in the AuthenticatorConfig::Sspi variant
+    pub fn new(config: AuthenticatorConfig, require_sspi_sealing: bool) -> Self {
         Self {
             authenticator_config: config,
+            require_sspi_sealing,
         }
     }
 }
@@ -312,11 +314,9 @@ impl BasicAuthSequence {
 impl AuthSequence {
     pub fn new(cfg: &AuthSequenceConfig, http: HttpBuilder) -> Result<Self, PwshCoreError> {
         match &cfg.authenticator_config {
-            AuthenticatorConfig::Sspi {
-                sspi,
-                require_encryption,
-            } => {
-                let sspi_auth = SspiAuthSequence::new(sspi.clone(), *require_encryption, http)?;
+            AuthenticatorConfig::Sspi(sspi) => {
+                let sspi_auth =
+                    SspiAuthSequence::new(sspi.clone(), cfg.require_sspi_sealing, http)?;
                 Ok(Self::Sspi(sspi_auth))
             }
             AuthenticatorConfig::Basic { username, password } => {

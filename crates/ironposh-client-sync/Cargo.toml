@@ -13,7 +13,8 @@ ironposh-psrp = { version = "0.1.0", path = "../ironposh-psrp", features = [
     "crossterm",
 ] }
 ironposh-terminal = { version = "0.1.0", path = "../ironposh-terminal" }
-ureq = "2.10"
+ureq = { version = "2.10", default-features = false, features = ["native-tls", "gzip"] }
+native-tls = "0.2"
 anyhow = "1.0"
 regex = "1.0"
 tracing = "0.1.41"

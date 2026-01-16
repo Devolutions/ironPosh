@@ -1,4 +1,4 @@
-use super::HostDefaultData;
+use super::{Coordinates, HostDefaultData, Size};
 use crate::ps_value::{
     ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
 };
@@ -137,13 +137,8 @@ impl TryFrom<ComplexObject> for HostInfo {
         let is_host_raw_ui_null = get_bool_property("_isHostRawUINull").unwrap_or(false);
         let use_runspace_host = get_bool_property("_useRunspaceHost").unwrap_or(false);
 
-        let host_default_data = value
-            .extended_properties
-            .get("_hostDefaultData")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing property: _hostDefaultData".to_string())
-            })
-            .and_then(|prop| match &prop.value {
+        let host_default_data = match value.extended_properties.get("_hostDefaultData") {
+            Some(prop) => match &prop.value {
                 PsValue::Object(host_data_obj) => {
                     let data_prop =
                         host_data_obj
@@ -171,7 +166,34 @@ impl TryFrom<ComplexObject> for HostInfo {
                 PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(
                     "Expected Object for _hostDefaultData property".to_string(),
                 )),
-            })?;
+            }?,
+            None => HostDefaultData {
+                foreground_color: 7,
+                background_color: 0,
+                cursor_position: Coordinates::default(),
+                window_position: Coordinates::default(),
+                cursor_size: 25,
+                buffer_size: Size {
+                    width: 120,
+                    height: 3000,
+                },
+                window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                max_window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                max_physical_window_size: Size {
+                    width: 120,
+                    height: 50,
+                },
+                window_title: "PowerShell".to_string(),
+                locale: "en-US".to_string(),
+                ui_locale: "en-US".to_string(),
+            },
+        };
 
         Ok(Self {
             is_host_null,

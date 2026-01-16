@@ -212,7 +212,10 @@ mod tests {
         let mut cursor = Cursor::new(message);
         let result = PowerShellRemotingMessage::parse(&mut cursor);
 
-        assert!(result.is_ok(), "Valid client message should parse: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Valid client message should parse: {result:?}"
+        );
 
         let msg = result.unwrap();
         assert!(matches!(msg.destination, Destination::Client));
@@ -236,7 +239,10 @@ mod tests {
         let mut cursor = Cursor::new(message);
         let result = PowerShellRemotingMessage::parse(&mut cursor);
 
-        assert!(result.is_ok(), "Valid server message should parse: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Valid server message should parse: {result:?}"
+        );
 
         let msg = result.unwrap();
         assert!(matches!(msg.destination, Destination::Server));
@@ -340,7 +346,10 @@ mod tests {
         let result = PowerShellRemotingMessage::parse(&mut cursor);
 
         // Header parsing should succeed (data is opaque bytes)
-        assert!(result.is_ok(), "Header should parse even with invalid UTF-8 data");
+        assert!(
+            result.is_ok(),
+            "Header should parse even with invalid UTF-8 data"
+        );
 
         let msg = result.unwrap();
         // But parsing the PS message content should fail
@@ -377,12 +386,12 @@ mod tests {
 
         let msg = result.unwrap();
         let ps_result = msg.parse_ps_message();
-        assert!(
-            ps_result.is_err(),
-            "Invalid XML should fail: {ps_result:?}"
-        );
+        assert!(ps_result.is_err(), "Invalid XML should fail: {ps_result:?}");
 
-        println!("Invalid XML correctly rejected: {:?}", ps_result.unwrap_err());
+        println!(
+            "Invalid XML correctly rejected: {:?}",
+            ps_result.unwrap_err()
+        );
     }
 
     /// Test: Valid XML but wrong structure (not CLIXML)
@@ -486,7 +495,10 @@ mod tests {
         let mut cursor = Cursor::new(message);
         let result = PowerShellRemotingMessage::parse(&mut cursor);
 
-        assert!(result.is_ok(), "Large payload should parse header: {result:?}");
+        assert!(
+            result.is_ok(),
+            "Large payload should parse header: {result:?}"
+        );
 
         let msg = result.unwrap();
         assert_eq!(msg.data.len(), 1024 * 1024);

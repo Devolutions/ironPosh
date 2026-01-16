@@ -86,7 +86,11 @@ impl UreqHttpClient {
             total_agents = map.len(),
             "creating new HTTP agent for connection"
         );
+        let tls_connector = std::sync::Arc::new(
+            native_tls::TlsConnector::new().expect("failed to create TLS connector"),
+        );
         let agent = ureq::AgentBuilder::new()
+            .tls_connector(tls_connector)
             .timeout_connect(self.connect_timeout)
             .timeout_read(self.read_timeout)
             .build();

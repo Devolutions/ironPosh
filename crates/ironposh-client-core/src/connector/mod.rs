@@ -30,16 +30,59 @@ pub mod conntion_pool;
 pub mod encryption;
 pub mod http;
 
-#[derive(Debug, Clone)]
+/// Internal scheme type for URL building
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scheme {
     Http,
     Https,
 }
 
+/// Transport security configuration - invalid states are unrepresentable.
+///
+/// This enum enforces correct security settings:
+/// - `Http`: HTTP with SSPI message sealing (required for security over unencrypted transport)
+/// - `Https`: HTTPS with TLS encryption (SSPI sealing not needed, TLS handles it)
+/// - `HttpInsecure`: HTTP without SSPI sealing - **DANGEROUS**, use only for testing/debugging
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportSecurity {
+    /// HTTP transport with SSPI message sealing enabled.
+    /// This is the secure way to use HTTP - all post-auth messages are encrypted via SSPI.
+    Http,
+
+    /// HTTPS transport with TLS encryption.
+    /// SSPI message sealing is not needed since TLS provides encryption and integrity.
+    Https,
+
+    /// HTTP transport WITHOUT SSPI message sealing.
+    /// **WARNING: This is insecure!** Post-auth messages are sent unencrypted.
+    /// Only use for testing, debugging, or legacy compatibility.
+    HttpInsecure,
+}
+
+impl TransportSecurity {
+    /// Get the underlying HTTP scheme for URL construction
+    pub fn scheme(&self) -> Scheme {
+        match self {
+            Self::Http | Self::HttpInsecure => Scheme::Http,
+            Self::Https => Scheme::Https,
+        }
+    }
+
+    /// Whether SSPI message sealing (wrap/unwrap) should be used
+    pub fn requires_sspi_sealing(&self) -> bool {
+        matches!(self, Self::Http)
+    }
+
+    /// Whether this transport configuration is considered secure
+    pub fn is_secure(&self) -> bool {
+        !matches!(self, Self::HttpInsecure)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WinRmConfig {
     pub server: (ServerAddress, u16),
-    pub scheme: Scheme,
+    pub transport: TransportSecurity,
     pub authentication: AuthenticatorConfig,
     pub host_info: HostInfo,
 }
@@ -50,7 +93,7 @@ impl WinRmConfig {
             .map(|q| format!("?{}", q.trim_start_matches('?')))
             .unwrap_or_default();
 
-        match &self.scheme {
+        match self.transport.scheme() {
             Scheme::Http => format!("http://{}:{}/wsman{}", self.server.0, self.server.1, query),
             Scheme::Https => format!("https://{}:{}/wsman{}", self.server.0, self.server.1, query),
         }
@@ -155,8 +198,10 @@ impl Connector {
                 let pool_cfg = ConnectionPoolConfig::from(&self.config);
 
                 let authenticator_cfg = self.config.authentication.clone();
+                let require_sspi_sealing = self.config.transport.requires_sspi_sealing();
 
-                let auth_sequence_config = AuthSequenceConfig::new(authenticator_cfg);
+                let auth_sequence_config =
+                    AuthSequenceConfig::new(authenticator_cfg, require_sspi_sealing);
 
                 let mut connection_pool = ConnectionPool::new(pool_cfg, auth_sequence_config);
 

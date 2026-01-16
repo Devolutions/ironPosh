@@ -38,16 +38,18 @@ impl Display for Container {
 ///
 /// Example:
 ///
-///      <Obj RefId="0">
-///        <TN RefId="0">
-///          <T>System.ConsoleColor</T>
-///          <T>System.Enum</T>
-///          <T>System.ValueType</T>
-///          <T>System.Object</T>
-///        </TN>
-///        <ToString>Blue</ToString>
-///        <I32>9</I32>
-///      </Obj>
+/// ```xml
+/// <Obj RefId="0">
+///   <TN RefId="0">
+///     <T>System.ConsoleColor</T>
+///     <T>System.Enum</T>
+///     <T>System.ValueType</T>
+///     <T>System.Object</T>
+///   </TN>
+///   <ToString>Blue</ToString>
+///   <I32>9</I32>
+/// </Obj>
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PsEnums {
     pub value: i32,

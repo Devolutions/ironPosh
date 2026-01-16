@@ -68,7 +68,7 @@ mod tests {
         }
 
         if let Some(relates_to) = &header.value.relates_to {
-            let relates_to_text: &str = relates_to.value.as_ref();
+            let relates_to_text = relates_to.value.0.to_string();
             assert!(
                 relates_to_text.contains("bead0162-a67d-424d-9e22-4a18b6aefea8"),
                 "RelatesTo should contain the expected UUID, got: {relates_to_text}"

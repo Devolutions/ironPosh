@@ -42,9 +42,7 @@ pub enum AuthenticatorConfig {
         username: String,
         password: String,
     },
-    Sspi {
-        sspi: SspiAuthConfig,
-        /// SSPI message sealing (wrap/unwrap). TLS is separate at transport level.
-        require_encryption: bool,
-    },
+    /// SSPI authentication (NTLM, Kerberos, or Negotiate).
+    /// Note: SSPI message sealing is now controlled by `TransportSecurity` in `WinRmConfig`.
+    Sspi(SspiAuthConfig),
 }

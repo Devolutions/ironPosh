@@ -366,7 +366,11 @@ mod tests {
 
     #[test]
     fn test_application_arguments_with_version_table() {
-        let args = ApplicationArguments::default();
+        // Create ApplicationArguments with a version table
+        let args = ApplicationArguments {
+            ps_version_table: Some(PSVersionTable::default()),
+            additional_arguments: BTreeMap::new(),
+        };
         assert!(!args.is_empty());
         assert!(args.ps_version_table.is_some());
     }

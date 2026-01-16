@@ -35,6 +35,66 @@ const REAL_CREATE_PIPELINE: &str = r#"
 				<B N="_isHostUINull">true</B>
 				<B N="_isHostRawUINull">true</B>
 				<B N="_useRunspaceHost">true</B>
+				<Obj N="_hostDefaultData">
+					<MS>
+						<Obj N="data">
+							<TN RefId="10">
+								<T>System.Collections.Hashtable</T>
+								<T>System.Object</T>
+							</TN>
+							<DCT>
+								<En>
+									<I32 N="Key">0</I32>
+									<Obj N="Value"><MS><S N="T">System.ConsoleColor</S><I32 N="V">7</I32></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">1</I32>
+									<Obj N="Value"><MS><S N="T">System.ConsoleColor</S><I32 N="V">0</I32></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">2</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V"><MS><I32 N="x">0</I32><I32 N="y">0</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">3</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Coordinates</S><Obj N="V"><MS><I32 N="x">0</I32><I32 N="y">0</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">4</I32>
+									<Obj N="Value"><MS><S N="T">System.Int32</S><I32 N="V">25</I32></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">5</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">3000</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">6</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">50</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">7</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">50</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">8</I32>
+									<Obj N="Value"><MS><S N="T">System.Management.Automation.Host.Size</S><Obj N="V"><MS><I32 N="width">120</I32><I32 N="height">50</I32></MS></Obj></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">9</I32>
+									<Obj N="Value"><MS><S N="T">System.String</S><S N="V">PowerShell</S></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">10</I32>
+									<Obj N="Value"><MS><S N="T">System.String</S><S N="V">en-US</S></MS></Obj>
+								</En>
+								<En>
+									<I32 N="Key">11</I32>
+									<Obj N="Value"><MS><S N="T">System.String</S><S N="V">en-US</S></MS></Obj>
+								</En>
+							</DCT>
+						</Obj>
+					</MS>
+				</Obj>
 			</MS>
 		</Obj>
 		<Obj RefId="4" N="PowerShell">
@@ -186,64 +246,80 @@ fn test_deserialize_real_create_pipeline() {
             "History should be empty string (Nil in XML)"
         );
 
-        // Verify Commands array (line 53-83)
+        // Verify Commands array - the XML has 2 commands: Invoke-Expression and Out-String
         assert_eq!(
             create_pipeline.pipeline.cmds.len(),
-            1,
-            "Should have exactly 1 command"
+            2,
+            "Should have exactly 2 commands"
         );
 
-        // Verify Command properties (lines 54-82)
-        let cmd = &create_pipeline.pipeline.cmds[0];
+        // Verify first command (Invoke-Expression)
+        let cmd1 = &create_pipeline.pipeline.cmds[0];
         assert_eq!(
-            cmd.cmd, r#"Write-Host "Remote System: $($env:COMPUTERNAME) - $(Get-Date)""#,
-            "Command text should match"
+            cmd1.cmd, "Invoke-Expression",
+            "First command should be Invoke-Expression"
         );
-        assert!(cmd.is_script, "IsScript should be true");
+        assert!(
+            !cmd1.is_script,
+            "IsScript should be false for Invoke-Expression"
+        );
         assert_eq!(
-            cmd.use_local_scope, None,
+            cmd1.use_local_scope, None,
             "UseLocalScope should be None (Nil in XML)"
         );
-        assert_eq!(cmd.args.len(), 0, "Args should be empty list");
-
-        // Verify merge properties all reference the same PipelineResultTypes::None (0)
         assert_eq!(
-            cmd.merge_my_result,
+            cmd1.args.len(),
+            1,
+            "Invoke-Expression should have 1 argument"
+        );
+
+        // Verify second command (Out-String)
+        let cmd2 = &create_pipeline.pipeline.cmds[1];
+        assert_eq!(
+            cmd2.cmd, "Out-String",
+            "Second command should be Out-String"
+        );
+        assert!(!cmd2.is_script, "IsScript should be false for Out-String");
+        assert_eq!(cmd2.args.len(), 1, "Out-String should have 1 argument");
+
+        // Verify merge properties all reference the same PipelineResultTypes::None (0) for first command
+        assert_eq!(
+            cmd1.merge_my_result,
             PipelineResultTypes::None,
             "MergeMyResult should be None (0)"
         );
         assert_eq!(
-            cmd.merge_to_result,
+            cmd1.merge_to_result,
             PipelineResultTypes::None,
             "MergeToResult should be None (0)"
         );
         assert_eq!(
-            cmd.merge_previous_results,
+            cmd1.merge_previous_results,
             PipelineResultTypes::None,
             "MergePreviousResults should be None (0)"
         );
         assert_eq!(
-            cmd.merge_error,
+            cmd1.merge_error,
             PipelineResultTypes::None,
             "MergeError should be None (0)"
         );
         assert_eq!(
-            cmd.merge_warning,
+            cmd1.merge_warning,
             PipelineResultTypes::None,
             "MergeWarning should be None (0)"
         );
         assert_eq!(
-            cmd.merge_verbose,
+            cmd1.merge_verbose,
             PipelineResultTypes::None,
             "MergeVerbose should be None (0)"
         );
         assert_eq!(
-            cmd.merge_debug,
+            cmd1.merge_debug,
             PipelineResultTypes::None,
             "MergeDebug should be None (0)"
         );
         assert_eq!(
-            cmd.merge_information,
+            cmd1.merge_information,
             PipelineResultTypes::None,
             "MergeInformation should be None (0)"
         );

@@ -83,12 +83,20 @@ export async function generateSessionToken(
   return response.text();
 }
 
+export type GatewayTransport = 'Tcp' | 'Tls';
+
 export function processToken(
   gatewayAddress: string,
   token: string,
-  sessionId: string
+  sessionId: string,
+  transport: GatewayTransport = 'Tcp'
 ): string {
-  return `${gatewayAddress}/jet/fwd/tcp/${sessionId}?token=${token}`;
+  const fwdPath = transport === 'Tls' ? 'tls' : 'tcp';
+  return `${gatewayAddress}/jet/fwd/${fwdPath}/${sessionId}?token=${token}`;
+}
+
+export function getProtocolForTransport(transport: GatewayTransport): string {
+  return transport === 'Tls' ? 'winrm-https-pwsh' : 'winrm-http-pwsh';
 }
 
 export function uuidv4(): string {

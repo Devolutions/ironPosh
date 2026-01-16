@@ -1,11 +1,21 @@
+import type { GatewayTransport } from 'gateway-token-service';
+
+export type { GatewayTransport } from 'gateway-token-service';
+
+export interface WinRmDestination {
+  host: string;
+  port: number;
+  transport: GatewayTransport;
+}
+
 export interface PowerShellConnectionConfig {
   gateway_url: string;
   gateway_token: string;
-  server: string;
-  port?: number;
+  destination: WinRmDestination;
   username: string;
   password: string;
-  use_https?: boolean;
+  domain?: string;
+  force_insecure?: boolean;
 }
 
 export interface PowerShellTerminalElement extends HTMLElement {

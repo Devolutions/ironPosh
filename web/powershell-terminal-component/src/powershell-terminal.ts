@@ -14,14 +14,22 @@ import init_wasm, {
 import { createHostCallHandler } from "./hostcall-handler";
 import wasm from "../../../crates/ironposh-web/pkg/ironposh_web_bg.wasm?url";
 
+export type GatewayTransport = "Tcp" | "Tls";
+
+export interface WinRmDestination {
+  host: string;
+  port: number;
+  transport: GatewayTransport;
+}
+
 export interface PowerShellConnectionConfig {
   gateway_url: string;
   gateway_token: string;
-  server: string;
-  port?: number;
+  destination: WinRmDestination;
   username: string;
   password: string;
-  use_https?: boolean;
+  domain?: string;
+  force_insecure?: boolean;
   kdc_proxy_url?: string;
   client_computer_name?: string;
 }
@@ -165,24 +173,27 @@ export class PowerShellTerminalElement extends HTMLElement {
     this.setState("connecting");
 
     this.terminal.writeln(
-      `Connecting to ${config.server}:${config.port || 5985}...`
+      `Connecting to ${config.destination.host}:${config.destination.port}...`
     );
 
     try {
       const wasmConfig: WasmWinRmConfig = {
         gateway_url: config.gateway_url,
         gateway_token: config.gateway_token,
-        server: config.server,
-        port: config.port || 5985,
+        destination: {
+          host: config.destination.host,
+          port: config.destination.port,
+          transport: config.destination.transport,
+        },
         username: config.username,
         password: config.password,
-        use_https: config.use_https || false,
-        domain: "",
+        domain: config.domain || undefined,
         locale: "en-US",
         cols: this.terminal.cols,
         rows: this.terminal.rows,
         kdc_proxy_url: config.kdc_proxy_url,
         client_computer_name: config.client_computer_name,
+        force_insecure: config.force_insecure,
       };
 
       console.log("Connecting with config:", { ...config, password: "*****" });

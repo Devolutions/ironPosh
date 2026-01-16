@@ -34,7 +34,10 @@ mod tests {
             "Parsing Body without Envelope should fail, got: {result:?}"
         );
 
-        println!("Expected error for missing envelope: {:?}", result.unwrap_err());
+        println!(
+            "Expected error for missing envelope: {:?}",
+            result.unwrap_err()
+        );
     }
 
     /// Test: Valid envelope structure but with empty Body element
@@ -44,8 +47,7 @@ mod tests {
         let path = "tests/resources/malformed/empty_body.xml";
         let xml_content = fs::read_to_string(path).expect("Failed to read file");
 
-        let document = ironposh_xml::parser::parse(&xml_content)
-            .expect("Valid XML should parse");
+        let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
 
         let root = document.root_element();
         let result = SoapEnvelope::from_node(root);
@@ -55,8 +57,14 @@ mod tests {
         match result {
             Ok(envelope) => {
                 let body = envelope.body.as_ref();
-                assert!(body.receive_response.is_none(), "Empty body should have no ReceiveResponse");
-                assert!(body.resource_created.is_none(), "Empty body should have no ResourceCreated");
+                assert!(
+                    body.receive_response.is_none(),
+                    "Empty body should have no ReceiveResponse"
+                );
+                assert!(
+                    body.resource_created.is_none(),
+                    "Empty body should have no ResourceCreated"
+                );
                 assert!(body.shell.is_none(), "Empty body should have no Shell");
                 println!("Empty body parsed successfully with no content");
             }
@@ -74,8 +82,7 @@ mod tests {
         let path = "tests/resources/malformed/missing_body.xml";
         let xml_content = fs::read_to_string(path).expect("Failed to read file");
 
-        let document = ironposh_xml::parser::parse(&xml_content)
-            .expect("Valid XML should parse");
+        let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
 
         let root = document.root_element();
         let result = SoapEnvelope::from_node(root);
@@ -121,8 +128,8 @@ mod tests {
         let path = "tests/resources/malformed/wrong_namespace.xml";
         let xml_content = fs::read_to_string(path).expect("Failed to read file");
 
-        let document = ironposh_xml::parser::parse(&xml_content)
-            .expect("Valid XML syntax should parse");
+        let document =
+            ironposh_xml::parser::parse(&xml_content).expect("Valid XML syntax should parse");
 
         let root = document.root_element();
         let result = SoapEnvelope::from_node(root);
@@ -150,8 +157,7 @@ mod tests {
         let path = "tests/resources/malformed/extra_unknown_elements.xml";
         let xml_content = fs::read_to_string(path).expect("Failed to read file");
 
-        let document = ironposh_xml::parser::parse(&xml_content)
-            .expect("Valid XML should parse");
+        let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
 
         let root = document.root_element();
         let result = SoapEnvelope::from_node(root);
@@ -202,10 +208,7 @@ mod tests {
 
         let parse_result = ironposh_xml::parser::parse(&xml_content);
 
-        assert!(
-            parse_result.is_err(),
-            "Non-XML content should fail parsing"
-        );
+        assert!(parse_result.is_err(), "Non-XML content should fail parsing");
 
         println!(
             "Non-XML content correctly rejected: {:?}",

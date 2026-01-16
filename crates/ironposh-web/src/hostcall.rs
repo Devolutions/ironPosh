@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use ironposh_async::HostResponse;
-use ironposh_client_core::host::HostCall;
+use ironposh_client_core::host::{HostCall, Submission};
+use ironposh_psrp::{PipelineHostResponse, PsValue};
 use js_sys::Promise;
 use tracing::{error, warn};
 use wasm_bindgen::{JsCast, JsValue};
@@ -38,61 +39,36 @@ async fn call_js_handler(
     })
 }
 
-/// Macro to handle host calls with automatic JS conversion and error handling
-macro_rules! handle_host_call {
-    // Main entry point
-    ($transport:expr, $handler:expr, $this:expr, $js_params:expr, $method:expr, $($return_type:tt)+) => {{
-        let (_, rt) = $transport.into_parts();
+fn exception_submission(
+    call_id: i64,
+    method_id: i32,
+    method_name: &str,
+    message: String,
+) -> Submission {
+    Submission::Send(PipelineHostResponse {
+        call_id,
+        method_id,
+        method_name: method_name.to_string(),
+        method_result: None,
+        method_exception: Some(PsValue::from(message)),
+    })
+}
 
-        let Ok(res) = call_js_handler(&$handler, &$this, &$js_params, $method).await else {
-            continue;
-        };
-
-        handle_host_call!(@convert res, rt, $method, $($return_type)+)
-    }};
-
-    // Convert String
-    (@convert $res:expr, $rt:expr, $method:expr, String) => {{
-        let Some(value) = $res.as_string() else {
-            error!(method = $method, "expected string return type");
-            continue;
-        };
-        $rt.accept_result(value)
-    }};
-
-    // Convert unit/void
-    (@convert $res:expr, $rt:expr, $method:expr, ()) => {{
-        let _ = $res; // Ensure the promise was awaited
-        $rt.accept_result(())
-    }};
-
-    // Convert i32
-    (@convert $res:expr, $rt:expr, $method:expr, i32) => {{
-        let Some(value) = $res.as_f64().map(|v| v as i32) else {
-            error!(method = $method, "expected number return type");
-            continue;
-        };
-        $rt.accept_result(value)
-    }};
-
-    // Convert bool
-    (@convert $res:expr, $rt:expr, $method:expr, bool) => {{
-        let value = $res.as_bool().unwrap_or(false);
-        $rt.accept_result(value)
-    }};
-
-    // Convert uuid::Uuid
-    (@convert $res:expr, $rt:expr, $method:expr, uuid::Uuid) => {{
-        let Some(uuid_str) = $res.as_string() else {
-            error!(method = $method, "expected string for UUID");
-            continue;
-        };
-        let Ok(value) = uuid::Uuid::parse_str(&uuid_str) else {
-            error!(method = $method, uuid = %uuid_str, "invalid UUID string");
-            continue;
-        };
-        $rt.accept_result(value)
-    }};
+async fn submit_void(
+    host_call_handler: &js_sys::Function,
+    this: &JsValue,
+    js_params: &JsValue,
+    method_name: &str,
+) {
+    if call_js_handler(host_call_handler, this, js_params, method_name)
+        .await
+        .is_err()
+    {
+        warn!(
+            method = method_name,
+            "host call handler errored (void method)"
+        );
+    }
 }
 
 /// This should definately be handled by JS side, but for now we leave it like this so at least the session's loop is not blocked
@@ -106,135 +82,357 @@ pub async fn handle_host_calls(
         let scope = host_call.scope();
         let call_id = host_call.call_id();
         let method_name = host_call.method_name();
+        let method_id = host_call.method_id();
 
         let js_host_call: JsHostCall = (&host_call).into();
         let this = JsValue::NULL;
         let js_params = JsValue::from(js_host_call);
         // let result = host_call_handler.call1(&this, &js_params)?;
         let submission = match host_call {
+            // ===== Methods returning String =====
             HostCall::GetName { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    String
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result("IronPoshWebHost".to_string()),
+                    },
+                    Err(()) => rt.accept_result("IronPoshWebHost".to_string()),
+                }
             }
             HostCall::GetVersion { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    String
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result("1.0.0".to_string()),
+                    },
+                    Err(()) => rt.accept_result("1.0.0".to_string()),
+                }
             }
             HostCall::GetCurrentCulture { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    String
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result("en-US".to_string()),
+                    },
+                    Err(()) => rt.accept_result("en-US".to_string()),
+                }
             }
             HostCall::GetCurrentUICulture { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    String
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result("en-US".to_string()),
+                    },
+                    Err(()) => rt.accept_result("en-US".to_string()),
+                }
             }
-            HostCall::SetShouldExit { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+            HostCall::ReadLine { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result(String::new()),
+                    },
+                    Err(()) => rt.accept_result(String::new()),
+                }
+            }
+            HostCall::GetWindowTitle { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_string() {
+                        Some(value) => rt.accept_result(value),
+                        None => rt.accept_result(String::new()),
+                    },
+                    Err(()) => rt.accept_result(String::new()),
+                }
+            }
+
+            // ===== Methods returning i32 =====
+            HostCall::PromptForChoice { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "PromptForChoice is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    ()
+                    "PromptForChoice not implemented".to_string(),
                 )
             }
             HostCall::GetForegroundColor { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    i32
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_f64().map(|v| v as i32) {
+                        Some(v) => rt.accept_result(v),
+                        None => rt.accept_result(7),
+                    },
+                    Err(()) => rt.accept_result(7),
+                }
             }
             HostCall::GetBackgroundColor { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match res.as_f64().map(|v| v as i32) {
+                        Some(v) => rt.accept_result(v),
+                        None => rt.accept_result(0),
+                    },
+                    Err(()) => rt.accept_result(0),
+                }
+            }
+            HostCall::GetCursorSize { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetCursorSize is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    i32
+                    "GetCursorSize not implemented".to_string(),
                 )
             }
+
+            // ===== Methods returning bool =====
             HostCall::GetKeyAvailable { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
-                    method_name,
-                    bool
-                )
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => rt.accept_result(res.as_bool().unwrap_or(false)),
+                    Err(()) => rt.accept_result(false),
+                }
             }
+            HostCall::GetIsRunspacePushed { transport } => {
+                warn!(
+                    method = method_name,
+                    "GetIsRunspacePushed is not implemented; returning false"
+                );
+                let ((), rt) = transport.into_parts();
+                rt.accept_result(false)
+            }
+
+            // ===== Methods returning uuid::Uuid =====
             HostCall::GetInstanceId { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => {
+                        if let Some(uuid_str) = res.as_string() {
+                            if let Ok(v) = uuid::Uuid::parse_str(&uuid_str) {
+                                rt.accept_result(v)
+                            } else {
+                                rt.accept_result(uuid::Uuid::nil())
+                            }
+                        } else {
+                            rt.accept_result(uuid::Uuid::nil())
+                        }
+                    }
+                    Err(()) => rt.accept_result(uuid::Uuid::nil()),
+                }
+            }
+
+            // ===== Methods returning Vec<u8> =====
+            HostCall::ReadLineAsSecureString { transport } => {
+                warn!(
+                    method = method_name,
+                    "ReadLineAsSecureString is not implemented; returning empty bytes"
+                );
+                let ((), rt) = transport.into_parts();
+                rt.accept_result(Vec::new())
+            }
+
+            // ===== Void methods (no response expected) =====
+            HostCall::SetShouldExit { transport: _ }
+            | HostCall::EnterNestedPrompt { transport: _ }
+            | HostCall::ExitNestedPrompt { transport: _ }
+            | HostCall::NotifyBeginApplication { transport: _ }
+            | HostCall::NotifyEndApplication { transport: _ }
+            | HostCall::Write1 { transport: _ }
+            | HostCall::Write2 { transport: _ }
+            | HostCall::WriteLine1 { transport: _ }
+            | HostCall::WriteLine2 { transport: _ }
+            | HostCall::WriteLine3 { transport: _ }
+            | HostCall::WriteErrorLine { transport: _ }
+            | HostCall::WriteDebugLine { transport: _ }
+            | HostCall::WriteProgress { transport: _ }
+            | HostCall::WriteVerboseLine { transport: _ }
+            | HostCall::WriteWarningLine { transport: _ }
+            | HostCall::SetForegroundColor { transport: _ }
+            | HostCall::SetBackgroundColor { transport: _ }
+            | HostCall::SetCursorPosition { transport: _ }
+            | HostCall::SetWindowPosition { transport: _ }
+            | HostCall::SetCursorSize { transport: _ }
+            | HostCall::SetBufferSize { transport: _ }
+            | HostCall::SetWindowSize { transport: _ }
+            | HostCall::SetWindowTitle { transport: _ }
+            | HostCall::FlushInputBuffer { transport: _ }
+            | HostCall::SetBufferContents1 { transport: _ }
+            | HostCall::SetBufferContents2 { transport: _ }
+            | HostCall::ScrollBufferContents { transport: _ }
+            | HostCall::PushRunspace { transport: _ }
+            | HostCall::PopRunspace { transport: _ } => {
+                submit_void(&host_call_handler, &this, &js_params, method_name).await;
+                Submission::NoSend
+            }
+
+            // ===== Not implemented (complex return types) =====
+            HostCall::Prompt { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "Prompt is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    uuid::Uuid
+                    "Prompt not implemented".to_string(),
                 )
             }
-            HostCall::SetCursorPosition { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+            HostCall::PromptForCredential1 { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "PromptForCredential1 is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    ()
+                    "PromptForCredential1 not implemented".to_string(),
                 )
             }
-            HostCall::SetBufferContents1 { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+            HostCall::PromptForCredential2 { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "PromptForCredential2 is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    ()
+                    "PromptForCredential2 not implemented".to_string(),
                 )
             }
-            HostCall::WriteProgress { transport } => {
-                handle_host_call!(
-                    transport,
-                    host_call_handler,
-                    this,
-                    js_params,
+            HostCall::GetCursorPosition { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetCursorPosition is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
                     method_name,
-                    ()
+                    "GetCursorPosition not implemented".to_string(),
                 )
             }
-            _ => {
-                warn!(method = %host_call.method_name(), "unhandled host call");
-                panic!("Unhandled host call: {}", host_call.method_name())
+            HostCall::GetWindowPosition { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetWindowPosition is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetWindowPosition not implemented".to_string(),
+                )
+            }
+            HostCall::GetBufferSize { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetBufferSize is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetBufferSize not implemented".to_string(),
+                )
+            }
+            HostCall::GetWindowSize { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetWindowSize is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetWindowSize not implemented".to_string(),
+                )
+            }
+            HostCall::GetMaxWindowSize { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetMaxWindowSize is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetMaxWindowSize not implemented".to_string(),
+                )
+            }
+            HostCall::GetMaxPhysicalWindowSize { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetMaxPhysicalWindowSize is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetMaxPhysicalWindowSize not implemented".to_string(),
+                )
+            }
+            HostCall::ReadKey { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "ReadKey is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "ReadKey not implemented".to_string(),
+                )
+            }
+            HostCall::GetBufferContents { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetBufferContents is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetBufferContents not implemented".to_string(),
+                )
+            }
+            HostCall::GetRunspace { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "GetRunspace is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "GetRunspace not implemented".to_string(),
+                )
+            }
+            HostCall::PromptForChoiceMultipleSelection { transport: _ } => {
+                warn!(
+                    method = method_name,
+                    "PromptForChoiceMultipleSelection is not implemented; returning exception"
+                );
+                exception_submission(
+                    call_id,
+                    method_id,
+                    method_name,
+                    "PromptForChoiceMultipleSelection not implemented".to_string(),
+                )
             }
         };
 

@@ -1,15 +1,18 @@
 use crate::{
-    error::WasmError, hostcall::handle_host_calls, http_client::GatewayHttpViaWSClient,
-    types::WasmWinRmConfig, JsSessionEvent, WasmPowerShellStream,
+    error::WasmError,
+    hostcall::handle_host_calls,
+    http_client::GatewayHttpViaWSClient,
+    types::{SecurityWarningCallback, WasmWinRmConfig},
+    JsSessionEvent, WasmPowerShellStream,
 };
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
-use js_sys::{Function, Promise};
-use tracing::{error, info};
+use js_sys::{Array, Function, Promise};
+use tracing::{error, info, warn};
 use url::Url;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{future_to_promise, spawn_local};
+use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 
 // Main PowerShell client
 #[wasm_bindgen]
@@ -28,8 +31,117 @@ extern "C" {
 
 #[wasm_bindgen]
 impl WasmPowerShellClient {
+    /// Check the security configuration and return any warnings.
+    /// Call this before connect() to inspect security status.
+    #[wasm_bindgen]
+    pub fn check_security(config: &WasmWinRmConfig) -> Array {
+        let warnings = config.check_security();
+        let arr = Array::new();
+        for warning in warnings {
+            let js_warning = serde_wasm_bindgen::to_value(&warning)
+                .expect("Failed to serialize SecurityWarning");
+            arr.push(&js_warning);
+        }
+        arr
+    }
+
+    /// Connect to a PowerShell session with security callback.
+    ///
+    /// If security warnings are detected and `on_security_warning` is provided,
+    /// the callback will be invoked with the list of warnings. The callback must
+    /// return a Promise<boolean>:
+    /// - `true`: User accepts the risk, continue with connection
+    /// - `false`: User rejects, abort connection
+    ///
+    /// If warnings exist but no callback is provided, connection will be rejected.
+    #[wasm_bindgen]
+    pub async fn connect_with_security_check(
+        config: WasmWinRmConfig,
+        host_call_handler: HostCallHandler,
+        session_event_handler: SessionEventHandler,
+        on_security_warning: Option<SecurityWarningCallback>,
+    ) -> Result<Self, WasmError> {
+        // Check for security warnings
+        let warnings = config.check_security();
+
+        if !warnings.is_empty() {
+            // Log warnings
+            for warning in &warnings {
+                warn!(?warning, "security warning detected");
+            }
+
+            // If callback provided, ask user
+            if let Some(callback) = on_security_warning {
+                let callback_fn: Function = callback.unchecked_into();
+
+                // Convert warnings to JS array
+                let js_warnings = Array::new();
+                for warning in &warnings {
+                    let js_warning = serde_wasm_bindgen::to_value(warning)
+                        .expect("Failed to serialize SecurityWarning");
+                    js_warnings.push(&js_warning);
+                }
+
+                // Call the callback and await the promise
+                let result = callback_fn
+                    .call1(&JsValue::NULL, &js_warnings)
+                    .map_err(|e| {
+                        error!(?e, "failed to call security warning callback");
+                        WasmError::Generic(format!(
+                            "Failed to call security warning callback: {e:?}"
+                        ))
+                    })?;
+                let promise = Promise::from(result);
+                let should_continue = JsFuture::from(promise).await.map_err(|e| {
+                    error!(?e, "security warning callback promise rejected");
+                    WasmError::Generic(format!("Security warning callback rejected: {e:?}"))
+                })?;
+
+                if !should_continue.as_bool().unwrap_or(false) {
+                    info!("user rejected insecure connection");
+                    return Err(WasmError::Generic(
+                        "Connection rejected: user declined insecure connection".into(),
+                    ));
+                }
+
+                info!("user accepted insecure connection, proceeding");
+            } else {
+                // No callback provided, reject by default
+                error!("security warnings detected but no callback provided");
+                return Err(WasmError::Generic(format!(
+                    "Connection rejected: security warnings detected ({warnings:?}). Provide on_security_warning callback to handle."
+                )));
+            }
+        }
+
+        // Proceed with connection
+        Self::connect_internal(config, host_call_handler, session_event_handler)
+    }
+
+    /// Connect to a PowerShell session (legacy method, no security callback).
+    /// Will reject if there are any security warnings.
     #[wasm_bindgen]
     pub fn connect(
+        config: WasmWinRmConfig,
+        host_call_handler: HostCallHandler,
+        session_event_handler: SessionEventHandler,
+    ) -> Result<Self, WasmError> {
+        // Check for security warnings first
+        let warnings = config.check_security();
+        if !warnings.is_empty() {
+            error!(
+                ?warnings,
+                "security warnings detected, use connect_with_security_check"
+            );
+            return Err(WasmError::Generic(format!(
+                "Connection rejected: security warnings detected ({warnings:?}). Use connect_with_security_check() with a callback to handle warnings."
+            )));
+        }
+
+        Self::connect_internal(config, host_call_handler, session_event_handler)
+    }
+
+    fn connect_internal(
         config: WasmWinRmConfig,
         host_call_handler: HostCallHandler,
         session_event_handler: SessionEventHandler,

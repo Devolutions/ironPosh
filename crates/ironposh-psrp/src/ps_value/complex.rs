@@ -61,14 +61,16 @@ impl Display for ComplexObject {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub enum ComplexObjectContent {
     /// If the Complex Object being serialized is an Extended Primitive Object, then the value of the primitive type is serialized as described in section 2.2.5.1.
-    ///Example (compare with the serialization of a string without notes in section 2.2.5.1.1):
+    /// Example (compare with the serialization of a string without notes in section 2.2.5.1.1):
     ///
-    ///     <Obj RefId="RefId-0">
-    ///       <S>This is a string</S>
-    ///       <MS>
-    ///         <S N="Note1">My note</S>
-    ///       </MS>
-    ///     </Obj>
+    /// ```xml
+    /// <Obj RefId="RefId-0">
+    ///   <S>This is a string</S>
+    ///   <MS>
+    ///     <S N="Note1">My note</S>
+    ///   </MS>
+    /// </Obj>
+    /// ```
     ExtendedPrimitive(PsPrimitiveValue),
     Container(Container),
     PsEnums(PsEnums),

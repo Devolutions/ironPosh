@@ -1,8 +1,8 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{http::ServerAddress, Scheme, WinRmConfig},
+    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig},
     credentials::{ClientAuthIdentity, ClientUserName},
-    AuthenticatorConfig, KerberosConfig, SspiAuthConfig,
+    AuthenticatorConfig, SspiAuthConfig, TransportSecurity,
 };
 use ironposh_psrp::{
     host_default_data::{HostDefaultData, Size},
@@ -14,8 +14,13 @@ use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Server address to connect to
-    #[arg(short, long, default_value = "10.10.0.3", help = "Server address")]
+    /// Server IP address to connect to
+    #[arg(
+        short,
+        long,
+        default_value = "IT-HELP-DC.ad.it-help.ninja",
+        help = "Server IP address or hostname"
+    )]
     pub server: String,
 
     /// Server port to connect to
@@ -26,7 +31,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        default_value = "Administrator",
+        default_value = "Administrator@ad.it-help.ninja",
         help = "Username for authentication"
     )]
     pub username: String,
@@ -41,28 +46,27 @@ pub struct Args {
     pub password: String,
 
     #[arg(
-        short = 'd',
+        short,
         long,
-        help = "Domain for authentication (if needed)",
+        help = "Optional domain for authentication",
         default_value = ""
     )]
     pub domain: String,
 
-    /// Authentication method
-    #[arg(
-        short,
-        long,
-        default_value = "negotiate",
-        help = "Authentication method"
-    )]
+    #[arg(short, long, help = "Authentication method", default_value_t = AuthMethod::Basic)]
     pub auth_method: AuthMethod,
 
-    /// Use HTTPS instead of HTTP
+    /// Use HTTPS instead of HTTP (TLS provides security, SSPI sealing not needed)
     #[arg(long, help = "Use HTTPS (default: HTTP)")]
     pub https: bool,
 
-    #[arg(long, help = "No sspi encrypted session", default_value_t = false)]
-    pub no_encryption: bool,
+    /// DANGEROUS: Use HTTP without SSPI message sealing.
+    /// Only use for testing/debugging. Post-auth messages will be unencrypted!
+    #[arg(
+        long,
+        help = "DANGEROUS: HTTP without SSPI sealing (insecure, for testing only)"
+    )]
+    pub http_insecure: bool,
 
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
@@ -123,10 +127,15 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 /// Create connector configuration from command line arguments
 pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
-    let scheme = if args.https {
-        Scheme::Https
+
+    // Determine transport security from CLI flags
+    let transport = if args.https {
+        TransportSecurity::Https
+    } else if args.http_insecure {
+        tracing::warn!("Using HTTP without SSPI sealing - this is INSECURE!");
+        TransportSecurity::HttpInsecure
     } else {
-        Scheme::Http
+        TransportSecurity::Http
     };
 
     let domain = if args.domain.trim().is_empty() {
@@ -135,40 +144,65 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         Some(args.domain.as_str())
     };
 
-    let client_username = ClientUserName::new(&args.username, domain)?;
-    let identity = ClientAuthIdentity::new(client_username, args.password.clone());
-
-    let auth = AuthenticatorConfig::Sspi {
-        sspi: SspiAuthConfig::Negotiate {
-            target: args.server.clone(),
-            identity,
-            kerberos_config: Some(KerberosConfig {
-                kdc_url: None,
-                client_computer_name: whoami::fallible::hostname()
-                    .unwrap_or_else(|_| "localhost".to_string()),
-            }),
+    let auth = match args.auth_method {
+        AuthMethod::Basic => AuthenticatorConfig::Basic {
+            username: args.username.clone(),
+            password: args.password.clone(),
         },
-        require_encryption: !args.no_encryption,
+        AuthMethod::Ntlm => {
+            let client_username = ClientUserName::new(&args.username, domain)?;
+            let identity = ClientAuthIdentity::new(client_username, args.password.clone());
+            AuthenticatorConfig::Sspi(SspiAuthConfig::NTLM {
+                target: args.server.clone(),
+                identity,
+            })
+        }
+        AuthMethod::Kerberos => {
+            let client_username = ClientUserName::new(&args.username, domain)?;
+            let identity = ClientAuthIdentity::new(client_username, args.password.clone());
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Kerberos {
+                target: args.server.clone(),
+                identity,
+                kerberos_config: KerberosConfig {
+                    kdc_url: None,
+                    client_computer_name: whoami::fallible::hostname()
+                        .unwrap_or_else(|_| "localhost".to_string()),
+                },
+            })
+        }
+        AuthMethod::Negotiate => {
+            let client_username = ClientUserName::new(&args.username, domain)?;
+            let identity = ClientAuthIdentity::new(client_username, args.password.clone());
+            AuthenticatorConfig::Sspi(SspiAuthConfig::Negotiate {
+                target: args.server.clone(),
+                identity,
+                kerberos_config: Some(KerberosConfig {
+                    kdc_url: None,
+                    client_computer_name: whoami::fallible::hostname()
+                        .unwrap_or_else(|_| "localhost".to_string()),
+                }),
+            })
+        }
     };
+
+    let size = Size {
+        width: cols as i32,
+        height: rows as i32,
+    };
+
+    let host_data = HostDefaultData::builder()
+        .buffer_size(size.clone())
+        .window_size(size.clone())
+        .max_window_size(size.clone())
+        .max_physical_window_size(size)
+        .build();
+
+    let host_info = HostInfo::builder().host_default_data(host_data).build();
 
     Ok(WinRmConfig {
         server: (server, args.port),
-        scheme,
+        transport,
         authentication: auth,
-        host_info: {
-            let size = Size {
-                width: cols as i32,
-                height: rows as i32,
-            };
-
-            let host_data = HostDefaultData::builder()
-                .buffer_size(size.clone())
-                .window_size(size.clone())
-                .max_window_size(size.clone())
-                .max_physical_window_size(size)
-                .build();
-
-            HostInfo::builder().host_default_data(host_data).build()
-        },
+        host_info,
     })
 }

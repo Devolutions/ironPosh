@@ -8,7 +8,8 @@ use ironposh_client_core::connector::{
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
 };
 use reqwest::Client;
-use tracing::{info, instrument};
+use std::time::Duration;
+use tracing::{debug, info, instrument};
 
 pub struct ReqwestHttpClient {
     client: reqwest::Client,
@@ -16,10 +17,17 @@ pub struct ReqwestHttpClient {
 
 impl ReqwestHttpClient {
     pub fn new() -> Self {
+        info!(
+            connect_timeout_secs = 30,
+            read_timeout_secs = 60,
+            "initializing ReqwestHttpClient with native-tls"
+        );
         Self {
             client: reqwest::Client::builder()
-                // TODO: Make these configurable
+                .use_native_tls()
                 .pool_max_idle_per_host(10)
+                .connect_timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(60))
                 .build()
                 .expect("Failed to build reqwest client"),
         }
@@ -53,7 +61,15 @@ impl ReqwestHttpClient {
 
         // Add body if present
         if let Some(body) = &request.body {
-            req_builder = req_builder.body(body.as_str()?.to_string());
+            match body {
+                HttpBody::Encrypted(bytes) => {
+                    debug!(body_length = bytes.len(), "sending encrypted body as bytes");
+                    req_builder = req_builder.body(bytes.clone());
+                }
+                _ => {
+                    req_builder = req_builder.body(body.as_str()?.to_string());
+                }
+            }
         }
 
         tracing::info!("Sending HTTP request to server");
@@ -62,23 +78,45 @@ impl ReqwestHttpClient {
             .await
             .context("Failed to send HTTP request")?;
 
-        tracing::info!(
-            status_code = response.status().as_u16(),
-            "Received HTTP response"
-        );
-
         let status_code = response.status().as_u16();
+        tracing::info!(status_code, "Received HTTP response");
+
         let headers: Vec<(String, String)> = response
             .headers()
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
             .collect();
 
+        // Determine body type from Content-Type header
+        let content_type = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, v)| v.to_lowercase())
+            .unwrap_or_default();
+
         tracing::info!("Reading response body");
-        let body = response
-            .text()
-            .await
-            .context("Failed to read response body")?;
+        let body = if content_type.contains("multipart/encrypted") {
+            debug!("reading encrypted response as binary data");
+            let bytes = response
+                .bytes()
+                .await
+                .context("Failed to read binary response body")?;
+            HttpBody::Encrypted(bytes.to_vec())
+        } else if content_type.contains("application/soap+xml") {
+            debug!("reading XML response as text");
+            let text = response
+                .text()
+                .await
+                .context("Failed to read XML response body")?;
+            HttpBody::Xml(text)
+        } else {
+            debug!("reading response as text");
+            let text = response
+                .text()
+                .await
+                .context("Failed to read text response body")?;
+            HttpBody::Text(text)
+        };
 
         tracing::info!(
             body_length = body.len(),
@@ -88,7 +126,7 @@ impl ReqwestHttpClient {
         Ok(HttpResponse {
             status_code,
             headers,
-            body: HttpBody::Text(body),
+            body,
         })
     }
 }

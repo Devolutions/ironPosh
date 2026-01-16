@@ -8,25 +8,131 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 use crate::error::WasmError;
 
-// WASM-compatible structs with tsify for TypeScript generation
+// =============================================================================
+// Security Warning Callback Type
+// =============================================================================
+
+#[wasm_bindgen]
+extern "C" {
+    /// Callback for security warnings.
+    /// Returns Promise<boolean>:
+    /// - true = user accepts risk, continue connection
+    /// - false = user rejects, abort connection
+    #[wasm_bindgen(typescript_type = "(warnings: SecurityWarning[]) => Promise<boolean>")]
+    pub type SecurityWarningCallback;
+}
+
+// =============================================================================
+// Security Warning Types
+// =============================================================================
+
+/// Security warnings that can occur during connection setup
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "PascalCase")]
+pub enum SecurityWarning {
+    /// Gateway channel uses WS instead of WSS (unencrypted WebSocket)
+    GatewayChannelInsecure,
+    /// Destination channel uses TCP without SSPI encryption
+    DestinationChannelInsecure,
+    /// Both channels are insecure - extremely dangerous!
+    BothChannelsInsecure,
+}
+
+// =============================================================================
+// Gateway Transport Mode
+// =============================================================================
+
+/// How the Gateway connects to the WinRM server
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "PascalCase")]
+pub enum GatewayTransport {
+    /// Gateway uses TCP to WinRM (HTTP on port 5985)
+    /// → SSPI message sealing is ENABLED (provides encryption)
+    #[default]
+    Tcp,
+    /// Gateway uses TLS to WinRM (HTTPS on port 5986)
+    /// → SSPI message sealing is DISABLED (TLS provides encryption)
+    Tls,
+}
+
+// =============================================================================
+// WinRM Destination
+// =============================================================================
+
+/// WinRM server destination configuration
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct WinRmDestination {
+    /// WinRM server hostname or IP address
+    pub host: String,
+    /// WinRM server port (typically 5985 for HTTP, 5986 for HTTPS)
+    pub port: u16,
+    /// How the Gateway connects to WinRM (TCP or TLS)
+    pub transport: GatewayTransport,
+}
+
+// =============================================================================
+// Main Config
+// =============================================================================
+
+/// WASM-compatible WinRM connection configuration
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct WasmWinRmConfig {
+    /// Authentication method
     #[serde(default)]
     pub auth: WasmAuthMethod,
-    pub server: String,
-    pub port: u16,
-    pub use_https: bool,
-    pub username: String,
-    pub password: String,
-    pub domain: Option<String>,
-    pub locale: Option<String>,
+
+    /// WinRM destination (host, port, transport mode)
+    pub destination: WinRmDestination,
+
+    /// Gateway WebSocket URL (ws:// or wss://)
     pub gateway_url: String,
+
+    /// Gateway authentication token
     pub gateway_token: String,
+
+    /// Username for WinRM authentication
+    pub username: String,
+
+    /// Password for WinRM authentication
+    pub password: String,
+
+    /// Optional domain for authentication
+    pub domain: Option<String>,
+
+    /// Optional locale
+    pub locale: Option<String>,
+
+    /// KDC proxy URL for Kerberos authentication
     pub kdc_proxy_url: Option<String>,
+
+    /// Client computer name for Kerberos authentication
     pub client_computer_name: Option<String>,
+
+    /// Terminal columns
+    #[serde(default = "default_cols")]
     pub cols: u16,
+
+    /// Terminal rows
+    #[serde(default = "default_rows")]
     pub rows: u16,
+
+    /// Force disable SSPI encryption even on TCP transport.
+    /// WARNING: This makes the destination channel insecure!
+    /// Only valid when transport is Tcp.
+    #[serde(default)]
+    pub force_insecure: Option<bool>,
+}
+
+fn default_cols() -> u16 {
+    120
+}
+
+fn default_rows() -> u16 {
+    30
 }
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone, Copy, Default)]

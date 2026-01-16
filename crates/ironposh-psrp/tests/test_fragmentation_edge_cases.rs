@@ -33,9 +33,7 @@ fn create_fragment(
     buffer.push(flags);
 
     // Data length (4 bytes, big endian)
-    buffer
-        .write_u32::<BigEndian>(data.len() as u32)
-        .unwrap();
+    buffer.write_u32::<BigEndian>(data.len() as u32).unwrap();
 
     // Data payload
     buffer.extend_from_slice(data);
@@ -90,7 +88,9 @@ mod tests {
         let err_str = format!("{err}");
         println!("Truncated header error: {err_str}");
         assert!(
-            err_str.contains("too short") || err_str.contains("truncated") || err_str.contains("21"),
+            err_str.contains("too short")
+                || err_str.contains("truncated")
+                || err_str.contains("21"),
             "Error should mention size requirement"
         );
     }
@@ -274,16 +274,30 @@ mod tests {
 
         // Interleave: obj1_f0, obj2_f0, obj1_f1, obj2_f1
         let _ = defrag.defragment(&obj1_frag0);
-        assert_eq!(defrag.pending_count(), 1, "Should have 1 pending after obj1_f0");
+        assert_eq!(
+            defrag.pending_count(),
+            1,
+            "Should have 1 pending after obj1_f0"
+        );
 
         let _ = defrag.defragment(&obj2_frag0);
-        assert_eq!(defrag.pending_count(), 2, "Should have 2 pending after obj2_f0");
+        assert_eq!(
+            defrag.pending_count(),
+            2,
+            "Should have 2 pending after obj2_f0"
+        );
 
         let result1 = defrag.defragment(&obj1_frag1);
-        println!("After obj1 complete: {result1:?}, pending: {}", defrag.pending_count());
+        println!(
+            "After obj1 complete: {result1:?}, pending: {}",
+            defrag.pending_count()
+        );
 
         let result2 = defrag.defragment(&obj2_frag1);
-        println!("After obj2 complete: {result2:?}, pending: {}", defrag.pending_count());
+        println!(
+            "After obj2 complete: {result2:?}, pending: {}",
+            defrag.pending_count()
+        );
 
         // Both should eventually complete, pending should be 0
         // (or close to 0 if messages failed to parse)
@@ -324,7 +338,10 @@ mod tests {
             "Invalid PSRP content should fail parsing, got: {result:?}"
         );
 
-        println!("Invalid content correctly rejected: {:?}", result.unwrap_err());
+        println!(
+            "Invalid content correctly rejected: {:?}",
+            result.unwrap_err()
+        );
     }
 
     // =========================================================================
