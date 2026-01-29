@@ -17,11 +17,7 @@ enum UserInput {
 fn sanitize_prompt(mut prompt: String) -> String {
     // Some prompts may contain newlines; keep only the last line for a single-line UI prompt.
     if prompt.contains('\n') || prompt.contains('\r') {
-        prompt = prompt
-            .lines()
-            .last()
-            .unwrap_or("> ")
-            .to_string();
+        prompt = prompt.lines().last().unwrap_or("> ").to_string();
     }
 
     if prompt.is_empty() {
@@ -45,16 +41,18 @@ async fn fetch_remote_prompt(client: &mut RemoteAsyncPowershellClient) -> String
 
     while let Some(ev) = stream.next().await {
         match ev {
-            UserEvent::PipelineOutput { output, .. } => match output.format_as_displyable_string() {
-                Ok(text) => {
-                    if !text.is_empty() {
-                        last_prompt = Some(text);
+            UserEvent::PipelineOutput { output, .. } => {
+                match output.format_as_displyable_string() {
+                    Ok(text) => {
+                        if !text.is_empty() {
+                            last_prompt = Some(text);
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to parse remote prompt output");
                     }
                 }
-                Err(e) => {
-                    warn!(error = %e, "failed to parse remote prompt output");
-                }
-            },
+            }
             UserEvent::ErrorRecord { error_record, .. } => {
                 warn!(error = %error_record.render_concise(), "remote prompt command returned an error");
             }

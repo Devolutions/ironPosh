@@ -127,7 +127,8 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
     };
 
     // Allow overriding filters with `RUST_LOG`.
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
     let subscriber = Registry::default().with(env_filter).with(
         fmt::layer()
