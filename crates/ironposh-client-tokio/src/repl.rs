@@ -132,6 +132,16 @@ fn run_ui_thread(
                         return Err(e);
                     }
                 }
+                TerminalOperation::SetWindowTitle { title } => {
+                    debug!(title = %title, "setting host window title");
+                    // Best-effort: write directly to the host terminal using Crossterm.
+                    // Do not route through the guest terminal emulator.
+                    if let Err(e) =
+                        crossterm::execute!(std::io::stdout(), crossterm::terminal::SetTitle(title))
+                    {
+                        warn!(error = %e, "failed to set window title");
+                    }
+                }
                 TerminalOperation::RequestInput { prompt } => {
                     debug!(prompt = %prompt, "reading user input");
                     match io.read_line(&prompt) {

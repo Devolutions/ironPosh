@@ -8,6 +8,7 @@ use clap::Parser;
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_terminal::Terminal;
+use std::sync::Arc;
 use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
@@ -33,7 +34,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create terminal early to get real dimensions for PowerShell host info
-    let mut terminal = Terminal::new(2000)?;
+    let scrollback_lines = 2000;
+    let mut terminal = Terminal::new(scrollback_lines)?;
     let (cols, rows) = terminal.size()?;
     info!("Terminal created with size: {}x{}", cols, rows);
 
@@ -48,10 +50,17 @@ async fn main() -> anyhow::Result<()> {
     // Extract host I/O for handling host calls
     let (host_call_rx, submitter) = host_io.into_parts();
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
+    let ui_state = Arc::new(tokio::sync::Mutex::new(hostcall::HostUiState::new(
+        scrollback_lines as i32,
+    )));
 
     // Spawn host call handler task
-    let host_call_handle =
-        tokio::spawn(hostcall::handle_host_calls(host_call_rx, submitter, ui_tx));
+    let host_call_handle = tokio::spawn(hostcall::handle_host_calls(
+        host_call_rx,
+        submitter,
+        ui_tx,
+        ui_state,
+    ));
 
     info!("Runspace pool is now open and ready for operations!");
 

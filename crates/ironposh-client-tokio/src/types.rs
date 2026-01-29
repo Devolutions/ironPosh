@@ -9,6 +9,8 @@ pub enum TerminalOperation {
     Print(String),
     /// Write plain text, optionally adding a newline.
     Write { text: String, newline: bool },
+    /// Set the host terminal window title (best-effort).
+    SetWindowTitle { title: String },
     /// Request input from user with given prompt
     RequestInput { prompt: String },
     /// Check input for interrupt (Ctrl-C)
