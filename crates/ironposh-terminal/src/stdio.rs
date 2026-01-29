@@ -1,5 +1,6 @@
 use crate::{Terminal, TerminalOp};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use std::collections::VecDeque;
 use std::io::{self, Write as IoWrite};
 use std::time::Duration;
 
@@ -34,6 +35,18 @@ impl<'a> StdTerm<'a> {
 
     pub fn render(&mut self) -> Result<(), anyhow::Error> {
         self.term.render()
+    }
+
+    pub fn guest_screen_size(&self) -> (u16, u16) {
+        self.term.guest_screen_size()
+    }
+
+    pub fn guest_cursor_position(&self) -> (u16, u16) {
+        self.term.guest_cursor_position()
+    }
+
+    pub fn guest_cell(&self, row: u16, col: u16) -> Option<vt100::Cell> {
+        self.term.guest_cell(row, col)
     }
 
     pub fn set_auto_render(&mut self, on: bool) {
@@ -168,6 +181,20 @@ impl<'a> StdTerm<'a> {
         }
     }
 
+    fn next_event_from_queue_or_host(
+        queue: &mut VecDeque<Event>,
+        poll_timeout: Duration,
+    ) -> io::Result<Option<Event>> {
+        if let Some(evt) = queue.pop_front() {
+            return Ok(Some(evt));
+        }
+
+        if !event::poll(poll_timeout)? {
+            return Ok(None);
+        }
+        Ok(Some(event::read()?))
+    }
+
     /// Non-blocking, one-shot check: returns immediately with:
     ///   - Some(Interrupt) on ^C
     ///   - Some(Eof) on ^D (or ^Z on Windows) when no text is pending
@@ -180,6 +207,23 @@ impl<'a> StdTerm<'a> {
         }
         let evt = event::read()?;
         // In one-off mode we *don't* edit/echo arbitrary characters or backspace.
+        let mut scratch = String::new();
+        self.process_event(&mut scratch, evt, /*edit_line=*/ false)
+    }
+
+    /// Like [`try_read_line`](Self::try_read_line), but reads from `queue` first.
+    ///
+    /// This is useful when higher-level code needs to "peek" events (for example,
+    /// to implement `KeyAvailable`) without losing them for future reads.
+    pub fn try_read_line_queued(
+        &mut self,
+        queue: &mut VecDeque<Event>,
+    ) -> io::Result<Option<ReadOutcome>> {
+        let Some(evt) = Self::next_event_from_queue_or_host(queue, Duration::from_millis(0))?
+        else {
+            return Ok(None);
+        };
+
         let mut scratch = String::new();
         self.process_event(&mut scratch, evt, /*edit_line=*/ false)
     }
@@ -205,6 +249,38 @@ impl<'a> StdTerm<'a> {
             }
 
             // optional: throttled render path
+            if self.auto_render {
+                self.term.render().map_err(io::Error::other)?;
+            }
+        }
+    }
+
+    /// Like [`read_line`](Self::read_line), but reads events from `queue` first.
+    ///
+    /// This enables a single UI/event loop to collect events and feed them to
+    /// both `KeyAvailable`/`ReadKey` and line editing without losing keystrokes.
+    pub fn read_line_queued(
+        &mut self,
+        prompt: &str,
+        queue: &mut VecDeque<Event>,
+    ) -> io::Result<ReadOutcome> {
+        if !prompt.is_empty() {
+            self.write_all(b"\r")?; // ensure column 0
+            self.write_all(prompt.as_bytes())?;
+            self.flush()?; // show prompt
+        }
+
+        let mut line = String::new();
+
+        loop {
+            if let Some(evt) =
+                Self::next_event_from_queue_or_host(queue, Duration::from_millis(50))?
+                && let Some(outcome) =
+                    self.process_event(&mut line, evt, /*edit_line=*/ true)?
+            {
+                return Ok(outcome);
+            }
+
             if self.auto_render {
                 self.term.render().map_err(io::Error::other)?;
             }

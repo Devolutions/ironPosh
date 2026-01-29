@@ -11,7 +11,7 @@ use ironposh_winrm::{
     rsp::{receive::ReceiveResponseValue, send::SendValue},
     soap::{SoapEnvelope, body::SoapBody},
 };
-use ironposh_xml::{builder::Element, parser::XmlDeserialize};
+use ironposh_xml::builder::Element;
 use uuid::Uuid;
 
 /// Test complete round-trip: Fragment → Send → XML → Parse → Receive → Defragment

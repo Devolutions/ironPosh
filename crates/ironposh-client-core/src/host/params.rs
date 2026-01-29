@@ -1,6 +1,48 @@
 use super::{HostError, methods, traits::FromParams};
-use ironposh_psrp::{ComplexObjectContent, PsPrimitiveValue, PsValue};
-use tracing::debug;
+use ironposh_psrp::{ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsValue};
+use tracing::{debug, trace};
+
+fn list_items(value: &PsValue) -> Option<&[PsValue]> {
+    let PsValue::Object(obj) = value else {
+        return None;
+    };
+    match &obj.content {
+        ComplexObjectContent::Container(
+            Container::List(items) | Container::Stack(items) | Container::Queue(items),
+        ) => Some(items),
+        _ => None,
+    }
+}
+
+fn obj_prop_i32(obj: &ComplexObject, keys: &[&str]) -> Option<i32> {
+    keys.iter().find_map(|k| {
+        obj.extended_properties
+            .get(*k)
+            .and_then(|p| p.value.as_i32())
+    })
+}
+
+fn obj_prop_bool(obj: &ComplexObject, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(
+        |k| match obj.extended_properties.get(*k).map(|p| &p.value) {
+            Some(PsValue::Primitive(PsPrimitiveValue::Bool(b))) => Some(*b),
+            _ => None,
+        },
+    )
+}
+
+fn obj_prop_string(obj: &ComplexObject, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|k| {
+        obj.extended_properties
+            .get(*k)
+            .and_then(|p| p.value.as_string())
+    })
+}
+
+fn obj_prop_value(obj: &ComplexObject, keys: &[&str]) -> Option<PsValue> {
+    keys.iter()
+        .find_map(|k| obj.extended_properties.get(*k).map(|p| p.value.clone()))
+}
 
 // Complex parameter type implementations
 impl FromParams for (i32, i32, String) {
@@ -127,11 +169,47 @@ impl FromParams for (String, String, Vec<methods::FieldDescription>) {
         if a.len() != 3 {
             return Err(HostError::InvalidParameters);
         }
-        let _caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
-        let _message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
-        // FieldDescription vector deserialization needs proper implementation
-        debug!(params = ?a, "Deserializing FieldDescription vector from PsValue");
-        todo!("Implement Vec<FieldDescription> deserialization from PsValue")
+        let caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
+        let message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
+
+        let items = list_items(&a[2]).ok_or_else(|| {
+            debug!(param = ?a[2], "FieldDescription list is not a supported container");
+            HostError::InvalidParameters
+        })?;
+
+        trace!(count = items.len(), "deserializing FieldDescription list");
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            let PsValue::Object(obj) = item else {
+                return Err(HostError::InvalidParameters);
+            };
+
+            let name =
+                obj_prop_string(obj, &["name", "Name"]).ok_or(HostError::InvalidParameters)?;
+            let label = obj_prop_string(obj, &["label", "Label"]).unwrap_or_default();
+            let help_message =
+                obj_prop_string(obj, &["helpMessage", "HelpMessage"]).unwrap_or_default();
+            let is_mandatory = obj_prop_bool(obj, &["isMandatory", "IsMandatory"]).unwrap_or(false);
+            let parameter_type = obj_prop_string(obj, &["parameterType", "ParameterType"])
+                .or_else(|| obj_prop_string(obj, &["parameterTypeName", "ParameterTypeName"]))
+                .unwrap_or_default();
+            let default_value =
+                obj_prop_value(obj, &["defaultValue", "DefaultValue"]).and_then(|v| match v {
+                    PsValue::Primitive(PsPrimitiveValue::Nil) => None,
+                    other => Some(other),
+                });
+
+            out.push(methods::FieldDescription {
+                name,
+                label,
+                help_message,
+                is_mandatory,
+                parameter_type,
+                default_value,
+            });
+        }
+
+        Ok((caption, message, out))
     }
 }
 
@@ -175,11 +253,30 @@ impl FromParams for (String, String, Vec<methods::ChoiceDescription>, i32) {
         if a.len() != 4 {
             return Err(HostError::InvalidParameters);
         }
-        let _caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
-        let _message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
-        // ChoiceDescription vector deserialization needs proper implementation
-        let _default_choice = a[3].as_i32().ok_or(HostError::InvalidParameters)?;
-        todo!("Implement Vec<ChoiceDescription> deserialization from PsValue")
+        let caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
+        let message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
+        let default_choice = a[3].as_i32().ok_or(HostError::InvalidParameters)?;
+
+        let items = list_items(&a[2]).ok_or_else(|| {
+            debug!(param = ?a[2], "ChoiceDescription list is not a supported container");
+            HostError::InvalidParameters
+        })?;
+
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            let PsValue::Object(obj) = item else {
+                return Err(HostError::InvalidParameters);
+            };
+            let label = obj_prop_string(obj, &["label", "Label"]).unwrap_or_default();
+            let help_message =
+                obj_prop_string(obj, &["helpMessage", "HelpMessage"]).unwrap_or_default();
+            out.push(methods::ChoiceDescription {
+                label,
+                help_message,
+            });
+        }
+
+        Ok((caption, message, out, default_choice))
     }
 }
 
@@ -188,10 +285,39 @@ impl FromParams for (String, String, Vec<methods::ChoiceDescription>, Vec<i32>) 
         if a.len() != 4 {
             return Err(HostError::InvalidParameters);
         }
-        let _caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
-        let _message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
-        // Complex deserialization needs proper implementation
-        todo!("Implement Vec<ChoiceDescription> and Vec<i32> deserialization from PsValue")
+        let caption = a[0].as_string().ok_or(HostError::InvalidParameters)?;
+        let message = a[1].as_string().ok_or(HostError::InvalidParameters)?;
+
+        let choice_items = list_items(&a[2]).ok_or_else(|| {
+            debug!(param = ?a[2], "ChoiceDescription list is not a supported container");
+            HostError::InvalidParameters
+        })?;
+
+        let mut choices = Vec::with_capacity(choice_items.len());
+        for item in choice_items {
+            let PsValue::Object(obj) = item else {
+                return Err(HostError::InvalidParameters);
+            };
+            let label = obj_prop_string(obj, &["label", "Label"]).unwrap_or_default();
+            let help_message =
+                obj_prop_string(obj, &["helpMessage", "HelpMessage"]).unwrap_or_default();
+            choices.push(methods::ChoiceDescription {
+                label,
+                help_message,
+            });
+        }
+
+        let default_items = list_items(&a[3]).ok_or_else(|| {
+            debug!(param = ?a[3], "DefaultChoice list is not a supported container");
+            HostError::InvalidParameters
+        })?;
+        let mut defaults = Vec::with_capacity(default_items.len());
+        for v in default_items {
+            let idx = v.as_i32().ok_or(HostError::InvalidParameters)?;
+            defaults.push(idx);
+        }
+
+        Ok((caption, message, choices, defaults))
     }
 }
 
@@ -230,8 +356,21 @@ impl FromParams for (methods::Coordinates,) {
 }
 
 impl FromParams for methods::Size {
-    fn from_params(_a: &[PsValue]) -> Result<Self, HostError> {
-        todo!("Implement Size deserialization from PsValue")
+    fn from_params(a: &[PsValue]) -> Result<Self, HostError> {
+        if a.len() != 1 {
+            return Err(HostError::InvalidParameters);
+        }
+
+        match &a[0] {
+            PsValue::Object(obj) => {
+                let width =
+                    obj_prop_i32(obj, &["width", "Width"]).ok_or(HostError::InvalidParameters)?;
+                let height =
+                    obj_prop_i32(obj, &["height", "Height"]).ok_or(HostError::InvalidParameters)?;
+                Ok(Self { width, height })
+            }
+            PsValue::Primitive(_) => Err(HostError::InvalidParameters),
+        }
     }
 }
 
@@ -240,7 +379,8 @@ impl FromParams for (methods::Size,) {
         if a.len() != 1 {
             return Err(HostError::InvalidParameters);
         }
-        todo!("Implement Size deserialization from PsValue")
+        let s = methods::Size::from_params(a)?;
+        Ok((s,))
     }
 }
 
@@ -293,7 +433,29 @@ impl FromParams for (methods::Coordinates, Vec<Vec<methods::BufferCell>>) {
         if a.len() != 2 {
             return Err(HostError::InvalidParameters);
         }
-        todo!("Implement complex BufferCell array deserialization from PsValue")
+
+        let coords = methods::Coordinates::from_params(&a[0..1])?;
+        let rows = list_items(&a[1]).ok_or_else(|| {
+            debug!(param = ?a[1], "BufferCell 2D array is not a supported container");
+            HostError::InvalidParameters
+        })?;
+
+        let mut out_rows = Vec::with_capacity(rows.len());
+        for row in rows {
+            let cells = list_items(row).ok_or_else(|| {
+                debug!(param = ?row, "BufferCell row is not a supported container");
+                HostError::InvalidParameters
+            })?;
+
+            let mut out_cells = Vec::with_capacity(cells.len());
+            for cell in cells {
+                let bc = methods::BufferCell::from_params(std::slice::from_ref(cell))?;
+                out_cells.push(bc);
+            }
+            out_rows.push(out_cells);
+        }
+
+        Ok((coords, out_rows))
     }
 }
 
@@ -313,7 +475,8 @@ impl FromParams for (methods::Rectangle,) {
         if a.len() != 1 {
             return Err(HostError::InvalidParameters);
         }
-        todo!("Implement Rectangle deserialization from PsValue")
+        let r = methods::Rectangle::from_params(a)?;
+        Ok((r,))
     }
 }
 
@@ -329,7 +492,11 @@ impl FromParams
         if a.len() != 4 {
             return Err(HostError::InvalidParameters);
         }
-        todo!("Implement complex ScrollBufferContents parameter deserialization from PsValue")
+        let source = methods::Rectangle::from_params(&a[0..1])?;
+        let destination = methods::Coordinates::from_params(&a[1..2])?;
+        let clip = methods::Rectangle::from_params(&a[2..3])?;
+        let fill = methods::BufferCell::from_params(&a[3..4])?;
+        Ok((source, destination, clip, fill))
     }
 }
 

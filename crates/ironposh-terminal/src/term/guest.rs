@@ -40,6 +40,11 @@ impl GuestTerm {
             }
             TerminalOp::ClearScreen => self.feed(b"\x1b[2J\x1b[H"),
             TerminalOp::ClearScrollback => self.feed(b"\x1b[3J\x1b[2J\x1b[H"),
+            TerminalOp::SetScrollback { rows } => {
+                self.parser.screen_mut().set_scrollback(rows);
+                self.prev = None;
+                self.dirty = true;
+            }
             TerminalOp::Resize { rows, cols } => {
                 self.parser.screen_mut().set_size(rows, cols);
                 self.prev = None;
@@ -122,6 +127,18 @@ impl GuestTerm {
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    pub fn screen_size(&self) -> (u16, u16) {
+        self.parser.screen().size()
+    }
+
+    pub fn cursor_position(&self) -> (u16, u16) {
+        self.parser.screen().cursor_position()
+    }
+
+    pub fn cell(&self, row: u16, col: u16) -> Option<vt100::Cell> {
+        self.parser.screen().cell(row, col).cloned()
     }
 }
 

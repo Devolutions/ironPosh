@@ -82,6 +82,21 @@ impl Terminal {
         self.renderer.host_size()
     }
 
+    /// Returns the current guest screen size as (rows, cols).
+    pub fn guest_screen_size(&self) -> (u16, u16) {
+        self.guest.screen_size()
+    }
+
+    /// Returns the current guest cursor position as (row, col).
+    pub fn guest_cursor_position(&self) -> (u16, u16) {
+        self.guest.cursor_position()
+    }
+
+    /// Returns a snapshot of the cell at (row, col) from the guest screen.
+    pub fn guest_cell(&self, row: u16, col: u16) -> Option<vt100::Cell> {
+        self.guest.cell(row, col)
+    }
+
     /// Borrow a stdio-like handle. Scope it to release the &mut borrow when done.
     pub fn stdio(&mut self) -> StdTerm<'_> {
         StdTerm::new(self)

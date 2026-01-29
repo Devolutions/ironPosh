@@ -8,6 +8,9 @@ pub enum TerminalOp {
     },
     ClearScreen,
     ClearScrollback,
+    SetScrollback {
+        rows: usize,
+    },
     FillRect {
         left: u16,
         top: u16,
