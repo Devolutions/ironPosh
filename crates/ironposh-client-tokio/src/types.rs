@@ -7,6 +7,8 @@ pub enum TerminalOperation {
     Apply(Vec<TerminalOp>),
     /// Print plain text lines
     Print(String),
+    /// Write plain text, optionally adding a newline.
+    Write { text: String, newline: bool },
     /// Request input from user with given prompt
     RequestInput { prompt: String },
     /// Check input for interrupt (Ctrl-C)

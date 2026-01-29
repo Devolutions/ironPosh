@@ -59,7 +59,10 @@ The implementation follows the same patterns as `powershell-sync-client` but use
 
 ## Logging
 
-Logs are written to `ironposh_client.log` with different verbosity levels:
+Logs are written to `ironposh-client-tokio.log` by default (appended on each run).
+
+Override the log file path with the `IRONPOSH_TOKIO_LOG_FILE` environment variable.
+You can also override log filtering with `RUST_LOG`.
 
 - `-v`: Debug level logging
 - `-vv`: Trace level logging  

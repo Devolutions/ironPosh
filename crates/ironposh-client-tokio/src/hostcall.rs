@@ -2,7 +2,8 @@ use futures::StreamExt;
 use ironposh_async::HostResponse;
 use ironposh_client_core::host::HostCall;
 use ironposh_terminal::TerminalOp;
-use tracing::{error, warn};
+use tracing::{debug, error, trace, warn};
+use tracing::Instrument;
 
 use crate::types::TerminalOperation;
 
@@ -11,7 +12,16 @@ async fn process_host_call(
     host_call: HostCall,
     ui_tx: &tokio::sync::mpsc::Sender<TerminalOperation>,
 ) -> Result<ironposh_client_core::host::Submission, anyhow::Error> {
-    let submission = match host_call {
+    let span = tracing::trace_span!(
+        "process_host_call",
+        call_id = host_call.call_id(),
+        method_id = host_call.method_id(),
+        method = %host_call.method_name(),
+        scope = ?host_call.scope(),
+    );
+
+    async move {
+        let submission = match host_call {
         HostCall::GetName { transport } => {
             let (_params, rt) = transport.into_parts();
             rt.accept_result("PowerShell-Host".to_string())
@@ -21,6 +31,8 @@ async fn process_host_call(
             let xy = params.0;
             let x = xy.x.clamp(0, u16::MAX as i32) as u16;
             let y = xy.y.clamp(0, u16::MAX as i32) as u16;
+
+            trace!(x, y, "host requested cursor position");
 
             // Send cursor position command to UI thread
             let _ = ui_tx
@@ -43,6 +55,15 @@ async fn process_host_call(
                         && rect.right == -1
                         && rect.bottom == -1));
 
+            debug!(
+                is_clear,
+                rect = ?rect,
+                ch = %cell.character,
+                fg = cell.foreground,
+                bg = cell.background,
+                "host requested buffer contents update"
+            );
+
             let ops = if is_clear {
                 vec![TerminalOp::ClearScreen]
             } else {
@@ -63,6 +84,99 @@ async fn process_host_call(
         }
         HostCall::WriteProgress { transport } => {
             let (_params, rt) = transport.into_parts();
+            rt.accept_result(())
+        }
+        HostCall::Write1 { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            trace!(text_len = text.len(), newline = false, "host wrote text");
+            let _ = ui_tx
+                .send(TerminalOperation::Write {
+                    text,
+                    newline: false,
+                })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::Write2 { transport } => {
+            let ((_x, _y, text), rt) = transport.into_parts();
+            trace!(
+                x = _x,
+                y = _y,
+                text_len = text.len(),
+                newline = false,
+                "host wrote positioned text"
+            );
+            let _ = ui_tx
+                .send(TerminalOperation::Write {
+                    text,
+                    newline: false,
+                })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteLine1 { transport } => {
+            let ((), rt) = transport.into_parts();
+            trace!(newline = true, "host wrote empty line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write {
+                    text: String::new(),
+                    newline: true,
+                })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteLine2 { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            trace!(text_len = text.len(), newline = true, "host wrote line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteLine3 { transport } => {
+            let ((_x, _y, text), rt) = transport.into_parts();
+            trace!(
+                x = _x,
+                y = _y,
+                text_len = text.len(),
+                newline = true,
+                "host wrote positioned line"
+            );
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteErrorLine { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            debug!(text_len = text.len(), "host wrote error line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteWarningLine { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            debug!(text_len = text.len(), "host wrote warning line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteVerboseLine { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            debug!(text_len = text.len(), "host wrote verbose line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
+            rt.accept_result(())
+        }
+        HostCall::WriteDebugLine { transport } => {
+            let ((text,), rt) = transport.into_parts();
+            debug!(text_len = text.len(), "host wrote debug line");
+            let _ = ui_tx
+                .send(TerminalOperation::Write { text, newline: true })
+                .await;
             rt.accept_result(())
         }
         _ => {
@@ -91,6 +205,13 @@ async fn process_host_call(
                         }
                         _ => {
                             warn!(method = %host_call.method_name(), "unhandled Get host call");
+                            error!(
+                                method = %host_call.method_name(),
+                                method_id = host_call.method_id(),
+                                call_id = host_call.call_id(),
+                                scope = ?host_call.scope(),
+                                "unhandled Get host call; panicking"
+                            );
                             // This requires more specific handling based on return type
                             // For now, we'll handle specific cases above
                             panic!("Unhandled host call: {}", host_call.method_name())
@@ -99,6 +220,13 @@ async fn process_host_call(
                 }
                 _ => {
                     warn!(method = %host_call.method_name(), "unhandled non-Get host call");
+                    error!(
+                        method = %host_call.method_name(),
+                        method_id = host_call.method_id(),
+                        call_id = host_call.call_id(),
+                        scope = ?host_call.scope(),
+                        "unhandled host call; panicking"
+                    );
                     // For other calls, try to return unit
                     panic!("Unhandled host call: {}", host_call.method_name())
                 }
@@ -106,7 +234,10 @@ async fn process_host_call(
         }
     };
 
-    Ok(submission)
+        Ok(submission)
+    }
+    .instrument(span)
+    .await
 }
 
 /// Handle host calls from PowerShell in a loop, implementing the UI operations
@@ -118,6 +249,13 @@ pub async fn handle_host_calls(
     while let Some(host_call) = host_call_rx.next().await {
         let scope = host_call.scope();
         let call_id = host_call.call_id();
+        trace!(
+            call_id,
+            method_id = host_call.method_id(),
+            method = %host_call.method_name(),
+            scope = ?scope,
+            "received host call"
+        );
 
         match process_host_call(host_call, &ui_tx).await {
             Ok(submission) => {

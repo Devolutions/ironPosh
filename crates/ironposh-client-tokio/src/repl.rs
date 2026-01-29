@@ -14,6 +14,70 @@ enum UserInput {
     Eof,
 }
 
+fn sanitize_prompt(mut prompt: String) -> String {
+    // Some prompts may contain newlines; keep only the last line for a single-line UI prompt.
+    if prompt.contains('\n') || prompt.contains('\r') {
+        prompt = prompt
+            .lines()
+            .last()
+            .unwrap_or("> ")
+            .to_string();
+    }
+
+    if prompt.is_empty() {
+        return "> ".to_string();
+    }
+
+    prompt
+}
+
+async fn fetch_remote_prompt(client: &mut RemoteAsyncPowershellClient) -> String {
+    // Use PowerShell's `prompt` function so user customizations ($PROFILE, etc.) are reflected.
+    let mut stream = match client.send_script("prompt".to_string()).await {
+        Ok(stream) => stream.boxed(),
+        Err(e) => {
+            warn!(error = %e, "failed to request remote prompt; falling back");
+            return "> ".to_string();
+        }
+    };
+
+    let mut last_prompt: Option<String> = None;
+
+    while let Some(ev) = stream.next().await {
+        match ev {
+            UserEvent::PipelineOutput { output, .. } => match output.format_as_displyable_string() {
+                Ok(text) => {
+                    if !text.is_empty() {
+                        last_prompt = Some(text);
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to parse remote prompt output");
+                }
+            },
+            UserEvent::ErrorRecord { error_record, .. } => {
+                warn!(error = %error_record.render_concise(), "remote prompt command returned an error");
+            }
+            UserEvent::PipelineFinished { .. } => break,
+            UserEvent::PipelineCreated { .. } => {}
+        }
+    }
+
+    let prompt = sanitize_prompt(last_prompt.unwrap_or_else(|| "> ".to_string()));
+    debug!(prompt = %prompt, "remote prompt fetched");
+    prompt
+}
+
+async fn request_prompt(
+    client: &mut RemoteAsyncPowershellClient,
+    terminal_op_tx: &Sender<TerminalOperation>,
+) {
+    let prompt = fetch_remote_prompt(client).await;
+    let _ = terminal_op_tx
+        .send(TerminalOperation::RequestInput { prompt })
+        .await;
+}
+
 /// Run the UI thread that owns the terminal and processes UI operations
 fn run_ui_thread(
     mut terminal: Terminal,
@@ -50,6 +114,23 @@ fn run_ui_thread(
                     }
                     if let Err(e) = io.render() {
                         error!(error = %e, "failed to render terminal after print");
+                        return Err(e);
+                    }
+                }
+                TerminalOperation::Write { text, newline } => {
+                    debug!(chars = text.len(), newline, "writing output");
+                    if newline {
+                        if let Err(e) = writeln!(io, "{text}") {
+                            error!(error = %e, "failed to write line to terminal");
+                            return Err(e.into());
+                        }
+                    } else if let Err(e) = write!(io, "{text}") {
+                        error!(error = %e, "failed to write to terminal");
+                        return Err(e.into());
+                    }
+
+                    if let Err(e) = io.render() {
+                        error!(error = %e, "failed to render terminal after write");
                         return Err(e);
                     }
                 }
@@ -123,11 +204,7 @@ async fn run_repl_loop(
     info!("Starting unified REPL loop");
 
     // Ask for the first prompt
-    let _ = terminal_op_tx
-        .send(TerminalOperation::RequestInput {
-            prompt: "> ".into(),
-        })
-        .await;
+    request_prompt(client, &terminal_op_tx).await;
 
     // Async REPL loop
     let mut current_pipeline = None;
@@ -147,7 +224,9 @@ async fn run_repl_loop(
                         if let Some(h) = current_pipeline.take() {
                             info!(pipeline = ?h, "Killing active pipeline due to interrupt");
                             client.kill_pipeline(h).await?;
+                            current_stream = None;
                         }
+                        request_prompt(client, &terminal_op_tx).await;
                     }
                     UserInput::Cmd(cmd) => {
                         let cmd = cmd.trim().to_string();
@@ -160,7 +239,7 @@ async fn run_repl_loop(
 
                         if cmd.is_empty() {
                             debug!("Empty command, requesting new prompt");
-                            let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
+                            request_prompt(client, &terminal_op_tx).await;
                             continue;
                         }
 
@@ -175,7 +254,7 @@ async fn run_repl_loop(
                             Err(e) => {
                                 error!("Failed to send command: {}", e);
                                 let _ = terminal_op_tx.send(TerminalOperation::Print(format!("Error sending command: {e}"))).await;
-                                let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
+                                request_prompt(client, &terminal_op_tx).await;
                             }
                         }
                     }
@@ -201,7 +280,7 @@ async fn run_repl_loop(
                         current_pipeline = None;
                         current_stream = None;
                         // Request new prompt after pipeline finishes
-                        let _ = terminal_op_tx.send(TerminalOperation::RequestInput { prompt: "> ".into() }).await;
+                        request_prompt(client, &terminal_op_tx).await;
                     }
                     UserEvent::PipelineOutput { output, .. } => {
                         debug!("Received pipeline output");

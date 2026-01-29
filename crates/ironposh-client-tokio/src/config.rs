@@ -8,6 +8,7 @@ use ironposh_psrp::{
     host_default_data::{HostDefaultData, Size},
     HostInfo,
 };
+use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
 
 /// PowerShell Remoting Client (Async/Tokio)
@@ -98,7 +99,24 @@ impl std::fmt::Display for AuthMethod {
 
 /// Initialize logging with file output and proper structured logging
 pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
-    let log_file = std::fs::File::create("ironposh_client.log")?;
+    const DEFAULT_LOG_FILE: &str = "ironposh-client-tokio.log";
+    const LOG_FILE_ENV: &str = "IRONPOSH_TOKIO_LOG_FILE";
+
+    let log_file_path = std::env::var_os(LOG_FILE_ENV)
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| PathBuf::from(DEFAULT_LOG_FILE), PathBuf::from);
+
+    if let Some(parent) = log_file_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    // Append to preserve previous runs (use env override to point elsewhere if needed).
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)?;
 
     // Determine log level based on verbosity using structured filters
     let log_level = match verbose_level {
@@ -108,7 +126,8 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
         _ => "trace",
     };
 
-    let env_filter = EnvFilter::new(log_level);
+    // Allow overriding filters with `RUST_LOG`.
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
     let subscriber = Registry::default().with(env_filter).with(
         fmt::layer()
@@ -121,6 +140,11 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
     );
 
     tracing::subscriber::set_global_default(subscriber)?;
+    tracing::info!(
+        log_file = %log_file_path.display(),
+        log_file_env = LOG_FILE_ENV,
+        "tracing initialized (file output)"
+    );
     Ok(())
 }
 
