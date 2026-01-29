@@ -2,6 +2,29 @@
 
 Goal: for each host call below, we have a **concrete PowerShell command** to run inside the tokio client and a **visible expectation** (“I should see …”).
 
+## Implementation States
+
+We’re going to implement host calls in stages, using **real PowerShell** as the acceptance test.
+
+### State 1 (no major refactor)
+
+Definition: implement host calls that can be handled with the existing tokio client structure:
+- host call handling remains in `ironposh-client-tokio/src/hostcall.rs`
+- UI work stays on the existing UI thread (the `spawn_blocking` loop in `ironposh-client-tokio/src/repl.rs`)
+- no new async input routing / no unified input broker
+- no changes required to introduce new `TerminalOp` variants (we only use what exists today)
+
+Target host calls for State 1:
+- Size getters: `GetWindowSize (39)`, `GetBufferSize (37)` (may be approximate), `GetMaxWindowSize (43)` (may be approximate), `GetMaxPhysicalWindowSize (44)` (may be approximate)
+- Colors: `GetForegroundColor (27)`, `SetForegroundColor (28)`, `GetBackgroundColor (29)`, `SetBackgroundColor (30)` (via ANSI + local state)
+- Buffer fill: `SetBufferContents2 (49)` (map to `FillRect` like `SetBufferContents1`)
+- Window title: `SetWindowTitle (42)` / `GetWindowTitle (41)` (requires a title cache + calling host terminal APIs from UI thread)
+
+Non-goals for State 1:
+- Keyboard buffering calls: `ReadKey (46)`, `GetKeyAvailable (45)`, `FlushInputBuffer (47)` (needs a key-event queue)
+- Interactive prompts: `ReadLine (11)`, `Prompt (23)`, `PromptForChoice (26)`, `PromptForCredential* (24/25)` (needs a proper input broker + structured returns)
+- `ScrollBufferContents (51)` (likely needs new terminal ops in `ironposh-terminal`)
+
 ## Test Setup (Tokio Terminal Client)
 
 1. Start the tokio client (example):
@@ -47,4 +70,3 @@ Legend (Tokio client status):
 
 - Some calls are easiest to observe by **visual side effects** (cursor move, clear, colors, title).
 - For unimplemented calls in tokio today, the expected outcome is typically a **panic** with “Unhandled host call …” plus a log entry in the tracing log file.
-
