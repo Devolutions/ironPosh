@@ -25,12 +25,11 @@ fn main() -> Result<()> {
                         io.apply_op(TerminalOp::ClearScreen);
                         io.render()?;
                     } else {
-                        writeln!(io, "You typed: {}", line)?;
+                        writeln!(io, "You typed: {line}")?;
                     }
                 }
                 ReadOutcome::Interrupt => {
                     // graceful: just reprompt (like bash/zsh)
-                    continue;
                 }
                 ReadOutcome::Eof => {
                     writeln!(io, "\nGoodbye!")?;

@@ -2,17 +2,19 @@ use anyhow::Context;
 use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     authenticator::SecContextMaybeInit,
-    conntion_pool::SecContextInited,
     conntion_pool::TrySend,
+    conntion_pool::{ConnectionId, SecContextInited},
     http::HttpRequestAction,
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
 };
 use reqwest::Client;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{debug, info, instrument};
 
 pub struct ReqwestHttpClient {
-    client: reqwest::Client,
+    clients_by_conn: Mutex<HashMap<u32, reqwest::Client>>,
 }
 
 impl ReqwestHttpClient {
@@ -23,14 +25,32 @@ impl ReqwestHttpClient {
             "initializing ReqwestHttpClient with native-tls"
         );
         Self {
-            client: reqwest::Client::builder()
-                .use_native_tls()
-                .pool_max_idle_per_host(10)
-                .connect_timeout(Duration::from_secs(30))
-                .timeout(Duration::from_secs(60))
-                .build()
-                .expect("Failed to build reqwest client"),
+            clients_by_conn: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn build_client() -> Client {
+        reqwest::Client::builder()
+            .use_native_tls()
+            // IMPORTANT: keep each logical `ConnectionId` on its own reqwest client to
+            // reduce the chance of SSPI contexts being mixed across TCP connections.
+            .pool_max_idle_per_host(1)
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build reqwest client")
+    }
+
+    fn client_for_conn(&self, conn_id: ConnectionId) -> Client {
+        let mut clients = self
+            .clients_by_conn
+            .lock()
+            .expect("ReqwestHttpClient.clients_by_conn mutex poisoned");
+
+        clients
+            .entry(conn_id.inner())
+            .or_insert_with(Self::build_client)
+            .clone()
     }
 }
 
@@ -138,7 +158,8 @@ impl HttpClient for ReqwestHttpClient {
             // === Simple path: already have an idle, encrypted channel ===
             TrySend::JustSend { request, conn_id } => {
                 info!(conn_id = conn_id.inner(), "sending on existing connection");
-                let resp = Self::send_with_client(self.client.clone(), request).await?;
+                let client = self.client_for_conn(conn_id);
+                let resp = Self::send_with_client(client, request).await?;
                 // No provider attached on steady-state sends
                 Ok(HttpResponseTargeted::new(resp, conn_id, None))
             }
@@ -167,10 +188,11 @@ impl HttpClient for ReqwestHttpClient {
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
                             let HttpRequestAction {
-                                connection_id: _,
+                                connection_id,
                                 request,
                             } = request;
-                            let resp = Self::send_with_client(self.client.clone(), request).await?;
+                            let client = self.client_for_conn(connection_id);
+                            let resp = Self::send_with_client(client, request).await?;
                             auth_response = Some(resp);
                             auth_sequence = sequence;
                         }
@@ -188,7 +210,8 @@ impl HttpClient for ReqwestHttpClient {
                             } = request;
 
                             // Send the final (sealed) request
-                            let resp = Self::send_with_client(self.client.clone(), request).await?;
+                            let client = self.client_for_conn(connection_id);
+                            let resp = Self::send_with_client(client, request).await?;
 
                             // Return targeted response WITH the provider attached
                             info!("authentication sequence successful");

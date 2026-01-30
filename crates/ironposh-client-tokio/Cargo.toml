@@ -18,6 +18,8 @@ uuid = { version = "1.18.0", features = ["v4"] }
 futures = "0.3"
 crossbeam-channel = "0.5"
 whoami = "1.5"
+crossterm = "0.29"
+vt100 = "0.16"
 
 [lints]
 workspace = true

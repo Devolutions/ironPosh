@@ -56,6 +56,63 @@ pub trait NamespaceFmt {
     ) -> std::fmt::Result;
 }
 
+pub(crate) fn write_escaped_text<W: std::io::Write>(w: &mut W, value: &str) -> std::io::Result<()> {
+    write_escaped_xml(w, value, false)
+}
+
+pub(crate) fn write_escaped_attribute_value<W: std::io::Write>(
+    w: &mut W,
+    value: &str,
+) -> std::io::Result<()> {
+    write_escaped_xml(w, value, true)
+}
+
+pub(crate) fn escape_text(value: &str) -> String {
+    let mut buf = Vec::new();
+    write_escaped_text(&mut buf, value).expect("writing into Vec cannot fail");
+    String::from_utf8(buf).expect("escaped XML must be UTF-8")
+}
+
+pub(crate) fn escape_attribute_value(value: &str) -> String {
+    let mut buf = Vec::new();
+    write_escaped_attribute_value(&mut buf, value).expect("writing into Vec cannot fail");
+    String::from_utf8(buf).expect("escaped XML must be UTF-8")
+}
+
+fn write_escaped_xml<W: std::io::Write>(
+    w: &mut W,
+    value: &str,
+    escape_quotes: bool,
+) -> std::io::Result<()> {
+    let bytes = value.as_bytes();
+    let mut last = 0usize;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        let replacement: Option<&'static [u8]> = match b {
+            b'&' => Some(b"&amp;"),
+            b'<' => Some(b"&lt;"),
+            b'>' => Some(b"&gt;"),
+            b'"' if escape_quotes => Some(b"&quot;"),
+            b'\'' if escape_quotes => Some(b"&apos;"),
+            _ => None,
+        };
+
+        if let Some(replacement) = replacement {
+            if last < i {
+                w.write_all(&bytes[last..i])?;
+            }
+            w.write_all(replacement)?;
+            last = i + 1;
+        }
+    }
+
+    if last < bytes.len() {
+        w.write_all(&bytes[last..])?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,8 +582,10 @@ mod tests {
         let element = Element::new("test").set_text("Text with <>&\"' characters");
         let builder = Builder::new(None, element);
         let xml_string = builder.to_xml_string().unwrap();
-        // Note: This test shows current behavior - proper XML should escape these
-        assert_eq!(xml_string, "<test>Text with <>&\"' characters</test>");
+        assert_eq!(
+            xml_string,
+            "<test>Text with &lt;&gt;&amp;\"' characters</test>"
+        );
     }
 
     #[test]
@@ -535,8 +594,10 @@ mod tests {
         let element = Element::new("test").add_attribute(attr);
         let builder = Builder::new(None, element);
         let xml_string = builder.to_xml_string().unwrap();
-        // Note: This test shows current behavior - proper XML should escape these
-        assert_eq!(xml_string, r#"<test name="value with <>&"' characters"/>"#);
+        assert_eq!(
+            xml_string,
+            r#"<test name="value with &lt;&gt;&amp;&quot;&apos; characters"/>"#
+        );
     }
 
     #[test]

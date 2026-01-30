@@ -118,7 +118,28 @@ pub async fn start_active_session_loop(
                                         })
                                         .context("Failed to submit host response")?;
 
-                                    process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx, &host_call_tx, &mut host_resp_rx).await?;
+                                    match step_result {
+                                        ActiveSessionOutput::SendBack(reqs) => {
+                                            info!(
+                                                target: "network",
+                                                request_count = reqs.len(),
+                                                "launching HTTP requests in parallel"
+                                            );
+                                            for r in reqs {
+                                                inflight.push(launch(&client, r));
+                                            }
+                                        }
+                                        other => {
+                                            process_session_outputs(
+                                                vec![other],
+                                                &mut user_output_tx,
+                                                &mut user_input_tx,
+                                                &host_call_tx,
+                                                &mut host_resp_rx,
+                                            )
+                                            .await?;
+                                        }
+                                    }
                                 }
                                 ActiveSessionOutput::OperationSuccess => {
                                     info!(target: "session", "operation completed successfully");
@@ -191,7 +212,28 @@ pub async fn start_active_session_loop(
                                  })
                                  .context("Failed to submit host response")?;
 
-                             process_session_outputs(vec![step_result], &mut user_output_tx, &mut user_input_tx, &host_call_tx, &mut host_resp_rx).await?;
+                             match step_result {
+                                 ActiveSessionOutput::SendBack(reqs) => {
+                                     info!(
+                                         target: "network",
+                                         request_count = reqs.len(),
+                                         "launching HTTP requests in parallel"
+                                     );
+                                     for r in reqs {
+                                         inflight.push(launch(&client, r));
+                                     }
+                                 }
+                                 other => {
+                                     process_session_outputs(
+                                         vec![other],
+                                         &mut user_output_tx,
+                                         &mut user_input_tx,
+                                         &host_call_tx,
+                                         &mut host_resp_rx,
+                                     )
+                                     .await?;
+                                 }
+                             }
                          }
                          ActiveSessionOutput::OperationSuccess => {
                              info!(target: "session", "operation completed successfully");

@@ -8,6 +8,7 @@ use clap::Parser;
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_terminal::Terminal;
+use std::sync::Arc;
 use tracing::{error, info, instrument, warn};
 
 use config::{create_connector_config, init_logging, Args};
@@ -33,7 +34,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create terminal early to get real dimensions for PowerShell host info
-    let mut terminal = Terminal::new(2000)?;
+    let scrollback_lines = 2000;
+    let mut terminal = Terminal::new(scrollback_lines)?;
     let (cols, rows) = terminal.size()?;
     info!("Terminal created with size: {}x{}", cols, rows);
 
@@ -42,16 +44,27 @@ async fn main() -> anyhow::Result<()> {
     let http_client = ReqwestHttpClient::new();
 
     // Create the PowerShell client
-    let (mut client, host_io, _session_event_rx, connection_task) =
+    let (mut client, host_io, session_event_rx, connection_task) =
         RemoteAsyncPowershellClient::open_task(config, http_client);
 
     // Extract host I/O for handling host calls
     let (host_call_rx, submitter) = host_io.into_parts();
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel(100); // For future UI integration
+    let (repl_control_tx, repl_control_rx) = tokio::sync::mpsc::channel(32);
+    let ui_state = Arc::new(tokio::sync::Mutex::new(hostcall::HostUiState::new(
+        scrollback_lines as i32,
+        cols,
+        rows,
+    )));
 
     // Spawn host call handler task
-    let host_call_handle =
-        tokio::spawn(hostcall::handle_host_calls(host_call_rx, submitter, ui_tx));
+    let host_call_handle = tokio::spawn(hostcall::handle_host_calls(
+        host_call_rx,
+        submitter,
+        ui_tx,
+        repl_control_tx,
+        ui_state,
+    ));
 
     info!("Runspace pool is now open and ready for operations!");
 
@@ -81,7 +94,15 @@ async fn main() -> anyhow::Result<()> {
         let _connection_handle = tokio::spawn(connection_task);
         let _host_call_handle = host_call_handle;
 
-        if let Err(e) = repl::run_simple_repl(&mut client, terminal, ui_rx).await {
+        if let Err(e) = repl::run_simple_repl(
+            &mut client,
+            terminal,
+            ui_rx,
+            session_event_rx,
+            repl_control_rx,
+        )
+        .await
+        {
             error!(error = %e, "Interactive mode failed");
             eprintln!("Interactive mode failed: {e}");
             std::process::exit(1);

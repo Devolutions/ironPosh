@@ -323,7 +323,7 @@ impl WinRunspace {
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
         use ironposh_winrm::{
             cores::{
-                Tag,
+                Namespace, Tag,
                 tag_name::{Send, Stream},
             },
             rsp::send::SendValue,
@@ -348,8 +348,11 @@ impl WinRunspace {
             Tag::from_name(Send)
                 .with_value(send_value)
                 .with_attribute(Attribute::CommandId(cmd_id))
+                .with_declaration(Namespace::WsmanShell)
         } else {
-            Tag::from_name(Send).with_value(send_value)
+            Tag::from_name(Send)
+                .with_value(send_value)
+                .with_declaration(Namespace::WsmanShell)
         };
 
         let request = connection.invoke(

@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use crate::builder::{escape_attribute_value, write_escaped_attribute_value};
+
 /// Represents an XML attribute with a name and value.
 #[derive(Debug, Clone)]
 pub struct Attribute<'a> {
@@ -85,7 +87,9 @@ impl<'a> crate::builder::NamespaceWrite<'a> for Attribute<'a> {
             self.name.to_string()
         };
 
-        w.write_fmt(format_args!(" {}=\"{}\"", name, self.value))?;
+        w.write_fmt(format_args!(" {name}=\""))?;
+        write_escaped_attribute_value(w, &self.value)?;
+        w.write_all(b"\"")?;
         Ok(())
     }
 }
@@ -115,7 +119,8 @@ impl crate::builder::NamespaceFmt for Attribute<'_> {
             self.name.to_string()
         };
 
-        write!(f, " {}=\"{}\"", name, self.value)?;
+        let escaped = escape_attribute_value(&self.value);
+        write!(f, " {name}=\"{escaped}\"")?;
         Ok(())
     }
 }

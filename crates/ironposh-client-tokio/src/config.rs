@@ -222,7 +222,10 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         .max_physical_window_size(size)
         .build();
 
-    let host_info = HostInfo::builder().host_default_data(host_data).build();
+    let host_info = HostInfo::builder()
+        .host_default_data(host_data)
+        .use_runspace_host(true)
+        .build();
 
     Ok(WinRmConfig {
         server: (server, args.port),

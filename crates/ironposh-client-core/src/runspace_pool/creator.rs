@@ -67,6 +67,9 @@ impl RunspacePoolCreator {
             session_capability: self.session_capability,
             pipelines: self.pipelines,
             desired_stream_is_pooling: false,
+            key_exchange: None,
+            psrp_key_exchange_pending: false,
+            pending_host_calls: std::collections::VecDeque::new(),
         }
     }
 }
