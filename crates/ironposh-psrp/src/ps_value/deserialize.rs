@@ -106,6 +106,13 @@ impl<'a> XmlVisitor<'a> for PsPrimitiveValueVisitor<'a> {
                 })?;
                 self.value = Some(PsPrimitiveValue::Bytes(bytes));
             }
+            "SS" => {
+                let text = node.text().unwrap_or("");
+                let bytes = B64.decode(text).map_err(|_| {
+                    ironposh_xml::XmlError::GenericError(format!("Invalid base64 data: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::SecureString(bytes));
+            }
             "Version" => {
                 let text = node.text().unwrap_or("").to_string();
                 self.value = Some(PsPrimitiveValue::Version(text));

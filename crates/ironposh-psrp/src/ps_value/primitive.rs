@@ -15,6 +15,7 @@ pub enum PsPrimitiveValue {
     Char(char),
     Nil,
     Bytes(Vec<u8>),
+    SecureString(Vec<u8>),
     Version(String),
     DateTime(String), // Store as string for now
                       // Add more primitive types as needed
@@ -33,6 +34,7 @@ impl Display for PsPrimitiveValue {
             Self::Char(c) => write!(f, "{c}"),
             Self::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
             Self::Bytes(_bytes) => write!(f, "System.Byte[]"),
+            Self::SecureString(_bytes) => write!(f, "System.Security.SecureString"),
             Self::Version(v) => write!(f, "{v}"),
             Self::DateTime(d) => write!(f, "{d}"),
         }

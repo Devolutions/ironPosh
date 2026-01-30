@@ -65,6 +65,7 @@ impl<'a> PsPrimitiveValue {
             Self::Char(c) => Element::new("C").set_text_owned((*c as u32).to_string()),
             Self::Nil => Element::new("Nil"), // empty tag
             Self::Bytes(b) => Element::new("BA").set_text_owned(B64.encode(b)),
+            Self::SecureString(b) => Element::new("SS").set_text_owned(B64.encode(b)),
             Self::Version(v) => Element::new("Version").set_text_owned(v.clone()),
             Self::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
         })

@@ -535,10 +535,21 @@ fn run_ui_thread(
                                         field.label.clone()
                                     };
                                     let prompt = format!("{label}: ");
-                                    let ReadOutcome::Line(input) =
-                                        io.read_line_queued(&prompt, &mut event_queue)?
-                                    else {
-                                        continue;
+
+                                    let is_secure = field.parameter_type.contains("SecureString")
+                                        || field
+                                            .parameter_type
+                                            .contains("System.Security.SecureString");
+
+                                    let input = if is_secure {
+                                        read_secure_line(&mut io, &prompt, &mut event_queue)?
+                                    } else {
+                                        let ReadOutcome::Line(input) =
+                                            io.read_line_queued(&prompt, &mut event_queue)?
+                                        else {
+                                            continue;
+                                        };
+                                        input
                                     };
                                     let input = input.trim().to_string();
 
@@ -553,12 +564,26 @@ fn run_ui_thread(
                                         }
                                         out.insert(
                                             field.name.clone(),
-                                            ironposh_psrp::PsValue::from(String::new()),
+                                            if is_secure {
+                                                ironposh_psrp::PsValue::Primitive(
+                                                    ironposh_psrp::PsPrimitiveValue::SecureString(
+                                                        Vec::new(),
+                                                    ),
+                                                )
+                                            } else {
+                                                ironposh_psrp::PsValue::from(String::new())
+                                            },
                                         );
                                         break;
                                     }
 
-                                    let ps_val = if field.parameter_type.contains("Int") {
+                                    let ps_val = if is_secure {
+                                        ironposh_psrp::PsValue::Primitive(
+                                            ironposh_psrp::PsPrimitiveValue::SecureString(
+                                                secure_string_bytes(&input),
+                                            ),
+                                        )
+                                    } else if field.parameter_type.contains("Int") {
                                         input.parse::<i32>().map_or_else(
                                             |_| ironposh_psrp::PsValue::from(input),
                                             ironposh_psrp::PsValue::from,

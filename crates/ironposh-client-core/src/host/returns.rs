@@ -30,13 +30,19 @@ fn obj_with_extended_props(type_names: &[&'static str], props: Vec<(&str, PsValu
 
 impl<S: ::std::hash::BuildHasher> ToPs for HashMap<String, PsValue, S> {
     fn to_ps(v: Self) -> Option<PsValue> {
-        // Represent as PSPrimitiveDictionary / Hashtable.
+        // Represent as a Hashtable. (Some WS-Man endpoints reject Prompt responses when the
+        // payload is typed as `PSPrimitiveDictionary`, but accept plain `Hashtable`.)
         let mut dict = BTreeMap::new();
         for (k, vv) in v {
             dict.insert(PsValue::Primitive(PsPrimitiveValue::Str(k)), vv);
         }
         Some(PsValue::Object(ComplexObject {
-            type_def: Some(PsType::ps_primitive_dictionary()),
+            type_def: Some(PsType {
+                type_names: vec![
+                    Cow::Borrowed("System.Collections.Hashtable"),
+                    Cow::Borrowed("System.Object"),
+                ],
+            }),
             to_string: None,
             content: ComplexObjectContent::Container(Container::Dictionary(dict)),
             adapted_properties: BTreeMap::new(),
@@ -49,13 +55,14 @@ impl ToPs for methods::PSCredential {
     fn to_ps(v: Self) -> Option<PsValue> {
         // Best-effort PSCredential representation: include both PascalCase and camelCase names,
         // since different remoting stacks may look for either.
+        let password = PsValue::Primitive(PsPrimitiveValue::SecureString(v.password));
         Some(obj_with_extended_props(
             &["System.Management.Automation.PSCredential", "System.Object"],
             vec![
                 ("UserName", PsValue::from(v.user_name.clone())),
                 ("userName", PsValue::from(v.user_name)),
-                ("Password", PsValue::from(v.password.clone())),
-                ("password", PsValue::from(v.password)),
+                ("Password", password.clone()),
+                ("password", password),
             ],
         ))
     }

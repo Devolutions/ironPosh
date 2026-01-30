@@ -12,7 +12,7 @@ use crate::{
     connector::{
         auth_sequence::AuthSequenceConfig,
         config::AuthenticatorConfig,
-        conntion_pool::{ConnectionPool, ConnectionPoolConfig, TrySend},
+        conntion_pool::{ConnectionPool, ConnectionPoolAccept, ConnectionPoolConfig, TrySend},
         http::{HttpResponseTargeted, ServerAddress},
     },
     runspace_pool::{
@@ -232,21 +232,36 @@ impl Connector {
                 let targeted_response = server_response.ok_or(
                     crate::PwshCoreError::InvalidState("Expected response in Connecting"),
                 )?;
-                let xml = connection_pool.accept(targeted_response)?;
 
-                // Advance runspace handshake
-                let runspace_pool = expect_shell_created.accept(&xml)?;
-                let receive_xml =
-                    runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
-                info!(connecting_receive_xml = %receive_xml, "outgoing unencrypted connecting receive SOAP");
-                let try_send = connection_pool.send(&receive_xml)?;
+                match connection_pool.accept(targeted_response)? {
+                    ConnectionPoolAccept::Body(xml) => {
+                        // Advance runspace handshake
+                        let runspace_pool = expect_shell_created.accept(&xml)?;
+                        let receive_xml =
+                            runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
+                        info!(connecting_receive_xml = %receive_xml, "outgoing unencrypted connecting receive SOAP");
+                        let try_send = connection_pool.send(&receive_xml)?;
 
-                let new_state = ConnectorState::ConnectReceiveCycle {
-                    runspace_pool,
-                    connection_pool,
-                };
+                        let new_state = ConnectorState::ConnectReceiveCycle {
+                            runspace_pool,
+                            connection_pool,
+                        };
 
-                (new_state, ConnectorStepResult::SendBack { try_send })
+                        (new_state, ConnectorStepResult::SendBack { try_send })
+                    }
+                    ConnectionPoolAccept::SendBack(reqs) => {
+                        let [try_send] = <[TrySend; 1]>::try_from(reqs).map_err(|_| {
+                            crate::PwshCoreError::InvalidState(
+                                "Expected single SendBack during Connecting retry",
+                            )
+                        })?;
+                        let new_state = ConnectorState::Connecting {
+                            expect_shell_created,
+                            connection_pool,
+                        };
+                        (new_state, ConnectorStepResult::SendBack { try_send })
+                    }
+                }
             }
             ConnectorState::ConnectReceiveCycle {
                 mut runspace_pool,
@@ -255,43 +270,59 @@ impl Connector {
                 let targeted_response = server_response.ok_or(
                     crate::PwshCoreError::InvalidState("Expected response in ConnectReceiveCycle"),
                 )?;
-                let xml = connection_pool.accept(targeted_response)?;
 
-                let results = runspace_pool.accept_response(&xml)?;
-                let Some(AcceptResponsResult::ReceiveResponse { desired_streams }) = results
-                    .into_iter()
-                    .find(|r| matches!(r, AcceptResponsResult::ReceiveResponse { .. }))
-                else {
-                    return Err(crate::PwshCoreError::InvalidState(
-                        "Expected ReceiveResponse",
-                    ));
-                };
+                match connection_pool.accept(targeted_response)? {
+                    ConnectionPoolAccept::Body(xml) => {
+                        let results = runspace_pool.accept_response(&xml)?;
+                        let Some(AcceptResponsResult::ReceiveResponse { desired_streams }) =
+                            results
+                                .into_iter()
+                                .find(|r| matches!(r, AcceptResponsResult::ReceiveResponse { .. }))
+                        else {
+                            return Err(crate::PwshCoreError::InvalidState(
+                                "Expected ReceiveResponse",
+                            ));
+                        };
 
-                if runspace_pool.state == RunspacePoolState::NegotiationSent {
-                    let receive_xml = runspace_pool.fire_receive(desired_streams)?;
-                    let try_send = connection_pool.send(&receive_xml)?;
-                    let new_state = ConnectorState::ConnectReceiveCycle {
-                        runspace_pool,
-                        connection_pool,
-                    };
-                    (new_state, ConnectorStepResult::SendBack { try_send })
-                } else if runspace_pool.state == RunspacePoolState::Opened {
-                    // Hand off to ActiveSession: it should carry the pool forward
-                    let next_receive_xml = runspace_pool.fire_receive(desired_streams)?;
-                    let next_req = connection_pool.send(&next_receive_xml)?;
-                    let active_session = ActiveSession::new(runspace_pool, connection_pool);
-                    let new_state = ConnectorState::Connected;
-                    (
-                        new_state,
-                        ConnectorStepResult::Connected {
-                            active_session: Box::new(active_session),
-                            send_this_one_async_or_you_stuck: next_req,
-                        },
-                    )
-                } else {
-                    return Err(crate::PwshCoreError::InvalidState(
-                        "Unexpected RunspacePool state",
-                    ));
+                        if runspace_pool.state == RunspacePoolState::NegotiationSent {
+                            let receive_xml = runspace_pool.fire_receive(desired_streams)?;
+                            let try_send = connection_pool.send(&receive_xml)?;
+                            let new_state = ConnectorState::ConnectReceiveCycle {
+                                runspace_pool,
+                                connection_pool,
+                            };
+                            (new_state, ConnectorStepResult::SendBack { try_send })
+                        } else if runspace_pool.state == RunspacePoolState::Opened {
+                            // Hand off to ActiveSession: it should carry the pool forward
+                            let next_receive_xml = runspace_pool.fire_receive(desired_streams)?;
+                            let next_req = connection_pool.send(&next_receive_xml)?;
+                            let active_session = ActiveSession::new(runspace_pool, connection_pool);
+                            let new_state = ConnectorState::Connected;
+                            (
+                                new_state,
+                                ConnectorStepResult::Connected {
+                                    active_session: Box::new(active_session),
+                                    send_this_one_async_or_you_stuck: next_req,
+                                },
+                            )
+                        } else {
+                            return Err(crate::PwshCoreError::InvalidState(
+                                "Unexpected RunspacePool state",
+                            ));
+                        }
+                    }
+                    ConnectionPoolAccept::SendBack(reqs) => {
+                        let [try_send] = <[TrySend; 1]>::try_from(reqs).map_err(|_| {
+                            crate::PwshCoreError::InvalidState(
+                                "Expected single SendBack during ConnectReceiveCycle retry",
+                            )
+                        })?;
+                        let new_state = ConnectorState::ConnectReceiveCycle {
+                            runspace_pool,
+                            connection_pool,
+                        };
+                        (new_state, ConnectorStepResult::SendBack { try_send })
+                    }
                 }
             }
         };

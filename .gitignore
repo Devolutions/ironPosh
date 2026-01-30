@@ -1,4 +1,5 @@
 /target
+/target-*/
 *.log
 .serena/
 .zed

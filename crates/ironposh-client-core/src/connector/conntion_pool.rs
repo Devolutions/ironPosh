@@ -37,9 +37,22 @@ impl ConnectionId {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectionState {
     PreAuth, // SSPI only
-    Idle { enc: EncryptionOptions },
-    Pending { enc: EncryptionOptions },
+    Idle {
+        enc: EncryptionOptions,
+    },
+    Pending {
+        enc: EncryptionOptions,
+        queued_xml: String,
+    },
     Closed,
+}
+
+#[derive(Debug)]
+pub enum ConnectionPoolAccept {
+    /// Plaintext SOAP envelope (after decrypt / state transition)
+    Body(String),
+    /// The previous request could not be accepted; caller must send these.
+    SendBack(Vec<TrySend>),
 }
 
 // =============================== TrySend API ===============================
@@ -178,8 +191,13 @@ impl ConnectionPool {
                 }
             };
 
-            self.connections
-                .insert(id, ConnectionState::Pending { enc: enc_opt });
+            self.connections.insert(
+                id,
+                ConnectionState::Pending {
+                    enc: enc_opt,
+                    queued_xml: unencrypted_xml.to_owned(),
+                },
+            );
 
             info!(
                 ?req,
@@ -219,6 +237,7 @@ impl ConnectionPool {
                     enc: EncryptionOptions::IncludeHeader {
                         header: auth_header,
                     },
+                    queued_xml: unencrypted_xml.to_owned(),
                 };
 
                 (try_send, next_state)
@@ -237,7 +256,10 @@ impl ConnectionPool {
         body_length = response.response.body.len(),
         has_auth = response.authenticated.is_some()
     ))]
-    pub fn accept(&mut self, response: HttpResponseTargeted) -> Result<String, PwshCoreError> {
+    pub fn accept(
+        &mut self,
+        response: HttpResponseTargeted,
+    ) -> Result<ConnectionPoolAccept, PwshCoreError> {
         info!("ConnectionPool: processing server response");
 
         let HttpResponseTargeted {
@@ -286,7 +308,7 @@ impl ConnectionPool {
                         },
                     };
 
-                    Ok(body)
+                    Ok(ConnectionPoolAccept::Body(body))
                 } else {
                     // Unreachable
                     error!(
@@ -304,8 +326,67 @@ impl ConnectionPool {
                     EncryptionOptions::Sspi {
                         mut encryption_provider,
                     },
+                queued_xml,
             } => {
                 info!(conn_id = connection_id.inner(), "handling Pending response");
+
+                // If we get challenged again (401) while we believed we had an established
+                // HTTP-SPNEGO-session-encrypted channel, we can no longer trust this
+                // SSPI context for this logical connection. Retry the same queued SOAP on
+                // a fresh authenticated channel.
+                if response.status_code == 401
+                    && response.body.is_empty()
+                    && response
+                        .headers
+                        .iter()
+                        .any(|(k, _)| k.eq_ignore_ascii_case("www-authenticate"))
+                {
+                    error!(
+                        conn_id = connection_id.inner(),
+                        status_code = response.status_code,
+                        "server challenged encrypted Pending request; retrying on fresh connection"
+                    );
+
+                    // Keep the old connection closed and restart auth on a new one.
+                    *state = ConnectionState::Closed;
+
+                    let id = self.alloc_new();
+                    info!(
+                        conn_id = id.inner(),
+                        "retry: allocated new PreAuth connection for authentication"
+                    );
+
+                    let seq = crate::connector::auth_sequence::AuthSequence::new(
+                        &self.auth_seq_conf,
+                        self.http_builder(),
+                    )?;
+
+                    let (try_send, next_state) = match seq {
+                        crate::connector::auth_sequence::AuthSequence::Sspi(sspi_auth_sequence) => {
+                            let try_send = sspi_auth_sequence.start(&queued_xml, id);
+                            let next_state = ConnectionState::PreAuth;
+                            (try_send, next_state)
+                        }
+                        crate::connector::auth_sequence::AuthSequence::Basic(
+                            mut basic_auth_sequence,
+                        ) => {
+                            let auth_header = basic_auth_sequence.get_auth_header();
+                            let try_send = basic_auth_sequence.start(&queued_xml, id);
+                            let next_state = ConnectionState::Pending {
+                                enc: EncryptionOptions::IncludeHeader {
+                                    header: auth_header,
+                                },
+                                queued_xml,
+                            };
+                            (try_send, next_state)
+                        }
+                    };
+
+                    self.connections.insert(id, next_state);
+
+                    return Ok(ConnectionPoolAccept::SendBack(vec![try_send]));
+                }
+
                 let body = encryption_provider.decrypt(response.body)?;
                 if response.status_code >= 400 {
                     error!(
@@ -326,9 +407,9 @@ impl ConnectionPool {
                         encryption_provider,
                     },
                 };
-                Ok(body)
+                Ok(ConnectionPoolAccept::Body(body))
             }
-            ConnectionState::Pending { enc } => {
+            ConnectionState::Pending { enc, queued_xml: _ } => {
                 info!(
                     conn_id = connection_id.inner(),
                     "handling Pending response without encryption (Basic auth)"
@@ -346,7 +427,7 @@ impl ConnectionPool {
                 let string_body = response.body.as_str()?;
 
                 *state = ConnectionState::Idle { enc };
-                Ok(string_body.to_owned())
+                Ok(ConnectionPoolAccept::Body(string_body.to_owned()))
             }
             ConnectionState::Closed => {
                 error!(conn_id = connection_id.inner(), "connection already closed");

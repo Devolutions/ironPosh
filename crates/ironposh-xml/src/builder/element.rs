@@ -2,7 +2,10 @@ use std::{borrow::Cow, collections::HashMap};
 
 use tracing::error;
 
-use crate::builder::{AliasMap, Attribute, Namespace, NamespaceWrite, XmlBuilderError};
+use crate::builder::{
+    escape_text, write_escaped_text, AliasMap, Attribute, Namespace, NamespaceWrite,
+    XmlBuilderError,
+};
 
 #[derive(Debug, Clone)]
 pub enum Content<'a> {
@@ -270,14 +273,20 @@ impl<'a> crate::builder::NamespaceWrite<'a> for Element<'a> {
                 w.write_all(b"/>")?;
             }
             Content::Text(t) => {
-                w.write_fmt(format_args!(">{t}</{name}>"))?;
+                w.write_all(b">")?;
+                write_escaped_text(w, t)?;
+                w.write_all(b"</")?;
+                w.write_all(name.as_bytes())?;
+                w.write_all(b">")?;
             }
             Content::Elements(children) => {
                 w.write_all(b">")?;
                 for c in children {
                     c.ns_write(w, decl_map.as_deref())?;
                 }
-                w.write_fmt(format_args!("</{name}>"))?;
+                w.write_all(b"</")?;
+                w.write_all(name.as_bytes())?;
+                w.write_all(b">")?;
             }
         }
         Ok(())
@@ -395,7 +404,8 @@ impl crate::builder::NamespaceFmt for Element<'_> {
                 write!(f, "/>")?;
             }
             Content::Text(value) => {
-                write!(f, ">{value}</{name}>")?;
+                let escaped = escape_text(value);
+                write!(f, ">{escaped}</{name}>")?;
             }
             Content::Elements(children) => {
                 write!(f, ">")?;

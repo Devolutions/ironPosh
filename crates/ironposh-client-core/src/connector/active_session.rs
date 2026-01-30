@@ -1,6 +1,6 @@
 use crate::{
     connector::{
-        conntion_pool::{ConnectionPool, TrySend},
+        conntion_pool::{ConnectionPool, ConnectionPoolAccept, TrySend},
         http::HttpResponseTargeted,
     },
     host::{HostCall, HostCallScope, Submission},
@@ -255,7 +255,12 @@ impl ActiveSession {
         info!("ActiveSession: processing server response");
 
         // 1) Decrypt & state-transition inside the pool, get plaintext SOAP
-        let xml_body = self.connection_pool.accept(response)?;
+        let xml_body = match self.connection_pool.accept(response)? {
+            ConnectionPoolAccept::Body(xml_body) => xml_body,
+            ConnectionPoolAccept::SendBack(reqs) => {
+                return Ok(vec![ActiveSessionOutput::SendBack(reqs)]);
+            }
+        };
 
         // Log the full decrypted response for error analysis when needed
         if xml_body.contains("<s:Fault") || xml_body.contains("HTTP 5") || xml_body.len() < 500 {
@@ -290,6 +295,22 @@ impl ActiveSession {
                     let ts = self.connection_pool.send(&recv_xml)?;
                     info!(try_send= ?ts,"queued receive request");
                     outs.push(ActiveSessionOutput::SendBack(vec![ts]));
+                }
+                AcceptResponsResult::SendThenReceive {
+                    send_xml,
+                    desired_streams,
+                } => {
+                    info!(
+                        send_xml_length = send_xml.len(),
+                        "queued send (key exchange / control)"
+                    );
+                    let ts_send = self.connection_pool.send(&send_xml)?;
+
+                    info!(streams = ?desired_streams, "creating receive request after send");
+                    let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
+                    let ts_recv = self.connection_pool.send(&recv_xml)?;
+
+                    outs.push(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]));
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
@@ -350,6 +371,15 @@ impl ActiveSession {
             return Ok(ActiveSessionOutput::OperationSuccess);
         }
 
+        let mut result = result;
+        let mut error = error;
+        if let Some(v) = result.as_mut() {
+            self.runspace_pool.encrypt_secure_strings_in_value(v)?;
+        }
+        if let Some(v) = error.as_mut() {
+            self.runspace_pool.encrypt_secure_strings_in_value(v)?;
+        }
+
         info!("building pipeline host response");
         let host_resp = PipelineHostResponse::builder()
             .call_id(call_id)
@@ -397,6 +427,15 @@ impl ActiveSession {
         if result.is_none() && error.is_none() {
             info!("void method, no response to send");
             return Ok(ActiveSessionOutput::OperationSuccess);
+        }
+
+        let mut result = result;
+        let mut error = error;
+        if let Some(v) = result.as_mut() {
+            self.runspace_pool.encrypt_secure_strings_in_value(v)?;
+        }
+        if let Some(v) = error.as_mut() {
+            self.runspace_pool.encrypt_secure_strings_in_value(v)?;
         }
 
         info!("building runspace pool host response");
