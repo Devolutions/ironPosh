@@ -2,6 +2,12 @@ use ironposh_client_core::host::HostCall;
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 
+use super::hostcall_objects::{
+    JsGetBufferContentsStructured, JsPromptForChoiceMultipleSelectionStructured,
+    JsPromptForChoiceStructured, JsPromptStructured, JsPushRunspaceStructured,
+    JsScrollBufferContentsStructured, JsSetBufferContentsStructured, JsWriteProgressStructured,
+};
+
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct StringReturnType {
@@ -281,7 +287,7 @@ pub enum JsHostCall {
         return_type: VoidReturnType,
     },
     WriteProgress {
-        params: (i64, String),
+        params: JsWriteProgressStructured,
         return_type: VoidReturnType,
     },
     WriteVerboseLine {
@@ -293,7 +299,7 @@ pub enum JsHostCall {
         return_type: VoidReturnType,
     },
     Prompt {
-        params: (String, String, Vec<String>),
+        params: JsPromptStructured,
         return_type: HashMapReturnType,
     },
     PromptForCredential1 {
@@ -305,7 +311,7 @@ pub enum JsHostCall {
         return_type: CredentialReturnType,
     },
     PromptForChoice {
-        params: (String, String, Vec<String>, i32),
+        params: JsPromptForChoiceStructured,
         return_type: I32ReturnType,
     },
 
@@ -395,25 +401,25 @@ pub enum JsHostCall {
         return_type: VoidReturnType,
     },
     SetBufferContents1 {
-        params: String,
+        params: JsSetBufferContentsStructured,
         return_type: VoidReturnType,
     },
     SetBufferContents2 {
-        params: String,
+        params: JsSetBufferContentsStructured,
         return_type: VoidReturnType,
     },
     GetBufferContents {
-        params: String,
+        params: JsGetBufferContentsStructured,
         return_type: BufferCellArrayReturnType,
     },
     ScrollBufferContents {
-        params: String,
+        params: JsScrollBufferContentsStructured,
         return_type: VoidReturnType,
     },
 
     // Interactive session methods (52-56)
     PushRunspace {
-        params: String,
+        params: JsPushRunspaceStructured,
         return_type: VoidReturnType,
     },
     PopRunspace {
@@ -429,7 +435,7 @@ pub enum JsHostCall {
         return_type: PsValueReturnType,
     },
     PromptForChoiceMultipleSelection {
-        params: (String, String, Vec<String>, Vec<i32>),
+        params: JsPromptForChoiceMultipleSelectionStructured,
         return_type: I32ArrayReturnType,
     },
 }
@@ -518,7 +524,10 @@ impl From<&HostCall> for JsHostCall {
                 return_type: VoidReturnType::new(),
             },
             HostCall::WriteProgress { transport } => Self::WriteProgress {
-                params: (transport.params.0, format!("{:?}", transport.params.1)),
+                params: JsWriteProgressStructured {
+                    source_id: transport.params.0,
+                    record: transport.params.1.clone().into(),
+                },
                 return_type: VoidReturnType::new(),
             },
             HostCall::WriteVerboseLine { transport } => Self::WriteVerboseLine {
@@ -530,16 +539,11 @@ impl From<&HostCall> for JsHostCall {
                 return_type: VoidReturnType::new(),
             },
             HostCall::Prompt { transport } => Self::Prompt {
-                params: (
-                    transport.params.0.clone(),
-                    transport.params.1.clone(),
-                    transport
-                        .params
-                        .2
-                        .iter()
-                        .map(|f| format!("{f:?}"))
-                        .collect(),
-                ),
+                params: JsPromptStructured {
+                    caption: transport.params.0.clone(),
+                    message: transport.params.1.clone(),
+                    fields: transport.params.2.iter().cloned().map(Into::into).collect(),
+                },
                 return_type: HashMapReturnType::new(),
             },
             HostCall::PromptForCredential1 { transport } => Self::PromptForCredential1 {
@@ -551,17 +555,12 @@ impl From<&HostCall> for JsHostCall {
                 return_type: CredentialReturnType::new(),
             },
             HostCall::PromptForChoice { transport } => Self::PromptForChoice {
-                params: (
-                    transport.params.0.clone(),
-                    transport.params.1.clone(),
-                    transport
-                        .params
-                        .2
-                        .iter()
-                        .map(|c| format!("{c:?}"))
-                        .collect(),
-                    transport.params.3,
-                ),
+                params: JsPromptForChoiceStructured {
+                    caption: transport.params.0.clone(),
+                    message: transport.params.1.clone(),
+                    choices: transport.params.2.iter().cloned().map(Into::into).collect(),
+                    default_choice: transport.params.3,
+                },
                 return_type: I32ReturnType::new(),
             },
 
@@ -651,25 +650,40 @@ impl From<&HostCall> for JsHostCall {
                 return_type: VoidReturnType::new(),
             },
             HostCall::SetBufferContents1 { transport } => Self::SetBufferContents1 {
-                params: format!("{:?}", transport.params),
+                params: JsSetBufferContentsStructured {
+                    rect: transport.params.0.into(),
+                    cell: transport.params.1.clone().into(),
+                },
                 return_type: VoidReturnType::new(),
             },
             HostCall::SetBufferContents2 { transport } => Self::SetBufferContents2 {
-                params: format!("{:?}", transport.params),
+                params: JsSetBufferContentsStructured {
+                    rect: transport.params.0.into(),
+                    cell: transport.params.1.clone().into(),
+                },
                 return_type: VoidReturnType::new(),
             },
             HostCall::GetBufferContents { transport } => Self::GetBufferContents {
-                params: format!("{:?}", transport.params),
+                params: JsGetBufferContentsStructured {
+                    rect: transport.params.0.into(),
+                },
                 return_type: BufferCellArrayReturnType::new(),
             },
             HostCall::ScrollBufferContents { transport } => Self::ScrollBufferContents {
-                params: format!("{:?}", transport.params),
+                params: JsScrollBufferContentsStructured {
+                    source: transport.params.0.into(),
+                    destination: transport.params.1.into(),
+                    clip: transport.params.2.into(),
+                    fill: transport.params.3.clone().into(),
+                },
                 return_type: VoidReturnType::new(),
             },
 
             // Interactive session methods (52-56)
             HostCall::PushRunspace { transport } => Self::PushRunspace {
-                params: format!("{:?}", transport.params),
+                params: JsPushRunspaceStructured {
+                    runspace: transport.params.0.clone().into(),
+                },
                 return_type: VoidReturnType::new(),
             },
             HostCall::PopRunspace { .. } => Self::PopRunspace {
@@ -686,17 +700,12 @@ impl From<&HostCall> for JsHostCall {
             },
             HostCall::PromptForChoiceMultipleSelection { transport } => {
                 Self::PromptForChoiceMultipleSelection {
-                    params: (
-                        transport.params.0.clone(),
-                        transport.params.1.clone(),
-                        transport
-                            .params
-                            .2
-                            .iter()
-                            .map(|c| format!("{c:?}"))
-                            .collect(),
-                        transport.params.3.clone(),
-                    ),
+                    params: JsPromptForChoiceMultipleSelectionStructured {
+                        caption: transport.params.0.clone(),
+                        message: transport.params.1.clone(),
+                        choices: transport.params.2.iter().cloned().map(Into::into).collect(),
+                        default_choices: transport.params.3.clone(),
+                    },
                     return_type: I32ArrayReturnType::new(),
                 }
             }

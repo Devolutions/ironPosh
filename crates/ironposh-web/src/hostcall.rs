@@ -1,8 +1,11 @@
+use std::convert::TryFrom;
+
 use futures::StreamExt;
 use ironposh_async::HostResponse;
-use ironposh_client_core::host::{HostCall, Submission};
-use ironposh_psrp::{PipelineHostResponse, PsValue};
+use ironposh_client_core::host::{self as host, HostCall, Submission};
+use ironposh_psrp::{PipelineHostResponse, PsPrimitiveValue, PsValue};
 use js_sys::Promise;
+use js_sys::{Object, Reflect, Uint8Array};
 use tracing::{error, warn};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -51,6 +54,104 @@ fn exception_submission(
         method_name: method_name.to_string(),
         method_result: None,
         method_exception: Some(PsValue::from(message)),
+    })
+}
+
+fn utf16le_bytes(s: &str) -> Vec<u8> {
+    // PowerShell SecureString payload is UTF-16LE bytes.
+    // (Encryption, if any, happens later in the PSRP pipeline.)
+    s.encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<u8>>()
+}
+
+fn js_number_to_i32(v: &JsValue) -> Result<i32, String> {
+    v.as_f64()
+        .ok_or_else(|| "expected number".to_string())
+        .map(|n| n as i32)
+}
+
+fn js_to_secure_bytes(v: JsValue) -> Result<Vec<u8>, String> {
+    if let Some(s) = v.as_string() {
+        return Ok(utf16le_bytes(&s));
+    }
+
+    if let Ok(u8a) = v.clone().dyn_into::<Uint8Array>() {
+        return Ok(u8a.to_vec());
+    }
+
+    // Try `number[]`
+    if v.is_object() {
+        if let Ok(arr) = serde_wasm_bindgen::from_value::<Vec<u8>>(v) {
+            return Ok(arr);
+        }
+    }
+
+    Err("expected SecureString input as string | Uint8Array | number[]".to_string())
+}
+
+fn js_str_to_char(s: &str) -> Result<char, String> {
+    s.chars()
+        .next()
+        .ok_or_else(|| "expected single-character string".to_string())
+}
+
+fn ps_value_from_js(v: JsValue) -> Result<PsValue, String> {
+    if v.is_null() || v.is_undefined() {
+        return Ok(PsValue::Primitive(PsPrimitiveValue::Nil));
+    }
+
+    if let Some(b) = v.as_bool() {
+        return Ok(PsValue::Primitive(PsPrimitiveValue::Bool(b)));
+    }
+
+    if let Some(s) = v.as_string() {
+        return Ok(PsValue::Primitive(PsPrimitiveValue::Str(s)));
+    }
+
+    if let Some(n) = v.as_f64() {
+        if n.fract() == 0.0 {
+            // Integer: prefer i32 when possible.
+            let as_i64 = n as i64;
+            if let Ok(as_i32) = i32::try_from(as_i64) {
+                return Ok(PsValue::Primitive(PsPrimitiveValue::I32(as_i32)));
+            }
+            return Ok(PsValue::Primitive(PsPrimitiveValue::I64(as_i64)));
+        }
+
+        // No float primitive type yet in PsPrimitiveValue; fallback to string.
+        return Ok(PsValue::Primitive(PsPrimitiveValue::Str(n.to_string())));
+    }
+
+    // Allow SecureString wrapper objects: { secureString: ... } / { SecureString: ... }.
+    if v.is_object() {
+        if let Ok(ss) = Reflect::get(&v, &JsValue::from_str("secureString")) {
+            if !ss.is_undefined() {
+                let bytes = js_to_secure_bytes(ss)?;
+                return Ok(PsValue::Primitive(PsPrimitiveValue::SecureString(bytes)));
+            }
+        }
+        if let Ok(ss) = Reflect::get(&v, &JsValue::from_str("SecureString")) {
+            if !ss.is_undefined() {
+                let bytes = js_to_secure_bytes(ss)?;
+                return Ok(PsValue::Primitive(PsPrimitiveValue::SecureString(bytes)));
+            }
+        }
+    }
+
+    // Prefer structured JsPsValue if provided.
+    if v.is_object() {
+        if let Ok(js_ps_value) = serde_wasm_bindgen::from_value::<crate::JsPsValue>(v.clone()) {
+            return PsValue::try_from(js_ps_value)
+                .map_err(|e| format!("invalid JsPsValue from handler: {e}"));
+        }
+    }
+
+    // Best-effort: allow downstream to provide full PsValue JSON shape.
+    serde_wasm_bindgen::from_value::<PsValue>(v).map_err(|e| {
+        format!(
+            "unsupported prompt value; expected primitive | {{secureString: ...}} | PsValue JSON shape ({e})"
+        )
     })
 }
 
@@ -152,17 +253,20 @@ pub async fn handle_host_calls(
             }
 
             // ===== Methods returning i32 =====
-            HostCall::PromptForChoice { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "PromptForChoice is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "PromptForChoice not implemented".to_string(),
-                )
+            HostCall::PromptForChoice { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match js_number_to_i32(&res) {
+                        Ok(v) => rt.accept_result(v),
+                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "PromptForChoice handler failed".to_string(),
+                    ),
+                }
             }
             HostCall::GetForegroundColor { transport } => {
                 let ((), rt) = transport.into_parts();
@@ -184,17 +288,20 @@ pub async fn handle_host_calls(
                     Err(()) => rt.accept_result(0),
                 }
             }
-            HostCall::GetCursorSize { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetCursorSize is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetCursorSize not implemented".to_string(),
-                )
+            HostCall::GetCursorSize { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match js_number_to_i32(&res) {
+                        Ok(v) => rt.accept_result(v),
+                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetCursorSize handler failed".to_string(),
+                    ),
+                }
             }
 
             // ===== Methods returning bool =====
@@ -206,12 +313,16 @@ pub async fn handle_host_calls(
                 }
             }
             HostCall::GetIsRunspacePushed { transport } => {
-                warn!(
-                    method = method_name,
-                    "GetIsRunspacePushed is not implemented; returning false"
-                );
                 let ((), rt) = transport.into_parts();
-                rt.accept_result(false)
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => rt.accept_result(res.as_bool().unwrap_or(false)),
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetIsRunspacePushed handler failed".to_string(),
+                    ),
+                }
             }
 
             // ===== Methods returning uuid::Uuid =====
@@ -235,12 +346,19 @@ pub async fn handle_host_calls(
 
             // ===== Methods returning Vec<u8> =====
             HostCall::ReadLineAsSecureString { transport } => {
-                warn!(
-                    method = method_name,
-                    "ReadLineAsSecureString is not implemented; returning empty bytes"
-                );
                 let ((), rt) = transport.into_parts();
-                rt.accept_result(Vec::new())
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match js_to_secure_bytes(res) {
+                        Ok(bytes) => rt.accept_result(bytes),
+                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "ReadLineAsSecureString handler failed".to_string(),
+                    ),
+                }
             }
 
             // ===== Void methods (no response expected) =====
@@ -278,161 +396,315 @@ pub async fn handle_host_calls(
             }
 
             // ===== Not implemented (complex return types) =====
-            HostCall::Prompt { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "Prompt is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "Prompt not implemented".to_string(),
-                )
+            HostCall::Prompt { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => {
+                        let parsed: Result<std::collections::HashMap<String, PsValue>, String> =
+                            (|| {
+                                let obj = Object::from(res);
+                                let keys = Object::keys(&obj);
+                                let mut out = std::collections::HashMap::new();
+                                for i in 0..keys.length() {
+                                    let k = keys.get(i).as_string().unwrap_or_default();
+                                    let vv = Reflect::get(&obj, &JsValue::from_str(&k)).map_err(
+                                        |_| "failed to read prompt result key".to_string(),
+                                    )?;
+                                    let ps = ps_value_from_js(vv)?;
+                                    out.insert(k, ps);
+                                }
+                                Ok(out)
+                            })();
+
+                        match parsed {
+                            Ok(out) => rt.accept_result(out),
+                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        }
+                    }
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "Prompt handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::PromptForCredential1 { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "PromptForCredential1 is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "PromptForCredential1 not implemented".to_string(),
-                )
+            HostCall::PromptForCredential1 { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => {
+                        let cred = serde_wasm_bindgen::from_value::<crate::JsPSCredential>(res)
+                            .map_err(|e| format!("invalid PSCredential from handler: {e}"));
+                        match cred {
+                            Ok(cred) => {
+                                let password_bytes = match cred.password {
+                                    crate::JsBytesOrString::Bytes(b) => b,
+                                    crate::JsBytesOrString::Text(s) => utf16le_bytes(&s),
+                                };
+                                rt.accept_result(host::PSCredential {
+                                    user_name: cred.user_name,
+                                    password: password_bytes,
+                                })
+                            }
+                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        }
+                    }
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "PromptForCredential1 handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::PromptForCredential2 { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "PromptForCredential2 is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "PromptForCredential2 not implemented".to_string(),
-                )
+            HostCall::PromptForCredential2 { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => {
+                        let cred = serde_wasm_bindgen::from_value::<crate::JsPSCredential>(res)
+                            .map_err(|e| format!("invalid PSCredential from handler: {e}"));
+                        match cred {
+                            Ok(cred) => {
+                                let password_bytes = match cred.password {
+                                    crate::JsBytesOrString::Bytes(b) => b,
+                                    crate::JsBytesOrString::Text(s) => utf16le_bytes(&s),
+                                };
+                                rt.accept_result(host::PSCredential {
+                                    user_name: cred.user_name,
+                                    password: password_bytes,
+                                })
+                            }
+                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        }
+                    }
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "PromptForCredential2 handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetCursorPosition { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetCursorPosition is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetCursorPosition not implemented".to_string(),
-                )
+            HostCall::GetCursorPosition { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsCoordinates>(res) {
+                        Ok(coords) => rt.accept_result(host::Coordinates::from(coords)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Coordinates from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetCursorPosition handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetWindowPosition { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetWindowPosition is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetWindowPosition not implemented".to_string(),
-                )
+            HostCall::GetWindowPosition { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsCoordinates>(res) {
+                        Ok(coords) => rt.accept_result(host::Coordinates::from(coords)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Coordinates from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetWindowPosition handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetBufferSize { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetBufferSize is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetBufferSize not implemented".to_string(),
-                )
+            HostCall::GetBufferSize { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsSize>(res) {
+                        Ok(size) => rt.accept_result(host::Size::from(size)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Size from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetBufferSize handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetWindowSize { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetWindowSize is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetWindowSize not implemented".to_string(),
-                )
+            HostCall::GetWindowSize { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsSize>(res) {
+                        Ok(size) => rt.accept_result(host::Size::from(size)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Size from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetWindowSize handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetMaxWindowSize { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetMaxWindowSize is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetMaxWindowSize not implemented".to_string(),
-                )
+            HostCall::GetMaxWindowSize { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsSize>(res) {
+                        Ok(size) => rt.accept_result(host::Size::from(size)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Size from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetMaxWindowSize handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetMaxPhysicalWindowSize { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetMaxPhysicalWindowSize is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetMaxPhysicalWindowSize not implemented".to_string(),
-                )
+            HostCall::GetMaxPhysicalWindowSize { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsSize>(res) {
+                        Ok(size) => rt.accept_result(host::Size::from(size)),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid Size from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetMaxPhysicalWindowSize handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::ReadKey { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "ReadKey is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "ReadKey not implemented".to_string(),
-                )
+            HostCall::ReadKey { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsKeyInfo>(res) {
+                        Ok(k) => match js_str_to_char(&k.character) {
+                            Ok(ch) => rt.accept_result(host::KeyInfo {
+                                virtual_key_code: k.virtual_key_code,
+                                character: ch,
+                                control_key_state: k.control_key_state,
+                                key_down: k.key_down,
+                            }),
+                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        },
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid KeyInfo from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "ReadKey handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetBufferContents { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetBufferContents is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetBufferContents not implemented".to_string(),
-                )
+            HostCall::GetBufferContents { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => {
+                        let rows =
+                            serde_wasm_bindgen::from_value::<Vec<Vec<crate::JsBufferCell>>>(res)
+                                .map_err(|e| format!("invalid BufferCell[][] from handler: {e}"));
+
+                        match rows {
+                            Ok(rows) => {
+                                let mut out: Vec<Vec<host::BufferCell>> =
+                                    Vec::with_capacity(rows.len());
+                                for row in rows {
+                                    let mut out_row = Vec::with_capacity(row.len());
+                                    for cell in row {
+                                        let ch = js_str_to_char(&cell.character).unwrap_or(' ');
+                                        out_row.push(host::BufferCell {
+                                            character: ch,
+                                            foreground: cell.foreground,
+                                            background: cell.background,
+                                            flags: cell.flags,
+                                        });
+                                    }
+                                    out.push(out_row);
+                                }
+                                rt.accept_result(out)
+                            }
+                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        }
+                    }
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetBufferContents handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::GetRunspace { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "GetRunspace is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "GetRunspace not implemented".to_string(),
-                )
+            HostCall::GetRunspace { transport } => {
+                let ((), rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match ps_value_from_js(res) {
+                        Ok(v) => rt.accept_result(v),
+                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "GetRunspace handler failed".to_string(),
+                    ),
+                }
             }
-            HostCall::PromptForChoiceMultipleSelection { transport: _ } => {
-                warn!(
-                    method = method_name,
-                    "PromptForChoiceMultipleSelection is not implemented; returning exception"
-                );
-                exception_submission(
-                    call_id,
-                    method_id,
-                    method_name,
-                    "PromptForChoiceMultipleSelection not implemented".to_string(),
-                )
+            HostCall::PromptForChoiceMultipleSelection { transport } => {
+                let (_params, rt) = transport.into_parts();
+                match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
+                    Ok(res) => match serde_wasm_bindgen::from_value::<Vec<i32>>(res) {
+                        Ok(v) => rt.accept_result(v),
+                        Err(e) => exception_submission(
+                            call_id,
+                            method_id,
+                            method_name,
+                            format!("invalid i32[] from handler: {e}"),
+                        ),
+                    },
+                    Err(()) => exception_submission(
+                        call_id,
+                        method_id,
+                        method_name,
+                        "PromptForChoiceMultipleSelection handler failed".to_string(),
+                    ),
+                }
             }
         };
 

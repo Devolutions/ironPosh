@@ -1,5 +1,7 @@
 mod hostcall;
+mod hostcall_objects;
 pub use hostcall::*;
+pub use hostcall_objects::*;
 use ironposh_async::SessionEvent;
 use ironposh_psrp::{ErrorRecord, PipelineOutput};
 use serde::{Deserialize, Serialize};
@@ -7,6 +9,89 @@ use tsify::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 use crate::error::WasmError;
+
+// =============================================================================
+// HostCall handler typing helpers (TypeScript-only)
+// =============================================================================
+
+#[wasm_bindgen(typescript_custom_section)]
+const HOSTCALL_HANDLER_TS_TYPES: &str = r#"
+// Utility: sync or async value.
+export type MaybePromise<T> = T | Promise<T>;
+
+export type HostCallTag = JsHostCall extends infer U ? (U extends any ? keyof U : never) : never;
+export type HostCallVariant<K extends HostCallTag> = Extract<JsHostCall, Record<K, unknown>>;
+
+// Strongly-typed hostcall handler as overloads. This avoids downstream
+// declaration merging and enforces correct return types per call variant.
+export interface TypedHostCallHandler {
+  // Host methods (1-10)
+  (call: HostCallVariant<"GetName">): MaybePromise<string>;
+  (call: HostCallVariant<"GetVersion">): MaybePromise<string>;
+  (call: HostCallVariant<"GetInstanceId">): MaybePromise<string>;
+  (call: HostCallVariant<"GetCurrentCulture">): MaybePromise<string>;
+  (call: HostCallVariant<"GetCurrentUICulture">): MaybePromise<string>;
+  (call: HostCallVariant<"SetShouldExit">): MaybePromise<void>;
+  (call: HostCallVariant<"EnterNestedPrompt">): MaybePromise<void>;
+  (call: HostCallVariant<"ExitNestedPrompt">): MaybePromise<void>;
+  (call: HostCallVariant<"NotifyBeginApplication">): MaybePromise<void>;
+  (call: HostCallVariant<"NotifyEndApplication">): MaybePromise<void>;
+
+  // Input methods (11-14)
+  (call: HostCallVariant<"ReadLine">): MaybePromise<string>;
+  (call: HostCallVariant<"ReadLineAsSecureString">): MaybePromise<string | Uint8Array | number[]>;
+
+  // Output methods (15-26)
+  (call: HostCallVariant<"Write1">): MaybePromise<void>;
+  (call: HostCallVariant<"Write2">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine1">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine2">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine3">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteErrorLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteDebugLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteProgress">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteVerboseLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteWarningLine">): MaybePromise<void>;
+  (call: HostCallVariant<"Prompt">): MaybePromise<Record<string, JsPsValue>>;
+  (call: HostCallVariant<"PromptForCredential1">): MaybePromise<JsPSCredential>;
+  (call: HostCallVariant<"PromptForCredential2">): MaybePromise<JsPSCredential>;
+  (call: HostCallVariant<"PromptForChoice">): MaybePromise<number>;
+
+  // RawUI methods (27-51)
+  (call: HostCallVariant<"GetForegroundColor">): MaybePromise<number>;
+  (call: HostCallVariant<"SetForegroundColor">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBackgroundColor">): MaybePromise<number>;
+  (call: HostCallVariant<"SetBackgroundColor">): MaybePromise<void>;
+  (call: HostCallVariant<"GetCursorPosition">): MaybePromise<JsCoordinates>;
+  (call: HostCallVariant<"SetCursorPosition">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowPosition">): MaybePromise<JsCoordinates>;
+  (call: HostCallVariant<"SetWindowPosition">): MaybePromise<void>;
+  (call: HostCallVariant<"GetCursorSize">): MaybePromise<number>;
+  (call: HostCallVariant<"SetCursorSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBufferSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"SetBufferSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"SetWindowSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowTitle">): MaybePromise<string>;
+  (call: HostCallVariant<"SetWindowTitle">): MaybePromise<void>;
+  (call: HostCallVariant<"GetMaxWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"GetMaxPhysicalWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"GetKeyAvailable">): MaybePromise<boolean>;
+  (call: HostCallVariant<"ReadKey">): MaybePromise<JsKeyInfo>;
+  (call: HostCallVariant<"FlushInputBuffer">): MaybePromise<void>;
+  (call: HostCallVariant<"SetBufferContents1">): MaybePromise<void>;
+  (call: HostCallVariant<"SetBufferContents2">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBufferContents">): MaybePromise<JsBufferCell[][]>;
+  (call: HostCallVariant<"ScrollBufferContents">): MaybePromise<void>;
+
+  // Interactive session methods (52-56)
+  (call: HostCallVariant<"PushRunspace">): MaybePromise<void>;
+  (call: HostCallVariant<"PopRunspace">): MaybePromise<void>;
+  (call: HostCallVariant<"GetIsRunspacePushed">): MaybePromise<boolean>;
+  (call: HostCallVariant<"GetRunspace">): MaybePromise<JsPsValue>;
+  (call: HostCallVariant<"PromptForChoiceMultipleSelection">): MaybePromise<number[]>;
+}
+"#;
 
 // =============================================================================
 // Security Warning Callback Type

@@ -22,7 +22,7 @@ pub struct WasmPowerShellClient {
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(typescript_type = "(js_host_call: JsHostCall) => Promise<any> | any")]
+    #[wasm_bindgen(typescript_type = "TypedHostCallHandler")]
     pub type HostCallHandler;
 
     #[wasm_bindgen(typescript_type = "(session_event: JsSessionEvent) => void")]
