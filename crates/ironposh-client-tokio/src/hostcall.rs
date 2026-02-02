@@ -368,17 +368,35 @@ async fn process_host_call(
                 rt.accept_result(())
             }
             HostCall::Write2 { transport } => {
-                let ((_x, _y, text), rt) = transport.into_parts();
+                // PowerShell calls this overload with explicit colors (foreground, background).
+                let ((fg, bg, text), rt) = transport.into_parts();
+                let fg = clamp_console_color(fg);
+                let bg = clamp_console_color(bg);
+
+                let (prev_foreground, prev_background) = {
+                    let st = ui_state.lock().await;
+                    (st.foreground_color, st.background_color)
+                };
                 trace!(
-                    x = _x,
-                    y = _y,
+                    foreground = fg,
+                    background = bg,
                     text_len = text.len(),
                     newline = false,
-                    "host wrote positioned text"
+                    "host wrote colored text"
+                );
+                let prefix = format!(
+                    "\x1b[{};{}m",
+                    sgr_for_foreground(fg),
+                    sgr_for_background(bg)
+                );
+                let suffix = format!(
+                    "\x1b[{};{}m",
+                    sgr_for_foreground(prev_foreground),
+                    sgr_for_background(prev_background)
                 );
                 let _ = ui_tx
                     .send(TerminalOperation::Write {
-                        text,
+                        text: format!("{prefix}{text}{suffix}"),
                         newline: false,
                     })
                     .await;
@@ -407,17 +425,35 @@ async fn process_host_call(
                 rt.accept_result(())
             }
             HostCall::WriteLine3 { transport } => {
-                let ((_x, _y, text), rt) = transport.into_parts();
+                // PowerShell calls this overload with explicit colors (foreground, background).
+                let ((fg, bg, text), rt) = transport.into_parts();
+                let fg = clamp_console_color(fg);
+                let bg = clamp_console_color(bg);
+
+                let (prev_foreground, prev_background) = {
+                    let st = ui_state.lock().await;
+                    (st.foreground_color, st.background_color)
+                };
                 trace!(
-                    x = _x,
-                    y = _y,
+                    foreground = fg,
+                    background = bg,
                     text_len = text.len(),
                     newline = true,
-                    "host wrote positioned line"
+                    "host wrote colored line"
+                );
+                let prefix = format!(
+                    "\x1b[{};{}m",
+                    sgr_for_foreground(fg),
+                    sgr_for_background(bg)
+                );
+                let suffix = format!(
+                    "\x1b[{};{}m",
+                    sgr_for_foreground(prev_foreground),
+                    sgr_for_background(prev_background)
                 );
                 let _ = ui_tx
                     .send(TerminalOperation::Write {
-                        text,
+                        text: format!("{prefix}{text}{suffix}"),
                         newline: true,
                     })
                     .await;

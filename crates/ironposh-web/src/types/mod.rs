@@ -232,6 +232,7 @@ pub enum WasmAuthMethod {
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[allow(clippy::large_enum_variant)]
 pub enum WasmPowerShellEvent {
     PipelineCreated {
         pipeline_id: String,
@@ -246,6 +247,101 @@ pub enum WasmPowerShellEvent {
     PipelineError {
         pipeline_id: String,
         error: WasmErrorRecord,
+    },
+    PipelineRecord {
+        pipeline_id: String,
+        record: WasmPsrpRecord,
+    },
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmPsrpRecordMeta {
+    pub message_type: String,
+    pub message_type_value: u32,
+    pub stream: String,
+    pub command_id: Option<String>,
+    pub data_len: usize,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmHostInformationMessage {
+    pub message: String,
+    pub foreground_color: Option<i32>,
+    pub background_color: Option<i32>,
+    pub no_new_line: bool,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WasmInformationMessageData {
+    #[serde(rename = "string")]
+    String { value: String },
+    #[serde(rename = "hostInformationMessage")]
+    HostInformationMessage { value: WasmHostInformationMessage },
+    #[serde(rename = "object")]
+    Object { value: JsPsValue },
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WasmPsrpRecord {
+    #[serde(rename = "debug")]
+    Debug {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "verbose")]
+    Verbose {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "warning")]
+    Warning {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "information")]
+    Information {
+        meta: WasmPsrpRecordMeta,
+        #[serde(rename = "messageData")]
+        message_data: WasmInformationMessageData,
+        source: Option<String>,
+        #[serde(rename = "timeGenerated")]
+        time_generated: Option<String>,
+        tags: Option<Vec<String>>,
+        user: Option<String>,
+        computer: Option<String>,
+        #[serde(rename = "processId")]
+        process_id: Option<i32>,
+    },
+    #[serde(rename = "progress")]
+    Progress {
+        meta: WasmPsrpRecordMeta,
+        activity: String,
+        #[serde(rename = "activityId")]
+        activity_id: i32,
+        #[serde(rename = "statusDescription")]
+        status_description: Option<String>,
+        #[serde(rename = "currentOperation")]
+        current_operation: Option<String>,
+        #[serde(rename = "parentActivityId")]
+        parent_activity_id: Option<i32>,
+        #[serde(rename = "percentComplete")]
+        percent_complete: i32,
+        #[serde(rename = "secondsRemaining")]
+        seconds_remaining: Option<i32>,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        meta: WasmPsrpRecordMeta,
+        #[serde(rename = "dataPreview")]
+        data_preview: String,
     },
 }
 

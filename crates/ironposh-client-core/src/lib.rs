@@ -5,6 +5,7 @@ pub mod credentials;
 pub mod host;
 pub mod pipeline;
 pub mod powershell;
+pub mod psrp_record;
 pub mod runspace;
 pub mod runspace_pool;
 

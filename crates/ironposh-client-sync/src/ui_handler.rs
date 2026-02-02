@@ -153,6 +153,46 @@ impl UIHanlder {
                                 let _ = writeln!(io, "{}", error_record.render_concise());
                                 let _ = io.render(); // best-effort
                             }
+                            active_session::UserEvent::PipelineRecord { record, .. } => {
+                                use ironposh_client_core::psrp_record::PsrpRecord;
+
+                                match record {
+                                    PsrpRecord::Debug { message, .. } => {
+                                        let _ = writeln!(io, "[debug] {message}");
+                                    }
+                                    PsrpRecord::Verbose { message, .. } => {
+                                        let _ = writeln!(io, "[verbose] {message}");
+                                    }
+                                    PsrpRecord::Warning { message, .. } => {
+                                        let _ = writeln!(io, "[warning] {message}");
+                                    }
+                                    PsrpRecord::Information { record, .. } => {
+                                        let text = match record.message_data {
+                                            ironposh_psrp::InformationMessageData::String(s) => s,
+                                            ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
+                                                m.message
+                                            }
+                                            ironposh_psrp::InformationMessageData::Object(v) => {
+                                                v.to_string()
+                                            }
+                                        };
+                                        let _ = writeln!(io, "[information] {text}");
+                                    }
+                                    PsrpRecord::Progress { record, .. } => {
+                                        let status = record.status_description.unwrap_or_default();
+                                        let _ = writeln!(
+                                            io,
+                                            "[progress] {}: {} ({}%)",
+                                            record.activity, status, record.percent_complete
+                                        );
+                                    }
+                                    PsrpRecord::Unsupported { data_preview, .. } => {
+                                        let _ = writeln!(io, "[unsupported] {data_preview}");
+                                    }
+                                }
+
+                                let _ = io.render(); // best-effort
+                            }
                         }
                     }
                 }

@@ -6,8 +6,26 @@ use crate::ps_value::{
 use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+pub struct HostInformationMessage {
+    pub message: String,
+    #[builder(default)]
+    pub foreground_color: Option<i32>,
+    #[builder(default)]
+    pub background_color: Option<i32>,
+    #[builder(default = false)]
+    pub no_new_line: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InformationMessageData {
+    String(String),
+    HostInformationMessage(HostInformationMessage),
+    Object(PsValue),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct InformationRecord {
-    pub message_data: String,
+    pub message_data: InformationMessageData,
     #[builder(default = false)]
     pub serialize_invocation_info: bool,
     #[builder(default)]
@@ -38,32 +56,155 @@ impl PsObjectWithType for InformationRecord {
     }
 }
 
+fn parse_console_color(value: &PsValue) -> Option<i32> {
+    match value {
+        PsValue::Primitive(PsPrimitiveValue::I32(v)) => Some(*v),
+        PsValue::Primitive(_) => None,
+        PsValue::Object(obj) => match &obj.content {
+            ComplexObjectContent::PsEnums(e) => Some(e.value),
+            ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(v)) => Some(*v),
+            _ => None,
+        },
+    }
+}
+
+fn message_data_to_string(value: &InformationMessageData) -> String {
+    match value {
+        InformationMessageData::String(s) => s.clone(),
+        InformationMessageData::HostInformationMessage(m) => m.message.clone(),
+        InformationMessageData::Object(v) => v.to_string(),
+    }
+}
+
+fn parse_message_data(value: PsValue) -> InformationMessageData {
+    match value {
+        PsValue::Primitive(PsPrimitiveValue::Str(s)) => InformationMessageData::String(s),
+        PsValue::Primitive(other) => InformationMessageData::String(other.to_string()),
+        PsValue::Object(obj) => {
+            let is_host_information_message = obj.type_def.as_ref().is_some_and(|t| {
+                t.type_names
+                    .iter()
+                    .any(|n| n.contains("HostInformationMessage"))
+            });
+
+            if !is_host_information_message {
+                return InformationMessageData::Object(PsValue::Object(obj));
+            }
+
+            let get_prop = |name: &str| {
+                obj.extended_properties
+                    .get(name)
+                    .map(|p| p.value.clone())
+                    .or_else(|| obj.adapted_properties.get(name).map(|p| p.value.clone()))
+            };
+
+            let message = get_prop("Message")
+                .and_then(|v| v.as_string())
+                .or_else(|| obj.to_string.clone())
+                .unwrap_or_default();
+
+            let foreground_color =
+                get_prop("ForegroundColor").and_then(|v| parse_console_color(&v));
+            let background_color =
+                get_prop("BackgroundColor").and_then(|v| parse_console_color(&v));
+            let no_new_line = get_prop("NoNewLine").is_some_and(|v| match v {
+                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => b,
+                _ => false,
+            });
+
+            InformationMessageData::HostInformationMessage(
+                HostInformationMessage::builder()
+                    .message(message)
+                    .foreground_color(foreground_color)
+                    .background_color(background_color)
+                    .no_new_line(no_new_line)
+                    .build(),
+            )
+        }
+    }
+}
+
 impl From<InformationRecord> for ComplexObject {
     #[expect(clippy::too_many_lines)]
     fn from(record: InformationRecord) -> Self {
         let mut extended_properties = BTreeMap::new();
 
         extended_properties.insert(
-            "InformationalRecord_Message".to_string(),
+            "MessageData".to_string(),
             PsProperty {
-                name: "InformationalRecord_Message".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(record.message_data.clone())),
+                name: "MessageData".to_string(),
+                value: match &record.message_data {
+                    InformationMessageData::String(s) => {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s.clone()))
+                    }
+                    InformationMessageData::HostInformationMessage(m) => {
+                        let mut props = BTreeMap::new();
+                        props.insert(
+                            "Message".to_string(),
+                            PsProperty {
+                                name: "Message".to_string(),
+                                value: PsValue::Primitive(PsPrimitiveValue::Str(m.message.clone())),
+                            },
+                        );
+                        if let Some(fg) = m.foreground_color {
+                            props.insert(
+                                "ForegroundColor".to_string(),
+                                PsProperty {
+                                    name: "ForegroundColor".to_string(),
+                                    value: PsValue::Primitive(PsPrimitiveValue::I32(fg)),
+                                },
+                            );
+                        }
+                        if let Some(bg) = m.background_color {
+                            props.insert(
+                                "BackgroundColor".to_string(),
+                                PsProperty {
+                                    name: "BackgroundColor".to_string(),
+                                    value: PsValue::Primitive(PsPrimitiveValue::I32(bg)),
+                                },
+                            );
+                        }
+                        props.insert(
+                            "NoNewLine".to_string(),
+                            PsProperty {
+                                name: "NoNewLine".to_string(),
+                                value: PsValue::Primitive(PsPrimitiveValue::Bool(m.no_new_line)),
+                            },
+                        );
+
+                        PsValue::Object(Self {
+                            type_def: Some(PsType {
+                                type_names: vec![
+                                    Cow::Borrowed(
+                                        "System.Management.Automation.HostInformationMessage",
+                                    ),
+                                    Cow::Borrowed("System.Object"),
+                                ],
+                            }),
+                            to_string: Some(m.message.clone()),
+                            content: ComplexObjectContent::Standard,
+                            adapted_properties: BTreeMap::new(),
+                            extended_properties: props,
+                        })
+                    }
+                    InformationMessageData::Object(v) => v.clone(),
+                },
             },
         );
 
         extended_properties.insert(
-            "InformationalRecord_SerializeInvocationInfo".to_string(),
+            "SerializeInvocationInfo".to_string(),
             PsProperty {
-                name: "InformationalRecord_SerializeInvocationInfo".to_string(),
+                name: "SerializeInvocationInfo".to_string(),
                 value: PsValue::Primitive(PsPrimitiveValue::Bool(record.serialize_invocation_info)),
             },
         );
 
         if let Some(source) = record.source {
             extended_properties.insert(
-                "InformationalRecord_Source".to_string(),
+                "Source".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_Source".to_string(),
+                    name: "Source".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::Str(source)),
                 },
             );
@@ -71,9 +212,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(time) = record.time_generated {
             extended_properties.insert(
-                "InformationalRecord_TimeGenerated".to_string(),
+                "TimeGenerated".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_TimeGenerated".to_string(),
+                    name: "TimeGenerated".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::Str(time)),
                 },
             );
@@ -111,9 +252,9 @@ impl From<InformationRecord> for ComplexObject {
             };
 
             extended_properties.insert(
-                "InformationalRecord_Tags".to_string(),
+                "Tags".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_Tags".to_string(),
+                    name: "Tags".to_string(),
                     value: PsValue::Object(tags_obj),
                 },
             );
@@ -121,9 +262,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(user) = record.user {
             extended_properties.insert(
-                "InformationalRecord_User".to_string(),
+                "User".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_User".to_string(),
+                    name: "User".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::Str(user)),
                 },
             );
@@ -131,9 +272,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(computer) = record.computer {
             extended_properties.insert(
-                "InformationalRecord_Computer".to_string(),
+                "Computer".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_Computer".to_string(),
+                    name: "Computer".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::Str(computer)),
                 },
             );
@@ -141,9 +282,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(pid) = record.process_id {
             extended_properties.insert(
-                "InformationalRecord_ProcessId".to_string(),
+                "ProcessId".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_ProcessId".to_string(),
+                    name: "ProcessId".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::I32(pid)),
                 },
             );
@@ -151,9 +292,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(native_tid) = record.native_thread_id {
             extended_properties.insert(
-                "InformationalRecord_NativeThreadId".to_string(),
+                "NativeThreadId".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_NativeThreadId".to_string(),
+                    name: "NativeThreadId".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::I32(native_tid)),
                 },
             );
@@ -161,9 +302,9 @@ impl From<InformationRecord> for ComplexObject {
 
         if let Some(managed_tid) = record.managed_thread_id {
             extended_properties.insert(
-                "InformationalRecord_ManagedThreadId".to_string(),
+                "ManagedThreadId".to_string(),
                 PsProperty {
-                    name: "InformationalRecord_ManagedThreadId".to_string(),
+                    name: "ManagedThreadId".to_string(),
                     value: PsValue::Primitive(PsPrimitiveValue::I32(managed_tid)),
                 },
             );
@@ -177,7 +318,7 @@ impl From<InformationRecord> for ComplexObject {
                     Cow::Borrowed("System.Object"),
                 ],
             }),
-            to_string: Some(record.message_data),
+            to_string: Some(message_data_to_string(&record.message_data)),
             content: ComplexObjectContent::Standard,
             adapted_properties: BTreeMap::new(),
             extended_properties,
@@ -190,53 +331,58 @@ impl TryFrom<ComplexObject> for InformationRecord {
 
     #[expect(clippy::too_many_lines)]
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let message_data = value
-            .extended_properties
-            .get("InformationalRecord_Message")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage(
-                    "Missing InformationalRecord_Message property".to_string(),
-                )
-            })?;
-        let message_data = match &message_data.value {
-            PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "InformationalRecord_Message property is not a string".to_string(),
-                ));
+        let get_prop = |names: &[&str]| {
+            for name in names {
+                if let Some(p) = value.extended_properties.get(*name) {
+                    return Some(p);
+                }
+                if let Some(p) = value.adapted_properties.get(*name) {
+                    return Some(p);
+                }
             }
+            None
         };
 
-        let serialize_invocation_info = value
-            .extended_properties
-            .get("InformationalRecord_SerializeInvocationInfo")
-            .is_some_and(|prop| {
-                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
-                    b
-                } else {
-                    false
+        // Spec: "MessageData". Back-compat: older/broken naming used "InformationalRecord_Message".
+        let message_data_value = get_prop(&["MessageData", "InformationalRecord_Message"])
+            .map_or_else(
+                || PsValue::Primitive(PsPrimitiveValue::Str(String::new())),
+                |p| p.value.clone(),
+            );
+        let message_data = parse_message_data(message_data_value);
+
+        let serialize_invocation_info = get_prop(&[
+            "SerializeInvocationInfo",
+            "InformationalRecord_SerializeInvocationInfo",
+        ])
+        .is_some_and(|prop| {
+            if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
+                b
+            } else {
+                false
+            }
+        });
+
+        let source =
+            get_prop(&["Source", "InformationalRecord_Source"]).and_then(|prop| {
+                match &prop.value {
+                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                    _ => None,
                 }
             });
 
-        let source = value
-            .extended_properties
-            .get("InformationalRecord_Source")
+        let time_generated = get_prop(&["TimeGenerated", "InformationalRecord_TimeGenerated"])
             .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
-
-        let time_generated = value
-            .extended_properties
-            .get("InformationalRecord_TimeGenerated")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                PsValue::Primitive(PsPrimitiveValue::Str(s) | PsPrimitiveValue::DateTime(s)) => {
+                    Some(s.clone())
+                }
                 _ => None,
             });
 
         let tags = value
             .extended_properties
-            .get("InformationalRecord_Tags")
+            .get("Tags")
+            .or_else(|| value.extended_properties.get("InformationalRecord_Tags"))
             .and_then(|prop| match &prop.value {
                 PsValue::Object(obj) => {
                     let mut tags = Vec::new();
@@ -252,7 +398,8 @@ impl TryFrom<ComplexObject> for InformationRecord {
 
         let user = value
             .extended_properties
-            .get("InformationalRecord_User")
+            .get("User")
+            .or_else(|| value.extended_properties.get("InformationalRecord_User"))
             .and_then(|prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
@@ -260,7 +407,12 @@ impl TryFrom<ComplexObject> for InformationRecord {
 
         let computer = value
             .extended_properties
-            .get("InformationalRecord_Computer")
+            .get("Computer")
+            .or_else(|| {
+                value
+                    .extended_properties
+                    .get("InformationalRecord_Computer")
+            })
             .and_then(|prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
@@ -268,25 +420,43 @@ impl TryFrom<ComplexObject> for InformationRecord {
 
         let process_id = value
             .extended_properties
-            .get("InformationalRecord_ProcessId")
+            .get("ProcessId")
+            .or_else(|| {
+                value
+                    .extended_properties
+                    .get("InformationalRecord_ProcessId")
+            })
             .and_then(|prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
+                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
                 _ => None,
             });
 
         let native_thread_id = value
             .extended_properties
-            .get("InformationalRecord_NativeThreadId")
+            .get("NativeThreadId")
+            .or_else(|| {
+                value
+                    .extended_properties
+                    .get("InformationalRecord_NativeThreadId")
+            })
             .and_then(|prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
+                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
                 _ => None,
             });
 
         let managed_thread_id = value
             .extended_properties
-            .get("InformationalRecord_ManagedThreadId")
+            .get("ManagedThreadId")
+            .or_else(|| {
+                value
+                    .extended_properties
+                    .get("InformationalRecord_ManagedThreadId")
+            })
             .and_then(|prop| match &prop.value {
                 PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
+                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
                 _ => None,
             });
 
@@ -312,7 +482,9 @@ mod tests {
     #[test]
     fn test_information_record_basic() {
         let record = InformationRecord::builder()
-            .message_data("This is an informational message.".to_string())
+            .message_data(InformationMessageData::String(
+                "This is an informational message.".to_string(),
+            ))
             .serialize_invocation_info(false)
             .build();
 
@@ -325,7 +497,9 @@ mod tests {
     #[test]
     fn test_information_record_with_metadata() {
         let record = InformationRecord::builder()
-            .message_data("Test message with metadata".to_string())
+            .message_data(InformationMessageData::String(
+                "Test message with metadata".to_string(),
+            ))
             .serialize_invocation_info(true)
             .source(Some("Write-Information".to_string()))
             .user(Some("TestUser".to_string()))
@@ -344,7 +518,7 @@ mod tests {
     #[test]
     fn test_information_record_with_tags() {
         let record = InformationRecord::builder()
-            .message_data("Tagged message".to_string())
+            .message_data(InformationMessageData::String("Tagged message".to_string()))
             .tags(Some(vec!["tag1".to_string(), "tag2".to_string()]))
             .build();
 
@@ -357,7 +531,7 @@ mod tests {
     #[test]
     fn test_message_type() {
         let record = InformationRecord::builder()
-            .message_data("Test".to_string())
+            .message_data(InformationMessageData::String("Test".to_string()))
             .build();
 
         assert_eq!(record.message_type().value(), 0x00041011);
@@ -366,7 +540,7 @@ mod tests {
     #[test]
     fn test_to_string_property() {
         let record = InformationRecord::builder()
-            .message_data("Test message".to_string())
+            .message_data(InformationMessageData::String("Test message".to_string()))
             .build();
 
         let complex_obj = ComplexObject::from(record);
@@ -376,7 +550,7 @@ mod tests {
     #[test]
     fn test_type_names() {
         let record = InformationRecord::builder()
-            .message_data("Test".to_string())
+            .message_data(InformationMessageData::String("Test".to_string()))
             .build();
 
         let complex_obj = ComplexObject::from(record);

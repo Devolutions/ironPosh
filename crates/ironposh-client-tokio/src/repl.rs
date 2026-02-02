@@ -4,11 +4,75 @@ use ironposh_async::SessionEvent;
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_terminal::Terminal;
 use std::collections::VecDeque;
+use std::fmt::Write as _;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, warn};
 
 use crate::types::TerminalOperation;
 use crate::types::{HostUiRequest, HostUiResponse, ReplControl};
+
+fn clamp_console_color(color: i32) -> i32 {
+    color.clamp(0, 15)
+}
+
+fn sgr_for_foreground(color: i32) -> i32 {
+    match clamp_console_color(color) {
+        0 => 30,  // Black
+        1 => 34,  // DarkBlue
+        2 => 32,  // DarkGreen
+        3 => 36,  // DarkCyan
+        4 => 31,  // DarkRed
+        5 => 35,  // DarkMagenta
+        6 => 33,  // DarkYellow
+        7 => 37,  // Gray
+        8 => 90,  // DarkGray
+        9 => 94,  // Blue
+        10 => 92, // Green
+        11 => 96, // Cyan
+        12 => 91, // Red
+        13 => 95, // Magenta
+        14 => 93, // Yellow
+        15 => 97, // White
+        _ => unreachable!("color is clamped to 0..15"),
+    }
+}
+
+fn sgr_for_background(color: i32) -> i32 {
+    match clamp_console_color(color) {
+        0 => 40,   // Black
+        1 => 44,   // DarkBlue
+        2 => 42,   // DarkGreen
+        3 => 46,   // DarkCyan
+        4 => 41,   // DarkRed
+        5 => 45,   // DarkMagenta
+        6 => 43,   // DarkYellow
+        7 => 47,   // Gray
+        8 => 100,  // DarkGray
+        9 => 104,  // Blue
+        10 => 102, // Green
+        11 => 106, // Cyan
+        12 => 101, // Red
+        13 => 105, // Magenta
+        14 => 103, // Yellow
+        15 => 107, // White
+        _ => unreachable!("color is clamped to 0..15"),
+    }
+}
+
+fn format_host_information_message(msg: &ironposh_psrp::HostInformationMessage) -> (String, bool) {
+    let mut out = String::new();
+    if let Some(fg) = msg.foreground_color {
+        let _ = write!(&mut out, "\x1b[{}m", sgr_for_foreground(fg));
+    }
+    if let Some(bg) = msg.background_color {
+        let _ = write!(&mut out, "\x1b[{}m", sgr_for_background(bg));
+    }
+    out.push_str(&msg.message);
+    if msg.foreground_color.is_some() || msg.background_color.is_some() {
+        out.push_str("\x1b[0m");
+    }
+    (out, !msg.no_new_line)
+}
 
 #[derive(Debug)]
 enum UserInput {
@@ -83,6 +147,66 @@ async fn run_script_and_forward_nested(
                                 error_record.render_concise()
                             )))
                             .await;
+                    }
+                    UserEvent::PipelineRecord { record, .. } => {
+                        use ironposh_client_core::psrp_record::PsrpRecord;
+                        match record {
+                            PsrpRecord::Debug { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Debug: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Verbose { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Verbose: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Warning { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Warning: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Information { record, .. } => {
+                                match &record.message_data {
+                                    ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
+                                        let (text, newline) = format_host_information_message(m);
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Write { text, newline })
+                                            .await;
+                                    }
+                                    ironposh_psrp::InformationMessageData::String(s) => {
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Print(format!(
+                                                "[information] {s}"
+                                            )))
+                                            .await;
+                                    }
+                                    ironposh_psrp::InformationMessageData::Object(v) => {
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Print(format!(
+                                                "[information] {v}"
+                                            )))
+                                            .await;
+                                    }
+                                }
+                            }
+                            PsrpRecord::Progress { record, .. } => {
+                                let status = record.status_description.clone().unwrap_or_default();
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!(
+                                        "[progress] {}: {} ({}%)",
+                                        record.activity, status, record.percent_complete
+                                    )))
+                                    .await;
+                            }
+                            PsrpRecord::Unsupported { data_preview, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!(
+                                        "[unsupported] {data_preview}"
+                                    )))
+                                    .await;
+                            }
+                        }
                     }
                 }
             }
@@ -197,7 +321,7 @@ async fn fetch_remote_prompt(client: &mut RemoteAsyncPowershellClient) -> Option
                 warn!(error = %error_record.render_concise(), "remote prompt command returned an error");
             }
             UserEvent::PipelineFinished { .. } => break,
-            UserEvent::PipelineCreated { .. } => {}
+            UserEvent::PipelineCreated { .. } | UserEvent::PipelineRecord { .. } => {}
         }
     }
 
@@ -1079,6 +1203,84 @@ async fn run_repl_loop(
                         debug!("Received error record");
                         let error_text = error_record.render_concise();
                         let _ = terminal_op_tx.send(TerminalOperation::Print(format!("Error: {error_text}"))).await;
+                    }
+                    UserEvent::PipelineRecord { record, .. } => {
+                        use ironposh_client_core::psrp_record::PsrpRecord;
+                        match record {
+                            PsrpRecord::Debug { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Debug: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Verbose { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Verbose: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Warning { message, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!("Warning: {message}")))
+                                    .await;
+                            }
+                            PsrpRecord::Information { record, .. } => {
+                                let tags = record
+                                    .tags
+                                    .clone()
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|t| t.to_ascii_uppercase())
+                                    .collect::<Vec<_>>();
+                                let has_pshost = tags.iter().any(|t| t == "PSHOST");
+                                let has_forwarded = tags.iter().any(|t| t == "FORWARDED");
+
+                                match &record.message_data {
+                                    ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
+                                        let (text, newline) = format_host_information_message(m);
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Write { text, newline })
+                                            .await;
+                                    }
+                                    ironposh_psrp::InformationMessageData::String(s) => {
+                                        let prefix = if has_pshost && !has_forwarded {
+                                            ""
+                                        } else {
+                                            "[information] "
+                                        };
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Print(format!("{prefix}{s}")))
+                                            .await;
+                                    }
+                                    ironposh_psrp::InformationMessageData::Object(v) => {
+                                        let prefix = if has_pshost && !has_forwarded {
+                                            ""
+                                        } else {
+                                            "[information] "
+                                        };
+                                        let _ = terminal_op_tx
+                                            .send(TerminalOperation::Print(format!(
+                                                "{prefix}{v}"
+                                            )))
+                                            .await;
+                                    }
+                                }
+                            }
+                            PsrpRecord::Progress { record, .. } => {
+                                let status = record.status_description.clone().unwrap_or_default();
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!(
+                                        "[progress] {}: {} ({}%)",
+                                        record.activity, status, record.percent_complete
+                                    )))
+                                    .await;
+                            }
+                            PsrpRecord::Unsupported { data_preview, .. } => {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(format!(
+                                        "[unsupported] {data_preview}"
+                                    )))
+                                    .await;
+                            }
+                        }
                     }
                 }
             }
