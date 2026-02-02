@@ -426,3 +426,51 @@ impl From<SessionEvent> for JsSessionEvent {
         }
     }
 }
+
+// =============================================================================
+// Tab completion (TabExpansion2 / CommandCompletion)
+// =============================================================================
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct WasmCompletionResult {
+    pub completion_text: String,
+    pub list_item_text: String,
+    pub result_type: String,
+    pub tool_tip: String,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct WasmCommandCompletion {
+    pub current_match_index: i32,
+    pub replacement_index: i32,
+    pub replacement_length: i32,
+    pub completion_matches: Vec<WasmCompletionResult>,
+}
+
+impl From<&ironposh_psrp::CompletionResult> for WasmCompletionResult {
+    fn from(value: &ironposh_psrp::CompletionResult) -> Self {
+        Self {
+            completion_text: value.completion_text.clone(),
+            list_item_text: value.list_item_text.clone(),
+            result_type: value.result_type.clone(),
+            tool_tip: value.tool_tip.clone(),
+        }
+    }
+}
+
+impl From<&ironposh_psrp::CommandCompletion> for WasmCommandCompletion {
+    fn from(value: &ironposh_psrp::CommandCompletion) -> Self {
+        Self {
+            current_match_index: value.current_match_index,
+            replacement_index: value.replacement_index,
+            replacement_length: value.replacement_length,
+            completion_matches: value
+                .completion_matches
+                .iter()
+                .map(WasmCompletionResult::from)
+                .collect(),
+        }
+    }
+}

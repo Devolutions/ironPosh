@@ -2,9 +2,10 @@ use crate::{
     error::WasmError,
     hostcall::handle_host_calls,
     http_client::GatewayHttpViaWSClient,
-    types::{SecurityWarningCallback, WasmWinRmConfig},
+    types::{SecurityWarningCallback, WasmCommandCompletion, WasmWinRmConfig},
     JsSessionEvent, WasmPowerShellStream,
 };
+use std::convert::TryFrom;
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
@@ -240,6 +241,73 @@ impl WasmPowerShellClient {
         let stream = crate::stream::WasmPowerShellStream::new(stream, kill_tx);
         info!("PowerShell command stream created successfully");
         Ok(stream)
+    }
+
+    #[wasm_bindgen]
+    pub async fn tab_complete(
+        &mut self,
+        input_script: String,
+        cursor_column: u32,
+    ) -> Result<WasmCommandCompletion, WasmError> {
+        use ironposh_client_core::connector::active_session::UserEvent;
+
+        fn escape_ps_single_quoted(input: &str) -> String {
+            input.replace('\'', "''")
+        }
+
+        let escaped = escape_ps_single_quoted(&input_script);
+        let script = format!(
+            "TabExpansion2 -inputScript '{escaped}' -cursorColumn {cursor_column}"
+        );
+
+        info!(
+            cursor_column,
+            input_len = input_script.len(),
+            "tab_complete: sending TabExpansion2"
+        );
+
+        let stream = self.client.send_script_raw(script).await?;
+        let mut stream = stream.boxed();
+
+        let mut output: Option<ironposh_psrp::PsValue> = None;
+        let mut error_message: Option<String> = None;
+
+        while let Some(ev) = stream.next().await {
+            match ev {
+                UserEvent::PipelineOutput { output: out, .. } => {
+                    if output.is_none() {
+                        output = Some(out.data);
+                    }
+                }
+                UserEvent::ErrorRecord { error_record, .. } => {
+                    let concise = error_record.render_concise();
+                    error_message = Some(concise.clone());
+                    warn!(error_message = %concise, "tab_complete: error record");
+                }
+                UserEvent::PipelineFinished { .. } => break,
+                _ => {}
+            }
+        }
+
+        let Some(ps_value) = output else {
+            return Err(WasmError::Generic(
+                error_message.unwrap_or_else(|| "TabExpansion2 returned no output".into()),
+            ));
+        };
+
+        let completion = ironposh_psrp::CommandCompletion::try_from(&ps_value)
+            .map_err(|e| WasmError::Generic(e.to_string()))?;
+
+        info!(
+            ?completion,
+            cursor_column,
+            replacement_index = completion.replacement_index,
+            replacement_length = completion.replacement_length,
+            matches = completion.completion_matches.len(),
+            "tab_complete: parsed completion"
+        );
+
+        Ok(WasmCommandCompletion::from(&completion))
     }
 
     // pub async fn next_host_call
