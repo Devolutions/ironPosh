@@ -286,6 +286,57 @@ impl<'a> StdTerm<'a> {
             }
         }
     }
+
+    /// Like [`read_line_queued`](Self::read_line_queued), but invokes `tab_complete` when the user
+    /// presses Tab. The callback returns an optional replacement for the entire current line.
+    pub fn read_line_queued_with_tab_completion(
+        &mut self,
+        prompt: &str,
+        queue: &mut VecDeque<Event>,
+        mut tab_complete: impl FnMut(&str, usize) -> io::Result<Option<String>>,
+    ) -> io::Result<ReadOutcome> {
+        if !prompt.is_empty() {
+            self.write_all(b"\r")?; // ensure column 0
+            self.write_all(prompt.as_bytes())?;
+            self.flush()?; // show prompt
+        }
+
+        let mut line = String::new();
+
+        loop {
+            if let Some(evt) =
+                Self::next_event_from_queue_or_host(queue, Duration::from_millis(50))?
+            {
+                if let Event::Key(KeyEvent {
+                    kind: KeyEventKind::Press,
+                    code: KeyCode::Tab,
+                    ..
+                }) = evt
+                {
+                    let cursor_utf16 = line.encode_utf16().count();
+                    if let Some(new_line) = tab_complete(&line, cursor_utf16)? {
+                        line = new_line;
+                        // Redraw the full prompt + line. This editor doesn't currently support
+                        // mid-line cursor movement, so we keep the cursor at EOL.
+                        self.write_all(b"\r")?;
+                        self.write_all(b"\x1b[2K")?; // clear entire line
+                        self.write_all(prompt.as_bytes())?;
+                        self.write_all(line.as_bytes())?;
+                        self.flush()?;
+                    }
+                    continue;
+                }
+
+                if let Some(outcome) = self.process_event(&mut line, evt, /*edit_line=*/ true)? {
+                    return Ok(outcome);
+                }
+            }
+
+            if self.auto_render {
+                self.term.render().map_err(io::Error::other)?;
+            }
+        }
+    }
 }
 
 impl IoWrite for StdTerm<'_> {
