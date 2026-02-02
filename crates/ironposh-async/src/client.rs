@@ -68,6 +68,32 @@ impl RemoteAsyncPowershellClient {
         Ok(rx)
     }
 
+    /// Execute a PowerShell script and return raw PSRP output objects (no Out-String formatting).
+    #[instrument(skip(self))]
+    pub async fn send_script_raw(&mut self, script: String) -> anyhow::Result<Receiver<UserEvent>> {
+        let commands = vec![PipelineCommand::new_script(script)];
+
+        let (tx, rx) = futures::channel::mpsc::channel(10);
+
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Invoke {
+                uuid: uuid::Uuid::new_v4(),
+                spec: PipelineSpec { commands },
+                response_tx: tx,
+            })
+            .await
+            .context("Failed to send CreatePipeline operation")?;
+
+        self.handle
+            .pipeline_input_tx
+            .flush()
+            .await
+            .context("Failed to flush pipeline input")?;
+
+        Ok(rx)
+    }
+
     #[instrument(skip(self))]
     pub async fn send_command(&mut self, command: String) -> anyhow::Result<Receiver<UserEvent>> {
         let (tx, rx) = futures::channel::mpsc::channel(10);

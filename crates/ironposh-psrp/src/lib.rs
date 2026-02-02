@@ -1,4 +1,5 @@
 pub mod cores;
+pub mod completion;
 pub mod fragmentation;
 pub mod messages;
 pub mod ps_value;
@@ -6,6 +7,7 @@ pub mod ps_value;
 use std::str::Utf8Error;
 
 pub use cores::*;
+pub use completion::{CommandCompletion, CommandCompletionError, CompletionResult};
 pub use fragmentation::*;
 pub use messages::*;
 pub use ps_value::PsObjectWithType;

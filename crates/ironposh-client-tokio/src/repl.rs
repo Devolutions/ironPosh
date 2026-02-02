@@ -6,6 +6,7 @@ use ironposh_terminal::Terminal;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 use crate::types::TerminalOperation;
@@ -79,6 +80,106 @@ enum UserInput {
     Cmd(String),
     Interrupt,
     Eof,
+}
+
+#[derive(Debug)]
+struct TabCompletionRequest {
+    line: String,
+    cursor_utf16: usize,
+    respond_to: oneshot::Sender<Option<String>>,
+}
+
+fn escape_ps_single_quoted(input: &str) -> String {
+    input.replace('\'', "''")
+}
+
+fn utf16_index_to_byte_index(s: &str, utf16_index: usize) -> usize {
+    if utf16_index == 0 {
+        return 0;
+    }
+
+    let mut current_u16 = 0usize;
+    for (byte_idx, ch) in s.char_indices() {
+        let ch_u16 = if (ch as u32) > 0xFFFF { 2 } else { 1 };
+        let next_u16 = current_u16 + ch_u16;
+        if next_u16 >= utf16_index {
+            return if next_u16 == utf16_index {
+                byte_idx + ch.len_utf8()
+            } else {
+                byte_idx
+            };
+        }
+        current_u16 = next_u16;
+    }
+
+    s.len()
+}
+
+fn apply_command_completion(
+    original: &str,
+    completion: &ironposh_psrp::CommandCompletion,
+) -> Option<String> {
+    let first = completion.completion_matches.first()?;
+
+    let start_u16 = (completion.replacement_index.max(0)) as usize;
+    let len_u16 = (completion.replacement_length.max(0)) as usize;
+    let end_u16 = start_u16.saturating_add(len_u16);
+
+    let start_byte = utf16_index_to_byte_index(original, start_u16).min(original.len());
+    let end_byte = utf16_index_to_byte_index(original, end_u16).min(original.len());
+    if start_byte > end_byte {
+        return None;
+    }
+
+    let mut out = original.to_string();
+    out.replace_range(start_byte..end_byte, &first.completion_text);
+    Some(out)
+}
+
+async fn tab_complete_line(
+    client: &mut RemoteAsyncPowershellClient,
+    line: &str,
+    cursor_utf16: usize,
+) -> anyhow::Result<Option<String>> {
+    let escaped = escape_ps_single_quoted(line);
+    let script = format!("TabExpansion2 -inputScript '{escaped}' -cursorColumn {cursor_utf16}");
+
+    info!(cursor_utf16, line_len = line.len(), "tab completion request");
+
+    let stream = client.send_script_raw(script).await?;
+    let mut stream = stream.boxed();
+
+    let mut output: Option<ironposh_psrp::PsValue> = None;
+
+    while let Some(ev) = stream.next().await {
+        match ev {
+            UserEvent::PipelineOutput { output: out, .. } => {
+                info!(?out.data, "tab completion output");
+                output = Some(out.data);
+            }
+            UserEvent::ErrorRecord { error_record, .. } => {
+                warn!(error = %error_record.render_concise(), "tab completion error record");
+            }
+            UserEvent::PipelineFinished { .. } => break,
+            _ => {}
+        }
+    }
+
+    let Some(ps_value) = output else {
+        return Ok(None);
+    };
+
+    let completion = ironposh_psrp::CommandCompletion::try_from(&ps_value)
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    info!(
+        replacement_index = completion.replacement_index,
+        replacement_length = completion.replacement_length,
+        matches = completion.completion_matches.len(),
+        "tab completion parsed"
+    );
+
+    Ok(apply_command_completion(line, &completion))
 }
 
 async fn run_script_and_forward_nested(
@@ -373,6 +474,7 @@ fn run_ui_thread(
     mut terminal: Terminal,
     mut terminal_op_rx: Receiver<TerminalOperation>,
     user_input_tx: Sender<UserInput>,
+    tab_complete_tx: Sender<TabCompletionRequest>,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         use ironposh_terminal::ReadOutcome;
@@ -570,7 +672,27 @@ fn run_ui_thread(
                 }
                 TerminalOperation::RequestInput { prompt } => {
                     debug!(prompt = %prompt, "reading user input");
-                    match io.read_line_queued(&prompt, &mut event_queue) {
+                    match io.read_line_queued_with_tab_completion(
+                        &prompt,
+                        &mut event_queue,
+                        |line, cursor_utf16| {
+                            let (respond_to, respond_rx) = oneshot::channel();
+                            let req = TabCompletionRequest {
+                                line: line.to_string(),
+                                cursor_utf16,
+                                respond_to,
+                            };
+
+                            if tab_complete_tx.blocking_send(req).is_err() {
+                                return Ok(None);
+                            }
+
+                            match respond_rx.blocking_recv() {
+                                Ok(Some(new_line)) => Ok(Some(new_line)),
+                                Ok(None) | Err(_) => Ok(None),
+                            }
+                        },
+                    ) {
                         Ok(ReadOutcome::Line(s)) => {
                             info!(command = %s.trim(), "user entered command");
                             if user_input_tx.blocking_send(UserInput::Cmd(s)).is_err() {
@@ -1080,6 +1202,7 @@ async fn run_repl_loop(
     terminal_op_tx: Sender<TerminalOperation>,
     mut user_input_rx: Receiver<UserInput>,
     mut repl_control_rx: Receiver<ReplControl>,
+    mut tab_complete_rx: Receiver<TabCompletionRequest>,
 ) -> anyhow::Result<()> {
     info!("Starting unified REPL loop");
 
@@ -1092,6 +1215,22 @@ async fn run_repl_loop(
 
     loop {
         tokio::select! {
+            Some(req) = tab_complete_rx.recv() => {
+                if current_stream.is_some() {
+                    let _ = req.respond_to.send(None);
+                    continue;
+                }
+
+                let result = match tab_complete_line(client, &req.line, req.cursor_utf16).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(error = %e, "tab completion failed");
+                        None
+                    }
+                };
+
+                let _ = req.respond_to.send(result);
+            }
             Some(ctrl) = repl_control_rx.recv() => {
                 match ctrl {
                     ReplControl::EnterNestedPrompt => {
@@ -1305,6 +1444,7 @@ pub async fn run_simple_repl(
     // Channels: UI thread -> REPL (user input events)
     let (terminal_request_tx, terminal_request_rx) = tokio::sync::mpsc::channel::<UserInput>(32);
     let (terminal_op_tx, terminal_op_rx) = tokio::sync::mpsc::channel::<TerminalOperation>(32);
+    let (tab_complete_tx, tab_complete_rx) = tokio::sync::mpsc::channel::<TabCompletionRequest>(8);
 
     let terminal_op_tx_1 = terminal_op_tx.clone();
     let forward_handle = tokio::spawn(async move {
@@ -1317,11 +1457,22 @@ pub async fn run_simple_repl(
     });
 
     info!("Created unified communication channels");
-    let ui_handle = run_ui_thread(terminal, terminal_op_rx, terminal_request_tx.clone());
+    let ui_handle = run_ui_thread(
+        terminal,
+        terminal_op_rx,
+        terminal_request_tx.clone(),
+        tab_complete_tx,
+    );
 
     info!("UI thread and forwarder tasks spawned, starting unified REPL loop");
-    let repl_result =
-        run_repl_loop(client, terminal_op_tx, terminal_request_rx, repl_control_rx).await;
+    let repl_result = run_repl_loop(
+        client,
+        terminal_op_tx,
+        terminal_request_rx,
+        repl_control_rx,
+        tab_complete_rx,
+    )
+    .await;
 
     info!("REPL loop ending, cleaning up tasks");
 
@@ -1330,4 +1481,46 @@ pub async fn run_simple_repl(
 
     info!("Unified async REPL completed");
     repl_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_command_completion_basic() {
+        let completion = ironposh_psrp::CommandCompletion {
+            current_match_index: -1,
+            replacement_index: 0,
+            replacement_length: 7,
+            completion_matches: vec![ironposh_psrp::CompletionResult {
+                completion_text: "Get-Service".to_string(),
+                list_item_text: "Get-Service".to_string(),
+                result_type: "Command".to_string(),
+                tool_tip: "Get-Service".to_string(),
+            }],
+        };
+
+        let out = apply_command_completion("Get-Ser", &completion).expect("should complete");
+        assert_eq!(out, "Get-Service");
+    }
+
+    #[test]
+    fn apply_command_completion_utf16_indices() {
+        // 😀 is 2 UTF-16 code units, so the 'G' starts at utf16 index 2.
+        let completion = ironposh_psrp::CommandCompletion {
+            current_match_index: -1,
+            replacement_index: 2,
+            replacement_length: 7,
+            completion_matches: vec![ironposh_psrp::CompletionResult {
+                completion_text: "Get-Service".to_string(),
+                list_item_text: "Get-Service".to_string(),
+                result_type: "Command".to_string(),
+                tool_tip: "Get-Service".to_string(),
+            }],
+        };
+
+        let out = apply_command_completion("😀Get-Ser", &completion).expect("should complete");
+        assert_eq!(out, "😀Get-Service");
+    }
 }
