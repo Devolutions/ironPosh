@@ -19,10 +19,16 @@ pub struct CompletionResult {
 #[derive(Debug, thiserror::Error)]
 pub enum CommandCompletionError {
     #[error("expected a PowerShell object for {context}, got {found}")]
-    ExpectedObject { context: &'static str, found: &'static str },
+    ExpectedObject {
+        context: &'static str,
+        found: &'static str,
+    },
 
     #[error("missing property {name} in {context}")]
-    MissingProperty { context: &'static str, name: &'static str },
+    MissingProperty {
+        context: &'static str,
+        name: &'static str,
+    },
 
     #[error("unexpected type for {context}.{name}: expected {expected}, got {found}")]
     UnexpectedType {
@@ -37,31 +43,30 @@ impl TryFrom<&PsValue> for CommandCompletion {
     type Error = CommandCompletionError;
 
     fn try_from(value: &PsValue) -> Result<Self, Self::Error> {
-        let obj = value.as_object().ok_or_else(|| CommandCompletionError::ExpectedObject {
-            context: "CommandCompletion",
-            found: ps_value_kind(value),
-        })?;
+        let obj = value
+            .as_object()
+            .ok_or_else(|| CommandCompletionError::ExpectedObject {
+                context: "CommandCompletion",
+                found: ps_value_kind(value),
+            })?;
 
         let current_match_index = get_i32(value, "CommandCompletion", "CurrentMatchIndex")?;
         let replacement_index = get_i32(value, "CommandCompletion", "ReplacementIndex")?;
         let replacement_length = get_i32(value, "CommandCompletion", "ReplacementLength")?;
 
-        let matches_value = obj
-            .adapted_properties
-            .get("CompletionMatches")
-            .ok_or(CommandCompletionError::MissingProperty {
+        let matches_value = obj.adapted_properties.get("CompletionMatches").ok_or(
+            CommandCompletionError::MissingProperty {
                 context: "CommandCompletion",
                 name: "CompletionMatches",
-            })?;
+            },
+        )?;
 
-        let matches_obj =
-            matches_value
-                .value
-                .as_object()
-                .ok_or_else(|| CommandCompletionError::ExpectedObject {
-                    context: "CommandCompletion.CompletionMatches",
-                    found: ps_value_kind(&matches_value.value),
-                })?;
+        let matches_obj = matches_value.value.as_object().ok_or_else(|| {
+            CommandCompletionError::ExpectedObject {
+                context: "CommandCompletion.CompletionMatches",
+                found: ps_value_kind(&matches_value.value),
+            }
+        })?;
 
         let Container::List(items) = matches_obj.content.container().ok_or_else(|| {
             CommandCompletionError::UnexpectedType {
@@ -70,7 +75,8 @@ impl TryFrom<&PsValue> for CommandCompletion {
                 expected: "Container(List)",
                 found: complex_content_kind(&matches_obj.content),
             }
-        })? else {
+        })?
+        else {
             return Err(CommandCompletionError::UnexpectedType {
                 context: "CommandCompletion",
                 name: "CompletionMatches",
@@ -97,10 +103,12 @@ impl TryFrom<&PsValue> for CompletionResult {
     type Error = CommandCompletionError;
 
     fn try_from(value: &PsValue) -> Result<Self, Self::Error> {
-        let obj = value.as_object().ok_or_else(|| CommandCompletionError::ExpectedObject {
-            context: "CompletionResult",
-            found: ps_value_kind(value),
-        })?;
+        let obj = value
+            .as_object()
+            .ok_or_else(|| CommandCompletionError::ExpectedObject {
+                context: "CompletionResult",
+                found: ps_value_kind(value),
+            })?;
 
         let completion_text = get_string_from_obj(obj, "CompletionResult", "CompletionText")?;
         let list_item_text = get_string_from_obj(obj, "CompletionResult", "ListItemText")?;
@@ -116,11 +124,17 @@ impl TryFrom<&PsValue> for CompletionResult {
     }
 }
 
-fn get_i32(value: &PsValue, context: &'static str, name: &'static str) -> Result<i32, CommandCompletionError> {
-    let obj = value.as_object().ok_or_else(|| CommandCompletionError::ExpectedObject {
-        context,
-        found: ps_value_kind(value),
-    })?;
+fn get_i32(
+    value: &PsValue,
+    context: &'static str,
+    name: &'static str,
+) -> Result<i32, CommandCompletionError> {
+    let obj = value
+        .as_object()
+        .ok_or_else(|| CommandCompletionError::ExpectedObject {
+            context,
+            found: ps_value_kind(value),
+        })?;
     let prop = obj
         .adapted_properties
         .get(name)

@@ -24,12 +24,45 @@ jobs:
     permissions:
       contents: read
       id-token: write  # Required for npm provenance (OIDC)
+    outputs:
+      tag: ${{ steps.tag.outputs.TAG }}
     steps:
+      - name: Resolve tag/ref
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TAG=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "REF=refs/tags/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "REF=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.tag.outputs.REF }}
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/npm/ironposh-web/v}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.TAG }}"
+          echo "VERSION=${TAG#npm/ironposh-web/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Cargo.toml version matches tag
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          CARGO_VERSION="$(python -c 'import tomllib; print(tomllib.load(open(\"crates/ironposh-web/Cargo.toml\",\"rb\"))[\"package\"][\"version\"])')"
+
+          if [ "$CARGO_VERSION" != "$VERSION" ]; then
+            echo "Version mismatch:"
+            echo "- tag:        $VERSION"
+            echo "- Cargo.toml: $CARGO_VERSION"
+            exit 1
+          fi
 
       - name: Install Rust
         run: |
@@ -90,9 +123,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Resolve tag/ref
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TAG=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "REF=refs/tags/${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "REF=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.tag.outputs.REF }}
 
       - name: Create Release
-        run: gh release create "${{ github.ref_name }}" --generate-notes --title "${{ github.ref_name }}"
+        run: gh release create "${{ needs.release-npm-ironposh-web.outputs.tag }}" --generate-notes --title "${{ needs.release-npm-ironposh-web.outputs.tag }}"
         env:
           GH_TOKEN: ${{ github.token }}

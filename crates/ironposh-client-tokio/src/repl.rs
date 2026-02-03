@@ -80,7 +80,11 @@ async fn tab_complete_line(
     let escaped = escape_ps_single_quoted(line);
     let script = format!("TabExpansion2 -inputScript '{escaped}' -cursorColumn {cursor_utf16}");
 
-    info!(cursor_utf16, line_len = line.len(), "tab completion request");
+    info!(
+        cursor_utf16,
+        line_len = line.len(),
+        "tab completion request"
+    );
 
     let stream = client.send_script_raw(script).await?;
     let mut stream = stream.boxed();
@@ -97,7 +101,7 @@ async fn tab_complete_line(
                 warn!(error = %error_record.render_concise(), "tab completion error record");
             }
             UserEvent::PipelineFinished { .. } => break,
-            _ => {}
+            UserEvent::PipelineCreated { .. } => {}
         }
     }
 
@@ -105,8 +109,8 @@ async fn tab_complete_line(
         return Ok(None);
     };
 
-    let completion = ironposh_psrp::CommandCompletion::try_from(&ps_value)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let completion =
+        ironposh_psrp::CommandCompletion::try_from(&ps_value).map_err(|e| anyhow::anyhow!(e))?;
 
     info!(
         replacement_index = completion.replacement_index,
