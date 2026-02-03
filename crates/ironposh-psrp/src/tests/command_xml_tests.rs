@@ -262,7 +262,7 @@ mod tests {
         // Convert back to ComplexObject
         let recreated_obj = ComplexObject::from(create_pipeline.clone());
 
-        let xml = PsValue::Object(recreated_obj.clone())
+        let xml = PsValue::Object(recreated_obj)
             .to_element_as_root()
             .unwrap()
             .to_xml_string()

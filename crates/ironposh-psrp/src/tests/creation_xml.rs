@@ -1,18 +1,7 @@
-use crate::{
-    HostDefaultData, HostInfo,
-    fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
-    messages::{
-        ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
-    },
-};
-
-use tracing::info;
-use tracing_test::traced_test;
-use uuid::Uuid;
-
+// Disabled due to from_crossterm compilation issues - uses `cfg(any())` which is always false
+#[cfg(any())]
 #[test]
-#[cfg(disabled_temporarily)] // Disabled due to from_crossterm compilation issues
-#[traced_test]
+#[tracing_test::traced_test]
 fn test_combined_messages_like_runspace_open() {
     // Test the exact scenario from RunspacePool::open()
     let session_capability = SessionCapability {

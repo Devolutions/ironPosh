@@ -1,13 +1,5 @@
-use super::*;
-use crate::messages::{
-    ApartmentState, ApplicationArguments, InitRunspacePool, PSThreadOptions, SessionCapability,
-};
-use tracing::info;
-use tracing_test::traced_test;
-use uuid::Uuid;
-
-#[cfg(test)]
-#[cfg(disabled_temporarily)] // Disabled due to from_crossterm compilation issues
+// Disabled due to from_crossterm compilation issues - uses `cfg(any())` which is always false
+#[cfg(any())]
 mod tests {
     use crate::messages::{HostDefaultData, HostInfo};
 

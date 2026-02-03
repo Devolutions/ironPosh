@@ -10,7 +10,7 @@ use uuid::Uuid;
 #[test]
 fn test_send_with_multiple_stream_fragments() {
     // Simulate 3 base64-encoded PSRP fragments
-    let fragments = vec![
+    let fragments = [
         "AAAAAAAAAA==".to_string(), // Fragment 1
         "BBBBBBBBBB==".to_string(), // Fragment 2
         "CCCCCCCCCC==".to_string(), // Fragment 3
@@ -84,7 +84,7 @@ fn test_send_with_multiple_stream_fragments() {
 /// Test Send without CommandId (shell-level send)
 #[test]
 fn test_send_without_command_id() {
-    let fragments = vec!["FRAGMENT1==".to_string(), "FRAGMENT2==".to_string()];
+    let fragments = ["FRAGMENT1==".to_string(), "FRAGMENT2==".to_string()];
 
     let streams: Vec<Tag<Text, Stream>> = fragments
         .iter()
@@ -123,7 +123,7 @@ fn test_send_large_response_multiple_fragments() {
     // Each fragment would be close to the max fragment size (~512KB - overhead)
     let large_fragment_data = "A".repeat(1000); // Simplified for test
     let fragments: Vec<String> = (0..10)
-        .map(|i| format!("{}{:04}==", large_fragment_data, i))
+        .map(|i| format!("{large_fragment_data}{i:04}=="))
         .collect();
 
     let command_id = Uuid::new_v4();
@@ -162,7 +162,7 @@ fn test_send_large_response_multiple_fragments() {
     // Verify each fragment is present
     for i in 0..10 {
         assert!(
-            xml_string.contains(&format!("{:04}==", i)),
+            xml_string.contains(&format!("{i:04}==")),
             "Should contain fragment {i}"
         );
     }

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod error_record_integration_tests {
     use crate::ps_value::{
-        ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsType, PsValue,
+        ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue,
     };
     use crate::{ErrorCategory, ErrorRecord};
     use std::collections::BTreeMap;
@@ -26,9 +26,8 @@ mod error_record_integration_tests {
             .expect("Should successfully deserialize XML to PsValue");
 
         // Extract the ComplexObject from PsValue
-        let complex_object = match ps_value {
-            PsValue::Object(obj) => obj,
-            _ => panic!("Expected PsValue::Object from XML parsing"),
+        let PsValue::Object(complex_object) = ps_value else {
+            panic!("Expected PsValue::Object from XML parsing")
         };
 
         println!("✅ Successfully parsed XML into ComplexObject");
@@ -86,7 +85,7 @@ mod error_record_integration_tests {
                 );
             }
             Err(e) => {
-                panic!("❌ Failed to parse ErrorRecord: {}", e);
+                panic!("❌ Failed to parse ErrorRecord: {e}");
             }
         }
     }
@@ -192,7 +191,7 @@ mod error_record_integration_tests {
             .serialize_extended_info(false)
             .error_category(Some(ErrorCategory::builder()
                 .category(13)
-                .activity(Some("".to_string()))
+                .activity(Some(String::new()))
                 .reason(Some("CommandNotFoundException".to_string()))
                 .target_name(Some("ed".to_string()))
                 .target_type(Some("String".to_string()))

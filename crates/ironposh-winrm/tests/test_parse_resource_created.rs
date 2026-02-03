@@ -60,14 +60,15 @@ mod tests {
 
         // ResourceCreated now has required fields (Tag<..> not Option<Tag<..>>)
         // So we can access them directly without checking is_some()
-        let _address = &resource_created.address; // This is a Tag<'a, Text<'a>, Address>
-        let _reference_parameters = &resource_created.reference_parameters; // This is a Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>
+        // Just verify they exist by referencing them
+        let _ = &resource_created.address;
+        let _ = &resource_created.reference_parameters;
 
         // Validate ReferenceParameters content
         // ReferenceParametersValue also has required fields now
         let ref_params = &resource_created.reference_parameters.value;
-        let _resource_uri = &ref_params.resource_uri; // This is a Tag<'a, Text<'a>, ResourceURI>
-        let _selector_set = &ref_params.selector_set; // This is a Tag<'a, SelectorSetValue, SelectorSet>
+        let _ = &ref_params.resource_uri;
+        let _ = &ref_params.selector_set;
 
         // Validate that Shell element is also present (it should be ignored by ResourceCreated parser)
         assert!(body.shell.is_some(), "Body should also have Shell element");

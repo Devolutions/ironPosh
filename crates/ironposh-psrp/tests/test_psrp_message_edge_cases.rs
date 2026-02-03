@@ -307,8 +307,7 @@ mod tests {
 
             assert!(
                 result.is_ok(),
-                "Message type {:?} should parse: {result:?}",
-                msg_type
+                "Message type {msg_type:?} should parse: {result:?}"
             );
 
             let msg = result.unwrap();

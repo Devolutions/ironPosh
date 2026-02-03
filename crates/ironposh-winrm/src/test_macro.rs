@@ -34,11 +34,11 @@ mod tests {
         // The TagValue implementation worked if we got here without panicking
 
         // Test deserialization with a simple XML string
-        let test_xml = r#"<test>
+        let test_xml = r"<test>
             <Action>test-action</Action>
             <MessageID>msg-123</MessageID>
             <To>destination</To>
-        </test>"#;
+        </test>";
 
         // Parse the XML back
         let doc = ironposh_xml::parser::parse(test_xml).expect("Failed to parse XML");

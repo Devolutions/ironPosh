@@ -234,13 +234,13 @@ fn test_parse_real_pipeline_output_detailed_inspection() {
             match &obj.content {
                 ComplexObjectContent::Standard => println!("\nContent: Standard"),
                 ComplexObjectContent::ExtendedPrimitive(prim) => {
-                    println!("\nContent: ExtendedPrimitive({prim:?})")
+                    println!("\nContent: ExtendedPrimitive({prim:?})");
                 }
                 ComplexObjectContent::Container(container) => {
                     println!("\nContent: Container({container:?})");
                 }
                 ComplexObjectContent::PsEnums(enums) => {
-                    println!("\nContent: Enum({})", enums.value)
+                    println!("\nContent: Enum({})", enums.value);
                 }
             }
         }
@@ -259,8 +259,7 @@ fn classify_ps_value(value: &PsValue) -> String {
                 .type_def
                 .as_ref()
                 .and_then(|t| t.type_names.first())
-                .map(|s| s.as_ref())
-                .unwrap_or("Unknown");
+                .map_or("Unknown", AsRef::as_ref);
 
             let content_type = match &obj.content {
                 ComplexObjectContent::Standard => "Standard",

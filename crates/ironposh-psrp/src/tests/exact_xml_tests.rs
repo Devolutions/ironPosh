@@ -155,7 +155,7 @@ fn test_runspace_pool_message() {
     let mut host_data_dict = BTreeMap::new();
 
     // Add dictionary entries for host data
-    for (key, value_type, value_obj) in [
+    for (key, _value_type, value_obj) in [
         (
             9,
             "System.String",
@@ -839,13 +839,9 @@ fn test_deserialize_dictionary_xml() {
         assert_eq!(dict.len(), 2);
 
         // Verify we have the expected entries
-        let has_int_key = dict.keys().any(|k| {
-            if let PsValue::Primitive(PsPrimitiveValue::I32(9)) = k {
-                true
-            } else {
-                false
-            }
-        });
+        let has_int_key = dict
+            .keys()
+            .any(|k| matches!(k, PsValue::Primitive(PsPrimitiveValue::I32(9))));
         assert!(has_int_key, "Should have integer key 9");
 
         let has_string_key = dict.keys().any(|k| {

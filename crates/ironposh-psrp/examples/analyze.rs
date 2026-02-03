@@ -316,7 +316,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check for --multi flag for defragmentation
     if args.len() > 2 && args[1] == "--multi" {
         print_separator("MULTI-FRAGMENT DEFRAGMENTATION MODE");
-        let fragments: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+        let fragments: Vec<&str> = args[2..].iter().map(String::as_str).collect();
 
         match try_defragment_multiple_messages(&fragments) {
             Ok(messages) => {
@@ -464,7 +464,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         if !fragments.is_empty() {
                             let fragment_refs: Vec<&str> =
-                                fragments.iter().map(|s| s.as_str()).collect();
+                                fragments.iter().map(String::as_str).collect();
                             match try_defragment_multiple_messages(&fragment_refs) {
                                 Ok(messages) => {
                                     if messages.is_empty() {

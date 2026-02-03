@@ -144,7 +144,7 @@ fn test_creation_xml_roundtrip() {
                     if e.to_string().contains("Object reference") {
                         println!(
                             "   (This is expected for messages with object references - serialization needs reference preservation)"
-                        )
+                        );
                     } else {
                         println!("   (Unexpected error - investigate further)");
                     }
