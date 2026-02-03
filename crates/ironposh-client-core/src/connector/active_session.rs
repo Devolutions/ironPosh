@@ -11,7 +11,7 @@ use crate::{
 use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
 use tracing::{error, info, instrument, warn};
 
-#[expect(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum UserEvent {
     PipelineCreated {
@@ -27,6 +27,10 @@ pub enum UserEvent {
     ErrorRecord {
         error_record: ErrorRecord,
         handle: PipelineHandle,
+    },
+    PipelineRecord {
+        pipeline: PipelineHandle,
+        record: crate::psrp_record::PsrpRecord,
     },
 }
 
@@ -44,11 +48,12 @@ impl UserEvent {
                 ..
             } => powershell.id(),
             Self::ErrorRecord { handle, .. } => handle.id(),
+            Self::PipelineRecord { pipeline, .. } => pipeline.id(),
         }
     }
 }
 
-#[expect(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ActiveSessionOutput {
     SendBack(Vec<TrySend>),
@@ -342,6 +347,12 @@ impl ActiveSession {
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::ErrorRecord {
                         error_record,
                         handle,
+                    }));
+                }
+                AcceptResponsResult::PipelineRecord { record, handle } => {
+                    outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineRecord {
+                        pipeline: handle,
+                        record,
                     }));
                 }
             }

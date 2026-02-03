@@ -72,6 +72,8 @@ export class PowerShellTerminalElement extends HTMLElement {
   private state: "idle" | "connecting" | "connected" | "closed" = "idle";
   private runningController: AbortController | null = null;
   private isRunning = false;
+  private hostCallInputDepth = 0;
+  private isPrompting = false;
 
   constructor() {
     super();
@@ -205,6 +207,12 @@ export class PowerShellTerminalElement extends HTMLElement {
         hostVersion: "1.0.0",
         culture: "en-US",
         uiCulture: "en-US",
+        beginHostCallInput: () => {
+          this.hostCallInputDepth += 1;
+        },
+        endHostCallInput: () => {
+          this.hostCallInputDepth = Math.max(0, this.hostCallInputDepth - 1);
+        },
       });
 
       // Create PowerShell client
@@ -230,7 +238,7 @@ export class PowerShellTerminalElement extends HTMLElement {
 
       this.terminal.writeln("✓ Connected successfully!");
       this.terminal.writeln("");
-      this.terminal.write("PS> ");
+      await this.writePrompt();
 
       // Set up terminal input handling
       this.terminal.onData((data) => {
@@ -249,6 +257,22 @@ export class PowerShellTerminalElement extends HTMLElement {
   private handleInput(data: string): void {
     if (!this.terminal) return;
 
+    // When a hostcall is actively requesting user input (Read-Host, credential prompts, etc.),
+    // do not treat keystrokes as command-line input. Let the hostcall handler consume it.
+    if (this.hostCallInputDepth > 0) {
+      // Still allow Ctrl+C to cancel a running command.
+      if (data === "\u0003") {
+        if (this.isRunning && this.runningController) {
+          this.terminal.write("^C\r\n");
+          this.runningController.abort(new Error("Canceled by user"));
+        } else {
+          this.currentLine = "";
+          this.terminal.write("^C\r\nPS> ");
+        }
+      }
+      return;
+    }
+
     // Ctrl+C
     if (data === "\u0003") {
       if (this.isRunning && this.runningController) {
@@ -257,7 +281,8 @@ export class PowerShellTerminalElement extends HTMLElement {
         // prompt comes from executeScript.finally
       } else {
         this.currentLine = "";
-        this.terminal.write("^C\r\nPS> ");
+        this.terminal.write("^C\r\n");
+        void this.writePrompt();
       }
       return;
     }
@@ -269,7 +294,7 @@ export class PowerShellTerminalElement extends HTMLElement {
       this.currentLine = "";
 
       if (!command) {
-        this.terminal.write("PS> ");
+        void this.writePrompt();
         return;
       }
 
@@ -277,7 +302,7 @@ export class PowerShellTerminalElement extends HTMLElement {
         this.terminal.writeln(
           "(a command is already running — press Ctrl+C to cancel)"
         );
-        this.terminal.write("PS> ");
+        void this.writePrompt();
         return;
       }
 
@@ -294,7 +319,7 @@ export class PowerShellTerminalElement extends HTMLElement {
           this.isRunning = false;
           this.runningController = null;
           this.terminal!.writeln("");
-          this.terminal!.write("PS> ");
+          void this.writePrompt();
         });
 
       return;
@@ -373,8 +398,72 @@ export class PowerShellTerminalElement extends HTMLElement {
     if (this.terminal) {
       this.terminal.clear();
       if (this.state === "connected") {
-        this.terminal.write("PS> ");
+        void this.writePrompt();
       }
+    }
+  }
+
+  private async writePrompt(): Promise<void> {
+    if (!this.terminal) return;
+    if (this.state !== "connected" || !this.client) {
+      this.terminal.write("PS> ");
+      return;
+    }
+
+    if (this.isPrompting) {
+      this.terminal.write("PS> ");
+      return;
+    }
+
+    this.isPrompting = true;
+    try {
+      // Ask remote PowerShell to render the `prompt` function, to match the tokio
+      // interactive experience (path, nested prompt level, custom prompt, etc.).
+      //
+      // Important: customized prompts may use `Write-Host` and return an empty
+      // string. In that case, the prompt has already been rendered via HostCalls,
+      // and we should not print any extra local prompt.
+      const stream = await this.client.execute_command(
+        "prompt",
+      );
+
+      const parts: string[] = [];
+      while (true) {
+        const event = await stream.next();
+        if (!event) break;
+
+        if ("PipelineOutput" in event) {
+          parts.push(event.PipelineOutput.data);
+          continue;
+        }
+
+        if ("PipelineError" in event) {
+          // Don't surface prompt errors as terminal errors; fallback to static prompt.
+          break;
+        }
+
+        if ("PipelineFinished" in event) break;
+      }
+
+      let prompt = parts.join("");
+      // Keep only last line (some prompts include newlines)
+      if (prompt.includes("\n") || prompt.includes("\r")) {
+        const lines = prompt.split(/\r?\n/).filter((l) => l.length > 0);
+        prompt = lines.length > 0 ? lines[lines.length - 1] : "";
+      }
+
+      prompt = prompt.replace(/\r?\n$/, "");
+      if (prompt.trim().length === 0) {
+        // Nothing returned: assume the prompt was rendered via HostCalls (Write-Host).
+        return;
+      }
+
+      if (!prompt.endsWith(" ")) prompt += " ";
+      this.terminal.write(prompt);
+    } catch (_e) {
+      this.terminal.write("PS> ");
+    } finally {
+      this.isPrompting = false;
     }
   }
 

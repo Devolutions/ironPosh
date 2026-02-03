@@ -1,5 +1,7 @@
 mod hostcall;
+mod hostcall_objects;
 pub use hostcall::*;
+pub use hostcall_objects::*;
 use ironposh_async::SessionEvent;
 use ironposh_psrp::{ErrorRecord, PipelineOutput};
 use serde::{Deserialize, Serialize};
@@ -7,6 +9,89 @@ use tsify::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 use crate::error::WasmError;
+
+// =============================================================================
+// HostCall handler typing helpers (TypeScript-only)
+// =============================================================================
+
+#[wasm_bindgen(typescript_custom_section)]
+const HOSTCALL_HANDLER_TS_TYPES: &str = r#"
+// Utility: sync or async value.
+export type MaybePromise<T> = T | Promise<T>;
+
+export type HostCallTag = JsHostCall extends infer U ? (U extends any ? keyof U : never) : never;
+export type HostCallVariant<K extends HostCallTag> = Extract<JsHostCall, Record<K, unknown>>;
+
+// Strongly-typed hostcall handler as overloads. This avoids downstream
+// declaration merging and enforces correct return types per call variant.
+export interface TypedHostCallHandler {
+  // Host methods (1-10)
+  (call: HostCallVariant<"GetName">): MaybePromise<string>;
+  (call: HostCallVariant<"GetVersion">): MaybePromise<string>;
+  (call: HostCallVariant<"GetInstanceId">): MaybePromise<string>;
+  (call: HostCallVariant<"GetCurrentCulture">): MaybePromise<string>;
+  (call: HostCallVariant<"GetCurrentUICulture">): MaybePromise<string>;
+  (call: HostCallVariant<"SetShouldExit">): MaybePromise<void>;
+  (call: HostCallVariant<"EnterNestedPrompt">): MaybePromise<void>;
+  (call: HostCallVariant<"ExitNestedPrompt">): MaybePromise<void>;
+  (call: HostCallVariant<"NotifyBeginApplication">): MaybePromise<void>;
+  (call: HostCallVariant<"NotifyEndApplication">): MaybePromise<void>;
+
+  // Input methods (11-14)
+  (call: HostCallVariant<"ReadLine">): MaybePromise<string>;
+  (call: HostCallVariant<"ReadLineAsSecureString">): MaybePromise<string | Uint8Array | number[]>;
+
+  // Output methods (15-26)
+  (call: HostCallVariant<"Write1">): MaybePromise<void>;
+  (call: HostCallVariant<"Write2">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine1">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine2">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteLine3">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteErrorLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteDebugLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteProgress">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteVerboseLine">): MaybePromise<void>;
+  (call: HostCallVariant<"WriteWarningLine">): MaybePromise<void>;
+  (call: HostCallVariant<"Prompt">): MaybePromise<Record<string, JsPsValue>>;
+  (call: HostCallVariant<"PromptForCredential1">): MaybePromise<JsPSCredential>;
+  (call: HostCallVariant<"PromptForCredential2">): MaybePromise<JsPSCredential>;
+  (call: HostCallVariant<"PromptForChoice">): MaybePromise<number>;
+
+  // RawUI methods (27-51)
+  (call: HostCallVariant<"GetForegroundColor">): MaybePromise<number>;
+  (call: HostCallVariant<"SetForegroundColor">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBackgroundColor">): MaybePromise<number>;
+  (call: HostCallVariant<"SetBackgroundColor">): MaybePromise<void>;
+  (call: HostCallVariant<"GetCursorPosition">): MaybePromise<JsCoordinates>;
+  (call: HostCallVariant<"SetCursorPosition">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowPosition">): MaybePromise<JsCoordinates>;
+  (call: HostCallVariant<"SetWindowPosition">): MaybePromise<void>;
+  (call: HostCallVariant<"GetCursorSize">): MaybePromise<number>;
+  (call: HostCallVariant<"SetCursorSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBufferSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"SetBufferSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"SetWindowSize">): MaybePromise<void>;
+  (call: HostCallVariant<"GetWindowTitle">): MaybePromise<string>;
+  (call: HostCallVariant<"SetWindowTitle">): MaybePromise<void>;
+  (call: HostCallVariant<"GetMaxWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"GetMaxPhysicalWindowSize">): MaybePromise<JsSize>;
+  (call: HostCallVariant<"GetKeyAvailable">): MaybePromise<boolean>;
+  (call: HostCallVariant<"ReadKey">): MaybePromise<JsKeyInfo>;
+  (call: HostCallVariant<"FlushInputBuffer">): MaybePromise<void>;
+  (call: HostCallVariant<"SetBufferContents1">): MaybePromise<void>;
+  (call: HostCallVariant<"SetBufferContents2">): MaybePromise<void>;
+  (call: HostCallVariant<"GetBufferContents">): MaybePromise<JsBufferCell[][]>;
+  (call: HostCallVariant<"ScrollBufferContents">): MaybePromise<void>;
+
+  // Interactive session methods (52-56)
+  (call: HostCallVariant<"PushRunspace">): MaybePromise<void>;
+  (call: HostCallVariant<"PopRunspace">): MaybePromise<void>;
+  (call: HostCallVariant<"GetIsRunspacePushed">): MaybePromise<boolean>;
+  (call: HostCallVariant<"GetRunspace">): MaybePromise<JsPsValue>;
+  (call: HostCallVariant<"PromptForChoiceMultipleSelection">): MaybePromise<number[]>;
+}
+"#;
 
 // =============================================================================
 // Security Warning Callback Type
@@ -147,6 +232,7 @@ pub enum WasmAuthMethod {
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[allow(clippy::large_enum_variant)]
 pub enum WasmPowerShellEvent {
     PipelineCreated {
         pipeline_id: String,
@@ -161,6 +247,101 @@ pub enum WasmPowerShellEvent {
     PipelineError {
         pipeline_id: String,
         error: WasmErrorRecord,
+    },
+    PipelineRecord {
+        pipeline_id: String,
+        record: WasmPsrpRecord,
+    },
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmPsrpRecordMeta {
+    pub message_type: String,
+    pub message_type_value: u32,
+    pub stream: String,
+    pub command_id: Option<String>,
+    pub data_len: usize,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmHostInformationMessage {
+    pub message: String,
+    pub foreground_color: Option<i32>,
+    pub background_color: Option<i32>,
+    pub no_new_line: bool,
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WasmInformationMessageData {
+    #[serde(rename = "string")]
+    String { value: String },
+    #[serde(rename = "hostInformationMessage")]
+    HostInformationMessage { value: WasmHostInformationMessage },
+    #[serde(rename = "object")]
+    Object { value: JsPsValue },
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WasmPsrpRecord {
+    #[serde(rename = "debug")]
+    Debug {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "verbose")]
+    Verbose {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "warning")]
+    Warning {
+        meta: WasmPsrpRecordMeta,
+        message: String,
+    },
+    #[serde(rename = "information")]
+    Information {
+        meta: WasmPsrpRecordMeta,
+        #[serde(rename = "messageData")]
+        message_data: WasmInformationMessageData,
+        source: Option<String>,
+        #[serde(rename = "timeGenerated")]
+        time_generated: Option<String>,
+        tags: Option<Vec<String>>,
+        user: Option<String>,
+        computer: Option<String>,
+        #[serde(rename = "processId")]
+        process_id: Option<i32>,
+    },
+    #[serde(rename = "progress")]
+    Progress {
+        meta: WasmPsrpRecordMeta,
+        activity: String,
+        #[serde(rename = "activityId")]
+        activity_id: i32,
+        #[serde(rename = "statusDescription")]
+        status_description: Option<String>,
+        #[serde(rename = "currentOperation")]
+        current_operation: Option<String>,
+        #[serde(rename = "parentActivityId")]
+        parent_activity_id: Option<i32>,
+        #[serde(rename = "percentComplete")]
+        percent_complete: i32,
+        #[serde(rename = "secondsRemaining")]
+        seconds_remaining: Option<i32>,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        meta: WasmPsrpRecordMeta,
+        #[serde(rename = "dataPreview")]
+        data_preview: String,
     },
 }
 

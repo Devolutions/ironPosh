@@ -81,7 +81,7 @@ impl DesiredStream {
     }
 }
 
-#[expect(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum AcceptResponsResult {
     ReceiveResponse {
@@ -100,6 +100,10 @@ pub enum AcceptResponsResult {
     },
     ErrorRecord {
         error_record: ErrorRecord,
+        handle: PipelineHandle,
+    },
+    PipelineRecord {
+        record: crate::psrp_record::PsrpRecord,
         handle: PipelineHandle,
     },
 }
@@ -724,11 +728,33 @@ impl RunspacePool {
                             command_id = ?stream.command_id(),
                             "handling ProgressRecord message"
                         );
-                        self.handle_progress_record(ps_value, stream.name(), stream.command_id())
-                            .map_err(|e| {
+                        let record =
+                            self.handle_progress_record(ps_value, stream.name(), stream.command_id())
+                                .map_err(|e| {
                                 error!(target: "progress", error = %e, "failed to handle ProgressRecord");
                                 e
-                            })?;
+                                })?;
+
+                        let cmd = *stream.command_id().ok_or_else(|| {
+                            crate::PwshCoreError::InvalidResponse(
+                                "ProgressRecord message must have a command_id".into(),
+                            )
+                        })?;
+                        let message_type = message.message_type.clone();
+                        let message_type_value = message_type.value();
+                        result.push(AcceptResponsResult::PipelineRecord {
+                            record: crate::psrp_record::PsrpRecord::Progress {
+                                meta: crate::psrp_record::PsrpRecordMeta {
+                                    message_type,
+                                    message_type_value,
+                                    stream: stream.name().to_string(),
+                                    command_id: Some(cmd),
+                                    data_len: message.data.len(),
+                                },
+                                record,
+                            },
+                            handle: PipelineHandle { id: cmd },
+                        });
                     }
                     ironposh_psrp::MessageType::InformationRecord => {
                         debug!(
@@ -737,15 +763,88 @@ impl RunspacePool {
                             command_id = ?stream.command_id(),
                             "handling InformationRecord message"
                         );
-                        self.handle_information_record(
-                            ps_value,
-                            stream.name(),
-                            stream.command_id(),
-                        )
-                        .map_err(|e| {
-                            error!(target: "information", error = %e, "failed to handle InformationRecord");
-                            e
-                        })?;
+                        let Some(cmd) = stream.command_id().copied() else {
+                            warn!(
+                                target: "ps_message",
+                                message_type = ?message.message_type,
+                                message_type_value = message.message_type.value(),
+                                stream = %stream.name(),
+                                command_id = ?stream.command_id(),
+                                "InformationRecord message missing command_id; ignoring"
+                            );
+                            continue;
+                        };
+
+                        let record = self
+                            .handle_information_record(ps_value, stream.name(), &cmd)
+                            .map_err(|e| {
+                                error!(
+                                    target: "information",
+                                    error = %e,
+                                    "failed to handle InformationRecord"
+                                );
+                                e
+                            })?;
+                        let message_type = message.message_type.clone();
+                        let message_type_value = message_type.value();
+                        result.push(AcceptResponsResult::PipelineRecord {
+                            record: crate::psrp_record::PsrpRecord::Information {
+                                meta: crate::psrp_record::PsrpRecordMeta {
+                                    message_type,
+                                    message_type_value,
+                                    stream: stream.name().to_string(),
+                                    command_id: Some(cmd),
+                                    data_len: message.data.len(),
+                                },
+                                record,
+                            },
+                            handle: PipelineHandle { id: cmd },
+                        });
+                    }
+                    ironposh_psrp::MessageType::DebugRecord
+                    | ironposh_psrp::MessageType::VerboseRecord
+                    | ironposh_psrp::MessageType::WarningRecord => {
+                        let Some(cmd) = stream.command_id().copied() else {
+                            warn!(
+                                target: "ps_message",
+                                message_type = ?message.message_type,
+                                message_type_value = message.message_type.value(),
+                                stream = %stream.name(),
+                                command_id = ?stream.command_id(),
+                                "record message missing command_id; ignoring"
+                            );
+                            continue;
+                        };
+
+                        let msg = ps_value.as_string().unwrap_or_else(|| ps_value.to_string());
+
+                        let message_type = message.message_type.clone();
+                        let message_type_value = message_type.value();
+                        let meta = crate::psrp_record::PsrpRecordMeta {
+                            message_type: message_type.clone(),
+                            message_type_value,
+                            stream: stream.name().to_string(),
+                            command_id: Some(cmd),
+                            data_len: message.data.len(),
+                        };
+
+                        let record = match message_type {
+                            ironposh_psrp::MessageType::DebugRecord => {
+                                crate::psrp_record::PsrpRecord::Debug { meta, message: msg }
+                            }
+                            ironposh_psrp::MessageType::VerboseRecord => {
+                                crate::psrp_record::PsrpRecord::Verbose { meta, message: msg }
+                            }
+                            ironposh_psrp::MessageType::WarningRecord => {
+                                crate::psrp_record::PsrpRecord::Warning { meta, message: msg }
+                            }
+                            _ => unreachable!("guarded by match arm"),
+                        };
+
+                        result.push(AcceptResponsResult::PipelineRecord {
+                            record,
+                            handle: PipelineHandle { id: cmd },
+                        });
                     }
                     ironposh_psrp::MessageType::PipelineState => {
                         debug!(
@@ -892,13 +991,27 @@ impl RunspacePool {
                             data_preview = %data_preview,
                             "received message type but no handler implemented"
                         );
-                        panic!(
-                            "Unhandled PSRP message_type={:?} (0x{:08x}) stream={:?} command_id={:?}",
-                            message.message_type,
-                            message.message_type.value(),
-                            stream.name(),
-                            stream.command_id()
-                        );
+
+                        let Some(cmd) = stream.command_id().copied() else {
+                            // No pipeline to attach to; log only (do not crash the session).
+                            continue;
+                        };
+                        let message_type = message.message_type.clone();
+                        let message_type_value = message_type.value();
+
+                        result.push(AcceptResponsResult::PipelineRecord {
+                            record: crate::psrp_record::PsrpRecord::Unsupported {
+                                meta: crate::psrp_record::PsrpRecordMeta {
+                                    message_type,
+                                    message_type_value,
+                                    stream: stream.name().to_string(),
+                                    command_id: Some(cmd),
+                                    data_len,
+                                },
+                                data_preview: data_preview.to_string(),
+                            },
+                            handle: PipelineHandle { id: cmd },
+                        });
                     }
                 }
             }
@@ -981,7 +1094,7 @@ impl RunspacePool {
         ps_value: PsValue,
         stream_name: &str,
         command_id: Option<&Uuid>,
-    ) -> Result<(), crate::PwshCoreError> {
+    ) -> Result<ironposh_psrp::ProgressRecord, crate::PwshCoreError> {
         let PsValue::Object(progress_record) = ps_value else {
             return Err(PwshCoreError::InvalidResponse(
                 "Expected ProgressRecord as PsValue::Object".into(),
@@ -1010,9 +1123,9 @@ impl RunspacePool {
             PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
         })?;
 
-        pipeline.add_progress_record(progress_record);
+        pipeline.add_progress_record(progress_record.clone());
 
-        Ok(())
+        Ok(progress_record)
     }
 
     #[instrument(skip(self, ps_value, stream_name, command_id))]
@@ -1020,37 +1133,72 @@ impl RunspacePool {
         &mut self,
         ps_value: PsValue,
         stream_name: &str,
-        command_id: Option<&Uuid>,
-    ) -> Result<(), crate::PwshCoreError> {
-        let PsValue::Object(info_record) = ps_value else {
-            return Err(PwshCoreError::InvalidResponse(
-                "Expected InformationRecord as PsValue::Object".into(),
-            ));
+        command_id: &Uuid,
+    ) -> Result<ironposh_psrp::InformationRecord, crate::PwshCoreError> {
+        let (info_record_obj, lossy_fallback_str) = match ps_value {
+            PsValue::Object(obj) => {
+                let fallback = obj
+                    .to_string
+                    .clone()
+                    .or_else(|| {
+                        obj.extended_properties
+                            .get("MessageData")
+                            .or_else(|| obj.extended_properties.get("InformationalRecord_Message"))
+                            .map(|p| p.value.to_string())
+                    })
+                    .unwrap_or_else(|| "<InformationRecord>".to_string());
+                (obj, fallback)
+            }
+            other @ PsValue::Primitive(_) => {
+                warn!(
+                    target: "information",
+                    stream_name = stream_name,
+                    command_id = %command_id,
+                    "InformationRecord payload was not an object; using lossy string"
+                );
+                return Ok(ironposh_psrp::InformationRecord::builder()
+                    .message_data(ironposh_psrp::InformationMessageData::String(
+                        other.to_string(),
+                    ))
+                    .build());
+            }
         };
 
-        let info_record = ironposh_psrp::InformationRecord::try_from(info_record)?;
+        let info_record = match ironposh_psrp::InformationRecord::try_from(info_record_obj) {
+            Ok(info_record) => info_record,
+            Err(e) => {
+                // `Write-Information -MessageData` is typed as `object` and does not always serialize
+                // as a primitive string. Keep the session alive and fall back to a best-effort
+                // string representation.
+                warn!(
+                    target: "information",
+                    error = %e,
+                    stream_name = stream_name,
+                    command_id = %command_id,
+                    "failed to parse InformationRecord; using lossy message_data"
+                );
+                ironposh_psrp::InformationRecord::builder()
+                    .message_data(ironposh_psrp::InformationMessageData::String(
+                        lossy_fallback_str,
+                    ))
+                    .build()
+            }
+        };
         trace!(
             ?info_record,
             stream_name = stream_name,
-            command_id = ?command_id,
+            command_id = %command_id,
             "Received InformationRecord"
         );
-
-        // Question: Can we have a Optional command id here?
-        let Some(command_id) = command_id else {
-            return Err(PwshCoreError::InvalidResponse(
-                "Expected command_id to be Some".into(),
-            ));
-        };
 
         // Find the pipeline by command_id
         let pipeline = self.pipelines.get_mut(command_id).ok_or_else(|| {
             PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
         })?;
 
-        pipeline.add_information_record(info_record);
+        pipeline.add_information_record(info_record.clone());
 
-        Ok(())
+        Ok(info_record)
     }
 
     #[instrument(skip(self, ps_value, stream_name, command_id))]

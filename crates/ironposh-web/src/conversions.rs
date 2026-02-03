@@ -3,7 +3,9 @@ use std::convert::TryFrom;
 use crate::{
     error::WasmError,
     types::{
-        GatewayTransport, SecurityWarning, WasmAuthMethod, WasmPowerShellEvent, WasmWinRmConfig,
+        GatewayTransport, SecurityWarning, WasmAuthMethod, WasmHostInformationMessage,
+        WasmInformationMessageData, WasmPowerShellEvent, WasmPsrpRecord, WasmPsrpRecordMeta,
+        WasmWinRmConfig,
     },
     WasmErrorRecord,
 };
@@ -213,6 +215,105 @@ impl TryFrom<&UserEvent> for WasmPowerShellEvent {
                 pipeline_id: handle.id().to_string(),
                 error: WasmErrorRecord::from(error_record),
             },
+            UserEvent::PipelineRecord { pipeline, record } => {
+                let meta = match record {
+                    ironposh_client_core::psrp_record::PsrpRecord::Debug { meta, .. }
+                    | ironposh_client_core::psrp_record::PsrpRecord::Verbose { meta, .. }
+                    | ironposh_client_core::psrp_record::PsrpRecord::Warning { meta, .. }
+                    | ironposh_client_core::psrp_record::PsrpRecord::Information { meta, .. }
+                    | ironposh_client_core::psrp_record::PsrpRecord::Progress { meta, .. }
+                    | ironposh_client_core::psrp_record::PsrpRecord::Unsupported { meta, .. } => {
+                        meta
+                    }
+                };
+
+                let meta = WasmPsrpRecordMeta {
+                    message_type: format!("{:?}", meta.message_type),
+                    message_type_value: meta.message_type_value,
+                    stream: meta.stream.clone(),
+                    command_id: meta.command_id.map(|id| id.to_string()),
+                    data_len: meta.data_len,
+                };
+
+                let record: WasmPsrpRecord = match record {
+                    ironposh_client_core::psrp_record::PsrpRecord::Debug { message, .. } => {
+                        WasmPsrpRecord::Debug {
+                            meta,
+                            message: message.clone(),
+                        }
+                    }
+                    ironposh_client_core::psrp_record::PsrpRecord::Verbose { message, .. } => {
+                        WasmPsrpRecord::Verbose {
+                            meta,
+                            message: message.clone(),
+                        }
+                    }
+                    ironposh_client_core::psrp_record::PsrpRecord::Warning { message, .. } => {
+                        WasmPsrpRecord::Warning {
+                            meta,
+                            message: message.clone(),
+                        }
+                    }
+                    ironposh_client_core::psrp_record::PsrpRecord::Information {
+                        record, ..
+                    } => {
+                        let message_data = match &record.message_data {
+                            ironposh_psrp::InformationMessageData::String(s) => {
+                                WasmInformationMessageData::String { value: s.clone() }
+                            }
+                            ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
+                                WasmInformationMessageData::HostInformationMessage {
+                                    value: WasmHostInformationMessage {
+                                        message: m.message.clone(),
+                                        foreground_color: m.foreground_color,
+                                        background_color: m.background_color,
+                                        no_new_line: m.no_new_line,
+                                    },
+                                }
+                            }
+                            ironposh_psrp::InformationMessageData::Object(v) => {
+                                WasmInformationMessageData::Object {
+                                    value: crate::JsPsValue::from(v.clone()),
+                                }
+                            }
+                        };
+                        WasmPsrpRecord::Information {
+                            meta,
+                            message_data,
+                            source: record.source.clone(),
+                            time_generated: record.time_generated.clone(),
+                            tags: record.tags.clone(),
+                            user: record.user.clone(),
+                            computer: record.computer.clone(),
+                            process_id: record.process_id,
+                        }
+                    }
+                    ironposh_client_core::psrp_record::PsrpRecord::Progress { record, .. } => {
+                        WasmPsrpRecord::Progress {
+                            meta,
+                            activity: record.activity.clone(),
+                            activity_id: record.activity_id,
+                            status_description: record.status_description.clone(),
+                            current_operation: record.current_operation.clone(),
+                            parent_activity_id: record.parent_activity_id,
+                            percent_complete: record.percent_complete,
+                            seconds_remaining: record.seconds_remaining,
+                        }
+                    }
+                    ironposh_client_core::psrp_record::PsrpRecord::Unsupported {
+                        data_preview,
+                        ..
+                    } => WasmPsrpRecord::Unsupported {
+                        meta,
+                        data_preview: data_preview.clone(),
+                    },
+                };
+
+                Self::PipelineRecord {
+                    pipeline_id: pipeline.id().to_string(),
+                    record,
+                }
+            }
         };
 
         Ok(res)
