@@ -284,7 +284,7 @@ impl WasmPowerShellClient {
                     warn!(error_message = %concise, "tab_complete: error record");
                 }
                 UserEvent::PipelineFinished { .. } => break,
-                _ => {}
+                UserEvent::PipelineCreated { .. } => {}
             }
         }
 

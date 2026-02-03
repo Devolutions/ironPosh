@@ -101,7 +101,7 @@ async fn tab_complete_line(
                 warn!(error = %error_record.render_concise(), "tab completion error record");
             }
             UserEvent::PipelineFinished { .. } => break,
-            _ => {}
+            UserEvent::PipelineCreated { .. } => {}
         }
     }
 
