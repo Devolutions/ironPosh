@@ -327,7 +327,9 @@ impl<'a> StdTerm<'a> {
                     continue;
                 }
 
-                if let Some(outcome) = self.process_event(&mut line, evt, /*edit_line=*/ true)? {
+                if let Some(outcome) =
+                    self.process_event(&mut line, evt, /*edit_line=*/ true)?
+                {
                     return Ok(outcome);
                 }
             }

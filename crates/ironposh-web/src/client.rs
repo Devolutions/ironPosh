@@ -5,11 +5,11 @@ use crate::{
     types::{SecurityWarningCallback, WasmCommandCompletion, WasmWinRmConfig},
     JsSessionEvent, WasmPowerShellStream,
 };
-use std::convert::TryFrom;
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
 use js_sys::{Array, Function, Promise};
+use std::convert::TryFrom;
 use tracing::{error, info, warn};
 use url::Url;
 use wasm_bindgen::prelude::*;
@@ -256,9 +256,8 @@ impl WasmPowerShellClient {
         }
 
         let escaped = escape_ps_single_quoted(&input_script);
-        let script = format!(
-            "TabExpansion2 -inputScript '{escaped}' -cursorColumn {cursor_column}"
-        );
+        let script =
+            format!("TabExpansion2 -inputScript '{escaped}' -cursorColumn {cursor_column}");
 
         info!(
             cursor_column,

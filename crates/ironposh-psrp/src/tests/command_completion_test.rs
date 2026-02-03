@@ -38,4 +38,3 @@ fn parse_command_completion_from_tab_expansion2() {
         "Expected at least one completion starting with Get-Ser"
     );
 }
-
