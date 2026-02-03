@@ -91,6 +91,190 @@ export interface TypedHostCallHandler {
   (call: HostCallVariant<"GetRunspace">): MaybePromise<JsPsValue>;
   (call: HostCallVariant<"PromptForChoiceMultipleSelection">): MaybePromise<number[]>;
 }
+
+// =============================================================================
+// Type-safe handler implementation helpers
+// =============================================================================
+
+/**
+ * Maps each host call tag to its expected return type.
+ * Use with `satisfies` for compile-time type checking of handler implementations.
+ */
+export interface HostCallReturnTypeMap {
+  // Host methods (1-10)
+  GetName: string;
+  GetVersion: string;
+  GetInstanceId: string;
+  GetCurrentCulture: string;
+  GetCurrentUICulture: string;
+  SetShouldExit: void;
+  EnterNestedPrompt: void;
+  ExitNestedPrompt: void;
+  NotifyBeginApplication: void;
+  NotifyEndApplication: void;
+
+  // Input methods (11-12)
+  ReadLine: string;
+  ReadLineAsSecureString: string | Uint8Array | number[];
+
+  // Output methods (13-26)
+  Write1: void;
+  Write2: void;
+  WriteLine1: void;
+  WriteLine2: void;
+  WriteLine3: void;
+  WriteErrorLine: void;
+  WriteDebugLine: void;
+  WriteProgress: void;
+  WriteVerboseLine: void;
+  WriteWarningLine: void;
+  Prompt: Record<string, JsPsValue>;
+  PromptForCredential1: JsPSCredential;
+  PromptForCredential2: JsPSCredential;
+  PromptForChoice: number;
+
+  // RawUI methods (27-51)
+  GetForegroundColor: number;
+  SetForegroundColor: void;
+  GetBackgroundColor: number;
+  SetBackgroundColor: void;
+  GetCursorPosition: JsCoordinates;
+  SetCursorPosition: void;
+  GetWindowPosition: JsCoordinates;
+  SetWindowPosition: void;
+  GetCursorSize: number;
+  SetCursorSize: void;
+  GetBufferSize: JsSize;
+  SetBufferSize: void;
+  GetWindowSize: JsSize;
+  SetWindowSize: void;
+  GetWindowTitle: string;
+  SetWindowTitle: void;
+  GetMaxWindowSize: JsSize;
+  GetMaxPhysicalWindowSize: JsSize;
+  GetKeyAvailable: boolean;
+  ReadKey: JsKeyInfo;
+  FlushInputBuffer: void;
+  SetBufferContents1: void;
+  SetBufferContents2: void;
+  GetBufferContents: JsBufferCell[][];
+  ScrollBufferContents: void;
+
+  // Interactive session methods (52-56)
+  PushRunspace: void;
+  PopRunspace: void;
+  GetIsRunspacePushed: boolean;
+  GetRunspace: JsPsValue;
+  PromptForChoiceMultipleSelection: number[];
+}
+
+/**
+ * Maps each host call tag to its params type (extracted from JsHostCall).
+ * Use with `satisfies` for compile-time type checking of handler implementations.
+ */
+export interface HostCallParamsMap {
+  // Host methods (1-10)
+  GetName: undefined;
+  GetVersion: undefined;
+  GetInstanceId: undefined;
+  GetCurrentCulture: undefined;
+  GetCurrentUICulture: undefined;
+  SetShouldExit: number;
+  EnterNestedPrompt: undefined;
+  ExitNestedPrompt: undefined;
+  NotifyBeginApplication: undefined;
+  NotifyEndApplication: undefined;
+
+  // Input methods (11-12)
+  ReadLine: undefined;
+  ReadLineAsSecureString: undefined;
+
+  // Output methods (13-26)
+  Write1: string;
+  Write2: [number, number, string];
+  WriteLine1: undefined;
+  WriteLine2: string;
+  WriteLine3: [number, number, string];
+  WriteErrorLine: string;
+  WriteDebugLine: string;
+  WriteProgress: JsWriteProgressStructured;
+  WriteVerboseLine: string;
+  WriteWarningLine: string;
+  Prompt: JsPromptStructured;
+  PromptForCredential1: [string, string, string, string];
+  PromptForCredential2: [string, string, string, string, number, number];
+  PromptForChoice: JsPromptForChoiceStructured;
+
+  // RawUI methods (27-51)
+  GetForegroundColor: undefined;
+  SetForegroundColor: number;
+  GetBackgroundColor: undefined;
+  SetBackgroundColor: number;
+  GetCursorPosition: undefined;
+  SetCursorPosition: [number, number];
+  GetWindowPosition: undefined;
+  SetWindowPosition: [number, number];
+  GetCursorSize: undefined;
+  SetCursorSize: number;
+  GetBufferSize: undefined;
+  SetBufferSize: [number, number];
+  GetWindowSize: undefined;
+  SetWindowSize: [number, number];
+  GetWindowTitle: undefined;
+  SetWindowTitle: string;
+  GetMaxWindowSize: undefined;
+  GetMaxPhysicalWindowSize: undefined;
+  GetKeyAvailable: undefined;
+  ReadKey: number;
+  FlushInputBuffer: undefined;
+  SetBufferContents1: JsSetBufferContentsStructured;
+  SetBufferContents2: JsSetBufferContentsStructured;
+  GetBufferContents: JsGetBufferContentsStructured;
+  ScrollBufferContents: JsScrollBufferContentsStructured;
+
+  // Interactive session methods (52-56)
+  PushRunspace: JsPushRunspaceStructured;
+  PopRunspace: undefined;
+  GetIsRunspacePushed: undefined;
+  GetRunspace: undefined;
+  PromptForChoiceMultipleSelection: JsPromptForChoiceMultipleSelectionStructured;
+}
+
+/**
+ * Object-style handler type for implementing all host call handlers.
+ * 
+ * @example
+ * ```typescript
+ * const handlers = {
+ *   GetName: () => "MyHost",
+ *   GetBufferSize: () => ({ width: 120, height: 30 }),
+ *   Write1: (text) => console.log(text),
+ *   // ... all 56 handlers
+ * } satisfies HostCallHandlers;
+ * ```
+ */
+export type HostCallHandlers = {
+  [K in HostCallTag]: (params: HostCallParamsMap[K]) => MaybePromise<HostCallReturnTypeMap[K]>;
+};
+
+/**
+ * Helper to create a TypedHostCallHandler from an object of handlers.
+ * 
+ * @example
+ * ```typescript
+ * const handlers = { ... } satisfies HostCallHandlers;
+ * 
+ * function createDispatch(handlers: HostCallHandlers): TypedHostCallHandler {
+ *   return ((call: JsHostCall) => {
+ *     const tag = Object.keys(call)[0] as HostCallTag;
+ *     const variant = call[tag as keyof typeof call] as { params: unknown };
+ *     const handler = handlers[tag];
+ *     return handler(variant.params as never);
+ *   }) as TypedHostCallHandler;
+ * }
+ * ```
+ */
+export type CreateHostCallDispatch = (handlers: HostCallHandlers) => TypedHostCallHandler;
 "#;
 
 // =============================================================================

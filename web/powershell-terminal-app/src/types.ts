@@ -1,12 +1,9 @@
-import type { GatewayTransport } from 'gateway-token-service';
+import type { WinRmDestination as IronposhWinRmDestination } from '../../../crates/ironposh-web/pkg/ironposh_web';
 
 export type { GatewayTransport } from 'gateway-token-service';
 
-export interface WinRmDestination {
-  host: string;
-  port: number;
-  transport: GatewayTransport;
-}
+// Re-export from ironposh-web for consistency
+export type WinRmDestination = IronposhWinRmDestination;
 
 export interface PowerShellConnectionConfig {
   gateway_url: string;

@@ -1,5 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
 import type {
+  HostCallHandlers,
+  HostCallTag,
+  JsBufferCell,
   JsCoordinates,
   JsHostCall,
   JsKeyInfo,
@@ -430,200 +433,89 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
   const isSecureStringType = (parameterType: string | undefined): boolean =>
     (parameterType ?? "").toLowerCase().includes("securestring");
 
-  const handlerImpl = async (hostCall: JsHostCall): Promise<unknown> => {
-    // ===== IMPLEMENTED HOST CALLS (matching ironposh-client-tokio/src/hostcall.rs) =====
-
-    // Basic host information
-    if ("GetName" in hostCall) {
-      return hostName;
-    }
-
-    if ("GetVersion" in hostCall) {
-      return hostVersion;
-    }
-
-    if ("GetInstanceId" in hostCall) {
-      return instanceId;
-    }
-
-    if ("GetCurrentCulture" in hostCall) {
-      return culture;
-    }
-
-    if ("GetCurrentUICulture" in hostCall) {
-      return uiCulture;
-    }
-
-    // ===== Core output methods =====
-
-    if ("Write1" in hostCall) {
-      terminal.write(hostCall.Write1.params);
+  // Helper to set buffer contents (shared by SetBufferContents1 and SetBufferContents2)
+  const setBufferContentsImpl = ({ rect, cell }: { rect: JsRectangle; cell: JsBufferCell }) => {
+    if (rectCoversViewport(rect) && (cell.character === " " || cell.character === "\u0000")) {
+      terminal.clear();
       return;
     }
 
-    if ("Write2" in hostCall) {
-      const [fg, bg, text] = hostCall.Write2.params;
+    const ch = normalizeChar(cell.character) || " ";
+    const width = Math.max(0, rect.right - rect.left + 1);
+    const height = Math.max(0, rect.bottom - rect.top + 1);
+    const line = ch.repeat(width);
+    for (let yy = 0; yy < height; yy++) {
+      cursorTo(rect.left, rect.top + yy);
+      withColor(cell.foreground, cell.background, line);
+    }
+  };
+
+  // Object-based handlers with full type safety via `satisfies HostCallHandlers`
+  const handlers = {
+    // ===== Host methods (1-10) =====
+    GetName: () => hostName,
+    GetVersion: () => hostVersion,
+    GetInstanceId: () => instanceId,
+    GetCurrentCulture: () => culture,
+    GetCurrentUICulture: () => uiCulture,
+    SetShouldExit: () => {
+      // Browser host has no process exit; higher-level code may disconnect.
+    },
+    EnterNestedPrompt: () => {},
+    ExitNestedPrompt: () => {},
+    NotifyBeginApplication: () => {},
+    NotifyEndApplication: () => {},
+
+    // ===== Input methods (11-12) =====
+    ReadLine: () =>
+      withHostCallInput(async () => {
+        return await readLineFromTerminal({ echo: true });
+      }),
+    ReadLineAsSecureString: () =>
+      withHostCallInput(async () => {
+        // Rust side accepts string and will UTF-16LE encode it as SecureString bytes.
+        return await readLineFromTerminal({ echo: false });
+      }),
+
+    // ===== Output methods (13-26) =====
+    Write1: (text) => {
+      terminal.write(text);
+    },
+    Write2: ([fg, bg, text]) => {
       withColor(fg, bg, text);
-      return;
-    }
-
-    if ("WriteLine1" in hostCall) {
+    },
+    WriteLine1: () => {
       terminal.writeln("");
-      return;
-    }
-
-    if ("WriteLine2" in hostCall) {
-      terminal.writeln(hostCall.WriteLine2.params);
-      return;
-    }
-
-    if ("WriteLine3" in hostCall) {
-      const [fg, bg, text] = hostCall.WriteLine3.params;
+    },
+    WriteLine2: (text) => {
+      terminal.writeln(text);
+    },
+    WriteLine3: ([fg, bg, text]) => {
       withColor(fg, bg, text + "\r\n");
-      return;
-    }
-
-    if ("WriteErrorLine" in hostCall) {
-      terminal.writeln(`Error: ${hostCall.WriteErrorLine.params}`);
-      return;
-    }
-
-    if ("WriteDebugLine" in hostCall) {
-      terminal.writeln(`Debug: ${hostCall.WriteDebugLine.params}`);
-      return;
-    }
-
-    if ("WriteVerboseLine" in hostCall) {
-      terminal.writeln(`Verbose: ${hostCall.WriteVerboseLine.params}`);
-      return;
-    }
-
-    if ("WriteWarningLine" in hostCall) {
-      terminal.writeln(`Warning: ${hostCall.WriteWarningLine.params}`);
-      return;
-    }
-
-    if ("WriteProgress" in hostCall) {
+    },
+    WriteErrorLine: (text) => {
+      terminal.writeln(`Error: ${text}`);
+    },
+    WriteDebugLine: (text) => {
+      terminal.writeln(`Debug: ${text}`);
+    },
+    WriteProgress: ({ record }) => {
       // Best-effort: show brief progress updates without trying to render a full UI.
-      const { record } = hostCall.WriteProgress.params;
       if (record.activity || record.statusDescription) {
         terminal.writeln(
           `[progress] ${record.activity}: ${record.statusDescription}`,
         );
       }
-      return;
-    }
-
-    // ===== Session / prompt control =====
-
-    if ("SetShouldExit" in hostCall) {
-      // Browser host has no process exit; higher-level code may disconnect.
-      return;
-    }
-
-    if ("EnterNestedPrompt" in hostCall) {
-      return;
-    }
-
-    if ("ExitNestedPrompt" in hostCall) {
-      return;
-    }
-
-    if ("NotifyBeginApplication" in hostCall) {
-      return;
-    }
-
-    if ("NotifyEndApplication" in hostCall) {
-      return;
-    }
-
-    // ===== Input =====
-
-    if ("ReadLine" in hostCall) {
-      return await withHostCallInput(async () => {
-        return await readLineFromTerminal({ echo: true });
-      });
-    }
-
-    if ("ReadLineAsSecureString" in hostCall) {
-      // Rust side accepts string and will UTF-16LE encode it as SecureString bytes.
-      return await withHostCallInput(async () => {
-        return await readLineFromTerminal({ echo: false });
-      });
-    }
-
-    // ===== Credential prompts =====
-
-    if ("PromptForCredential1" in hostCall) {
-      const [caption, message, userName, _targetName] =
-        hostCall.PromptForCredential1.params;
-      return await withHostCallInput(async () => {
-        return await promptCredentialFromTerminal({
-          caption,
-          message,
-          defaultUserName: userName,
-        });
-      });
-    }
-
-    if ("PromptForCredential2" in hostCall) {
-      const [caption, message, userName, _targetName] =
-        hostCall.PromptForCredential2.params;
-      return await withHostCallInput(async () => {
-        return await promptCredentialFromTerminal({
-          caption,
-          message,
-          defaultUserName: userName,
-        });
-      });
-    }
-
-    // ===== Choices =====
-
-    if ("PromptForChoice" in hostCall) {
-      const { caption, message, choices, defaultChoice } =
-        hostCall.PromptForChoice.params;
-      return await withHostCallInput(async () => {
-        terminal.writeln(caption);
-        if (message) terminal.writeln(message);
-        for (let i = 0; i < choices.length; i++) {
-          terminal.writeln(`${i}: ${choices[i]?.label ?? ""}`);
-        }
-        terminal.write(`Choice [default ${defaultChoice}]: `);
-        const raw = (await readLineFromTerminal({ echo: true })).trim();
-        if (raw.length === 0) return defaultChoice;
-        const n = Number.parseInt(raw, 10);
-        return Number.isFinite(n) ? n : defaultChoice;
-      });
-    }
-
-    if ("PromptForChoiceMultipleSelection" in hostCall) {
-      const { caption, message, choices, defaultChoices } =
-        hostCall.PromptForChoiceMultipleSelection.params;
-      return await withHostCallInput(async () => {
-        terminal.writeln(caption);
-        if (message) terminal.writeln(message);
-        for (let i = 0; i < choices.length; i++) {
-          terminal.writeln(`${i}: ${choices[i]?.label ?? ""}`);
-        }
-        terminal.write(
-          `Choices (comma-separated) [default ${defaultChoices.join(",")}]: `,
-        );
-        const raw = (await readLineFromTerminal({ echo: true })).trim();
-        if (raw.length === 0) return defaultChoices;
-        const parsed = raw
-          .split(",")
-          .map((s: string) => Number.parseInt(s.trim(), 10))
-          .filter((n: number) => Number.isFinite(n));
-        return parsed.length > 0 ? parsed : defaultChoices;
-      });
-    }
-
-    if ("Prompt" in hostCall) {
-      const { caption, message, fields } = hostCall.Prompt.params;
-      const out: Record<string, JsPsValue> = {};
-
-      return await withHostCallInput(async () => {
+    },
+    WriteVerboseLine: (text) => {
+      terminal.writeln(`Verbose: ${text}`);
+    },
+    WriteWarningLine: (text) => {
+      terminal.writeln(`Warning: ${text}`);
+    },
+    Prompt: ({ caption, message, fields }) =>
+      withHostCallInput(async () => {
+        const out: Record<string, JsPsValue> = {};
         terminal.writeln(caption);
         if (message) terminal.writeln(message);
 
@@ -648,18 +540,91 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
         }
 
         return out;
-      });
-    }
+      }),
+    PromptForCredential1: ([caption, message, userName, _targetName]) =>
+      withHostCallInput(async () => {
+        return await promptCredentialFromTerminal({
+          caption,
+          message,
+          defaultUserName: userName,
+        });
+      }),
+    PromptForCredential2: ([caption, message, userName, _targetName]) =>
+      withHostCallInput(async () => {
+        return await promptCredentialFromTerminal({
+          caption,
+          message,
+          defaultUserName: userName,
+        });
+      }),
+    PromptForChoice: ({ caption, message, choices, defaultChoice }) =>
+      withHostCallInput(async () => {
+        terminal.writeln(caption);
+        if (message) terminal.writeln(message);
+        for (let i = 0; i < choices.length; i++) {
+          terminal.writeln(`${i}: ${choices[i]?.label ?? ""}`);
+        }
+        terminal.write(`Choice [default ${defaultChoice}]: `);
+        const raw = (await readLineFromTerminal({ echo: true })).trim();
+        if (raw.length === 0) return defaultChoice;
+        const n = Number.parseInt(raw, 10);
+        return Number.isFinite(n) ? n : defaultChoice;
+      }),
 
-    // ===== Raw key input =====
-
-    if ("GetKeyAvailable" in hostCall) {
-      return keyQueue.length > 0;
-    }
-
-    if ("ReadKey" in hostCall) {
-      const options = readKeyOptions(hostCall.ReadKey.params);
-      return await withHostCallInput(async () => {
+    // ===== RawUI methods (27-51) =====
+    GetForegroundColor: () => state.foregroundColor,
+    SetForegroundColor: (color) => {
+      state.foregroundColor = color;
+      applyCurrentColors();
+    },
+    GetBackgroundColor: () => state.backgroundColor,
+    SetBackgroundColor: (color) => {
+      state.backgroundColor = color;
+      applyCurrentColors();
+    },
+    GetCursorPosition: (): JsCoordinates => {
+      // Prefer xterm's live cursor when available, since ANSI output can move
+      // the cursor without going through SetCursorPosition.
+      const buf = terminal.buffer.active;
+      return { x: buf.cursorX, y: buf.cursorY };
+    },
+    SetCursorPosition: ([x, y]) => {
+      cursorTo(x, y);
+    },
+    GetWindowPosition: (): JsCoordinates => state.windowPosition,
+    SetWindowPosition: ([x, y]) => {
+      state.windowPosition = { x, y };
+    },
+    GetCursorSize: () => state.cursorSize,
+    SetCursorSize: (size) => {
+      state.cursorSize = size;
+      // Best-effort mapping: Windows cursor size is a percentage of cell height.
+      // xterm.js supports styles, not an exact percentage.
+      if (state.cursorSize >= 50) {
+        terminal.options = { ...terminal.options, cursorStyle: "block" };
+      } else {
+        terminal.options = { ...terminal.options, cursorStyle: "underline" };
+      }
+    },
+    GetBufferSize: (): JsSize => ({ width: terminal.cols, height: terminal.rows }),
+    SetBufferSize: ([w, h]) => {
+      if (w > 0 && h > 0) terminal.resize(w, h);
+    },
+    GetWindowSize: (): JsSize => ({ width: terminal.cols, height: terminal.rows }),
+    SetWindowSize: ([w, h]) => {
+      if (w > 0 && h > 0) terminal.resize(w, h);
+    },
+    GetWindowTitle: () => state.windowTitle,
+    SetWindowTitle: (title) => {
+      state.windowTitle = title;
+      document.title = state.windowTitle;
+    },
+    GetMaxWindowSize: (): JsSize => ({ width: terminal.cols, height: terminal.rows }),
+    GetMaxPhysicalWindowSize: (): JsSize => ({ width: terminal.cols, height: terminal.rows }),
+    GetKeyAvailable: () => keyQueue.length > 0,
+    ReadKey: (optionsRaw) =>
+      withHostCallInput(async () => {
+        const options = readKeyOptions(optionsRaw);
         const k = await readKeyAsync();
 
         if (!options.allowCtrlC && k.character === "\u0003") {
@@ -679,120 +644,59 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
           }
         }
 
-        // We always provide keyDown=true; IncludeKeyDown is effectively satisfied.
-        // If a future version needs keyUp events, implement it here.
-        if (!options.includeKeyDown) return k;
         return k;
-      });
-    }
+      }),
+    FlushInputBuffer: () => {
+      keyQueue.length = 0;
+    },
+    SetBufferContents1: setBufferContentsImpl,
+    SetBufferContents2: setBufferContentsImpl,
+    GetBufferContents: ({ rect }): JsBufferCell[][] => {
+      const buf = terminal.buffer.active;
+      const nullCell = buf.getNullCell();
+      const viewportY = buf.viewportY;
 
-    // ===== RawUI colors =====
+      const out: JsBufferCell[][] = [];
 
-    if ("GetForegroundColor" in hostCall) {
-      return state.foregroundColor;
-    }
+      const top = Math.max(0, rect.top);
+      const left = Math.max(0, rect.left);
+      const bottom = Math.max(top, rect.bottom);
+      const right = Math.max(left, rect.right);
 
-    if ("SetForegroundColor" in hostCall) {
-      state.foregroundColor = hostCall.SetForegroundColor.params;
-      applyCurrentColors();
-      return;
-    }
+      for (let yy = top; yy <= bottom; yy++) {
+        const line = buf.getLine(viewportY + yy);
+        const row: JsBufferCell[] = [];
 
-    if ("GetBackgroundColor" in hostCall) {
-      return state.backgroundColor;
-    }
+        for (let xx = left; xx <= right; xx++) {
+          const cell = line?.getCell(xx, nullCell);
+          if (!cell) {
+            row.push({
+              character: " ",
+              foreground: state.foregroundColor,
+              background: state.backgroundColor,
+              flags: 0,
+            });
+            continue;
+          }
 
-    if ("SetBackgroundColor" in hostCall) {
-      state.backgroundColor = hostCall.SetBackgroundColor.params;
-      applyCurrentColors();
-      return;
-    }
+          const width = cell.getWidth();
+          const chars = width === 0 ? "\u0000" : cell.getChars();
+          const ch = normalizeChar(Array.from(chars)[0] ?? " ");
 
-    // ===== Terminal / RawUI operations =====
+          row.push({
+            character: ch,
+            foreground: consoleColorFromXtermCellFg(cell),
+            background: consoleColorFromXtermCellBg(cell),
+            flags: 0,
+          });
+        }
 
-    if ("SetCursorPosition" in hostCall) {
-      const [x, y] = hostCall.SetCursorPosition.params;
-      cursorTo(x, y);
-      return;
-    }
-
-    if ("SetBufferContents1" in hostCall) {
-      const { rect, cell } = hostCall.SetBufferContents1.params;
-      if (rectCoversViewport(rect) && (cell.character === " " || cell.character === "\u0000")) {
-        terminal.clear();
-        return;
+        out.push(row);
       }
 
-      const ch = normalizeChar(cell.character) || " ";
-      const width = Math.max(0, rect.right - rect.left + 1);
-      const height = Math.max(0, rect.bottom - rect.top + 1);
-      const line = ch.repeat(width);
-      for (let yy = 0; yy < height; yy++) {
-        cursorTo(rect.left, rect.top + yy);
-        withColor(cell.foreground, cell.background, line);
-      }
-      return;
-    }
-
-    if ("SetBufferContents2" in hostCall) {
-      const { rect, cell } = hostCall.SetBufferContents2.params;
-      if (rectCoversViewport(rect) && (cell.character === " " || cell.character === "\u0000")) {
-        terminal.clear();
-        return;
-      }
-
-      const ch = normalizeChar(cell.character) || " ";
-      const width = Math.max(0, rect.right - rect.left + 1);
-      const height = Math.max(0, rect.bottom - rect.top + 1);
-      const line = ch.repeat(width);
-      for (let yy = 0; yy < height; yy++) {
-        cursorTo(rect.left, rect.top + yy);
-        withColor(cell.foreground, cell.background, line);
-      }
-      return;
-    }
-
-    if ("SetWindowTitle" in hostCall) {
-      state.windowTitle = hostCall.SetWindowTitle.params;
-      document.title = state.windowTitle;
-      return;
-    }
-
-    if ("SetWindowPosition" in hostCall) {
-      state.windowPosition = {
-        x: hostCall.SetWindowPosition.params[0],
-        y: hostCall.SetWindowPosition.params[1],
-      };
-      return;
-    }
-
-    if ("SetCursorSize" in hostCall) {
-      state.cursorSize = hostCall.SetCursorSize.params;
-      // Best-effort mapping: Windows cursor size is a percentage of cell height.
-      // xterm.js supports styles, not an exact percentage.
-      if (state.cursorSize >= 50) {
-        terminal.options = { ...terminal.options, cursorStyle: "block" };
-      } else {
-        terminal.options = { ...terminal.options, cursorStyle: "underline" };
-      }
-      return;
-    }
-
-    if ("SetBufferSize" in hostCall) {
-      const [w, h] = hostCall.SetBufferSize.params;
-      if (w > 0 && h > 0) terminal.resize(w, h);
-      return;
-    }
-
-    if ("SetWindowSize" in hostCall) {
-      const [w, h] = hostCall.SetWindowSize.params;
-      if (w > 0 && h > 0) terminal.resize(w, h);
-      return;
-    }
-
-    if ("ScrollBufferContents" in hostCall) {
-      const { source, destination, clip, fill } =
-        hostCall.ScrollBufferContents.params;
+      return out;
+    },
+    ScrollBufferContents: ({ source, destination, clip, fill }) => {
       const blankFill = fill.character === " " || fill.character === "\u0000";
 
       // Best-effort: implement the common "scroll up/down within viewport" case
@@ -884,129 +788,49 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
       throw new Error(
         "ScrollBufferContents is only partially supported in the web terminal. Supported: vertical scrolling within full-width clip regions with blank fill.",
       );
-    }
+    },
 
-    if ("FlushInputBuffer" in hostCall) {
-      keyQueue.length = 0;
-      return;
-    }
-
-    // ===== Size / position queries =====
-
-    if ("GetCursorSize" in hostCall) {
-      return state.cursorSize;
-    }
-
-    if ("GetCursorPosition" in hostCall) {
-      // Prefer xterm's live cursor when available, since ANSI output can move
-      // the cursor without going through SetCursorPosition.
-      const buf = terminal.buffer.active;
-      return { x: buf.cursorX, y: buf.cursorY };
-    }
-
-    if ("GetWindowPosition" in hostCall) {
-      return state.windowPosition;
-    }
-
-    if ("GetBufferSize" in hostCall) {
-      return { width: terminal.cols, height: terminal.rows };
-    }
-
-    if ("GetWindowSize" in hostCall) {
-      return { width: terminal.cols, height: terminal.rows };
-    }
-
-    if ("GetWindowTitle" in hostCall) {
-      return state.windowTitle;
-    }
-
-    if ("GetMaxWindowSize" in hostCall) {
-      return { width: terminal.cols, height: terminal.rows };
-    }
-
-    if ("GetMaxPhysicalWindowSize" in hostCall) {
-      return { width: terminal.cols, height: terminal.rows };
-    }
-
-    if ("GetBufferContents" in hostCall) {
-      const rect = hostCall.GetBufferContents.params.rect;
-
-      const buf = terminal.buffer.active;
-      const nullCell = buf.getNullCell();
-      const viewportY = buf.viewportY;
-
-      const out: Array<Array<{ character: string; foreground: number; background: number; flags: number }>> =
-        [];
-
-      const top = Math.max(0, rect.top);
-      const left = Math.max(0, rect.left);
-      const bottom = Math.max(top, rect.bottom);
-      const right = Math.max(left, rect.right);
-
-      for (let yy = top; yy <= bottom; yy++) {
-        const line = buf.getLine(viewportY + yy);
-        const row: Array<{ character: string; foreground: number; background: number; flags: number }> =
-          [];
-
-        for (let xx = left; xx <= right; xx++) {
-          const cell = line?.getCell(xx, nullCell);
-          if (!cell) {
-            row.push({
-              character: " ",
-              foreground: state.foregroundColor,
-              background: state.backgroundColor,
-              flags: 0,
-            });
-            continue;
-          }
-
-          const width = cell.getWidth();
-          const chars = width === 0 ? "\u0000" : cell.getChars();
-          const ch = normalizeChar(Array.from(chars)[0] ?? " ");
-
-          row.push({
-            character: ch,
-            foreground: consoleColorFromXtermCellFg(cell),
-            background: consoleColorFromXtermCellBg(cell),
-            flags: 0,
-          });
-        }
-
-        out.push(row);
-      }
-
-      return out;
-    }
-
-    // ===== Interactive session methods (runspace stack) =====
-
-    if ("PushRunspace" in hostCall) {
-      state.runspaceStack.push(hostCall.PushRunspace.params.runspace);
-      return;
-    }
-
-    if ("PopRunspace" in hostCall) {
+    // ===== Interactive session methods (52-56) =====
+    PushRunspace: ({ runspace }) => {
+      state.runspaceStack.push(runspace);
+    },
+    PopRunspace: () => {
       state.runspaceStack.pop();
-      return;
-    }
-
-    if ("GetIsRunspacePushed" in hostCall) {
-      return state.runspaceStack.length > 0;
-    }
-
-    if ("GetRunspace" in hostCall) {
+    },
+    GetIsRunspacePushed: () => state.runspaceStack.length > 0,
+    GetRunspace: (): JsPsValue => {
       const top = state.runspaceStack[state.runspaceStack.length - 1];
       if (!top) return jsPsValueStr("");
       return top;
-    }
+    },
+    PromptForChoiceMultipleSelection: ({ caption, message, choices, defaultChoices }) =>
+      withHostCallInput(async () => {
+        terminal.writeln(caption);
+        if (message) terminal.writeln(message);
+        for (let i = 0; i < choices.length; i++) {
+          terminal.writeln(`${i}: ${choices[i]?.label ?? ""}`);
+        }
+        terminal.write(
+          `Choices (comma-separated) [default ${defaultChoices.join(",")}]: `,
+        );
+        const raw = (await readLineFromTerminal({ echo: true })).trim();
+        if (raw.length === 0) return defaultChoices;
+        const parsed = raw
+          .split(",")
+          .map((s: string) => Number.parseInt(s.trim(), 10))
+          .filter((n: number) => Number.isFinite(n));
+        return parsed.length > 0 ? parsed : defaultChoices;
+      }),
+  } satisfies HostCallHandlers;
 
-    // ===== UNIMPLEMENTED - THROW ERRORS =====
+  // Dispatch function: converts JsHostCall union to the appropriate handler call
+  const dispatch = ((call: JsHostCall) => {
+    const tag = Object.keys(call)[0] as HostCallTag;
+    const variant = call[tag as keyof typeof call] as { params: unknown };
+    const handler = handlers[tag];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (handler as any)(variant.params);
+  }) as TypedHostCallHandler;
 
-    const methodName = Object.keys(hostCall)[0];
-    throw new Error(
-      `Unimplemented host call: ${methodName}. If you need this functionality, implement it in hostcall-handler.ts`
-    );
-  };
-
-  return handlerImpl as unknown as TypedHostCallHandler;
+  return dispatch;
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import init, * as ironposh from 'ironposh-web';
+import type { HostCallHandlers, HostCallTag, JsHostCall, TypedHostCallHandler } from 'ironposh-web';
 import ConfigForm, { type ConnectionConfig } from './ConfigForm';
 import {
   generateAppToken,
@@ -144,12 +145,84 @@ const App: React.FC = () => {
         force_insecure: config.force_insecure,
       };
 
-      // Host call handler
-      const hostCallHandler = (hostCall: any) => {
-        console.log('Host call received:', hostCall);
-        // Return null for now - can be extended to handle interactive prompts
-        return null;
-      };
+      // Host call handler - minimal stub for non-interactive command execution
+      // Uses HostCallHandlers for type-safe handler definitions
+      const stubHandlers = {
+        // Host methods (1-10)
+        GetName: () => 'PowerShellRunCommand',
+        GetVersion: () => '1.0.0',
+        GetInstanceId: () => crypto.randomUUID(),
+        GetCurrentCulture: () => 'en-US',
+        GetCurrentUICulture: () => 'en-US',
+        SetShouldExit: () => {},
+        EnterNestedPrompt: () => {},
+        ExitNestedPrompt: () => {},
+        NotifyBeginApplication: () => {},
+        NotifyEndApplication: () => {},
+
+        // Input methods - throw since this app doesn't support interactive input
+        ReadLine: () => { throw new Error('Interactive ReadLine not supported'); },
+        ReadLineAsSecureString: () => { throw new Error('Interactive ReadLineAsSecureString not supported'); },
+
+        // Output methods - log to console
+        Write1: (text) => { console.log('[PS Write]', text); },
+        Write2: ([_fg, _bg, text]) => { console.log('[PS Write]', text); },
+        WriteLine1: () => { console.log('[PS WriteLine]'); },
+        WriteLine2: (text) => { console.log('[PS WriteLine]', text); },
+        WriteLine3: ([_fg, _bg, text]) => { console.log('[PS WriteLine]', text); },
+        WriteErrorLine: (text) => { console.error('[PS Error]', text); },
+        WriteDebugLine: (text) => { console.debug('[PS Debug]', text); },
+        WriteProgress: ({ record }) => { console.log('[PS Progress]', record.activity, record.statusDescription); },
+        WriteVerboseLine: (text) => { console.log('[PS Verbose]', text); },
+        WriteWarningLine: (text) => { console.warn('[PS Warning]', text); },
+        Prompt: () => { throw new Error('Interactive Prompt not supported'); },
+        PromptForCredential1: () => { throw new Error('Interactive PromptForCredential not supported'); },
+        PromptForCredential2: () => { throw new Error('Interactive PromptForCredential not supported'); },
+        PromptForChoice: () => { throw new Error('Interactive PromptForChoice not supported'); },
+
+        // RawUI methods - return reasonable defaults
+        GetForegroundColor: () => 7,
+        SetForegroundColor: () => {},
+        GetBackgroundColor: () => 0,
+        SetBackgroundColor: () => {},
+        GetCursorPosition: () => ({ x: 0, y: 0 }),
+        SetCursorPosition: () => {},
+        GetWindowPosition: () => ({ x: 0, y: 0 }),
+        SetWindowPosition: () => {},
+        GetCursorSize: () => 25,
+        SetCursorSize: () => {},
+        GetBufferSize: () => ({ width: 120, height: 30 }),
+        SetBufferSize: () => {},
+        GetWindowSize: () => ({ width: 120, height: 30 }),
+        SetWindowSize: () => {},
+        GetWindowTitle: () => 'PowerShell',
+        SetWindowTitle: () => {},
+        GetMaxWindowSize: () => ({ width: 120, height: 30 }),
+        GetMaxPhysicalWindowSize: () => ({ width: 120, height: 30 }),
+        GetKeyAvailable: () => false,
+        ReadKey: () => { throw new Error('Interactive ReadKey not supported'); },
+        FlushInputBuffer: () => {},
+        SetBufferContents1: () => {},
+        SetBufferContents2: () => {},
+        GetBufferContents: () => [],
+        ScrollBufferContents: () => {},
+
+        // Interactive session methods
+        PushRunspace: () => {},
+        PopRunspace: () => {},
+        GetIsRunspacePushed: () => false,
+        GetRunspace: () => ({ kind: 'primitive', value: { kind: 'str', value: '' } }),
+        PromptForChoiceMultipleSelection: () => { throw new Error('Interactive PromptForChoiceMultipleSelection not supported'); },
+      } satisfies HostCallHandlers;
+
+      // Dispatch function to convert JsHostCall to handler call
+      const hostCallHandler = ((call: JsHostCall) => {
+        const tag = Object.keys(call)[0] as HostCallTag;
+        const variant = call[tag as keyof typeof call] as { params: unknown };
+        const handler = stubHandlers[tag];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (handler as any)(variant.params);
+      }) as TypedHostCallHandler;
 
       // Session event handler
       const sessionEventHandler = (event: any) => {
