@@ -12,6 +12,7 @@ pub mod error;
 pub mod hostcall;
 pub mod http_client;
 pub mod http_convert;
+pub mod runner;
 pub mod stream;
 pub mod types;
 pub mod websocket;
@@ -19,6 +20,7 @@ pub mod ws_http_decoder;
 
 // Re-export the main types for JS/TS
 pub use client::WasmPowerShellClient;
+pub use runner::WasmPowerShellRunner;
 pub use stream::WasmPowerShellStream;
 pub use types::*;
 

@@ -440,6 +440,35 @@ pub enum WasmPowerShellEvent {
 
 #[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum JsRunCommandEvent {
+    PipelineCreated {
+        #[serde(rename = "pipelineId")]
+        pipeline_id: String,
+    },
+    PipelineFinished {
+        #[serde(rename = "pipelineId")]
+        pipeline_id: String,
+    },
+    PipelineOutput {
+        #[serde(rename = "pipelineId")]
+        pipeline_id: String,
+        value: JsPsValue,
+    },
+    PipelineError {
+        #[serde(rename = "pipelineId")]
+        pipeline_id: String,
+        error: WasmErrorRecord,
+    },
+    PipelineRecord {
+        #[serde(rename = "pipelineId")]
+        pipeline_id: String,
+        record: WasmPsrpRecord,
+    },
+}
+
+#[derive(Tsify, Serialize, Deserialize, Debug, Clone)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WasmPsrpRecordMeta {
     pub message_type: String,

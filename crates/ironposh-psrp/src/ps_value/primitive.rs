@@ -18,6 +18,7 @@ pub enum PsPrimitiveValue {
     SecureString(Vec<u8>),
     Version(String),
     DateTime(String), // Store as string for now
+    TimeSpan(String), // Store as string for now
                       // Add more primitive types as needed
 }
 
@@ -37,6 +38,7 @@ impl Display for PsPrimitiveValue {
             Self::SecureString(_bytes) => write!(f, "System.Security.SecureString"),
             Self::Version(v) => write!(f, "{v}"),
             Self::DateTime(d) => write!(f, "{d}"),
+            Self::TimeSpan(t) => write!(f, "{t}"),
         }
     }
 }

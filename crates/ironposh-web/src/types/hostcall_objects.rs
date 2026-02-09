@@ -344,6 +344,7 @@ pub enum JsPsPrimitiveValue {
     SecureString(Vec<u8>),
     Version(String),
     DateTime(String),
+    TimeSpan(String),
 }
 
 impl From<PsPrimitiveValue> for JsPsPrimitiveValue {
@@ -362,6 +363,7 @@ impl From<PsPrimitiveValue> for JsPsPrimitiveValue {
             PsPrimitiveValue::SecureString(b) => Self::SecureString(b),
             PsPrimitiveValue::Version(v) => Self::Version(v),
             PsPrimitiveValue::DateTime(d) => Self::DateTime(d),
+            PsPrimitiveValue::TimeSpan(t) => Self::TimeSpan(t),
         }
     }
 }
@@ -390,6 +392,7 @@ impl TryFrom<JsPsPrimitiveValue> for PsPrimitiveValue {
             JsPsPrimitiveValue::SecureString(b) => Self::SecureString(b),
             JsPsPrimitiveValue::Version(v) => Self::Version(v),
             JsPsPrimitiveValue::DateTime(d) => Self::DateTime(d),
+            JsPsPrimitiveValue::TimeSpan(t) => Self::TimeSpan(t),
         })
     }
 }

@@ -80,6 +80,10 @@ impl<'a> XmlVisitor<'a> for PsPrimitiveValueVisitor<'a> {
                 let text = node.text().unwrap_or("").to_string();
                 self.value = Some(PsPrimitiveValue::DateTime(text));
             }
+            "TS" => {
+                let text = node.text().unwrap_or("").to_string();
+                self.value = Some(PsPrimitiveValue::TimeSpan(text));
+            }
             "G" => {
                 let text = node.text().unwrap_or("").to_string();
                 self.value = Some(PsPrimitiveValue::Guid(text));
@@ -440,7 +444,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                 }
                 // Handle primitive content for ExtendedPrimitive objects
                 "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA"
-                | "Version" | "DT" => {
+                | "Version" | "DT" | "TS" => {
                     let primitive = PsPrimitiveValue::from_node(child)?;
                     self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
                 }
@@ -535,7 +539,7 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
         match tag_name {
             // Handle primitive values
             "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA" | "Version"
-            | "DT" => {
+            | "DT" | "TS" => {
                 let primitive = PsPrimitiveValue::from_node(node)?;
                 self.value = Some(PsValue::Primitive(primitive));
             }

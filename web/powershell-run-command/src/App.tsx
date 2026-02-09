@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import init, * as ironposh from 'ironposh-web';
-import type { HostCallHandlers, HostCallTag, JsHostCall, TypedHostCallHandler } from 'ironposh-web';
+import type {
+  HostCallHandlers,
+  HostCallTag,
+  JsHostCall,
+  JsPsValue,
+  JsRunCommandEvent,
+  TypedHostCallHandler,
+} from 'ironposh-web';
 import ConfigForm, { type ConnectionConfig } from './ConfigForm';
 import {
   generateAppToken,
@@ -15,6 +22,96 @@ type SecurityWarning =
   | 'GatewayChannelInsecure'
   | 'DestinationChannelInsecure'
   | 'BothChannelsInsecure';
+
+type TableRow = Record<string, string>;
+
+const formatPrimitive = (primitive: { kind: string; value?: unknown }): string => {
+  switch (primitive.kind) {
+    case 'str':
+      return String(primitive.value ?? '');
+    case 'bool':
+    case 'i32':
+    case 'u32':
+    case 'i64':
+    case 'u64':
+      return String(primitive.value ?? '');
+    case 'guid':
+    case 'version':
+    case 'dateTime':
+    case 'timeSpan':
+      return String(primitive.value ?? '');
+    case 'char':
+      return String(primitive.value ?? '');
+    case 'bytes':
+      return `[bytes ${Array.isArray(primitive.value) ? primitive.value.length : 0}]`;
+    case 'secureString':
+      return `[secure ${Array.isArray(primitive.value) ? primitive.value.length : 0}]`;
+    case 'nil':
+      return 'null';
+    default:
+      return `[unknown ${primitive.kind}]`;
+  }
+};
+
+const formatPsValue = (value: JsPsValue | null | undefined): string => {
+  if (!value) return '';
+  if (value.kind === 'primitive') {
+    return formatPrimitive(value.value as { kind: string; value?: unknown });
+  }
+  if (value.kind === 'object') {
+    const obj = value.value as {
+      toString?: string | null;
+      adaptedProperties?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>;
+      extendedProperties?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>;
+      content?: { kind: string; value?: unknown };
+    };
+    if (obj.toString) return obj.toString;
+    const keys: string[] = [];
+    const addKeys = (
+      props?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>
+    ) => {
+      if (!props) return;
+      if (props instanceof Map) {
+        props.forEach((_v, k) => keys.push(k));
+        return;
+      }
+      Object.keys(props).forEach((k) => keys.push(k));
+    };
+    addKeys(obj.adaptedProperties);
+    addKeys(obj.extendedProperties);
+    if (keys.length > 0) return `[object ${keys.join(', ')}]`;
+    if (obj.content?.kind === 'container') return '[container]';
+    return '[object]';
+  }
+  return '[unknown]';
+};
+
+const psValueToTableRow = (value: JsPsValue): TableRow | null => {
+  if (!value || value.kind !== 'object') return null;
+  const obj = value.value as {
+    adaptedProperties?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>;
+    extendedProperties?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>;
+  };
+  const row: TableRow = {};
+  const addProps = (
+    props?: Record<string, { name: string; value: JsPsValue }> | Map<string, { name: string; value: JsPsValue }>
+  ) => {
+    if (!props) return;
+    if (props instanceof Map) {
+      props.forEach((prop, key) => {
+        row[key] = formatPsValue(prop.value);
+      });
+      return;
+    }
+    Object.keys(props).forEach((key) => {
+      row[key] = formatPsValue(props[key]?.value);
+    });
+  };
+  addProps(obj.adaptedProperties);
+  addProps(obj.extendedProperties);
+  if (Object.keys(row).length === 0) return null;
+  return row;
+};
 
 const App: React.FC = () => {
   // WASM initialization
@@ -48,13 +145,17 @@ const App: React.FC = () => {
       })
       .catch((err) => {
         console.error('Failed to initialize WASM:', err);
-        setOutput(`Failed to initialize WASM: ${err}`);
+        setStatus(`Failed to initialize WASM: ${err}`);
       });
   }, []);
 
   // Command execution
   const [command, setCommand] = useState('');
-  const [output, setOutput] = useState('');
+  const [status, setStatus] = useState('');
+  const [eventLog, setEventLog] = useState<string[]>([]);
+  const [rawValues, setRawValues] = useState<string[]>([]);
+  const [tableRows, setTableRows] = useState<TableRow[]>([]);
+  const [tableColumns, setTableColumns] = useState<string[]>([]);
 
   // Security warning handler
   const handleSecurityWarning = async (warnings: SecurityWarning[]): Promise<boolean> => {
@@ -78,7 +179,7 @@ const App: React.FC = () => {
 
   const connect = async () => {
     if (!wasmReady) {
-      setOutput('WASM is still initializing, please wait...');
+      setStatus('WASM is still initializing, please wait...');
       return;
     }
 
@@ -87,11 +188,11 @@ const App: React.FC = () => {
       !config.username.trim() ||
       !config.password.trim()
     ) {
-      setOutput('Please fill in all required connection details (host, username, password)');
+      setStatus('Please fill in all required connection details (host, username, password)');
       return;
     }
 
-    setOutput('Connecting...');
+    setStatus('Connecting...');
 
     try {
       // Generate tokens
@@ -109,7 +210,7 @@ const App: React.FC = () => {
       const webappUsername = import.meta.env.VITE_GATEWAY_WEBAPP_USERNAME || '';
       const webappPassword = import.meta.env.VITE_GATEWAY_WEBAPP_PASSWORD || '';
 
-      setOutput('Generating gateway tokens...');
+      setStatus('Generating gateway tokens...');
       const appToken = await generateAppToken(config.gateway_url, webappUsername, webappPassword);
       const sessionToken = await generateSessionToken(
         config.gateway_url,
@@ -123,7 +224,7 @@ const App: React.FC = () => {
         config.destination.transport
       );
 
-      setOutput('Connecting to PowerShell...');
+      setStatus('Connecting to PowerShell...');
 
       // Build WASM config
       const wasmConfig = {
@@ -230,7 +331,7 @@ const App: React.FC = () => {
         if (event === 'Closed' || event?.error) {
           setConnected(false);
           setClient(null);
-          setOutput((prev) => prev + '\nSession closed.');
+          setStatus((prev) => `${prev}\nSession closed.`);
         }
       };
 
@@ -244,9 +345,9 @@ const App: React.FC = () => {
 
       setClient(newClient);
       setConnected(true);
-      setOutput(`Connected to ${config.destination.host} as ${config.username}`);
+      setStatus(`Connected to ${config.destination.host} as ${config.username}`);
     } catch (error) {
-      setOutput(`Connection error: ${error}`);
+      setStatus(`Connection error: ${error}`);
       console.error('Connection error:', error);
     }
   };
@@ -257,42 +358,50 @@ const App: React.FC = () => {
     }
     setClient(null);
     setConnected(false);
-    setOutput('Disconnected');
+    setStatus('Disconnected');
   };
 
   const runCommand = async () => {
     if (!connected || !client) {
-      setOutput('Please connect first');
+      setStatus('Please connect first');
       return;
     }
 
     if (!command.trim()) {
-      setOutput('Please enter a command');
+      setStatus('Please enter a command');
       return;
     }
 
-    setOutput('Running command...');
+    setStatus('Running command...');
+    setEventLog([]);
+    setRawValues([]);
+    setTableRows([]);
+    setTableColumns([]);
 
     try {
-      const stream = await client.execute_command(command);
-
-      while (true) {
-        const event = await stream.next();
-        console.log('Received event:', event);
-        if (!event) break;
-        if ('PipelineOutput' in event) {
-          setOutput((prev) => prev + event.PipelineOutput.data + '\n');
-        } else if ('PipelineError' in event) {
-          setOutput((prev) => prev + `ERROR: ${event.PipelineError.error}\n`);
-        } else if ('PipelineFinished' in event) {
-          setOutput((prev) => prev + '\nCommand execution finished.\n');
-          break;
+      await client.runCommand(command, (event: JsRunCommandEvent) => {
+        setEventLog((prev) => [...prev, `${new Date().toLocaleTimeString()} ${event.type}`]);
+        if (event.type === 'pipelineOutput') {
+          const row = psValueToTableRow(event.value);
+          setRawValues((prev) => [...prev, JSON.stringify(event.value, null, 2)]);
+          if (row) {
+            setTableRows((prev) => [...prev, row]);
+            setTableColumns((prev) => {
+              const next = [...prev];
+              for (const key of Object.keys(row)) {
+                if (!next.includes(key)) next.push(key);
+              }
+              return next;
+            });
+          }
+        } else if (event.type === 'pipelineError') {
+          setStatus(`Command error: ${event.error?.message ?? 'unknown error'}`);
+        } else if (event.type === 'pipelineFinished') {
+          setStatus('Command execution finished.');
         }
-      }
-
-      stream.free();
+      });
     } catch (error) {
-      setOutput(`Error: ${error}`);
+      setStatus(`Error: ${error}`);
     }
   };
 
@@ -301,6 +410,19 @@ const App: React.FC = () => {
       runCommand();
     }
   };
+
+  const tableHeader = useMemo(() => {
+    if (tableColumns.length === 0) return null;
+    return (
+      <tr>
+        {tableColumns.map((col) => (
+          <th key={col} style={{ textAlign: 'left', padding: '6px', borderBottom: '1px solid #ccc' }}>
+            {col}
+          </th>
+        ))}
+      </tr>
+    );
+  }, [tableColumns]);
 
   if (!wasmReady) {
     return (
@@ -367,18 +489,74 @@ const App: React.FC = () => {
         Run Command
       </button>
 
-      {/* Output */}
+      {/* Status */}
       <div
         style={{
           marginTop: '20px',
           padding: '10px',
           border: '1px solid #ccc',
-          minHeight: '100px',
+          minHeight: '50px',
           whiteSpace: 'pre-wrap',
           backgroundColor: '#f5f5f5',
         }}
       >
-        {output}
+        {status}
+      </div>
+
+      {/* Table Output */}
+      <div style={{ marginTop: '20px' }}>
+        <h3>Structured Output</h3>
+        {tableColumns.length === 0 ? (
+          <div style={{ color: '#666' }}>No structured rows yet.</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>{tableHeader}</thead>
+            <tbody>
+              {tableRows.map((row, idx) => (
+                <tr key={idx}>
+                  {tableColumns.map((col) => (
+                    <td key={`${idx}-${col}`} style={{ padding: '6px', borderBottom: '1px solid #eee' }}>
+                      {row[col] ?? ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Event Log */}
+      <div style={{ marginTop: '20px' }}>
+        <h3>Event Log</h3>
+        <div
+          style={{
+            maxHeight: '200px',
+            overflow: 'auto',
+            border: '1px solid #ddd',
+            padding: '10px',
+            backgroundColor: '#fafafa',
+          }}
+        >
+          {eventLog.length === 0 ? 'No events yet.' : eventLog.join('\n')}
+        </div>
+      </div>
+
+      {/* Raw Values */}
+      <div style={{ marginTop: '20px' }}>
+        <h3>Raw JsPsValue</h3>
+        <div
+          style={{
+            maxHeight: '300px',
+            overflow: 'auto',
+            border: '1px solid #ddd',
+            padding: '10px',
+            backgroundColor: '#fafafa',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {rawValues.length === 0 ? 'No values yet.' : rawValues.join('\n\n')}
+        </div>
       </div>
     </div>
   );

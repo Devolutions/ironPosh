@@ -68,6 +68,7 @@ impl<'a> PsPrimitiveValue {
             Self::SecureString(b) => Element::new("SS").set_text_owned(B64.encode(b)),
             Self::Version(v) => Element::new("Version").set_text_owned(v.clone()),
             Self::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
+            Self::TimeSpan(ts) => Element::new("TS").set_text_owned(ts.clone()),
         })
     }
 }
