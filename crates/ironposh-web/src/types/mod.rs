@@ -389,6 +389,10 @@ pub struct WasmWinRmConfig {
     #[serde(default = "default_rows")]
     pub rows: u16,
 
+    /// Enable PSHostRawUserInterface (terminal/RawUI). Defaults to true.
+    #[serde(default)]
+    pub raw_ui_enabled: Option<bool>,
+
     /// Force disable SSPI encryption even on TCP transport.
     /// WARNING: This makes the destination channel insecure!
     /// Only valid when transport is Tcp.

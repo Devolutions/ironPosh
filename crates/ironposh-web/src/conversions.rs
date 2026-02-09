@@ -79,6 +79,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             client_computer_name,
             cols,
             rows,
+            raw_ui_enabled,
             force_insecure,
         } = config;
 
@@ -110,7 +111,12 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             }
         };
 
+        let raw_ui_enabled = raw_ui_enabled.unwrap_or(true);
+
         let host_info = HostInfo::builder()
+            .is_host_null(false)
+            .is_host_ui_null(false)
+            .is_host_raw_ui_null(!raw_ui_enabled)
             .host_default_data(
                 HostDefaultData::builder()
                     .buffer_size(size.clone())
