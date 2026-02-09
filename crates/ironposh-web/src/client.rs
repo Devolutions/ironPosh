@@ -2,17 +2,12 @@ use crate::{
     error::WasmError,
     hostcall::handle_host_calls,
     http_client::GatewayHttpViaWSClient,
-    types::{
-        JsRunCommandEvent, SecurityWarningCallback, WasmCommandCompletion, WasmHostInformationMessage,
-        WasmInformationMessageData, WasmPsrpRecord, WasmPsrpRecordMeta, WasmWinRmConfig,
-    },
-    JsPsValue, JsSessionEvent, WasmErrorRecord, WasmPowerShellStream,
+    types::{JsRunCommandEvent, SecurityWarningCallback, WasmCommandCompletion, WasmWinRmConfig},
+    JsSessionEvent, WasmPowerShellStream,
 };
 use futures::StreamExt;
 use ironposh_async::RemoteAsyncPowershellClient;
-use ironposh_client_core::{
-    connector::WinRmConfig, powershell::PipelineHandle, psrp_record::PsrpRecord,
-};
+use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
 use js_sys::{Array, Function, Promise};
 use std::convert::TryFrom;
 use tracing::{error, info, warn};
@@ -276,8 +271,7 @@ impl WasmPowerShellClient {
         let callback = on_event.unchecked_into::<Function>();
 
         while let Some(event) = stream.next().await {
-
-            let js_event = user_event_to_run_command_event(&event)?;
+            let js_event = JsRunCommandEvent::from(&event);
             if let Err(e) = callback.call1(&JsValue::NULL, &js_event.into()) {
                 tracing::info!(error = ?e, "run_command callback failed");
             }
@@ -361,125 +355,5 @@ impl WasmPowerShellClient {
             info!("PowerShell client disconnected");
             Ok(JsValue::NULL)
         })
-    }
-}
-
-fn user_event_to_run_command_event(
-    event: &ironposh_client_core::connector::active_session::UserEvent,
-) -> Result<JsRunCommandEvent, WasmError> {
-    let res = match event {
-        ironposh_client_core::connector::active_session::UserEvent::PipelineCreated { pipeline } => {
-            JsRunCommandEvent::PipelineCreated {
-                pipeline_id: pipeline.id().to_string(),
-            }
-        }
-        ironposh_client_core::connector::active_session::UserEvent::PipelineFinished { pipeline } => {
-            JsRunCommandEvent::PipelineFinished {
-                pipeline_id: pipeline.id().to_string(),
-            }
-        }
-        ironposh_client_core::connector::active_session::UserEvent::PipelineOutput {
-            pipeline,
-            output,
-        } => JsRunCommandEvent::PipelineOutput {
-            pipeline_id: pipeline.id().to_string(),
-            value: JsPsValue::from(output.data.clone()),
-        },
-        ironposh_client_core::connector::active_session::UserEvent::ErrorRecord {
-            error_record,
-            handle,
-        } => JsRunCommandEvent::PipelineError {
-            pipeline_id: handle.id().to_string(),
-            error: WasmErrorRecord::from(error_record),
-        },
-        ironposh_client_core::connector::active_session::UserEvent::PipelineRecord {
-            pipeline,
-            record,
-        } => JsRunCommandEvent::PipelineRecord {
-            pipeline_id: pipeline.id().to_string(),
-            record: psrp_record_to_wasm(record),
-        },
-    };
-
-    Ok(res)
-}
-
-fn psrp_record_to_wasm(record: &PsrpRecord) -> WasmPsrpRecord {
-    let meta = match record {
-        PsrpRecord::Debug { meta, .. }
-        | PsrpRecord::Verbose { meta, .. }
-        | PsrpRecord::Warning { meta, .. }
-        | PsrpRecord::Information { meta, .. }
-        | PsrpRecord::Progress { meta, .. }
-        | PsrpRecord::Unsupported { meta, .. } => meta,
-    };
-
-    let meta = WasmPsrpRecordMeta {
-        message_type: format!("{:?}", meta.message_type),
-        message_type_value: meta.message_type_value,
-        stream: meta.stream.clone(),
-        command_id: meta.command_id.map(|id| id.to_string()),
-        data_len: meta.data_len,
-    };
-
-    match record {
-        PsrpRecord::Debug { message, .. } => WasmPsrpRecord::Debug {
-            meta,
-            message: message.clone(),
-        },
-        PsrpRecord::Verbose { message, .. } => WasmPsrpRecord::Verbose {
-            meta,
-            message: message.clone(),
-        },
-        PsrpRecord::Warning { message, .. } => WasmPsrpRecord::Warning {
-            meta,
-            message: message.clone(),
-        },
-        PsrpRecord::Information { record, .. } => {
-            let message_data = match &record.message_data {
-                ironposh_psrp::InformationMessageData::String(s) => {
-                    WasmInformationMessageData::String { value: s.clone() }
-                }
-                ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
-                    WasmInformationMessageData::HostInformationMessage {
-                        value: WasmHostInformationMessage {
-                            message: m.message.clone(),
-                            foreground_color: m.foreground_color,
-                            background_color: m.background_color,
-                            no_new_line: m.no_new_line,
-                        },
-                    }
-                }
-                ironposh_psrp::InformationMessageData::Object(v) => {
-                    WasmInformationMessageData::Object {
-                        value: JsPsValue::from(v.clone()),
-                    }
-                }
-            };
-            WasmPsrpRecord::Information {
-                meta,
-                message_data,
-                source: record.source.clone(),
-                time_generated: record.time_generated.clone(),
-                tags: record.tags.clone(),
-                user: record.user.clone(),
-                computer: record.computer.clone(),
-                process_id: record.process_id,
-            }
-        }
-        PsrpRecord::Progress { record, .. } => WasmPsrpRecord::Progress {
-            meta,
-            activity: record.activity.clone(),
-            activity_id: record.activity_id,
-            status_description: record.status_description.clone(),
-            current_operation: record.current_operation.clone(),
-            parent_activity_id: record.parent_activity_id,
-            percent_complete: record.percent_complete,
-            seconds_remaining: record.seconds_remaining,
-        },
-        PsrpRecord::Unsupported { data_preview, .. } => WasmPsrpRecord::Unsupported {
-            meta,
-            data_preview: data_preview.clone(),
-        },
     }
 }

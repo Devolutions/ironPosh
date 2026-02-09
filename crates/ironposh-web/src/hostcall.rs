@@ -65,35 +65,55 @@ fn utf16le_bytes(s: &str) -> Vec<u8> {
         .collect::<Vec<u8>>()
 }
 
-fn js_number_to_i32(v: &JsValue) -> Result<i32, String> {
-    v.as_f64()
-        .ok_or_else(|| "expected number".to_string())
-        .map(|n| n as i32)
+struct JsI32(i32);
+
+impl TryFrom<&JsValue> for JsI32 {
+    type Error = String;
+
+    fn try_from(value: &JsValue) -> Result<Self, Self::Error> {
+        value
+            .as_f64()
+            .ok_or_else(|| "expected number".to_string())
+            .map(|n| Self(n as i32))
+    }
 }
 
-fn js_to_secure_bytes(v: JsValue) -> Result<Vec<u8>, String> {
-    if let Some(s) = v.as_string() {
-        return Ok(utf16le_bytes(&s));
-    }
+struct SecureBytes(Vec<u8>);
 
-    if let Ok(u8a) = v.clone().dyn_into::<Uint8Array>() {
-        return Ok(u8a.to_vec());
-    }
+impl TryFrom<JsValue> for SecureBytes {
+    type Error = String;
 
-    // Try `number[]`
-    if v.is_object() {
-        if let Ok(arr) = serde_wasm_bindgen::from_value::<Vec<u8>>(v) {
-            return Ok(arr);
+    fn try_from(value: JsValue) -> Result<Self, Self::Error> {
+        if let Some(s) = value.as_string() {
+            return Ok(Self(utf16le_bytes(&s)));
         }
-    }
 
-    Err("expected SecureString input as string | Uint8Array | number[]".to_string())
+        if let Ok(u8a) = value.clone().dyn_into::<Uint8Array>() {
+            return Ok(Self(u8a.to_vec()));
+        }
+
+        if value.is_object() {
+            if let Ok(arr) = serde_wasm_bindgen::from_value::<Vec<u8>>(value) {
+                return Ok(Self(arr));
+            }
+        }
+
+        Err("expected SecureString input as string | Uint8Array | number[]".to_string())
+    }
 }
 
-fn js_str_to_char(s: &str) -> Result<char, String> {
-    s.chars()
-        .next()
-        .ok_or_else(|| "expected single-character string".to_string())
+struct JsChar(char);
+
+impl TryFrom<&str> for JsChar {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value
+            .chars()
+            .next()
+            .map(Self)
+            .ok_or_else(|| "expected single-character string".to_string())
+    }
 }
 
 fn ps_value_from_js(v: JsValue) -> Result<PsValue, String> {
@@ -127,13 +147,13 @@ fn ps_value_from_js(v: JsValue) -> Result<PsValue, String> {
     if v.is_object() {
         if let Ok(ss) = Reflect::get(&v, &JsValue::from_str("secureString")) {
             if !ss.is_undefined() {
-                let bytes = js_to_secure_bytes(ss)?;
+                let bytes = SecureBytes::try_from(ss)?.0;
                 return Ok(PsValue::Primitive(PsPrimitiveValue::SecureString(bytes)));
             }
         }
         if let Ok(ss) = Reflect::get(&v, &JsValue::from_str("SecureString")) {
             if !ss.is_undefined() {
-                let bytes = js_to_secure_bytes(ss)?;
+                let bytes = SecureBytes::try_from(ss)?.0;
                 return Ok(PsValue::Primitive(PsPrimitiveValue::SecureString(bytes)));
             }
         }
@@ -256,8 +276,8 @@ pub async fn handle_host_calls(
             HostCall::PromptForChoice { transport } => {
                 let (_params, rt) = transport.into_parts();
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
-                    Ok(res) => match js_number_to_i32(&res) {
-                        Ok(v) => rt.accept_result(v),
+                    Ok(res) => match JsI32::try_from(&res) {
+                        Ok(v) => rt.accept_result(v.0),
                         Err(e) => exception_submission(call_id, method_id, method_name, e),
                     },
                     Err(()) => exception_submission(
@@ -291,8 +311,8 @@ pub async fn handle_host_calls(
             HostCall::GetCursorSize { transport } => {
                 let ((), rt) = transport.into_parts();
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
-                    Ok(res) => match js_number_to_i32(&res) {
-                        Ok(v) => rt.accept_result(v),
+                    Ok(res) => match JsI32::try_from(&res) {
+                        Ok(v) => rt.accept_result(v.0),
                         Err(e) => exception_submission(call_id, method_id, method_name, e),
                     },
                     Err(()) => exception_submission(
@@ -348,8 +368,8 @@ pub async fn handle_host_calls(
             HostCall::ReadLineAsSecureString { transport } => {
                 let ((), rt) = transport.into_parts();
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
-                    Ok(res) => match js_to_secure_bytes(res) {
-                        Ok(bytes) => rt.accept_result(bytes),
+                    Ok(res) => match SecureBytes::try_from(res) {
+                        Ok(bytes) => rt.accept_result(bytes.0),
                         Err(e) => exception_submission(call_id, method_id, method_name, e),
                     },
                     Err(()) => exception_submission(
@@ -609,10 +629,10 @@ pub async fn handle_host_calls(
                 let (_params, rt) = transport.into_parts();
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
                     Ok(res) => match serde_wasm_bindgen::from_value::<crate::JsKeyInfo>(res) {
-                        Ok(k) => match js_str_to_char(&k.character) {
+                        Ok(k) => match JsChar::try_from(k.character.as_str()) {
                             Ok(ch) => rt.accept_result(host::KeyInfo {
                                 virtual_key_code: k.virtual_key_code,
-                                character: ch,
+                                character: ch.0,
                                 control_key_state: k.control_key_state,
                                 key_down: k.key_down,
                             }),
@@ -648,7 +668,9 @@ pub async fn handle_host_calls(
                                 for row in rows {
                                     let mut out_row = Vec::with_capacity(row.len());
                                     for cell in row {
-                                        let ch = js_str_to_char(&cell.character).unwrap_or(' ');
+                                        let ch = JsChar::try_from(cell.character.as_str())
+                                            .map(|v| v.0)
+                                            .unwrap_or(' ');
                                         out_row.push(host::BufferCell {
                                             character: ch,
                                             foreground: cell.foreground,

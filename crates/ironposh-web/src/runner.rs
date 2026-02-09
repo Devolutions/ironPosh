@@ -16,11 +16,11 @@ fn noop_js_function() -> Function {
     Function::new_no_args("return undefined;")
 }
 
-fn format_record(record: &WasmPsrpRecord) -> Option<String> {
+fn format_record(record: &WasmPsrpRecord) -> String {
     match record {
-        WasmPsrpRecord::Debug { message, .. } => Some(format!("[debug] {message}")),
-        WasmPsrpRecord::Verbose { message, .. } => Some(format!("[verbose] {message}")),
-        WasmPsrpRecord::Warning { message, .. } => Some(format!("[warning] {message}")),
+        WasmPsrpRecord::Debug { message, .. } => format!("[debug] {message}"),
+        WasmPsrpRecord::Verbose { message, .. } => format!("[verbose] {message}"),
+        WasmPsrpRecord::Warning { message, .. } => format!("[warning] {message}"),
         WasmPsrpRecord::Information { message_data, .. } => {
             let text = match message_data {
                 WasmInformationMessageData::String { value } => value.clone(),
@@ -29,7 +29,7 @@ fn format_record(record: &WasmPsrpRecord) -> Option<String> {
                 }
                 WasmInformationMessageData::Object { value } => format!("{value:?}"),
             };
-            Some(format!("[information] {text}"))
+            format!("[information] {text}")
         }
         WasmPsrpRecord::Progress {
             activity,
@@ -38,19 +38,21 @@ fn format_record(record: &WasmPsrpRecord) -> Option<String> {
             ..
         } => {
             let status = status_description.clone().unwrap_or_default();
-            Some(format!(
-                "[progress] {activity}: {status} ({percent_complete}%)"
-            ))
+            format!("[progress] {activity}: {status} ({percent_complete}%)")
         }
-        WasmPsrpRecord::Unsupported { data_preview, .. } => {
-            Some(format!("[unsupported] {data_preview}"))
-        }
+        WasmPsrpRecord::Unsupported { data_preview, .. } => format!("[unsupported] {data_preview}"),
     }
 }
 
 #[wasm_bindgen]
 pub struct WasmPowerShellRunner {
     client: Option<WasmPowerShellClient>,
+}
+
+impl Default for WasmPowerShellRunner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[wasm_bindgen]
@@ -124,9 +126,7 @@ impl WasmPowerShellRunner {
                     return Err(WasmError::Generic(error.normal_formated_message));
                 }
                 WasmPowerShellEvent::PipelineRecord { record, .. } => {
-                    if let Some(line) = format_record(&record) {
-                        lines.push(line);
-                    }
+                    lines.push(format_record(&record));
                 }
                 WasmPowerShellEvent::PipelineFinished { .. } => {
                     break;

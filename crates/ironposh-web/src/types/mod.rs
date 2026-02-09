@@ -463,7 +463,7 @@ pub enum JsRunCommandEvent {
     PipelineRecord {
         #[serde(rename = "pipelineId")]
         pipeline_id: String,
-        record: WasmPsrpRecord,
+        record: Box<WasmPsrpRecord>,
     },
 }
 

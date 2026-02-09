@@ -137,9 +137,9 @@ async fn main() -> anyhow::Result<()> {
                         PsrpRecord::Information { record, .. } => {
                             let text = match record.message_data {
                                 ironposh_psrp::InformationMessageData::String(s) => s,
-                                ironposh_psrp::InformationMessageData::HostInformationMessage(m) => {
-                                    m.message
-                                }
+                                ironposh_psrp::InformationMessageData::HostInformationMessage(
+                                    m,
+                                ) => m.message,
                                 ironposh_psrp::InformationMessageData::Object(v) => v.to_string(),
                             };
                             println!("[information] {text}");
