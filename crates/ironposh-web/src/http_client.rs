@@ -13,7 +13,7 @@ use ironposh_client_core::connector::{
     NetworkProtocol, NetworkRequest,
 };
 use js_sys::Uint8Array;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     error::WasmError,
@@ -69,7 +69,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                 response.map(|resp| HttpResponseTargeted::new(resp, conn_id, None))
             }
             TrySend::AuthNeeded { mut auth_sequence } => {
-                info!("starting authentication sequence");
+                debug!("starting authentication sequence");
                 let mut auth_response: Option<HttpResponse> = None;
 
                 loop {
@@ -84,7 +84,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                                 mut packet,
                                 mut generator_holder,
                             } => {
-                                info!("running generator for KDC communication (wasm)");
+                                debug!("running generator for KDC communication (wasm)");
                                 loop {
                                     let kdc_resp = Self::send_kdc_network_request(&packet).await?;
                                     match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
@@ -110,7 +110,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                                 connection_id,
                                 request,
                             } = request;
-                            info!(?connection_id, "continuing authentication sequence");
+                            debug!(?connection_id, "continuing authentication sequence");
                             let response = self.send_http_request(request, &connection_id).await?;
                             debug!(
                                 status_code = response.status_code,
@@ -128,7 +128,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                                 connection_id,
                                 request,
                             } = request;
-                            info!(
+                            debug!(
                                 ?connection_id,
                                 "authentication sequence complete, sending final encrypted request"
                             );
@@ -137,7 +137,7 @@ impl HttpClient for GatewayHttpViaWSClient {
                             let resp = self.send_http_request(request, &connection_id).await?;
 
                             // Return targeted response WITH the provider attached
-                            info!(
+                            debug!(
                                 ?connection_id,
                                 status_code = resp.status_code,
                                 "authentication sequence successful"
@@ -162,7 +162,7 @@ impl GatewayHttpViaWSClient {
         req: HttpRequest,
         con_id: &ConnectionId,
     ) -> Result<HttpResponse> {
-        info!(?con_id, "sending HTTP request via single WebSocket");
+        trace!(?con_id, "sending HTTP request via single WebSocket");
 
         // Acquire or create the shared WebSocket (single connection for all ConnectionIds)
         let stream = {
@@ -182,7 +182,7 @@ impl GatewayHttpViaWSClient {
     }
 
     async fn send_kdc_network_request(packet: &NetworkRequest) -> Result<Vec<u8>, WasmError> {
-        info!(
+        debug!(
             protocol = ?packet.protocol,
             url = %packet.url,
             "sending KDC network request via gateway"
@@ -235,7 +235,7 @@ impl WebsocketStream {
     async fn send_http(&self, request: HttpRequest) -> Result<HttpResponse> {
         // The Gateway relays HTTP requests over WebSocket to TCP, so we can assume that we are working on TCP directly
         // Serialize the HTTP request to HTTP/1.1 wire format
-        info!(?request.method, url = %request.url, "serializing HTTP request");
+        trace!(?request.method, url = %request.url, "serializing HTTP request");
         let http_request_bytes = serialize_http_request(&request).map_err(|e| {
             error!(?e, "failed to serialize HTTP request");
             WasmError::IOError(format!("Failed to serialize HTTP request: {e}"))
@@ -297,7 +297,7 @@ impl WebsocketStream {
             debug!(bytes_length = bytes.len(), "received WebSocket frame");
 
             if let Some(resp) = decoder.feed(&bytes)? {
-                info!(
+                trace!(
                     status_code = resp.status_code,
                     "HTTP response decoded successfully"
                 );

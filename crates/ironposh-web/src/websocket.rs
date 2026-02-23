@@ -1,6 +1,6 @@
 use futures::{SinkExt, StreamExt};
 use gloo_net::websocket::{futures::WebSocket, Message};
-use tracing::{debug, error, info};
+use tracing::{error, info, trace};
 use url::Url;
 
 use crate::error::WasmError;
@@ -25,7 +25,7 @@ impl WebsocketStream {
     /// Sends text. If the socket is still CONNECTING, this `await` blocks until it's OPEN.
     pub async fn send_text(&mut self, s: impl Into<String>) -> Result<(), WasmError> {
         let text = s.into();
-        debug!(
+        trace!(
             text_length = text.len(),
             "sending text message over WebSocket"
         );
@@ -37,7 +37,7 @@ impl WebsocketStream {
 
     pub async fn send_bytes(&mut self, bytes: impl AsRef<[u8]>) -> Result<(), WasmError> {
         let bytes_vec = bytes.as_ref().to_vec();
-        debug!(
+        trace!(
             bytes_length = bytes_vec.len(),
             "sending binary message over WebSocket"
         );
@@ -51,7 +51,7 @@ impl WebsocketStream {
     pub async fn recv(&mut self) -> Option<Result<Message, WasmError>> {
         match self.rx.next().await {
             Some(Ok(m)) => {
-                debug!(
+                trace!(
                     message_type = match &m {
                         Message::Text(_) => "text",
                         Message::Bytes(_) => "bytes",

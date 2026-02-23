@@ -5,7 +5,7 @@ use futures::{
     StreamExt,
 };
 use ironposh_client_core::{connector::active_session::UserEvent, powershell::PipelineHandle};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 use wasm_bindgen::prelude::*;
 
 use crate::{error::WasmError, WasmPowerShellEvent};
@@ -23,7 +23,7 @@ impl WasmPowerShellStream {
         receiver: Receiver<UserEvent>,
         kill_sender: oneshot::Sender<PipelineHandle>,
     ) -> Self {
-        info!("creating new PowerShell stream");
+        debug!("creating new PowerShell stream");
         Self {
             inner: receiver,
             pipeline_handle: None,
@@ -80,7 +80,7 @@ impl WasmPowerShellStream {
             return Ok(());
         };
 
-        info!("killing PowerShell pipeline");
+        debug!("killing PowerShell pipeline");
 
         kill_sender.send(pipeline_handle).map_err(|e| {
             error!(?e, "failed to send kill signal");

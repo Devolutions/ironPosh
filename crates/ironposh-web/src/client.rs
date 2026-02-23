@@ -10,7 +10,7 @@ use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_client_core::{connector::WinRmConfig, powershell::PipelineHandle};
 use js_sys::{Array, Function, Promise};
 use std::convert::TryFrom;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use url::Url;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
@@ -227,7 +227,7 @@ impl WasmPowerShellClient {
         &mut self,
         script: String,
     ) -> Result<WasmPowerShellStream, WasmError> {
-        info!(script_length = script.len(), "executing PowerShell command");
+        debug!(script_length = script.len(), "executing PowerShell command");
 
         let stream = self.client.send_script(script).await.map_err(|e| {
             error!(?e, "failed to send PowerShell script");
@@ -250,7 +250,7 @@ impl WasmPowerShellClient {
         });
 
         let stream = crate::stream::WasmPowerShellStream::new(stream, kill_tx);
-        info!("PowerShell command stream created successfully");
+        debug!("PowerShell command stream created successfully");
         Ok(stream)
     }
 
@@ -269,10 +269,10 @@ impl WasmPowerShellClient {
         }
 
         let script_len = script.len();
-        tracing::info!(script_len = %script_len, "run_command requested");
+        debug!(script_len = %script_len, "run_command requested");
 
         let mut stream = self.client.send_script_raw(script).await.map_err(|e| {
-            tracing::info!(error = ?e, "run_command failed to send script");
+            error!(error = ?e, "run_command failed to send script");
             e
         })?;
 
@@ -281,7 +281,7 @@ impl WasmPowerShellClient {
         while let Some(event) = stream.next().await {
             let js_event = JsRunCommandEvent::from(&event);
             if let Err(e) = callback.call1(&JsValue::NULL, &js_event.into()) {
-                tracing::info!(error = ?e, "run_command callback failed");
+                error!(error = ?e, "run_command callback failed");
             }
         }
 

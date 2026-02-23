@@ -9,7 +9,7 @@ use ironposh_client_core::{
     pipeline::PipelineSpec,
     powershell::PipelineHandle,
 };
-use tracing::{Instrument, Level, info, info_span, span};
+use tracing::{Instrument, Level, debug, info, info_span, span, trace, warn};
 
 use crate::{HostIo, HostSubmitter, HttpClient, session, session_serial};
 
@@ -41,7 +41,7 @@ async fn run_handshake<C: HttpClient>(
             }
         };
 
-        info!(step_result = ?step_result.name(), "Processing step result");
+        debug!(step_result = ?step_result.name(), "Processing step result");
 
         match step_result {
             ConnectorStepResult::SendBack { try_send } => {
@@ -91,22 +91,22 @@ fn build_pipeline_multiplexer(
     async move {
         let from_server = async move {
             while let Some(server_output_event) = server_output_rx.next().await {
-                info!(?server_output_event, "Received server output event");
+                trace!(?server_output_event, "Received server output event");
                 let uuid = server_output_event.pipeline_id();
                 let mut map = pipeline_map.lock().await;
                 if let Some(sender) = map.get_mut(&uuid) {
                     let close = matches!(server_output_event, UserEvent::PipelineFinished { .. });
 
                     if let Err(e) = sender.clone().send(server_output_event).await {
-                        info!(%e, pipeline_id = %uuid, "Failed to forward event to pipeline stream");
+                        warn!(%e, pipeline_id = %uuid, "Failed to forward event to pipeline stream");
                     }
 
                     if close {
-                        info!(pipeline_id = %uuid, "Closing stream for finished pipeline");
+                        debug!(pipeline_id = %uuid, "Closing stream for finished pipeline");
                         sender.close_channel();
                     }
                 } else {
-                    info!(pipeline_id = %uuid, "No stream found for pipeline event");
+                    warn!(pipeline_id = %uuid, "No stream found for pipeline event");
                 }
             }
 
@@ -117,7 +117,7 @@ fn build_pipeline_multiplexer(
         let pipeline_map = pipeline_map_clone;
         let from_user = async move {
             while let Some(input) = pipeline_input_rx.next().await {
-                info!(?input, "Received pipeline input");
+                debug!(?input, "Received pipeline input");
                 match input {
                     PipelineInput::Invoke {
                         uuid,
@@ -125,7 +125,7 @@ fn build_pipeline_multiplexer(
                         response_tx,
                     } => {
                         let op = UserOperation::InvokeWithSpec { uuid, spec };
-                        info!(?op, "Received pipeline operation");
+                        debug!(?op, "Received pipeline operation");
 
                         let mut map = pipeline_map.lock().await;
                         map.insert(uuid, response_tx);
@@ -139,7 +139,7 @@ fn build_pipeline_multiplexer(
                         let op = UserOperation::KillPipeline {
                             pipeline: pipeline_handle,
                         };
-                        info!(?op, "Received pipeline kill operation");
+                        debug!(?op, "Received pipeline kill operation");
 
                         user_input_tx
                             .send(op)

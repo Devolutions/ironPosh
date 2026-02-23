@@ -6,7 +6,7 @@ use ironposh_client_core::host::{self as host, HostCall, Submission};
 use ironposh_psrp::{PipelineHostResponse, PsPrimitiveValue, PsValue};
 use js_sys::Promise;
 use js_sys::{Object, Reflect, Uint8Array};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
@@ -205,7 +205,7 @@ pub async fn handle_host_calls(
         let call_id = host_call.call_id();
         let method_name = host_call.method_name();
         let method_id = host_call.method_id();
-        info!(method = %method_name, call_id, "hostcall handler: received host call");
+        debug!(method = %method_name, call_id, "hostcall handler: received host call");
 
         let js_host_call: JsHostCall = (&host_call).into();
         let this = JsValue::NULL;
@@ -732,7 +732,7 @@ pub async fn handle_host_calls(
             }
         };
 
-        info!(call_id, "hostcall handler: submitting response");
+        debug!(call_id, "hostcall handler: submitting response");
         if submitter
             .submit(HostResponse {
                 call_id,
@@ -744,6 +744,6 @@ pub async fn handle_host_calls(
             error!("failed to submit host call response");
             break;
         }
-        info!(call_id, "hostcall handler: response submitted");
+        debug!(call_id, "hostcall handler: response submitted");
     }
 }

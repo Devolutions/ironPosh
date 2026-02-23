@@ -8,7 +8,7 @@ use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_client_core::connector::{
     ActiveSessionOutput, UserOperation, conntion_pool::TrySend, http::HttpResponseTargeted,
 };
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{HostResponse, HttpClient};
 
@@ -79,7 +79,7 @@ pub async fn start_active_session_loop(
             ready = inflight.select_next_some() => {
                 match ready {
                     Ok(http_response) => {
-                        info!(
+                        trace!(
                             target: "network",
                             "processing successful network response"
                         );
@@ -100,7 +100,7 @@ pub async fn start_active_session_loop(
                             match out {
                                 ActiveSessionOutput::Ignore => {}
                                 ActiveSessionOutput::SendBack(reqs) => {
-                                    info!(target: "network", request_count = reqs.len(), "launching HTTP requests in parallel");
+                                    trace!(target: "network", request_count = reqs.len(), "launching HTTP requests in parallel");
                                     for r in reqs {
                                         inflight.push(launch(&client, r));
                                     }
@@ -110,7 +110,7 @@ pub async fn start_active_session_loop(
                                     return Err(anyhow::anyhow!("Session step failed: {e}"));
                                 }
                                 ActiveSessionOutput::UserEvent(event) => {
-                                    info!(target: "user", event = ?event, "sending user event");
+                                    trace!(target: "user", event = ?event, "sending user event");
                                     if user_output_tx.send(event).await.is_err() {
                                         return Err(anyhow::anyhow!("User output channel disconnected"));
                                     }
@@ -153,7 +153,7 @@ pub async fn start_active_session_loop(
                                     }
                                 }
                                 ActiveSessionOutput::OperationSuccess => {
-                                    info!(target: "session", "operation completed successfully");
+                                    trace!(target: "session", "operation completed successfully");
                                 }
                                 // Already resolved by resolve_deferred_sends
                                 ActiveSessionOutput::SendAndThenReceive { .. }
@@ -171,9 +171,9 @@ pub async fn start_active_session_loop(
 
             // 2) user operations
             user_op = user_input_rx.next() => {
-                info!(target: "user", "processing user operation");
+                debug!(target: "user", "processing user operation");
                  if let Some(user_operation) = user_op {
-                     info!(target: "user", operation = ?user_operation, "processing user operation");
+                     debug!(target: "user", operation = ?user_operation, "processing user operation");
 
                      let step_result = resolve_deferred_sends(
                          active_session
@@ -184,13 +184,13 @@ pub async fn start_active_session_loop(
 
                      match step_result {
                          ActiveSessionOutput::SendBack(reqs) => {
-                             info!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
+                             trace!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
                              for r in reqs {
                                  inflight.push(launch(&client, r));
                              }
                          }
                          ActiveSessionOutput::UserEvent(event) => {
-                             info!(target: "user", event = ?event, "sending user event from user operation");
+                             trace!(target: "user", event = ?event, "sending user event from user operation");
                              if user_output_tx.send(event).await.is_err() {
                                  return Err(anyhow::anyhow!("User output channel disconnected"));
                              }
@@ -233,7 +233,7 @@ pub async fn start_active_session_loop(
                              }
                          }
                          ActiveSessionOutput::OperationSuccess => {
-                             info!(target: "session", "operation completed successfully");
+                             trace!(target: "session", "operation completed successfully");
                          }
                          ActiveSessionOutput::SendBackError(e) => {
                              error!(target: "session", error = %e, "session step failed");
@@ -280,7 +280,7 @@ async fn process_session_outputs(
                 return Err(anyhow::anyhow!("Session step failed: {e}"));
             }
             ActiveSessionOutput::UserEvent(event) => {
-                info!(target: "user", event = ?event, "sending user event");
+                trace!(target: "user", event = ?event, "sending user event");
                 if user_output_tx.send(event).await.is_err() {
                     return Err(anyhow::anyhow!("User output channel disconnected"));
                 }
@@ -320,7 +320,7 @@ async fn process_session_outputs(
                 }
             }
             ActiveSessionOutput::OperationSuccess => {
-                info!(target: "session", "operation completed successfully");
+                trace!(target: "session", "operation completed successfully");
             }
         }
     }

@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use gloo_net::websocket::{futures::WebSocket, Message as WsMessage};
 use ironposh_client_core::connector::http::{HttpBody, HttpResponse};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::error::WasmError;
 
@@ -112,13 +112,13 @@ impl HttpResponseDecoder {
             if let Some(hend) = find_header_end(&self.buf) {
                 self.hdr_end = Some(hend);
                 let (status, mode) = parse_status_and_body_mode(&self.buf[..hend])?;
-                info!(?status, ?mode, "parsed HTTP response status and body mode");
+                trace!(?status, ?mode, "parsed HTTP response status and body mode");
                 self.status = Some(status);
                 self.mode = Some(mode);
 
                 // no-body statuses
                 if (100..200).contains(&status) || status == 204 || status == 304 {
-                    info!(?status, "no-body status code, completing immediately");
+                    trace!(?status, "no-body status code, completing immediately");
                     let (headers, _) = parse_headers(&self.buf[..hend])?;
                     return Ok(Some(HttpResponse {
                         status_code: status,
@@ -169,7 +169,7 @@ impl HttpResponseDecoder {
                     );
                     return Err(WasmError::IOError("Body longer than Content-Length".into()));
                 }
-                info!(body_length = clen, "fixed-length body complete");
+                trace!(body_length = clen, "fixed-length body complete");
                 let (headers, content_type) = parse_headers(&self.buf[..hend])?;
                 let http_body = classify_body(body, content_type.as_deref())?;
                 Ok(Some(HttpResponse {
@@ -183,7 +183,7 @@ impl HttpResponseDecoder {
                 loop {
                     if self.chunk_done {
                         if self.trailers_complete {
-                            info!(
+                            trace!(
                                 decoded_body_size = self.decoded.len(),
                                 "chunked transfer complete"
                             );

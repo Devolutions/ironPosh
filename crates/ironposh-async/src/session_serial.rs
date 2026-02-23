@@ -8,7 +8,7 @@ use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation, conntion_pool::TrySend};
 use ironposh_client_core::host::HostCall;
 use ironposh_client_core::runspace_pool::DesiredStream;
-use tracing::{error, info, instrument};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{HostResponse, HttpClient};
 
@@ -101,7 +101,7 @@ pub async fn start_serial_session_loop(
             && let Some(op) = pending_user_ops.pop_front()
         {
             diag!("DIAG process buffered: {}", op.operation_type());
-            info!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
+            debug!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
             let output = active_session
                 .accept_client_operation(op)
                 .context("Failed to accept buffered user operation")?;
@@ -124,7 +124,7 @@ pub async fn start_serial_session_loop(
                 "DIAG promote: sending from work_queue ({} remaining)",
                 work_queue.len()
             );
-            info!(target: "serial", remaining_work = work_queue.len(), "promoting work_queue item");
+            trace!(target: "serial", remaining_work = work_queue.len(), "promoting work_queue item");
             Some(client.send_request(req).fuse())
         } else if !deferred_streams.is_empty()
             && !host_call_active
@@ -153,7 +153,7 @@ pub async fn start_serial_session_loop(
                 stream.command_id().is_some(),
                 deferred_streams.len()
             );
-            info!(
+            trace!(
                 target: "serial",
                 ?stream,
                 deferred_remaining = deferred_streams.len(),
@@ -185,7 +185,7 @@ pub async fn start_serial_session_loop(
                     resp = http_future => {
                         let resp = resp.context("Serial HTTP request failed")?;
                         diag!("DIAG select: HTTP response received");
-                        info!(target: "serial", "HTTP response received");
+                        trace!(target: "serial", "HTTP response received");
 
                         let outputs = match active_session.accept_server_response(resp) {
                             Ok(outputs) => outputs,
@@ -202,7 +202,7 @@ pub async fn start_serial_session_loop(
                             outputs.len(),
                             output_types
                         );
-                        info!(
+                        trace!(
                             target: "serial",
                             output_count = outputs.len(),
                             ?output_types,
@@ -246,7 +246,7 @@ pub async fn start_serial_session_loop(
                                 "DIAG select: buffering user op {} (HTTP in flight)",
                                 op.operation_type()
                             );
-                            info!(
+                            debug!(
                                 target: "serial",
                                 operation = op.operation_type(),
                                 "buffering user operation (HTTP in flight)"
@@ -265,7 +265,7 @@ pub async fn start_serial_session_loop(
                                 "DIAG select: buffering host response call_id={} (HTTP in flight)",
                                 hr.call_id
                             );
-                            info!(
+                            debug!(
                                 target: "serial",
                                 call_id = hr.call_id,
                                 "buffering host-call response (HTTP in flight)"
@@ -292,7 +292,7 @@ pub async fn start_serial_session_loop(
             }
         } else {
             // No HTTP in flight and nothing to promote. Idle — wait for user op or host response.
-            info!(target: "serial", "idle: no pending work, waiting for user input or host response");
+            trace!(target: "serial", "idle: no pending work, waiting for user input or host response");
             diag!("DIAG idle: waiting for user input or host response");
 
             let mut host_guard = if host_call_active {
@@ -305,7 +305,7 @@ pub async fn start_serial_session_loop(
                 op = user_input_rx.next() => {
                     if let Some(op) = op {
                         diag!("DIAG idle: user op {}", op.operation_type());
-                        info!(
+                        debug!(
                             target: "serial",
                             operation = op.operation_type(),
                             "user operation received while idle"
@@ -339,7 +339,7 @@ pub async fn start_serial_session_loop(
                             "DIAG idle: host response received call_id={}",
                             hr.call_id
                         );
-                        info!(
+                        debug!(
                             target: "serial",
                             call_id = hr.call_id,
                             "host-call response received while idle"
@@ -395,7 +395,7 @@ async fn enqueue_output(
 ) -> anyhow::Result<()> {
     match output {
         ActiveSessionOutput::SendBack(reqs) => {
-            info!(target: "serial", request_count = reqs.len(), "enqueue: SendBack → work_queue");
+            trace!(target: "serial", request_count = reqs.len(), "enqueue: SendBack → work_queue");
             diag!("DIAG enqueue: SendBack({}) → work_queue", reqs.len());
             for req in reqs {
                 work_queue.push_back(req);
@@ -405,7 +405,7 @@ async fn enqueue_output(
             send_request,
             then_receive_streams,
         } => {
-            info!(target: "serial", "enqueue: SendAndThenReceive → work_queue + deferred_streams");
+            trace!(target: "serial", "enqueue: SendAndThenReceive → work_queue + deferred_streams");
             diag!(
                 "DIAG enqueue: SendAndThenReceive → work_queue + {} deferred streams",
                 then_receive_streams.len()
@@ -414,7 +414,7 @@ async fn enqueue_output(
             merge_deferred_streams(deferred_streams, then_receive_streams);
         }
         ActiveSessionOutput::PendingReceive { desired_streams } => {
-            info!(target: "serial", streams = ?desired_streams, "enqueue: PendingReceive → deferred_streams");
+            trace!(target: "serial", streams = ?desired_streams, "enqueue: PendingReceive → deferred_streams");
             diag!(
                 "DIAG enqueue: PendingReceive({}) → deferred_streams",
                 desired_streams.len()
@@ -432,7 +432,7 @@ async fn enqueue_output(
         }
         ActiveSessionOutput::UserEvent(event) => {
             diag!("DIAG enqueue: UserEvent sending...");
-            info!(target: "serial", event = ?event, "enqueue: UserEvent → user_output_tx");
+            trace!(target: "serial", event = ?event, "enqueue: UserEvent → user_output_tx");
             if user_output_tx.send(event).await.is_err() {
                 return Err(anyhow::anyhow!("User output channel disconnected"));
             }
@@ -443,7 +443,7 @@ async fn enqueue_output(
             return Err(anyhow::anyhow!("Session step failed: {e}"));
         }
         ActiveSessionOutput::OperationSuccess => {
-            info!(target: "serial", "enqueue: OperationSuccess (no-op)");
+            trace!(target: "serial", "enqueue: OperationSuccess (no-op)");
         }
         ActiveSessionOutput::Ignore => {
             // No-op
