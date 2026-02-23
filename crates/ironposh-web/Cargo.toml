@@ -1,6 +1,6 @@
 [package]
 name = "ironposh-web"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["irving ou <jou@devolutions.net>"]
 edition = "2018"
 description = "PowerShell Remoting over WinRM for WebAssembly"
@@ -17,7 +17,7 @@ console_error_panic_hook = { version = "0.1" }
 tsify = { version = "0.5.5", features = ["js"] }
 serde = { version = "1.0.227", features = ["derive"] }
 wasm-bindgen-futures = "0.4.54"
-ironposh-async = { path = "../ironposh-async", features = ["wasm-diag"] }
+ironposh-async = { path = "../ironposh-async" }
 ironposh-client-core = { path = "../ironposh-client-core" }
 ironposh-psrp = { path = "../ironposh-psrp" }
 js-sys = "0.3.81"
@@ -47,6 +47,7 @@ futures-timer = { version = "3.0.3", features = ["wasm-bindgen"] }
 [features]
 default = []
 wee_alloc = ["dep:wee_alloc"]
+wasm-diag = ["ironposh-async/wasm-diag"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"
