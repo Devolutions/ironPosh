@@ -142,27 +142,41 @@ pub async fn start_serial_session_loop(
             // mode, a runspace pool Receive with no pending data would block for the full
             // OperationTimeout (~15-20s), starving pipeline Receives and HostCall delivery.
             // The parallel loop avoids this by running them concurrently; we can't do that.
+            //
+            // When ONLY runspace pool streams remain (no pipeline), skip promotion entirely.
+            // A runspace pool Receive when idle would block for OperationTimeout with no
+            // useful data, freezing all user operations (including the first command after
+            // connection). Pipeline-triggered Receives already include runspace pool data,
+            // so nothing is lost.
             let has_pipeline = deferred_streams.iter().any(|s| s.command_id().is_some());
             if has_pipeline {
                 deferred_streams.retain(|s| s.command_id().is_some());
-            }
-            let stream = deferred_streams.remove(0);
+                let stream = deferred_streams.remove(0);
 
-            diag!(
-                "DIAG promote: Receive for 1 stream (pipeline={}, {} deferred remaining)",
-                stream.command_id().is_some(),
-                deferred_streams.len()
-            );
-            trace!(
-                target: "serial",
-                ?stream,
-                deferred_remaining = deferred_streams.len(),
-                "promoting single stream to Receive"
-            );
-            let receive = active_session
-                .fire_receive(vec![stream])
-                .context("Failed to build Receive from deferred stream")?;
-            Some(client.send_request(receive).fuse())
+                diag!(
+                    "DIAG promote: Receive for pipeline stream ({} deferred remaining)",
+                    deferred_streams.len()
+                );
+                trace!(
+                    target: "serial",
+                    ?stream,
+                    deferred_remaining = deferred_streams.len(),
+                    "promoting pipeline stream to Receive"
+                );
+                let receive = active_session
+                    .fire_receive(vec![stream])
+                    .context("Failed to build Receive from deferred stream")?;
+                Some(client.send_request(receive).fuse())
+            } else {
+                // Only runspace pool streams — don't promote, fall through to idle.
+                // A runspace pool Receive when idle blocks for the full OperationTimeout
+                // (~15-20s) with no useful data, freezing all user operations (including
+                // the first command after connection). Pipeline-triggered Receives already
+                // include runspace pool data, so nothing is lost.
+                diag!("DIAG promote: skipping runspace-pool-only Receive (would block for OperationTimeout)");
+                trace!(target: "serial", "skipping runspace-pool-only Receive, falling through to idle");
+                None
+            }
         } else {
             None
         };
