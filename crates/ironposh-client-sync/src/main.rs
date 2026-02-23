@@ -194,6 +194,32 @@ fn run_event_loop(
                             .context("Failed to send HTTP request")?;
                     }
                 }
+                ActiveSessionOutput::SendAndThenReceive { send_request, then_receive_streams } => {
+                    info!(
+                        target: "network",
+                        "sending request then queueing receive"
+                    );
+                    network_request_tx
+                        .send(send_request)
+                        .context("Failed to send HTTP request")?;
+                    let recv = active_session.fire_receive(then_receive_streams)
+                        .context("Failed to build receive after send-then-receive")?;
+                    network_request_tx
+                        .send(recv)
+                        .context("Failed to send receive request")?;
+                }
+                ActiveSessionOutput::PendingReceive { desired_streams } => {
+                    info!(
+                        target: "network",
+                        stream_count = desired_streams.len(),
+                        "firing deferred receive"
+                    );
+                    let recv = active_session.fire_receive(desired_streams)
+                        .context("Failed to build deferred receive")?;
+                    network_request_tx
+                        .send(recv)
+                        .context("Failed to send deferred receive request")?;
+                }
                 ActiveSessionOutput::SendBackError(e) => {
                     error!(target: "session", error = %e, "session step failed");
                     return Err(anyhow::anyhow!("Session step failed: {e}"));

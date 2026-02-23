@@ -185,6 +185,9 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             transport,
             authentication,
             host_info,
+            // Short timeout for serial/single-connection mode so Receives
+            // don't block outbound sends for too long.
+            operation_timeout_secs: Some(5),
         }
     }
 }

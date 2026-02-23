@@ -6,6 +6,7 @@ use std::future::Future;
 // Internal modules
 mod connection;
 mod session;
+mod session_serial;
 
 // Public API
 pub mod client;

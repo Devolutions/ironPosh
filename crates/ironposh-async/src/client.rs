@@ -38,6 +38,29 @@ impl RemoteAsyncPowershellClient {
         (Self { handle }, host_io, session_event_rx, task)
     }
 
+    /// Create a new client using the serial (single-connection) session loop.
+    ///
+    /// All WinRM operations are serialized through a single HTTP connection.
+    /// Required when the transport only allows one connection per token
+    /// (e.g. Devolutions Gateway with jti-based replay detection).
+    pub fn open_task_serial(
+        config: WinRmConfig,
+        client: impl HttpClient,
+    ) -> (
+        Self,
+        crate::HostIo,
+        futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
+        impl std::future::Future<Output = anyhow::Result<()>>,
+    )
+    where
+        Self: Sized,
+    {
+        let (handle, host_io, session_event_rx, task) =
+            connection::establish_connection_serial(config, client);
+
+        (Self { handle }, host_io, session_event_rx, task)
+    }
+
     /// Execute a PowerShell command and return its output
     #[instrument(skip(self))]
     pub async fn send_script(&mut self, script: String) -> anyhow::Result<Receiver<UserEvent>> {

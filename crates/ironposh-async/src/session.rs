@@ -12,6 +12,35 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::{HostResponse, HttpClient};
 
+/// Resolve deferred send variants into concrete `SendBack` requests.
+///
+/// `SendAndThenReceive` and `PendingReceive` are resolved by calling `fire_receive()`
+/// to build the actual Receive request, then returned as `SendBack` with all requests.
+/// Other variants pass through unchanged.
+fn resolve_deferred_sends(
+    output: ActiveSessionOutput,
+    active_session: &mut ironposh_client_core::connector::active_session::ActiveSession,
+) -> anyhow::Result<ActiveSessionOutput> {
+    match output {
+        ActiveSessionOutput::SendAndThenReceive {
+            send_request,
+            then_receive_streams,
+        } => {
+            let recv = active_session
+                .fire_receive(then_receive_streams)
+                .context("Failed to build receive after send-then-receive")?;
+            Ok(ActiveSessionOutput::SendBack(vec![send_request, recv]))
+        }
+        ActiveSessionOutput::PendingReceive { desired_streams } => {
+            let recv = active_session
+                .fire_receive(desired_streams)
+                .context("Failed to build receive from PendingReceive")?;
+            Ok(ActiveSessionOutput::SendBack(vec![recv]))
+        }
+        other => Ok(other),
+    }
+}
+
 fn launch<C: HttpClient>(
     client: &C,
     try_send: TrySend,
@@ -67,17 +96,11 @@ pub async fn start_active_session_loop(
 
                         // Convert ActiveSessionOutput into new HTTPs / UI events
                         for out in step_results {
+                            let out = resolve_deferred_sends(out, &mut active_session)?;
                             match out {
-                                ActiveSessionOutput::Ignore => {
-                                    // Do nothing
-                                }
+                                ActiveSessionOutput::Ignore => {}
                                 ActiveSessionOutput::SendBack(reqs) => {
-                                    info!(
-                                        target: "network",
-                                        request_count = reqs.len(),
-                                        "launching HTTP requests in parallel"
-                                    );
-                                    // launch all new HTTPs in parallel
+                                    info!(target: "network", request_count = reqs.len(), "launching HTTP requests in parallel");
                                     for r in reqs {
                                         inflight.push(launch(&client, r));
                                     }
@@ -95,36 +118,24 @@ pub async fn start_active_session_loop(
                                 ActiveSessionOutput::HostCall(host_call) => {
                                     debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
 
-                                    // Forward to consumer
                                     if host_call_tx.unbounded_send(host_call).is_err() {
                                         return Err(anyhow::anyhow!("Host-call channel closed"));
                                     }
 
-                                    // Await the consumer's reply
                                     let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
                                         .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
-                                    let step_result = active_session
-                                        .accept_client_operation(
-                                            UserOperation::SubmitHostResponse {
-                                                call_id,
-                                                scope,
-                                                submission,
-                                            },
-                                        )
-                                        .map_err(|e| {
-                                            error!(target: "user", error = %e, "failed to submit host response");
-                                            e
-                                        })
-                                        .context("Failed to submit host response")?;
+                                    let step_result = resolve_deferred_sends(
+                                        active_session
+                                            .accept_client_operation(
+                                                UserOperation::SubmitHostResponse { call_id, scope, submission },
+                                            )
+                                            .context("Failed to submit host response")?,
+                                        &mut active_session,
+                                    )?;
 
                                     match step_result {
                                         ActiveSessionOutput::SendBack(reqs) => {
-                                            info!(
-                                                target: "network",
-                                                request_count = reqs.len(),
-                                                "launching HTTP requests in parallel"
-                                            );
                                             for r in reqs {
                                                 inflight.push(launch(&client, r));
                                             }
@@ -144,6 +155,9 @@ pub async fn start_active_session_loop(
                                 ActiveSessionOutput::OperationSuccess => {
                                     info!(target: "session", "operation completed successfully");
                                 }
+                                // Already resolved by resolve_deferred_sends
+                                ActiveSessionOutput::SendAndThenReceive { .. }
+                                | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
                             }
                         }
                     }
@@ -161,21 +175,16 @@ pub async fn start_active_session_loop(
                  if let Some(user_operation) = user_op {
                      info!(target: "user", operation = ?user_operation, "processing user operation");
 
-                     let step_result = active_session
-                         .accept_client_operation(user_operation)
-                         .map_err(|e| {
-                             error!(target: "user", error = %e, "failed to accept user operation");
-                             e
-                         })
-                         .context("Failed to accept user operation")?;
+                     let step_result = resolve_deferred_sends(
+                         active_session
+                             .accept_client_operation(user_operation)
+                             .context("Failed to accept user operation")?,
+                         &mut active_session,
+                     )?;
 
                      match step_result {
                          ActiveSessionOutput::SendBack(reqs) => {
-                             info!(
-                                 target: "network",
-                                 request_count = reqs.len(),
-                                 "launching HTTP requests from user operation"
-                             );
+                             info!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
                              for r in reqs {
                                  inflight.push(launch(&client, r));
                              }
@@ -189,36 +198,24 @@ pub async fn start_active_session_loop(
                          ActiveSessionOutput::HostCall(host_call) => {
                              debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
 
-                             // Forward to consumer
                              if host_call_tx.unbounded_send(host_call).is_err() {
                                  return Err(anyhow::anyhow!("Host-call channel closed"));
                              }
 
-                             // Await the consumer's reply
                              let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
                                  .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
-                             let step_result = active_session
-                                 .accept_client_operation(
-                                     UserOperation::SubmitHostResponse {
-                                         call_id,
-                                         scope,
-                                         submission,
-                                     },
-                                 )
-                                 .map_err(|e| {
-                                     error!(target: "user", error = %e, "failed to submit host response");
-                                     e
-                                 })
-                                 .context("Failed to submit host response")?;
+                             let step_result = resolve_deferred_sends(
+                                 active_session
+                                     .accept_client_operation(
+                                         UserOperation::SubmitHostResponse { call_id, scope, submission },
+                                     )
+                                     .context("Failed to submit host response")?,
+                                 &mut active_session,
+                             )?;
 
                              match step_result {
                                  ActiveSessionOutput::SendBack(reqs) => {
-                                     info!(
-                                         target: "network",
-                                         request_count = reqs.len(),
-                                         "launching HTTP requests in parallel"
-                                     );
                                      for r in reqs {
                                          inflight.push(launch(&client, r));
                                      }
@@ -241,10 +238,10 @@ pub async fn start_active_session_loop(
                          ActiveSessionOutput::SendBackError(e) => {
                              error!(target: "session", error = %e, "session step failed");
                              return Err(anyhow::anyhow!("Session step failed: {e}"));
-                         },
-                         ActiveSessionOutput::Ignore => {
-                             // Do nothing
                          }
+                         ActiveSessionOutput::Ignore => {}
+                         ActiveSessionOutput::SendAndThenReceive { .. }
+                         | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
                      }
 
                  } else {
@@ -272,9 +269,11 @@ async fn process_session_outputs(
             ActiveSessionOutput::Ignore => {
                 // Do nothing
             }
-            ActiveSessionOutput::SendBack(_) => {
+            ActiveSessionOutput::SendBack(_)
+            | ActiveSessionOutput::SendAndThenReceive { .. }
+            | ActiveSessionOutput::PendingReceive { .. } => {
                 // This should be handled at the caller level
-                warn!("SendBack should not reach process_session_outputs");
+                warn!("SendBack/SendAndThenReceive/PendingReceive should not reach process_session_outputs");
             }
             ActiveSessionOutput::SendBackError(e) => {
                 error!(target: "session", error = %e, "session step failed");

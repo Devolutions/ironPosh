@@ -7,6 +7,7 @@ use crate::{
     pipeline::PipelineSpec,
     powershell::PipelineHandle,
     runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
+    PwshCoreError,
 };
 use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
 use tracing::{error, info, instrument, warn};
@@ -60,6 +61,18 @@ pub enum ActiveSessionOutput {
     SendBackError(crate::PwshCoreError),
     UserEvent(UserEvent),
     HostCall(HostCall),
+    /// Sequential: send the request first, wait for response,
+    /// THEN issue a Receive for the given streams.
+    /// Used when send+receive must be serialized (single-connection mode).
+    SendAndThenReceive {
+        send_request: TrySend,
+        then_receive_streams: Vec<DesiredStream>,
+    },
+    /// Indicates a Receive is needed for these streams, but does NOT allocate
+    /// a connection. The session loop calls `fire_receive()` when ready to send.
+    PendingReceive {
+        desired_streams: Vec<DesiredStream>,
+    },
     OperationSuccess,
     Ignore,
 }
@@ -68,7 +81,7 @@ impl ActiveSessionOutput {
     pub fn priority(&self) -> u8 {
         match self {
             Self::HostCall { .. } => 1,
-            Self::SendBack(_) => 2,
+            Self::SendBack(_) | Self::SendAndThenReceive { .. } | Self::PendingReceive { .. } => 2,
             Self::SendBackError(_) => 3,
             Self::UserEvent(_) => 4,
             Self::OperationSuccess => 5,
@@ -142,6 +155,16 @@ impl ActiveSession {
             runspace_pool,
             connection_pool,
         }
+    }
+
+    /// Generate a Receive TrySend for the given streams.
+    /// Used by the serial session loop to issue Receives after processing sends.
+    pub fn fire_receive(
+        &mut self,
+        desired_streams: Vec<DesiredStream>,
+    ) -> Result<TrySend, PwshCoreError> {
+        let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
+        self.connection_pool.send(&recv_xml)
     }
 
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
@@ -295,11 +318,8 @@ impl ActiveSession {
             info!(index = idx, "processing PSRP result");
             match res_accepted {
                 AcceptResponsResult::ReceiveResponse { desired_streams } => {
-                    info!(streams= ?desired_streams,"creating receive request for streams");
-                    let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
-                    let ts = self.connection_pool.send(&recv_xml)?;
-                    info!(try_send= ?ts,"queued receive request");
-                    outs.push(ActiveSessionOutput::SendBack(vec![ts]));
+                    info!(streams = ?desired_streams, "deferring receive to session loop");
+                    outs.push(ActiveSessionOutput::PendingReceive { desired_streams });
                 }
                 AcceptResponsResult::SendThenReceive {
                     send_xml,
@@ -307,15 +327,14 @@ impl ActiveSession {
                 } => {
                     info!(
                         send_xml_length = send_xml.len(),
-                        "queued send (key exchange / control)"
+                        "queued send-then-receive (key exchange / control)"
                     );
                     let ts_send = self.connection_pool.send(&send_xml)?;
 
-                    info!(streams = ?desired_streams, "creating receive request after send");
-                    let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
-                    let ts_recv = self.connection_pool.send(&recv_xml)?;
-
-                    outs.push(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]));
+                    outs.push(ActiveSessionOutput::SendAndThenReceive {
+                        send_request: ts_send,
+                        then_receive_streams: desired_streams,
+                    });
                 }
                 AcceptResponsResult::PipelineCreated(pipeline) => {
                     outs.push(ActiveSessionOutput::UserEvent(UserEvent::PipelineCreated {
@@ -407,19 +426,14 @@ impl ActiveSession {
         info!(send_xml_length = send_xml.len(), "built host response XML");
         info!(unencrypted_host_response_xml = %send_xml, "outgoing unencrypted pipeline host response SOAP");
 
-        // 2) Send
+        // 2) Send, then receive for this pipeline's streams
         let ts_send = self.connection_pool.send(&send_xml)?;
-        info!(send_request = ?ts_send, "queued host response send");
+        info!(send_request = ?ts_send, "queued host response send-then-receive");
 
-        // 3) Queue receive for this pipeline's streams
-        let recv_xml = self
-            .runspace_pool
-            .fire_receive(DesiredStream::pipeline_streams(command_id))?;
-        info!(unencrypted_pipeline_recv_xml = %recv_xml, "outgoing unencrypted pipeline receive SOAP");
-        let ts_recv = self.connection_pool.send(&recv_xml)?;
-        info!(recv_request = ?ts_recv, "queued host response receive");
-
-        Ok(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]))
+        Ok(ActiveSessionOutput::SendAndThenReceive {
+            send_request: ts_send,
+            then_receive_streams: DesiredStream::pipeline_streams(command_id),
+        })
     }
 
     /// Build + send a runspace-pool host response, then queue a receive for pool streams.
@@ -468,18 +482,13 @@ impl ActiveSession {
         );
         info!(unencrypted_pool_host_response_xml = %send_xml, "outgoing unencrypted pool host response SOAP");
 
-        // 2) Send
+        // 2) Send, then receive for pool streams
         let ts_send = self.connection_pool.send(&send_xml)?;
-        info!(send_request = ?ts_send, "queued pool host response send");
+        info!(send_request = ?ts_send, "queued pool host response send-then-receive");
 
-        // 3) Queue receive for pool streams
-        let recv_xml = self
-            .runspace_pool
-            .fire_receive(DesiredStream::runspace_pool_streams())?;
-        info!(unencrypted_pool_recv_xml = %recv_xml, "outgoing unencrypted pool receive SOAP");
-        let ts_recv = self.connection_pool.send(&recv_xml)?;
-        info!(recv_request = ?ts_recv, "queued pool host response receive");
-
-        Ok(ActiveSessionOutput::SendBack(vec![ts_send, ts_recv]))
+        Ok(ActiveSessionOutput::SendAndThenReceive {
+            send_request: ts_send,
+            then_receive_streams: DesiredStream::runspace_pool_streams(),
+        })
     }
 }

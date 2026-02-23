@@ -59,4 +59,7 @@ pub enum PwshCoreError {
 
     #[error("Internal error: {0}")]
     InternalError(String),
+
+    #[error("SOAP fault: {code} - {reason}")]
+    SoapFault { code: String, reason: String },
 }

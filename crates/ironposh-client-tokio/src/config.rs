@@ -69,6 +69,10 @@ pub struct Args {
     )]
     pub http_insecure: bool,
 
+    /// Use parallel (multi-connection) session loop instead of the default serial mode.
+    #[arg(long, help = "Use parallel session loop (default: serial/single-connection)")]
+    pub parallel: bool,
+
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
     pub verbose: u8,
@@ -149,7 +153,10 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Create connector configuration from command line arguments
+/// Create connector configuration from command line arguments.
+///
+/// When `parallel` is false (default serial mode), `operation_timeout_secs` is set
+/// to 5s so inbound Receives don't block outbound sends for too long.
 pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
 
@@ -227,10 +234,14 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         .use_runspace_host(true)
         .build();
 
+    // Serial mode uses a short timeout so Receives don't block outbound sends.
+    let operation_timeout_secs = if args.parallel { None } else { Some(5) };
+
     Ok(WinRmConfig {
         server: (server, args.port),
         transport,
         authentication: auth,
         host_info,
+        operation_timeout_secs,
     })
 }

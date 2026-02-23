@@ -22,10 +22,15 @@ use crate::{
 };
 
 // HTTP client implementation for WASM
+//
+// Uses a SINGLE WebSocket for all ConnectionIds. This is critical because
+// Devolutions Gateway enforces jti-based token replay detection - reusing the
+// same ASSOCIATION token on a second WebSocket while the first is still active
+// causes the second to be rejected. By sharing a single WebSocket, all WinRM
+// operations are serialized through one tunnel.
 pub(crate) struct GatewayHttpViaWSClient {
     gateway_url: url::Url,
-    connection_map: Rc<Mutex<std::collections::HashMap<ConnectionId, WebsocketStream>>>,
-    // We here assume that the token is short lived but can be reused for multiple connections in parallel
+    websocket: Rc<Mutex<Option<WebsocketStream>>>,
     #[expect(dead_code)]
     token: String,
 }
@@ -34,11 +39,11 @@ impl GatewayHttpViaWSClient {
     pub fn new(gateway_url: url::Url, token: String) -> Self {
         info!(
             gateway_url = %gateway_url,
-            "creating new gateway HTTP via WebSocket client"
+            "creating new gateway HTTP via WebSocket client (single-connection mode)"
         );
         Self {
             gateway_url,
-            connection_map: Rc::new(Mutex::new(std::collections::HashMap::new())),
+            websocket: Rc::new(Mutex::new(None)),
             token,
         }
     }
@@ -157,24 +162,23 @@ impl GatewayHttpViaWSClient {
         req: HttpRequest,
         con_id: &ConnectionId,
     ) -> Result<HttpResponse> {
-        info!(?con_id, "sending HTTP request via WebSocket");
+        info!(?con_id, "sending HTTP request via single WebSocket");
 
-        // -- Acquire or create the per-connection stream (map lock held briefly)
-        let stream_rc = {
-            let mut map = self.connection_map.lock().await;
-            if let Some(s) = map.get(con_id) {
-                debug!(?con_id, "reusing existing WebSocket connection");
+        // Acquire or create the shared WebSocket (single connection for all ConnectionIds)
+        let stream = {
+            let mut ws = self.websocket.lock().await;
+            if let Some(s) = ws.as_ref() {
+                debug!(?con_id, "reusing existing single WebSocket connection");
                 s.clone()
             } else {
-                info!(?con_id, gateway_url = %self.gateway_url, "creating new WebSocket connection");
+                info!(?con_id, gateway_url = %self.gateway_url, "creating single WebSocket connection");
                 let stream = WebsocketStream::new(&self.gateway_url)?;
-                map.insert(*con_id, stream.clone());
+                *ws = Some(stream.clone());
                 stream
             }
-        }; // Drop the map lock here
+        };
 
-        // -- Now it's safe to await without blocking other connections
-        stream_rc.send_http(req).await
+        stream.send_http(req).await
     }
 
     async fn send_kdc_network_request(packet: &NetworkRequest) -> Result<Vec<u8>, WasmError> {

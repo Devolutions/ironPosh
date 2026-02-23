@@ -176,8 +176,11 @@ impl WasmPowerShellClient {
 
         let http_client = GatewayHttpViaWSClient::new(url, config.gateway_token.clone());
         let internal_config: WinRmConfig = config.into();
+        // Use serial (single-connection) session loop for WASM/Gateway mode.
+        // Gateway enforces jti-based token replay detection, so only one WebSocket
+        // connection is allowed per token. Serial mode serializes all WinRM operations.
         let (client, host_io, session_event_rx, task) =
-            RemoteAsyncPowershellClient::open_task(internal_config, http_client);
+            RemoteAsyncPowershellClient::open_task_serial(internal_config, http_client);
 
         // Spawn session event handler task
         spawn_local(async move {
@@ -203,10 +206,15 @@ impl WasmPowerShellClient {
         info!("spawning background task for PowerShell client");
         // Spawn background task
         wasm_bindgen_futures::spawn_local(async move {
+            info!("background task starting");
             #[expect(clippy::large_futures)]
-            if let Err(e) = task.await {
-                error!(?e, "background task failed");
-                web_sys::console::error_1(&format!("Background task failed: {e}").into());
+            match task.await {
+                Ok(()) => {
+                    info!("background task ended OK");
+                }
+                Err(e) => {
+                    error!(?e, "background task failed");
+                }
             }
         });
 

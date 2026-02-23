@@ -38,7 +38,7 @@ const PROTOCOL_VERSION: &str = "2.3";
 const PS_VERSION: &str = "2.0";
 const SERIALIZATION_VERSION: &str = "1.1.0.1";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesiredStream {
     name: String,
     command_id: Option<Uuid>,
@@ -505,6 +505,38 @@ impl RunspacePool {
             }
         }
 
+        // Handle SOAP faults (e.g. operation timeout heartbeats)
+        if let Some(fault_tag) = soap_envelope.body.as_ref().fault.as_ref() {
+            let fault = fault_tag.as_ref();
+            if fault.is_timeout() {
+                info!(
+                    target: "accept_response",
+                    "received WS-Management timeout fault (heartbeat), re-issuing Receive"
+                );
+                // Normal heartbeat - re-issue Receive for active streams
+                let desired_streams = self.compute_active_desired_streams();
+                if !desired_streams.is_empty() {
+                    result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
+                }
+            } else {
+                // Real fault - propagate as error
+                let code = fault
+                    .code
+                    .as_ref()
+                    .and_then(|c| c.as_ref().value.as_ref())
+                    .map_or("unknown", |v| <&str>::from(v.as_ref()))
+                    .to_string();
+                let reason = fault.reason_text().unwrap_or("unknown").to_string();
+                error!(
+                    target: "accept_response",
+                    %code,
+                    %reason,
+                    "received non-timeout SOAP fault"
+                );
+                return Err(PwshCoreError::SoapFault { code, reason });
+            }
+        }
+
         debug!(
             target: "accept_response",
             result_count = result.len(),
@@ -513,6 +545,23 @@ impl RunspacePool {
         );
 
         Ok(result)
+    }
+
+    /// Compute desired streams for all currently active pipelines, plus the runspace pool stream.
+    /// Used to re-issue a Receive after a timeout heartbeat.
+    pub(crate) fn compute_active_desired_streams(&self) -> Vec<DesiredStream> {
+        let mut streams: Vec<DesiredStream> = self
+            .pipelines
+            .keys()
+            .map(|pipeline_id| DesiredStream::stdout_for_command(*pipeline_id))
+            .collect();
+
+        // Always include runspace pool stream if no pipeline-specific streams
+        if streams.is_empty() {
+            streams = DesiredStream::runspace_pool_streams();
+        }
+
+        streams
     }
 
     pub(crate) fn init_pipeline(

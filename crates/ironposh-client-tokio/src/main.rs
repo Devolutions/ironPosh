@@ -43,9 +43,21 @@ async fn main() -> anyhow::Result<()> {
     let config = create_connector_config(&args, cols, rows)?;
     let http_client = ReqwestHttpClient::new();
 
-    // Create the PowerShell client
-    let (mut client, host_io, session_event_rx, connection_task) =
-        RemoteAsyncPowershellClient::open_task(config, http_client);
+    // Create the PowerShell client (serial by default, --parallel for multi-connection)
+    let (mut client, host_io, session_event_rx, connection_task): (
+        _,
+        _,
+        _,
+        std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
+    ) = if args.parallel {
+        info!("Using parallel (multi-connection) session loop");
+        let (c, h, s, t) = RemoteAsyncPowershellClient::open_task(config, http_client);
+        (c, h, s, Box::pin(t))
+    } else {
+        info!("Using serial (single-connection) session loop");
+        let (c, h, s, t) = RemoteAsyncPowershellClient::open_task_serial(config, http_client);
+        (c, h, s, Box::pin(t))
+    };
 
     // Extract host I/O for handling host calls
     let (host_call_rx, submitter) = host_io.into_parts();

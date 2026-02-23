@@ -268,5 +268,6 @@ pub fn create_connector_config(
         transport,
         authentication: auth,
         host_info,
+        operation_timeout_secs: None,
     })
 }
