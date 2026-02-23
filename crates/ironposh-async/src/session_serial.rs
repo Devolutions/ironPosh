@@ -66,6 +66,12 @@ pub async fn start_serial_session_loop(
     // `work_queue`, no HTTP request in flight, and no pending HostCalls.
     let mut deferred_streams: Vec<DesiredStream> = Vec::new();
 
+    // Set when a `SendAndThenReceive` contributes runspace-pool-only streams.
+    // This means the server is expected to respond (e.g., PSRP key exchange
+    // waiting for EncryptedSessionKey), so we MUST issue a Receive even if no
+    // pipeline streams are present. Cleared after the Receive is promoted.
+    let mut runspace_receive_demanded = false;
+
     // HostCalls waiting to be dispatched to the JS/consumer side.
     let mut pending_host_calls: VecDeque<HostCall> = VecDeque::new();
 
@@ -111,6 +117,7 @@ pub async fn start_serial_session_loop(
                 &mut deferred_streams,
                 &mut pending_host_calls,
                 &mut user_output_tx,
+                &mut runspace_receive_demanded,
             )
             .await?;
         }
@@ -167,14 +174,32 @@ pub async fn start_serial_session_loop(
                     .fire_receive(vec![stream])
                     .context("Failed to build Receive from deferred stream")?;
                 Some(client.send_request(receive).fuse())
+            } else if runspace_receive_demanded {
+                // A SendAndThenReceive requested runspace-pool-only streams — the server
+                // is expected to respond (e.g., PSRP key exchange EncryptedSessionKey).
+                // We MUST issue this Receive even though no pipeline streams exist.
+                runspace_receive_demanded = false;
+                let stream = deferred_streams.remove(0);
+
+                diag!("DIAG promote: demanded runspace-pool Receive (key exchange / server response expected)");
+                trace!(
+                    target: "serial",
+                    ?stream,
+                    deferred_remaining = deferred_streams.len(),
+                    "promoting demanded runspace-pool stream to Receive"
+                );
+                let receive = active_session
+                    .fire_receive(vec![stream])
+                    .context("Failed to build Receive from demanded runspace-pool stream")?;
+                Some(client.send_request(receive).fuse())
             } else {
-                // Only runspace pool streams — don't promote, fall through to idle.
-                // A runspace pool Receive when idle blocks for the full OperationTimeout
-                // (~15-20s) with no useful data, freezing all user operations (including
-                // the first command after connection). Pipeline-triggered Receives already
-                // include runspace pool data, so nothing is lost.
-                diag!("DIAG promote: skipping runspace-pool-only Receive (would block for OperationTimeout)");
-                trace!(target: "serial", "skipping runspace-pool-only Receive, falling through to idle");
+                // Only runspace pool streams, not demanded — don't promote, fall through
+                // to idle. A speculative runspace pool Receive when idle blocks for the
+                // full OperationTimeout (~15-20s) with no useful data, freezing all user
+                // operations. Pipeline-triggered Receives already include runspace pool
+                // data, so nothing is lost.
+                diag!("DIAG promote: skipping speculative runspace-pool-only Receive (would block for OperationTimeout)");
+                trace!(target: "serial", "skipping speculative runspace-pool-only Receive, falling through to idle");
                 None
             }
         } else {
@@ -230,6 +255,7 @@ pub async fn start_serial_session_loop(
                                 &mut deferred_streams,
                                 &mut pending_host_calls,
                                 &mut user_output_tx,
+                                &mut runspace_receive_demanded,
                             )
                             .await?;
                         }
@@ -334,6 +360,7 @@ pub async fn start_serial_session_loop(
                             &mut deferred_streams,
                             &mut pending_host_calls,
                             &mut user_output_tx,
+                            &mut runspace_receive_demanded,
                         )
                         .await?;
                         try_dispatch_next_host_call(
@@ -375,6 +402,7 @@ pub async fn start_serial_session_loop(
                             &mut deferred_streams,
                             &mut pending_host_calls,
                             &mut user_output_tx,
+                            &mut runspace_receive_demanded,
                         )
                         .await?;
 
@@ -406,6 +434,7 @@ async fn enqueue_output(
     deferred_streams: &mut Vec<DesiredStream>,
     pending_host_calls: &mut VecDeque<HostCall>,
     user_output_tx: &mut mpsc::Sender<UserEvent>,
+    runspace_receive_demanded: &mut bool,
 ) -> anyhow::Result<()> {
     match output {
         ActiveSessionOutput::SendBack(reqs) => {
@@ -424,6 +453,18 @@ async fn enqueue_output(
                 "DIAG enqueue: SendAndThenReceive → work_queue + {} deferred streams",
                 then_receive_streams.len()
             );
+            // If the follow-up streams are runspace-pool-only (no pipeline CommandId),
+            // mark them as demanded — the server is expected to respond (e.g., PSRP
+            // key exchange EncryptedSessionKey). We must NOT skip this Receive.
+            let rp_only = !then_receive_streams.is_empty()
+                && then_receive_streams
+                    .iter()
+                    .all(|s| s.command_id().is_none());
+            if rp_only {
+                diag!("DIAG enqueue: runspace-pool Receive demanded (SendAndThenReceive)");
+                trace!(target: "serial", "marking runspace-pool Receive as demanded (SendAndThenReceive)");
+                *runspace_receive_demanded = true;
+            }
             work_queue.push_back(send_request);
             merge_deferred_streams(deferred_streams, then_receive_streams);
         }
