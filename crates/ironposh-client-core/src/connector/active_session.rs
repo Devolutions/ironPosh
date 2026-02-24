@@ -1,4 +1,5 @@
 use crate::{
+    PwshCoreError,
     connector::{
         conntion_pool::{ConnectionPool, ConnectionPoolAccept, TrySend},
         http::HttpResponseTargeted,
@@ -7,7 +8,6 @@ use crate::{
     pipeline::PipelineSpec,
     powershell::PipelineHandle,
     runspace_pool::{DesiredStream, RunspacePool, pool::AcceptResponsResult},
-    PwshCoreError,
 };
 use ironposh_psrp::{ErrorRecord, PipelineOutput, PsPrimitiveValue, PsValue};
 use tracing::{error, info, instrument, warn};
