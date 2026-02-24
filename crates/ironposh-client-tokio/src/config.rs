@@ -70,7 +70,10 @@ pub struct Args {
     pub http_insecure: bool,
 
     /// Use parallel (multi-connection) session loop instead of the default serial mode.
-    #[arg(long, help = "Use parallel session loop (default: serial/single-connection)")]
+    #[arg(
+        long,
+        help = "Use parallel session loop (default: serial/single-connection)"
+    )]
     pub parallel: bool,
 
     /// Verbose logging (can be repeated for more verbosity)
