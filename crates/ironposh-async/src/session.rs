@@ -273,7 +273,9 @@ async fn process_session_outputs(
             | ActiveSessionOutput::SendAndThenReceive { .. }
             | ActiveSessionOutput::PendingReceive { .. } => {
                 // This should be handled at the caller level
-                warn!("SendBack/SendAndThenReceive/PendingReceive should not reach process_session_outputs");
+                warn!(
+                    "SendBack/SendAndThenReceive/PendingReceive should not reach process_session_outputs"
+                );
             }
             ActiveSessionOutput::SendBackError(e) => {
                 error!(target: "session", error = %e, "session step failed");

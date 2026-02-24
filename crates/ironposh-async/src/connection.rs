@@ -35,8 +35,7 @@ async fn run_handshake<C: HttpClient>(
         let step_result = match step_result {
             Ok(result) => result,
             Err(e) => {
-                let _ =
-                    session_event_tx.unbounded_send(crate::SessionEvent::Error(e.to_string()));
+                let _ = session_event_tx.unbounded_send(crate::SessionEvent::Error(e.to_string()));
                 return Err(e);
             }
         };
@@ -71,9 +70,10 @@ fn build_pipeline_multiplexer(
     mut pipeline_input_rx: mpsc::Receiver<PipelineInput>,
     span_prefix: &'static str,
 ) -> impl std::future::Future<Output = anyhow::Result<()>> {
-    let pipeline_map = Arc::new(futures::lock::Mutex::new(
-        std::collections::HashMap::<uuid::Uuid, mpsc::Sender<UserEvent>>::new(),
-    ));
+    let pipeline_map = Arc::new(futures::lock::Mutex::new(std::collections::HashMap::<
+        uuid::Uuid,
+        mpsc::Sender<UserEvent>,
+    >::new()));
 
     let pipeline_map_clone = Arc::clone(&pipeline_map);
 
@@ -151,7 +151,11 @@ fn build_pipeline_multiplexer(
 
             Ok::<(), anyhow::Error>(())
         }
-        .instrument(span!(Level::INFO, "PipelineInputLoop", prefix = user_span_name));
+        .instrument(span!(
+            Level::INFO,
+            "PipelineInputLoop",
+            prefix = user_span_name
+        ));
 
         let (x, y) = join!(from_server, from_user);
         x.and(y)
@@ -222,8 +226,12 @@ where
     .instrument(info_span!("MainTask"));
 
     let (pipeline_input_tx, pipeline_input_rx) = mpsc::channel(100);
-    let multiplex_pipeline_task =
-        build_pipeline_multiplexer(user_input_tx, server_output_rx, pipeline_input_rx, "Parallel");
+    let multiplex_pipeline_task = build_pipeline_multiplexer(
+        user_input_tx,
+        server_output_rx,
+        pipeline_input_rx,
+        "Parallel",
+    );
 
     let joined_task = async move {
         let res = join!(active_session_task, multiplex_pipeline_task);
