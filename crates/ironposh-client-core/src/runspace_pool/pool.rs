@@ -518,6 +518,29 @@ impl RunspacePool {
                 if !desired_streams.is_empty() {
                     result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
                 }
+            } else if fault.is_invalid_selectors() {
+                // Common cancel race: we had a Receive(CommandId=...) in flight while the
+                // server already tore down the command. Treat this as non-fatal and
+                // stop polling pipelines so the session remains usable.
+                let reason = fault.reason_text().unwrap_or("unknown");
+                warn!(
+                    target: "accept_response",
+                    reason = %reason,
+                    pipeline_count = self.pipelines.len(),
+                    "received WS-Management InvalidSelectors fault; dropping active pipelines and continuing"
+                );
+
+                let finished: Vec<Uuid> = self.pipelines.keys().copied().collect();
+                self.pipelines.clear();
+
+                for id in finished {
+                    result.push(AcceptResponsResult::PipelineFinished(PipelineHandle { id }));
+                }
+
+                let desired_streams = self.compute_active_desired_streams();
+                if !desired_streams.is_empty() {
+                    result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
+                }
             } else {
                 // Real fault - propagate as error
                 let code = fault

@@ -49,6 +49,22 @@ impl SoapFaultValue<'_> {
         matches!(subcode_text, Some(text) if text.contains("TimedOut"))
     }
 
+    /// Check if this SOAP fault represents an invalid selector error.
+    ///
+    /// WinRM returns `w:InvalidSelectors` (often with WSManFault Code 2150858843)
+    /// when a request references a `CommandId` that no longer exists (e.g. a
+    /// pipeline was canceled or completed while we still had a Receive in flight).
+    pub fn is_invalid_selectors(&self) -> bool {
+        let subcode_text = self
+            .code
+            .as_ref()
+            .and_then(|code| code.as_ref().subcode.as_ref())
+            .and_then(|subcode| subcode.as_ref().value.as_ref())
+            .map(|value| <&str>::from(value.as_ref()));
+
+        matches!(subcode_text, Some(text) if text.contains("InvalidSelectors"))
+    }
+
     /// Get the human-readable reason text from the fault, if available.
     pub fn reason_text(&self) -> Option<&str> {
         self.reason
