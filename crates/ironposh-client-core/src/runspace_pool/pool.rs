@@ -51,6 +51,14 @@ impl DesiredStream {
         }
     }
 
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn test_new(name: impl Into<String>, command_id: Option<Uuid>) -> Self {
+        Self {
+            name: name.into(),
+            command_id,
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }

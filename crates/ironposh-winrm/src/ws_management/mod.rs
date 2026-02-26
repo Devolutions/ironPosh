@@ -18,8 +18,12 @@ pub struct WsMan {
     #[builder(default = 512000)]
     max_envelope_size: u32,
 
-    #[builder(default = 180)]
-    operation_timeout: u32,
+    /// OperationTimeout in seconds. Fractional values (e.g. `0.5`) are supported
+    /// and serialised as `PT{t:.3}S` in the SOAP header.
+    ///
+    /// Changed from `u32` to `f64` to support sub-second timeouts.
+    #[builder(default = 180.0)]
+    operation_timeout: f64,
 
     #[builder(default = "en-CA".to_string())]
     data_locale: String,

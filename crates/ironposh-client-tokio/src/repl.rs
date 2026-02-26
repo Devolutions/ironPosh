@@ -5,12 +5,49 @@ use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_terminal::Terminal;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 use crate::types::TerminalOperation;
 use crate::types::{HostUiRequest, HostUiResponse, ReplControl};
+
+#[cfg(windows)]
+static CONSOLE_CTRL_C_PENDING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+unsafe extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
+    use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT};
+
+    match ctrl_type {
+        CTRL_C_EVENT | CTRL_BREAK_EVENT => {
+            CONSOLE_CTRL_C_PENDING.store(true, Ordering::SeqCst);
+            // Returning TRUE prevents the default behavior (process termination).
+            1
+        }
+        _ => 0,
+    }
+}
+
+/// On Windows/ConPTY, sending byte `0x03` may generate a console Ctrl+C event that can
+/// terminate the process before it reaches Crossterm as a key event. Install a handler
+/// that prevents termination and lets us surface Ctrl+C as `UserInput::Interrupt`.
+#[cfg(windows)]
+pub fn install_console_ctrl_handler() {
+    use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+
+    unsafe {
+        // Best-effort: if this fails, we still handle Ctrl+C via Crossterm events.
+        let _ok = SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+    }
+}
+
+#[cfg(windows)]
+fn take_console_ctrl_c_pending() -> bool {
+    CONSOLE_CTRL_C_PENDING.swap(false, Ordering::SeqCst)
+}
 
 fn clamp_console_color(color: i32) -> i32 {
     color.clamp(0, 15)
@@ -676,6 +713,15 @@ fn run_ui_thread(
                 }
                 TerminalOperation::RequestInput { prompt } => {
                     debug!(prompt = %prompt, "reading user input");
+                    #[cfg(windows)]
+                    if take_console_ctrl_c_pending() {
+                        info!("user pressed Ctrl+C (console control event)");
+                        if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                            warn!("failed to send interrupt to REPL - channel closed");
+                            return Ok(());
+                        }
+                        continue;
+                    }
                     match io.read_line_queued_with_tab_completion(
                         &prompt,
                         &mut event_queue,
@@ -723,6 +769,15 @@ fn run_ui_thread(
                     }
                 }
                 TerminalOperation::CheckInterrupt => {
+                    #[cfg(windows)]
+                    if take_console_ctrl_c_pending() {
+                        info!("user pressed Ctrl+C (console control event)");
+                        if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                            warn!("failed to send interrupt to REPL - channel closed");
+                            return Ok(());
+                        }
+                        continue;
+                    }
                     if let Some(read_line) = io.try_read_line_queued(&mut event_queue)? {
                         match read_line {
                             ReadOutcome::Line(s) => {

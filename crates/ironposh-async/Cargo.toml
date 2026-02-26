@@ -20,6 +20,9 @@ uuid = "1.0"
 futures-timer = { version = "3", features = ["wasm-bindgen"] }
 web-sys = { version = "0.3.81", features = ["console"], optional = true }
 
+[dev-dependencies]
+ironposh-client-core = { path = "../ironposh-client-core", features = ["test-helpers"] }
+
 [features]
 default = []
 wasm-diag = ["web-sys"]

@@ -23,6 +23,9 @@ whoami = "1.6.1"
 serde = { version = "1.0.228", features = ["derive"] }
 sspi = { version = "0.18", features = ["ring"] }
 
+[features]
+test-helpers = []
+
 [dev-dependencies]
 ureq = "2"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

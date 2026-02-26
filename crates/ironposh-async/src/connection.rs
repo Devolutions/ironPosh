@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::Context;
 use futures::{SinkExt, StreamExt, channel::mpsc, join};
@@ -22,12 +22,16 @@ async fn run_handshake<C: HttpClient>(
     Box<ironposh_client_core::connector::active_session::ActiveSession>,
     ironposh_client_core::connector::conntion_pool::TrySend,
 )> {
+    let handshake_started_at = Instant::now();
+    let mut step_idx: u64 = 0;
+
     let mut connector = Connector::new(config);
     info!("Created connector, starting connection handshake...");
 
     let mut response = None;
 
     loop {
+        step_idx += 1;
         let step_result = connector
             .step(response.take())
             .context("Failed to step through connector");
@@ -40,23 +44,57 @@ async fn run_handshake<C: HttpClient>(
             }
         };
 
-        debug!(step_result = ?step_result.name(), "Processing step result");
+        debug!(step_idx, step_result = ?step_result.name(), "Processing step result");
 
         match step_result {
             ConnectorStepResult::SendBack { try_send } => {
+                let send_started_at = Instant::now();
+                let conn_id = try_send.get_connection_id().inner();
+                info!(
+                    target: "serial",
+                    step_idx,
+                    conn_id,
+                    "handshake: sending HTTP request"
+                );
+
                 match client.send_request(try_send).await {
                     Ok(resp) => response = Some(resp),
                     Err(e) => {
+                        let elapsed_ms = send_started_at.elapsed().as_millis() as u64;
+                        warn!(
+                            target: "serial",
+                            step_idx,
+                            conn_id,
+                            elapsed_ms,
+                            error = %e,
+                            "handshake: HTTP request failed"
+                        );
                         let _ = session_event_tx
                             .unbounded_send(crate::SessionEvent::Error(e.to_string()));
                         return Err(e);
                     }
                 }
+
+                let elapsed_ms = send_started_at.elapsed().as_millis() as u64;
+                info!(
+                    target: "serial",
+                    step_idx,
+                    conn_id,
+                    elapsed_ms,
+                    "handshake: HTTP request completed"
+                );
             }
             ConnectorStepResult::Connected {
                 active_session,
                 send_this_one_async_or_you_stuck: next_receive_request,
             } => {
+                let elapsed_ms = handshake_started_at.elapsed().as_millis() as u64;
+                info!(
+                    target: "serial",
+                    step_idx,
+                    elapsed_ms,
+                    "handshake: connected"
+                );
                 return Ok((active_session, next_receive_request));
             }
         }

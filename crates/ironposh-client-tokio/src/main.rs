@@ -24,6 +24,11 @@ async fn main() -> anyhow::Result<()> {
     init_logging(args.verbose)?;
     info!("Starting WinRM PowerShell client (Async/Tokio)");
 
+    // On Windows/ConPTY, Ctrl+C can arrive as a console control event (not only a key event).
+    // Install a handler that prevents process termination so the REPL can treat it as an interrupt.
+    #[cfg(windows)]
+    repl::install_console_ctrl_handler();
+
     // Display connection information
     info!(
         server = %args.server,

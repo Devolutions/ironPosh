@@ -238,7 +238,9 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         .build();
 
     // Serial mode uses a short timeout so Receives don't block outbound sends.
-    let operation_timeout_secs = if args.parallel { None } else { Some(5) };
+    // In serial mode, keep Receive long-poll slices short to reduce perceived latency
+    // (initial connection + Ctrl+C responsiveness) under a single in-flight HTTP constraint.
+    let operation_timeout_secs = if args.parallel { None } else { Some(0.5) };
 
     Ok(WinRmConfig {
         server: (server, args.port),
@@ -247,4 +249,51 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         host_info,
         operation_timeout_secs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironposh_client_core::connector::TransportSecurity;
+
+    #[test]
+    fn serial_mode_defaults_to_500ms_operation_timeout() {
+        let args = Args {
+            server: "127.0.0.1".to_string(),
+            port: 5985,
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            domain: String::new(),
+            auth_method: AuthMethod::Basic,
+            https: false,
+            http_insecure: true,
+            parallel: false,
+            verbose: 0,
+            command: None,
+        };
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert_eq!(cfg.transport, TransportSecurity::HttpInsecure);
+        assert_eq!(cfg.operation_timeout_secs, Some(0.5));
+    }
+
+    #[test]
+    fn parallel_mode_keeps_default_operation_timeout() {
+        let args = Args {
+            server: "127.0.0.1".to_string(),
+            port: 5985,
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            domain: String::new(),
+            auth_method: AuthMethod::Basic,
+            https: false,
+            http_insecure: true,
+            parallel: true,
+            verbose: 0,
+            command: None,
+        };
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert_eq!(cfg.operation_timeout_secs, None);
+    }
 }

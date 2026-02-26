@@ -20,6 +20,10 @@ crossbeam-channel = "0.5"
 whoami = "1.5"
 crossterm = "0.29"
 vt100 = "0.16"
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
+[dev-dependencies]
+portable-pty = "0.8"
 
 [lints]
 workspace = true

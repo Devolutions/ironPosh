@@ -5,14 +5,17 @@
 //! - [`start_serial_session_loop`] — thin async I/O shell (HTTP, channels, `select!`)
 
 mod core;
+mod scheduler;
 
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::future::Either;
 use futures::{FutureExt, SinkExt, StreamExt};
+use futures_timer::Delay;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::conntion_pool::TrySend;
 use ironposh_client_core::host::HostCall;
+use std::time::{Duration, Instant};
 use tracing::{info, instrument, trace};
 
 use ironposh_client_core::connector::UserOperation;
@@ -83,6 +86,13 @@ pub async fn start_serial_session_loop(
             trace!(target: "serial", "idle: no pending work, waiting for user input or host response");
             diag!("DIAG idle: waiting for user input or host response");
 
+            let now_ms = core.now_ms();
+            #[allow(clippy::option_if_let_else)] // match is clearer than map_or_else here
+            let mut wake_guard = match core.next_wakeup_in_ms(now_ms) {
+                Some(ms) => Either::Left(Delay::new(Duration::from_millis(ms)).fuse()),
+                None => Either::Right(futures::future::pending::<()>()),
+            };
+
             let mut host_guard = if core.is_host_call_active() {
                 Either::Left(host_resp_rx.next())
             } else {
@@ -90,6 +100,9 @@ pub async fn start_serial_session_loop(
             };
 
             futures::select! {
+                () = wake_guard => {
+                    // Timer wake-up (e.g. receive backoff window elapsed) — loop again to promote work.
+                }
                 op = user_input_rx.next() => {
                     if let Some(op) = op {
                         core.accept_user_op(op)?;
@@ -120,6 +133,16 @@ async fn send_and_buffer(
     host_resp_rx: &mut mpsc::UnboundedReceiver<HostResponse>,
     host_call_tx: &mpsc::UnboundedSender<HostCall>,
 ) -> anyhow::Result<crate::HttpResponseTargeted> {
+    let send_started_at = Instant::now();
+    let desc = describe_try_send(&req);
+    info!(
+        target: "serial",
+        conn_id = desc.conn_id,
+        kind = %desc.kind,
+        body_len = desc.body_len,
+        "serial: HTTP send start"
+    );
+
     let http_future = client.send_request(req).fuse();
     futures::pin_mut!(http_future);
 
@@ -132,9 +155,36 @@ async fn send_and_buffer(
 
         futures::select! {
             resp = http_future => {
+                let elapsed_ms = send_started_at.elapsed().as_millis() as u64;
                 diag!("DIAG select: HTTP response received");
                 trace!(target: "serial", "HTTP response received");
-                return resp.context("Serial HTTP request failed");
+                match resp {
+                    Ok(resp) => {
+                        let status_code = resp.response().status_code;
+                        let resp_body_len = resp.response().body.len();
+                        info!(
+                            target: "serial",
+                            conn_id = desc.conn_id,
+                            kind = %desc.kind,
+                            elapsed_ms,
+                            status_code,
+                            resp_body_len,
+                            "serial: HTTP send completed"
+                        );
+                        return Ok(resp);
+                    }
+                    Err(e) => {
+                        info!(
+                            target: "serial",
+                            conn_id = desc.conn_id,
+                            kind = %desc.kind,
+                            elapsed_ms,
+                            error = %e,
+                            "serial: HTTP send failed"
+                        );
+                        return Err(e).context("Serial HTTP request failed");
+                    }
+                }
             }
             op = user_input_rx.next() => {
                 if let Some(op) = op {
@@ -160,6 +210,64 @@ async fn send_and_buffer(
             }
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct TrySendDesc {
+    conn_id: u32,
+    kind: &'static str,
+    body_len: usize,
+}
+
+fn describe_try_send(req: &TrySend) -> TrySendDesc {
+    let conn_id = req.get_connection_id().inner();
+
+    match req {
+        TrySend::AuthNeeded { .. } => TrySendDesc {
+            conn_id,
+            kind: "auth_needed",
+            body_len: 0,
+        },
+        TrySend::JustSend { request, .. } => {
+            let (kind, body_len) = describe_http_request(request);
+            TrySendDesc {
+                conn_id,
+                kind,
+                body_len,
+            }
+        }
+    }
+}
+
+fn describe_http_request(
+    req: &ironposh_client_core::connector::http::HttpRequest,
+) -> (&'static str, usize) {
+    let Some(body) = &req.body else {
+        return ("no_body", 0);
+    };
+
+    let body_len = body.len();
+    let Ok(s) = body.as_str() else {
+        // Most commonly: encrypted multipart body.
+        return ("opaque_body", body_len);
+    };
+
+    // Best-effort classification. Avoid logging content; only detect the broad type.
+    let kind = if s.contains(":Signal") || s.contains("<rsp:Signal") || s.contains("<Signal") {
+        "signal"
+    } else if s.contains(":Receive") || s.contains("<rsp:Receive") || s.contains("<Receive") {
+        "receive"
+    } else if s.contains(":Command") || s.contains("<rsp:Command") || s.contains("<Command") {
+        "command"
+    } else if s.contains(":Create") || s.contains("<rsp:Shell") || s.contains("CreateShell") {
+        "create_or_shell"
+    } else if s.contains(":Delete") || s.contains("DeleteShell") {
+        "delete"
+    } else {
+        "other"
+    };
+
+    (kind, body_len)
 }
 
 /// Drain buffered user ops from the channel (after HTTP response).

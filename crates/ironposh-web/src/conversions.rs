@@ -187,7 +187,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             host_info,
             // Short timeout for serial/single-connection mode so Receives
             // don't block outbound sends for too long.
-            operation_timeout_secs: Some(5),
+            operation_timeout_secs: Some(0.5),
         }
     }
 }
@@ -346,5 +346,38 @@ impl From<&UserEvent> for JsRunCommandEvent {
                 record: Box::new(WasmPsrpRecord::from(record)),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{GatewayTransport, WasmAuthMethod, WasmWinRmConfig, WinRmDestination};
+
+    #[test]
+    fn wasm_config_sets_short_operation_timeout_for_serial_mode() {
+        let cfg = WasmWinRmConfig {
+            auth: WasmAuthMethod::Basic,
+            destination: WinRmDestination {
+                host: "127.0.0.1".to_string(),
+                port: 5985,
+                transport: GatewayTransport::Tcp,
+            },
+            gateway_url: "ws://localhost:7171".to_string(),
+            gateway_token: "token".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            domain: None,
+            locale: None,
+            kdc_proxy_url: None,
+            client_computer_name: None,
+            cols: 120,
+            rows: 30,
+            raw_ui_enabled: Some(true),
+            force_insecure: None,
+        };
+
+        let winrm: WinRmConfig = cfg.into();
+        assert_eq!(winrm.operation_timeout_secs, Some(0.5));
     }
 }

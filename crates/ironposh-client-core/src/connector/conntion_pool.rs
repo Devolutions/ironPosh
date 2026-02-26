@@ -31,6 +31,11 @@ impl ConnectionId {
     pub fn inner(&self) -> u32 {
         self.id
     }
+
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn test_new(id: u32) -> Self {
+        Self { id }
+    }
 }
 
 // ============================= ConnectionState =============================

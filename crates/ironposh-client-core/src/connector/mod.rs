@@ -85,10 +85,20 @@ pub struct WinRmConfig {
     pub transport: TransportSecurity,
     pub authentication: AuthenticatorConfig,
     pub host_info: HostInfo,
-    /// WS-Management OperationTimeout in seconds. `None` uses the default (180s).
-    /// For serial/single-connection mode, a short timeout (e.g. 5s) is recommended
+    /// WS-Management OperationTimeout in seconds (fractional values allowed, e.g. `0.5`).
+    ///
+    /// - `None` — use the server/protocol default (180 s).
+    /// - `Some(t)` — set an explicit timeout of `t` seconds. Fractional values are
+    ///   serialised as `PT{t:.3}S` in the SOAP header (e.g. `PT0.500S`).
+    ///
+    /// For serial/single-connection mode, a short timeout (0.5 s–5 s) is recommended
     /// so inbound Receives don't block outbound sends for too long.
-    pub operation_timeout_secs: Option<u32>,
+    ///
+    /// # Type note
+    ///
+    /// Changed from `Option<u32>` to `Option<f64>` to support sub-second timeouts
+    /// (required by serial mode's 500 ms Receive slices).
+    pub operation_timeout_secs: Option<f64>,
 }
 
 impl WinRmConfig {
@@ -209,7 +219,7 @@ impl Connector {
 
                 let mut connection_pool = ConnectionPool::new(pool_cfg, auth_sequence_config);
 
-                let operation_timeout = self.config.operation_timeout_secs.unwrap_or(180);
+                let operation_timeout = self.config.operation_timeout_secs.unwrap_or(180.0);
                 let ws_man = Arc::new(
                     WsMan::builder()
                         .to(self.config.wsman_to(None))
