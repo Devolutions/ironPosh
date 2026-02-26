@@ -159,7 +159,7 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 /// Create connector configuration from command line arguments.
 ///
 /// When `parallel` is false (default serial mode), `operation_timeout_secs` is set
-/// to 5s so inbound Receives don't block outbound sends for too long.
+/// to a short slice so inbound Receives don't block outbound sends for too long.
 pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
 
@@ -238,9 +238,9 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
         .build();
 
     // Serial mode uses a short timeout so Receives don't block outbound sends.
-    // In serial mode, keep Receive long-poll slices short to reduce perceived latency
-    // (initial connection + Ctrl+C responsiveness) under a single in-flight HTTP constraint.
-    let operation_timeout_secs = if args.parallel { None } else { Some(0.5) };
+    // Keep Receive long-poll slices short to reduce perceived latency (initial connection
+    // + Ctrl+C responsiveness) under a single in-flight HTTP constraint.
+    let operation_timeout_secs = if args.parallel { None } else { Some(0.25) };
 
     Ok(WinRmConfig {
         server: (server, args.port),
@@ -257,7 +257,7 @@ mod tests {
     use ironposh_client_core::connector::TransportSecurity;
 
     #[test]
-    fn serial_mode_defaults_to_500ms_operation_timeout() {
+    fn serial_mode_defaults_to_250ms_operation_timeout() {
         let args = Args {
             server: "127.0.0.1".to_string(),
             port: 5985,
@@ -274,7 +274,7 @@ mod tests {
 
         let cfg = create_connector_config(&args, 120, 30).expect("create config");
         assert_eq!(cfg.transport, TransportSecurity::HttpInsecure);
-        assert_eq!(cfg.operation_timeout_secs, Some(0.5));
+        assert_eq!(cfg.operation_timeout_secs, Some(0.25));
     }
 
     #[test]

@@ -88,11 +88,31 @@ impl WsMan {
         option_set: Option<header::OptionSetValue>,
         selector_set: Option<header::SelectorSetValue>,
     ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
+        self.invoke_with_operation_timeout(
+            action,
+            resource_uri,
+            resource_body,
+            option_set,
+            selector_set,
+            None,
+        )
+    }
+
+    pub fn invoke_with_operation_timeout<'a>(
+        &'a self,
+        action: &WsAction,
+        resource_uri: Option<&'a str>,
+        resource_body: SoapBody<'a>,
+        option_set: Option<header::OptionSetValue>,
+        selector_set: Option<header::SelectorSetValue>,
+        operation_timeout_secs: Option<f64>,
+    ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
         // Generate a unique message ID and operation ID for this request
         let message_id = uuid::Uuid::new_v4();
         let operation_id = uuid::Uuid::new_v4();
 
         let resource_uri = resource_uri.unwrap_or(self.resource_uri.as_str());
+        let operation_timeout_secs = operation_timeout_secs.unwrap_or(self.operation_timeout);
 
         // Create reply-to address value
         let reply_to_addr = AddressValue {
@@ -120,7 +140,7 @@ impl WsMan {
                 Tag::new(self.max_envelope_size).with_attribute(Attribute::MustUnderstand(true)),
             )
             .resource_uri(Tag::new(resource_uri).with_attribute(Attribute::MustUnderstand(true)))
-            .operation_timeout(Time::from(self.operation_timeout))
+            .operation_timeout(Time::from(operation_timeout_secs))
             .message_id(message_id)
             .to(self.to.as_ref())
             .reply_to(Tag::new(reply_to_addr).with_attribute(Attribute::MustUnderstand(true)))

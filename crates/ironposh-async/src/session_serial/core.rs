@@ -23,6 +23,57 @@ use super::scheduler::{DefaultReceiveScheduler, ReceiveScheduler, TargetId};
 use crate::HostResponse;
 use crate::clock::Instant;
 
+// ── Internal State ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Default)]
+struct Queues {
+    /// Pending HTTP requests (Command, HostResponse, Signal, etc.).
+    /// **Always promoted before Receives.**
+    work: VecDeque<TrySend>,
+
+    /// Demanded Receive streams — from `SendAndThenReceive`. The server is
+    /// expected to have data ready after processing our preceding Send (e.g.,
+    /// PSRP key exchange `EncryptedSessionKey`, host-response acknowledgement).
+    /// **Always promoted** regardless of pipeline vs runspace-pool.
+    demanded_streams: VecDeque<DesiredStream>,
+
+    /// Speculative Receive streams — from `PendingReceive`. Pipeline streams
+    /// are promoted; runspace-pool-only streams are **skipped** (would block for
+    /// `OperationTimeout` with no useful data). Pipeline Receives already
+    /// include runspace pool data, so nothing is lost.
+    speculative_streams: Vec<DesiredStream>,
+
+    /// HostCalls waiting to be dispatched to the JS/consumer side.
+    host_calls: VecDeque<HostCall>,
+
+    /// User operations buffered while an HTTP request is in flight.
+    user_ops: VecDeque<UserOperation>,
+
+    /// User events accumulated during processing, to be drained by the event loop.
+    user_events: Vec<UserEvent>,
+}
+
+impl Queues {
+    fn new(first_receive: TrySend) -> Self {
+        let mut work = VecDeque::new();
+        work.push_back(first_receive);
+        Self {
+            work,
+            demanded_streams: VecDeque::new(),
+            speculative_streams: Vec::new(),
+            host_calls: VecDeque::new(),
+            user_ops: VecDeque::new(),
+            user_events: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostCallState {
+    Idle,
+    Waiting { call_id: i64 },
+}
+
 // ── Backend trait ─────────────────────────────────────────────────────────
 
 /// Abstraction over [`ActiveSession`] so that [`SessionCore`] can be tested
@@ -96,34 +147,8 @@ pub(super) struct SessionCore<S: SessionBackend = ActiveSession> {
     scheduler: DefaultReceiveScheduler,
     next_wakeup_at_ms: Option<u64>,
     in_flight_receive_target: Option<TargetId>,
-
-    /// Pending HTTP requests (Command, HostResponse, Signal, etc.).
-    /// **Always promoted before Receives.**
-    work_queue: VecDeque<TrySend>,
-
-    /// Demanded Receive streams — from `SendAndThenReceive`. The server is
-    /// expected to have data ready after processing our preceding Send (e.g.,
-    /// PSRP key exchange `EncryptedSessionKey`, host-response acknowledgement).
-    /// **Always promoted** regardless of pipeline vs runspace-pool.
-    demanded_streams: VecDeque<DesiredStream>,
-
-    /// Speculative Receive streams — from `PendingReceive`. Pipeline streams
-    /// are promoted; runspace-pool-only streams are **skipped** (would block for
-    /// `OperationTimeout` with no useful data). Pipeline Receives already
-    /// include runspace pool data, so nothing is lost.
-    speculative_streams: Vec<DesiredStream>,
-
-    /// HostCalls waiting to be dispatched to the JS/consumer side.
-    pending_host_calls: VecDeque<HostCall>,
-
-    /// Whether we're currently waiting for a host-call response from JS.
-    host_call_active: bool,
-
-    /// User operations buffered while an HTTP request is in flight.
-    pending_user_ops: VecDeque<UserOperation>,
-
-    /// User events accumulated during processing, to be drained by the event loop.
-    pending_user_events: Vec<UserEvent>,
+    queues: Queues,
+    host_call_state: HostCallState,
 }
 
 impl SessionCore {
@@ -134,21 +159,14 @@ impl SessionCore {
 
 impl<S: SessionBackend> SessionCore<S> {
     fn new_with_backend(first_receive: TrySend, active_session: S) -> Self {
-        let mut work_queue = VecDeque::new();
-        work_queue.push_back(first_receive);
         Self {
             active_session,
             epoch: Instant::now(),
             scheduler: DefaultReceiveScheduler::new(),
             next_wakeup_at_ms: None,
             in_flight_receive_target: None,
-            work_queue,
-            demanded_streams: VecDeque::new(),
-            speculative_streams: Vec::new(),
-            pending_host_calls: VecDeque::new(),
-            host_call_active: false,
-            pending_user_ops: VecDeque::new(),
-            pending_user_events: Vec::new(),
+            queues: Queues::new(first_receive),
+            host_call_state: HostCallState::Idle,
         }
     }
 
@@ -168,16 +186,7 @@ impl<S: SessionBackend> SessionCore<S> {
     /// `accept_client_operation` may itself call `send()`, moving the
     /// connection back to Pending.
     pub(super) fn process_one_buffered_op(&mut self) -> anyhow::Result<()> {
-        let can_process = if self.work_queue.is_empty() {
-            true
-        } else {
-            matches!(
-                self.pending_user_ops.front(),
-                Some(UserOperation::KillPipeline { .. })
-            )
-        };
-
-        if can_process && let Some(op) = self.pending_user_ops.pop_front() {
+        if let Some(op) = self.queues.user_ops.pop_front() {
             diag!("DIAG process buffered: {}", op.operation_type());
             debug!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
             let priority = SendPriority::for_user_op(&op);
@@ -211,7 +220,7 @@ impl<S: SessionBackend> SessionCore<S> {
         // Only build Receives when all HostCalls are resolved. The server blocks
         // Receives while waiting for our HostCall response, so sending one early
         // would always time out (adding an unnecessary OperationTimeout delay).
-        if self.host_call_active || !self.pending_host_calls.is_empty() {
+        if self.is_host_call_active() || !self.queues.host_calls.is_empty() {
             return Ok(None);
         }
 
@@ -224,12 +233,12 @@ impl<S: SessionBackend> SessionCore<S> {
 
     /// Pop the next item from the work queue (Send operations).
     fn try_promote_work_queue(&mut self) -> Option<TrySend> {
-        let req = self.work_queue.pop_front()?;
+        let req = self.queues.work.pop_front()?;
         diag!(
             "DIAG promote: sending from work_queue ({} remaining)",
-            self.work_queue.len()
+            self.queues.work.len()
         );
-        trace!(target: "serial", remaining_work = self.work_queue.len(), "promoting work_queue item");
+        trace!(target: "serial", remaining_work = self.queues.work.len(), "promoting work_queue item");
         self.in_flight_receive_target = None;
         Some(req)
     }
@@ -238,7 +247,7 @@ impl<S: SessionBackend> SessionCore<S> {
     ///
     /// Skips streams that are scheduler-blocked and records wakeup times.
     fn try_promote_demanded_receive(&mut self, now_ms: u64) -> anyhow::Result<Option<TrySend>> {
-        while let Some(stream) = self.demanded_streams.pop_front() {
+        while let Some(stream) = self.queues.demanded_streams.pop_front() {
             let target = TargetId::from_stream(&stream);
             if !self.scheduler.is_allowed_target(target, now_ms) {
                 if let Some(at) = self.scheduler.next_eligible_at_ms(target) {
@@ -251,14 +260,14 @@ impl<S: SessionBackend> SessionCore<S> {
 
             diag!(
                 "DIAG promote: demanded Receive ({} demanded remaining, {} speculative)",
-                self.demanded_streams.len(),
-                self.speculative_streams.len()
+                self.queues.demanded_streams.len(),
+                self.queues.speculative_streams.len()
             );
             trace!(
                 target: "serial",
                 ?stream,
-                demanded_remaining = self.demanded_streams.len(),
-                speculative_remaining = self.speculative_streams.len(),
+                demanded_remaining = self.queues.demanded_streams.len(),
+                speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting demanded stream to Receive"
             );
             let receive = self
@@ -278,7 +287,7 @@ impl<S: SessionBackend> SessionCore<S> {
     fn try_promote_speculative_receive(&mut self, now_ms: u64) -> anyhow::Result<Option<TrySend>> {
         let mut earliest_blocked: Option<u64> = None;
         let mut idx_to_take: Option<usize> = None;
-        for (idx, s) in self.speculative_streams.iter().enumerate() {
+        for (idx, s) in self.queues.speculative_streams.iter().enumerate() {
             if s.command_id().is_none() {
                 continue;
             }
@@ -293,17 +302,17 @@ impl<S: SessionBackend> SessionCore<S> {
         }
 
         if let Some(idx) = idx_to_take {
-            let stream = self.speculative_streams.remove(idx);
+            let stream = self.queues.speculative_streams.remove(idx);
             let target = TargetId::from_stream(&stream);
 
             diag!(
                 "DIAG promote: Receive for pipeline stream ({} speculative remaining)",
-                self.speculative_streams.len()
+                self.queues.speculative_streams.len()
             );
             trace!(
                 target: "serial",
                 ?stream,
-                speculative_remaining = self.speculative_streams.len(),
+                speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting pipeline stream to Receive"
             );
             let receive = self
@@ -321,7 +330,7 @@ impl<S: SessionBackend> SessionCore<S> {
 
         // Only speculative runspace-pool streams — skip to avoid blocking
         // for OperationTimeout with no useful data.
-        if !self.speculative_streams.is_empty() {
+        if !self.queues.speculative_streams.is_empty() {
             diag!(
                 "DIAG promote: skipping speculative runspace-pool-only Receive (would block for OperationTimeout)"
             );
@@ -406,7 +415,7 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "host-call response received while idle"
         );
-        self.host_call_active = false;
+        self.host_call_state = HostCallState::Idle;
         let output = self
             .active_session
             .accept_client_operation(UserOperation::SubmitHostResponse {
@@ -433,9 +442,9 @@ impl<S: SessionBackend> SessionCore<S> {
         );
         self.observe_user_op(&op);
         if matches!(op, UserOperation::KillPipeline { .. }) {
-            self.pending_user_ops.push_front(op);
+            self.queues.user_ops.push_front(op);
         } else {
-            self.pending_user_ops.push_back(op);
+            self.queues.user_ops.push_back(op);
         }
     }
 
@@ -453,48 +462,51 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "buffering host-call response (HTTP in flight)"
         );
-        self.pending_user_ops
+        self.queues
+            .user_ops
             .push_back(UserOperation::SubmitHostResponse {
                 call_id: hr.call_id,
                 scope: hr.scope,
                 submission: hr.submission,
             });
-        self.host_call_active = false;
+        self.host_call_state = HostCallState::Idle;
     }
 
     // ── Effect draining ──────────────────────────────────────────────────
 
     /// Pop the next HostCall to dispatch, if none is currently active.
     pub(super) fn poll_host_call(&mut self) -> Option<HostCall> {
-        if self.host_call_active {
+        if self.is_host_call_active() {
             return None;
         }
-        let hc = self.pending_host_calls.pop_front()?;
+        let hc = self.queues.host_calls.pop_front()?;
         diag!(
             "DIAG dispatch: HostCall method={} call_id={} ({} remaining)",
             hc.method_name(),
             hc.call_id(),
-            self.pending_host_calls.len()
+            self.queues.host_calls.len()
         );
         info!(
             target: "serial",
             method = %hc.method_name(),
             call_id = hc.call_id(),
-            remaining = self.pending_host_calls.len(),
+            remaining = self.queues.host_calls.len(),
             "dispatching HostCall to consumer"
         );
-        self.host_call_active = true;
+        self.host_call_state = HostCallState::Waiting {
+            call_id: hc.call_id(),
+        };
         Some(hc)
     }
 
     /// Drain accumulated user events.
     pub(super) fn drain_user_events(&mut self) -> Vec<UserEvent> {
-        std::mem::take(&mut self.pending_user_events)
+        std::mem::take(&mut self.queues.user_events)
     }
 
     /// Whether a HostCall is currently active (event loop uses this for `select!` guard).
     pub(super) fn is_host_call_active(&self) -> bool {
-        self.host_call_active
+        matches!(self.host_call_state, HostCallState::Waiting { .. })
     }
 
     // ── Internal routing ─────────────────────────────────────────────────
@@ -516,11 +528,11 @@ impl<S: SessionBackend> SessionCore<S> {
                 if priority == SendPriority::Front {
                     // Preserve order while pushing to the front.
                     for req in reqs.into_iter().rev() {
-                        self.work_queue.push_front(req);
+                        self.queues.work.push_front(req);
                     }
                 } else {
                     for req in reqs {
-                        self.work_queue.push_back(req);
+                        self.queues.work.push_back(req);
                     }
                 }
             }
@@ -539,9 +551,9 @@ impl<S: SessionBackend> SessionCore<S> {
                     "DIAG enqueue: SendAndThenReceive → work_queue + {} demanded streams",
                     then_receive_streams.len()
                 );
-                self.work_queue.push_back(send_request);
+                self.queues.work.push_back(send_request);
                 for s in then_receive_streams {
-                    self.demanded_streams.push_back(s);
+                    self.queues.demanded_streams.push_back(s);
                 }
             }
             ActiveSessionOutput::PendingReceive { desired_streams } => {
@@ -551,7 +563,7 @@ impl<S: SessionBackend> SessionCore<S> {
                     "DIAG enqueue: PendingReceive({}) → speculative_streams",
                     desired_streams.len()
                 );
-                merge_speculative_streams(&mut self.speculative_streams, desired_streams);
+                merge_speculative_streams(&mut self.queues.speculative_streams, desired_streams);
             }
             ActiveSessionOutput::HostCall(hc) => {
                 diag!(
@@ -560,7 +572,7 @@ impl<S: SessionBackend> SessionCore<S> {
                     hc.call_id()
                 );
                 info!(target: "serial", method = %hc.method_name(), call_id = hc.call_id(), "enqueue: HostCall → pending_host_calls");
-                self.pending_host_calls.push_back(hc);
+                self.queues.host_calls.push_back(hc);
             }
             ActiveSessionOutput::UserEvent(event) => {
                 diag!("DIAG enqueue: UserEvent queued");
@@ -569,7 +581,7 @@ impl<S: SessionBackend> SessionCore<S> {
                     self.scheduler
                         .note_pipeline_finished(pipeline.id(), self.now_ms());
                 }
-                self.pending_user_events.push(event);
+                self.queues.user_events.push(event);
             }
             ActiveSessionOutput::SendBackError(e) => {
                 error!(target: "serial", error = %e, "enqueue: SendBackError");
@@ -706,7 +718,7 @@ mod tests {
     fn core_idle<S: SessionBackend>(mock: S) -> SessionCore<S> {
         let mut core = SessionCore::new_with_backend(dummy_try_send(1), mock);
         // Drain the initial first_receive so the work queue starts empty.
-        let _ = core.work_queue.pop_front();
+        let _ = core.queues.work.pop_front();
         core
     }
 
@@ -742,7 +754,7 @@ mod tests {
         let mut core = SessionCore::new_with_backend(dummy_try_send(1), mock);
         // work_queue has the initial first_receive. Add a demanded stream too.
         let id = Uuid::new_v4();
-        core.demanded_streams.push_back(pipeline_stream(id));
+        core.queues.demanded_streams.push_back(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_some(), "should promote from work_queue");
@@ -757,15 +769,16 @@ mod tests {
 
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
-        core.demanded_streams.push_back(pipeline_stream(id));
-        core.speculative_streams
+        core.queues.demanded_streams.push_back(pipeline_stream(id));
+        core.queues
+            .speculative_streams
             .push(pipeline_stream(Uuid::new_v4()));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_some());
         assert_eq!(promoted.unwrap().get_connection_id().inner(), 20);
         // The speculative stream should still be there.
-        assert_eq!(core.speculative_streams.len(), 1);
+        assert_eq!(core.queues.speculative_streams.len(), 1);
     }
 
     #[test]
@@ -773,7 +786,7 @@ mod tests {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
         // Only runspace-pool streams (no command_id) → should skip.
-        core.speculative_streams.push(runspace_stream());
+        core.queues.speculative_streams.push(runspace_stream());
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -786,7 +799,7 @@ mod tests {
 
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
-        core.speculative_streams.push(pipeline_stream(id));
+        core.queues.speculative_streams.push(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_some());
@@ -799,9 +812,10 @@ mod tests {
         mock.receive_results.push_back(dummy_try_send(40));
 
         let mut core = core_idle(mock);
-        core.demanded_streams
+        core.queues
+            .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.host_call_active = true;
+        core.host_call_state = HostCallState::Waiting { call_id: 1 };
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -813,9 +827,10 @@ mod tests {
         mock.receive_results.push_back(dummy_try_send(50));
 
         let mut core = core_idle(mock);
-        core.demanded_streams
+        core.queues
+            .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.pending_host_calls.push_back(dummy_host_call(1));
+        core.queues.host_calls.push_back(dummy_host_call(1));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -828,30 +843,30 @@ mod tests {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
         // Pre-populate work_queue so we can verify append.
-        core.work_queue.push_back(dummy_try_send(1));
+        core.queues.work.push_back(dummy_try_send(1));
 
         let output = ActiveSessionOutput::SendBack(vec![dummy_try_send(2)]);
         core.route_output(output, SendPriority::Normal).unwrap();
 
-        assert_eq!(core.work_queue.len(), 2);
+        assert_eq!(core.queues.work.len(), 2);
         // First item should still be conn_id=1.
-        assert_eq!(core.work_queue[0].get_connection_id().inner(), 1);
-        assert_eq!(core.work_queue[1].get_connection_id().inner(), 2);
+        assert_eq!(core.queues.work[0].get_connection_id().inner(), 1);
+        assert_eq!(core.queues.work[1].get_connection_id().inner(), 2);
     }
 
     #[test]
     fn route_send_back_front_prepends() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.work_queue.push_back(dummy_try_send(1));
+        core.queues.work.push_back(dummy_try_send(1));
 
         let output = ActiveSessionOutput::SendBack(vec![dummy_try_send(2)]);
         core.route_output(output, SendPriority::Front).unwrap();
 
-        assert_eq!(core.work_queue.len(), 2);
+        assert_eq!(core.queues.work.len(), 2);
         // Front-priority item should be first.
-        assert_eq!(core.work_queue[0].get_connection_id().inner(), 2);
-        assert_eq!(core.work_queue[1].get_connection_id().inner(), 1);
+        assert_eq!(core.queues.work[0].get_connection_id().inner(), 2);
+        assert_eq!(core.queues.work[1].get_connection_id().inner(), 1);
     }
 
     #[test]
@@ -866,8 +881,8 @@ mod tests {
         };
         core.route_output(output, SendPriority::Normal).unwrap();
 
-        assert_eq!(core.work_queue.len(), 1);
-        assert_eq!(core.demanded_streams.len(), 1);
+        assert_eq!(core.queues.work.len(), 1);
+        assert_eq!(core.queues.demanded_streams.len(), 1);
     }
 
     #[test]
@@ -894,7 +909,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            core.speculative_streams.len(),
+            core.queues.speculative_streams.len(),
             1,
             "streams should be deduplicated"
         );
@@ -941,8 +956,8 @@ mod tests {
         core.route_output(ActiveSessionOutput::HostCall(hc), SendPriority::Normal)
             .unwrap();
 
-        assert_eq!(core.pending_host_calls.len(), 1);
-        assert_eq!(core.pending_host_calls[0].call_id(), 42);
+        assert_eq!(core.queues.host_calls.len(), 1);
+        assert_eq!(core.queues.host_calls[0].call_id(), 42);
     }
 
     // ── Host-call state (3 tests) ───────────────────────────────────────
@@ -951,8 +966,8 @@ mod tests {
     fn poll_host_call_returns_none_when_active() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.pending_host_calls.push_back(dummy_host_call(1));
-        core.host_call_active = true;
+        core.queues.host_calls.push_back(dummy_host_call(1));
+        core.host_call_state = HostCallState::Waiting { call_id: 1 };
 
         assert!(core.poll_host_call().is_none());
     }
@@ -961,19 +976,19 @@ mod tests {
     fn poll_host_call_sets_active_flag() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.pending_host_calls.push_back(dummy_host_call(1));
+        core.queues.host_calls.push_back(dummy_host_call(1));
 
-        assert!(!core.host_call_active);
+        assert!(!core.is_host_call_active());
         let hc = core.poll_host_call();
         assert!(hc.is_some());
-        assert!(core.host_call_active);
+        assert!(core.is_host_call_active());
     }
 
     #[test]
     fn buffer_host_response_clears_active_flag() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.host_call_active = true;
+        core.host_call_state = HostCallState::Waiting { call_id: 1 };
 
         core.buffer_host_response(HostResponse {
             call_id: 1,
@@ -981,9 +996,9 @@ mod tests {
             submission: ironposh_client_core::host::Submission::NoSend,
         });
 
-        assert!(!core.host_call_active);
+        assert!(!core.is_host_call_active());
         // Should have buffered a SubmitHostResponse op.
-        assert_eq!(core.pending_user_ops.len(), 1);
+        assert_eq!(core.queues.user_ops.len(), 1);
     }
 
     // ── Buffering & processing (4 tests) ────────────────────────────────
@@ -1011,33 +1026,9 @@ mod tests {
         });
 
         assert!(matches!(
-            core.pending_user_ops.front(),
+            core.queues.user_ops.front(),
             Some(UserOperation::KillPipeline { .. })
         ));
-    }
-
-    #[test]
-    fn process_buffered_op_skips_when_work_queue_nonempty() {
-        let mut mock = MockBackend::new();
-        // This response should NOT be consumed since we skip processing.
-        mock.op_responses
-            .push_back(ActiveSessionOutput::OperationSuccess);
-
-        let mut core = SessionCore::new_with_backend(dummy_try_send(1), mock);
-        // work_queue has the initial item. Buffer a non-kill op.
-        core.pending_user_ops
-            .push_back(UserOperation::InvokeWithSpec {
-                uuid: Uuid::new_v4(),
-                spec: ironposh_client_core::pipeline::PipelineSpec {
-                    commands: vec![ironposh_client_core::pipeline::PipelineCommand::new_script(
-                        "test".to_string(),
-                    )],
-                },
-            });
-
-        core.process_one_buffered_op().unwrap();
-        // The op should still be buffered because work_queue was non-empty.
-        assert_eq!(core.pending_user_ops.len(), 1);
     }
 
     #[test]
@@ -1049,16 +1040,14 @@ mod tests {
 
         let mut core = SessionCore::new_with_backend(dummy_try_send(1), mock);
         let id = Uuid::new_v4();
-        core.pending_user_ops
-            .push_back(UserOperation::KillPipeline {
-                pipeline: pipeline_handle(id),
-            });
+        core.queues.user_ops.push_back(UserOperation::KillPipeline {
+            pipeline: pipeline_handle(id),
+        });
 
         core.process_one_buffered_op().unwrap();
-        // The KillPipeline should have been processed even with work_queue non-empty.
-        assert_eq!(core.pending_user_ops.len(), 0);
+        assert_eq!(core.queues.user_ops.len(), 0);
         // And the SendBack from KillPipeline should be at the FRONT (priority=Front).
-        assert_eq!(core.work_queue[0].get_connection_id().inner(), 99);
+        assert_eq!(core.queues.work[0].get_connection_id().inner(), 99);
     }
 
     #[test]
@@ -1067,7 +1056,7 @@ mod tests {
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
 
-        core.pending_user_events.push(UserEvent::PipelineCreated {
+        core.queues.user_events.push(UserEvent::PipelineCreated {
             pipeline: pipeline_handle(id),
         });
 
@@ -1081,22 +1070,22 @@ mod tests {
     // ── Scheduler integration (2 tests) ─────────────────────────────────
 
     #[test]
-    fn scheduler_cancelled_demanded_does_not_set_wakeup() {
+    fn scheduler_finished_demanded_is_dropped_without_wakeup() {
         let mut mock = MockBackend::new();
         mock.receive_results.push_back(dummy_try_send(60));
 
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
-        // Cancel the pipeline target — should be permanently dropped, no wakeup.
-        core.scheduler.note_cancel_requested(id, 0);
-        core.demanded_streams.push_back(pipeline_stream(id));
+        // Finished targets are permanently dropped, no wakeup.
+        core.scheduler.note_pipeline_finished(id, 0);
+        core.queues.demanded_streams.push_back(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
-        // Cancelled targets should NOT set a wakeup (they are permanently dropped).
+        // Finished targets should NOT set a wakeup (they are permanently dropped).
         assert!(
             core.next_wakeup_at_ms.is_none(),
-            "cancelled stream should not schedule a wakeup"
+            "finished stream should not schedule a wakeup"
         );
     }
 
@@ -1110,7 +1099,7 @@ mod tests {
         let target = TargetId::Pipeline(id);
         // Trigger backoff (not cancellation) — should set a wakeup.
         core.scheduler.note_receive_timeout(target, 0);
-        core.demanded_streams.push_back(pipeline_stream(id));
+        core.queues.demanded_streams.push_back(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());

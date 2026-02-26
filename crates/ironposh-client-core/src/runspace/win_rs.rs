@@ -415,12 +415,18 @@ impl WinRunspace {
         // Reuse the shell's selector set that was captured on create
         let selector_set = self.selector_set.clone().into();
 
-        let body = connection.invoke(
+        // Ctrl+C should be snappy in a terminal. In serial mode we often use a very
+        // short OperationTimeout (e.g. 500ms) for Receives, but that is too small
+        // for Signal on some servers and causes WSMan TimedOut faults.
+        //
+        // Give Signal a larger timeout so we reliably get an acknowledgement.
+        let body = connection.invoke_with_operation_timeout(
             &WsAction::Signal,
             Some(self.resource_uri.as_ref()),
             SoapBody::builder().signal(signal).build(),
             Some(option_set),
             selector_set,
+            Some(5.0),
         );
 
         let message_id = body

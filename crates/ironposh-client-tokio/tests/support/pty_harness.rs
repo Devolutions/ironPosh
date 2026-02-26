@@ -103,6 +103,15 @@ impl PtyHarness {
     }
 
     pub fn send_line(&mut self, s: &str) {
+        // Windows ConPTY can drop leading bytes when writing long-ish lines while the
+        // console is busy (e.g. Clear-Host / progress / lots of output). Empirically
+        // chunked, paced writes are much more reliable than a single write_all().
+        //
+        // This is test-only code; a small per-line delay is an acceptable tradeoff for
+        // determinism.
+        const CHUNK: usize = 16;
+        const PACE_MS: u64 = 1;
+
         let mut child_exit_status = None;
         let mut child_pid = None;
         if let Some(child) = self.child.as_mut() {
@@ -110,14 +119,14 @@ impl PtyHarness {
             child_exit_status = child.try_wait().ok().flatten();
         }
 
-        if let Err(e) = self.writer.write_all(s.as_bytes()) {
+        if let Err(e) = write_all_paced(&mut self.writer, s.as_bytes(), CHUNK, PACE_MS) {
             panic!(
                 "write command bytes: {e:?}\nchild_pid={child_pid:?}\nchild_exit_status={child_exit_status:?}\nlog_file={}\npty_tail={}",
                 self.log_file.display(),
                 self.tail_string(16 * 1024)
             );
         }
-        if let Err(e) = self.writer.write_all(b"\r") {
+        if let Err(e) = write_all_paced(&mut self.writer, b"\r", CHUNK, PACE_MS) {
             panic!(
                 "write carriage return: {e:?}\nchild_pid={child_pid:?}\nchild_exit_status={child_exit_status:?}\nlog_file={}\npty_tail={}",
                 self.log_file.display(),
@@ -207,6 +216,25 @@ fn push_capped(buf: &mut VecDeque<u8>, cap: usize, bytes: &[u8]) {
         }
         buf.push_back(b);
     }
+}
+
+fn write_all_paced(
+    writer: &mut (dyn Write + Send),
+    bytes: &[u8],
+    chunk: usize,
+    pace_ms: u64,
+) -> std::io::Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    for c in bytes.chunks(chunk.max(1)) {
+        writer.write_all(c)?;
+        if pace_ms > 0 {
+            std::thread::sleep(Duration::from_millis(pace_ms));
+        }
+    }
+    Ok(())
 }
 
 fn buffer_contains(haystack: &VecDeque<u8>, needle: &[u8]) -> bool {
