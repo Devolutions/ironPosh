@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use anyhow::Context;
 use futures::{SinkExt, StreamExt, channel::mpsc, join};
@@ -11,6 +11,7 @@ use ironposh_client_core::{
 };
 use tracing::{Instrument, Level, debug, info, info_span, span, trace, warn};
 
+use crate::clock::Instant;
 use crate::{HostIo, HostSubmitter, HttpClient, session, session_serial};
 
 /// Run the connector handshake loop: step through authentication until Connected.

@@ -3,3 +3,6 @@
 *.log
 .serena/
 .zed
+
+# Local wasm-bindgen output for WebTerminal dev override; generated artifact, not source.
+/crates/ironposh-web/pkg-devolutions/

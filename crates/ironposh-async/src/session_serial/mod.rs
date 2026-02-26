@@ -15,12 +15,13 @@ use futures_timer::Delay;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::conntion_pool::TrySend;
 use ironposh_client_core::host::HostCall;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{info, instrument, trace};
 
 use ironposh_client_core::connector::UserOperation;
 
 use self::core::SessionCore;
+use crate::clock::Instant;
 use crate::{HostResponse, HttpClient};
 
 /// Console diagnostic logging for WASM debugging.

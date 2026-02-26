@@ -1525,6 +1525,7 @@ dependencies = [
  "tracing",
  "uuid",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -1643,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "ironposh-web"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",

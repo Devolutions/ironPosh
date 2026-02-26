@@ -4,6 +4,7 @@ use ironposh_client_core::host::{HostCall, HostCallScope, Submission};
 use std::future::Future;
 
 // Internal modules
+mod clock;
 mod connection;
 mod session;
 mod session_serial;

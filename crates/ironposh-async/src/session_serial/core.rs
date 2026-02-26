@@ -7,7 +7,6 @@
 //! that shuttles data between I/O channels and this core.
 
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
@@ -22,6 +21,7 @@ use uuid::Uuid;
 use super::diag;
 use super::scheduler::{DefaultReceiveScheduler, ReceiveScheduler, TargetId};
 use crate::HostResponse;
+use crate::clock::Instant;
 
 // ── Backend trait ─────────────────────────────────────────────────────────
 
