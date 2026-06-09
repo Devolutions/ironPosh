@@ -44,6 +44,10 @@ impl WsMan {
     pub fn max_envelope_size(&self) -> u32 {
         self.max_envelope_size
     }
+
+    pub fn resource_uri(&self) -> &str {
+        &self.resource_uri
+    }
 }
 
 #[derive(Debug, Clone)]

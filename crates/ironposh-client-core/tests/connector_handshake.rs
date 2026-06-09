@@ -63,6 +63,60 @@ fn configuration_name_sets_shell_resource_uri() {
     );
 }
 
+/// With a JEA `configuration_name`, post-create operations must keep targeting the
+/// JEA resource URI even when the server's CreateResponse omits the ResourceUri echo.
+#[test]
+fn configuration_name_survives_create_response_without_resource_uri_echo() {
+    let mut config = support::test_config();
+    config.configuration_name = Some("MyJEAEndpoint".into());
+    let mut connector = Connector::new(config);
+
+    // 1. Idle step emits the shell Create request.
+    let result = connector.step(None).expect("idle step");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack for Create");
+    };
+    let (_request, conn_id) = support::expect_just_send(try_send);
+
+    // 2. Reply with a CreateResponse whose Shell does NOT echo a ResourceUri element.
+    let create_response = include_str!("resources/resource_created.xml");
+    let strip_resource_uri =
+        regex::Regex::new(r"(?s)<rsp:ResourceUri>.*?</rsp:ResourceUri>").expect("valid regex");
+    let create_response = strip_resource_uri.replace(create_response, "").into_owned();
+    assert!(
+        !create_response.contains("rsp:ResourceUri"),
+        "fixture must not echo a shell ResourceUri for this test"
+    );
+
+    let result = connector
+        .step(Some(support::xml_response(conn_id, create_response)))
+        .expect("accept CreateResponse");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack for Receive");
+    };
+
+    // 3. The post-create Receive must still target the JEA endpoint resource URI.
+    let (request, _conn_id) = support::expect_just_send(try_send);
+    let receive_xml = request
+        .body
+        .expect("receive has a body")
+        .as_str()
+        .expect("plaintext body")
+        .to_owned();
+    assert!(
+        receive_xml.contains("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"),
+        "connector must fire a Receive after shell creation"
+    );
+    assert!(
+        receive_xml.contains("powershell/MyJEAEndpoint"),
+        "post-create Receive must target the JEA endpoint resource URI"
+    );
+    assert!(
+        !receive_xml.contains("powershell/Microsoft.PowerShell"),
+        "post-create Receive must not fall back to the default resource URI"
+    );
+}
+
 /// Drive the connector through the full handshake against a fake server:
 /// Create -> CreateResponse -> Receive -> ReceiveResponse(PSRP negotiation) -> Connected.
 #[test]

@@ -48,7 +48,10 @@ pub struct RunspacePoolCreator {
 
 impl RunspacePoolCreator {
     pub fn into_runspace_pool(self, connection: Arc<WsMan>) -> RunspacePool {
-        let shell = WinRunspace::builder().id(self.id).build();
+        let shell = WinRunspace::builder()
+            .id(self.id)
+            .resource_uri(connection.resource_uri().to_owned())
+            .build();
 
         RunspacePool {
             id: self.id,
