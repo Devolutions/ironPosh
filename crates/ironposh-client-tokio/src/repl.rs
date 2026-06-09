@@ -1469,6 +1469,11 @@ async fn run_repl_loop(
                                 "Disconnected from runspace pool (ShellId: {shell_id}). Type :reconnect to resume."
                             )))
                             .await;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(format!(
+                                "reattach with: --connect-shell-id {shell_id} --parallel"
+                            )))
+                            .await;
                         // Input is pull-based: without a local input request the user
                         // could never type :reconnect. Do NOT fetch the remote prompt
                         // here — that would run a remote pipeline while disconnected.

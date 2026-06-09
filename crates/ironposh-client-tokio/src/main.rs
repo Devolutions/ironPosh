@@ -106,8 +106,11 @@ async fn main() -> anyhow::Result<()> {
         std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
     ) = if args.parallel {
         info!("Using parallel (multi-connection) session loop");
+        if let Some(shell_id) = args.connect_shell_id {
+            info!(shell_id = %shell_id, "reattaching to existing disconnected shell");
+        }
         let (client, host_io, session_events, lifecycle_events, task) =
-            RemoteAsyncPowershellClient::open_task(config, http_client);
+            RemoteAsyncPowershellClient::open_task(config, args.connect_shell_id, http_client);
         (
             client,
             host_io,
@@ -116,6 +119,12 @@ async fn main() -> anyhow::Result<()> {
             Box::pin(task),
         )
     } else {
+        if args.connect_shell_id.is_some() {
+            anyhow::bail!(
+                "--connect-shell-id is not supported in serial (single-connection) mode; \
+                 add --parallel"
+            );
+        }
         info!("Using serial (single-connection) session loop");
         let (client, host_io, session_events, task) =
             RemoteAsyncPowershellClient::open_task_serial(config, http_client);

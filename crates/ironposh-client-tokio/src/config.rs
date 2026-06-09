@@ -133,6 +133,15 @@ pub struct Args {
     /// Command to execute (if provided, runs in non-interactive mode)
     #[arg(short = 'c', long, help = "Command to execute")]
     pub command: Option<String>,
+
+    /// Reattach to an existing disconnected runspace pool shell by ShellId
+    /// (printed by `:disconnect`). Requires the parallel session loop.
+    #[arg(
+        long,
+        value_name = "UUID",
+        help = "Reattach to a disconnected shell by ShellId (requires --parallel)"
+    )]
+    pub connect_shell_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -379,6 +388,7 @@ mod tests {
             verbose: 0,
             configuration_name: None,
             command: None,
+            connect_shell_id: None,
         };
 
         let cfg = create_connector_config(&args, 120, 30).expect("create config");
@@ -408,6 +418,7 @@ mod tests {
             verbose: 0,
             configuration_name: None,
             command: None,
+            connect_shell_id: None,
         };
 
         let cfg = create_connector_config(&args, 120, 30).expect("create config");
@@ -435,6 +446,7 @@ mod tests {
             verbose: 0,
             configuration_name: None,
             command: None,
+            connect_shell_id: None,
         }
     }
 
@@ -489,6 +501,35 @@ mod tests {
 
         let cfg = create_connector_config(&args, 120, 30).expect("create config");
         assert_eq!(cfg.configuration_name, None);
+    }
+
+    #[test]
+    fn connect_shell_id_flag_parses_uuid() {
+        let args = Args::parse_from([
+            "ironposh-client-tokio",
+            "--http-insecure",
+            "--parallel",
+            "--connect-shell-id",
+            "2d6534d0-6b12-40e3-b773-cba26459cfa8",
+        ]);
+
+        assert_eq!(
+            args.connect_shell_id,
+            Some("2d6534d0-6b12-40e3-b773-cba26459cfa8".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn absent_connect_shell_id_flag_maps_to_none() {
+        let args = Args::parse_from(["ironposh-client-tokio", "--http-insecure"]);
+        assert_eq!(args.connect_shell_id, None);
+    }
+
+    #[test]
+    fn connect_shell_id_flag_rejects_invalid_uuid() {
+        let result =
+            Args::try_parse_from(["ironposh-client-tokio", "--connect-shell-id", "not-a-uuid"]);
+        assert!(result.is_err(), "invalid UUID must fail to parse");
     }
 
     #[test]

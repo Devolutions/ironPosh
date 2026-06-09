@@ -21,10 +21,15 @@ pub struct RemoteAsyncPowershellClient {
 }
 
 impl RemoteAsyncPowershellClient {
-    /// Create a new client and background task for the given configuration
+    /// Create a new client and background task for the given configuration.
     /// Returns (client, host_io, session_event_rx, lifecycle_event_rx, connection_task)
+    ///
+    /// When `connect_shell_id` is set, the client attaches to that existing
+    /// disconnected runspace pool shell (WSMan Connect / browser-refresh
+    /// reattach) instead of creating a new one.
     pub fn open_task(
         config: WinRmConfig,
+        connect_shell_id: Option<uuid::Uuid>,
         client: impl HttpClient,
     ) -> (
         Self,
@@ -37,7 +42,7 @@ impl RemoteAsyncPowershellClient {
         Self: Sized,
     {
         let (handle, host_io, session_event_rx, lifecycle_event_rx, task) =
-            connection::establish_connection(config, client);
+            connection::establish_connection(config, connect_shell_id, client);
 
         (
             Self {

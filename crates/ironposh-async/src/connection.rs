@@ -15,8 +15,11 @@ use crate::clock::Instant;
 use crate::{HostIo, HostSubmitter, HttpClient, session, session_serial};
 
 /// Run the connector handshake loop: step through authentication until Connected.
+/// When `connect_shell_id` is set, the connector attaches to that existing
+/// disconnected shell (WSMan Connect) instead of creating a new one.
 async fn run_handshake<C: HttpClient>(
     config: WinRmConfig,
+    connect_shell_id: Option<uuid::Uuid>,
     client: &C,
     session_event_tx: &mpsc::UnboundedSender<crate::SessionEvent>,
 ) -> anyhow::Result<(
@@ -26,7 +29,13 @@ async fn run_handshake<C: HttpClient>(
     let handshake_started_at = Instant::now();
     let mut step_idx: u64 = 0;
 
-    let mut connector = Connector::new(config);
+    let mut connector = match connect_shell_id {
+        Some(shell_id) => {
+            info!(shell_id = %shell_id, "Created connector in connect (reattach) mode");
+            Connector::new_connect(config, shell_id)
+        }
+        None => Connector::new(config),
+    };
     info!("Created connector, starting connection handshake...");
 
     let mut response = None;
@@ -216,8 +225,11 @@ fn build_pipeline_multiplexer(
 }
 
 /// Establish connection and return client handle with background task (parallel mode).
+/// `connect_shell_id` switches the handshake into reattach mode (WSMan Connect
+/// to an existing disconnected shell).
 pub fn establish_connection<C>(
     config: WinRmConfig,
+    connect_shell_id: Option<uuid::Uuid>,
     client: C,
 ) -> (
     ConnectionHandle,
@@ -247,7 +259,7 @@ where
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionStarted);
 
         let (active_session, next_request) =
-            run_handshake(config, &client, &session_event_tx).await?;
+            run_handshake(config, connect_shell_id, &client, &session_event_tx).await?;
 
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionEstablished);
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionStarted);
@@ -337,7 +349,7 @@ where
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionStarted);
 
         let (active_session, next_request) =
-            run_handshake(config, &client, &session_event_tx).await?;
+            run_handshake(config, None, &client, &session_event_tx).await?;
 
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionEstablished);
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionStarted);
