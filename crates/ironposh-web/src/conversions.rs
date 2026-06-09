@@ -187,7 +187,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             host_info,
             // Short timeout for serial/single-connection mode so Receives
             // don't block outbound sends for too long.
-            operation_timeout_secs: Some(0.25),
+            operation_timeout_secs: Some(0.01),
         }
     }
 }
@@ -378,6 +378,6 @@ mod tests {
         };
 
         let winrm: WinRmConfig = cfg.into();
-        assert_eq!(winrm.operation_timeout_secs, Some(0.25));
+        assert_eq!(winrm.operation_timeout_secs, Some(0.01));
     }
 }
