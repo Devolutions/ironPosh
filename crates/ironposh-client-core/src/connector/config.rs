@@ -56,7 +56,8 @@ pub struct TlsOptions {
     pub accept_invalid_certs: bool,
     /// Skip hostname verification only.
     pub accept_invalid_hostnames: bool,
-    /// Additional root CA certificate(s), PEM-encoded.
+    /// Additional root CA certificate, PEM-encoded. Must contain a single
+    /// certificate; PEM bundles (multiple certificates) are not supported.
     pub extra_ca_pem: Option<Vec<u8>>,
 }
 
