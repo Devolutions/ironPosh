@@ -12,7 +12,9 @@ use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
-use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation, connection_pool::TrySend};
+use ironposh_client_core::connector::{
+    ActiveSessionOutput, UserOperation, connection_pool::TrySend,
+};
 use ironposh_client_core::host::HostCall;
 use ironposh_client_core::runspace_pool::DesiredStream;
 use tracing::{debug, error, info, trace};

@@ -224,7 +224,9 @@ pub fn create_connector_config_with_kdc_url(
 
     // TLS flags only apply to HTTPS WinRM; reject meaningless combinations early.
     if args.insecure && !args.https {
-        anyhow::bail!("--insecure only applies to HTTPS connections; add --https or drop --insecure");
+        anyhow::bail!(
+            "--insecure only applies to HTTPS connections; add --https or drop --insecure"
+        );
     }
 
     if args.ca_cert.is_some() && !args.https {
@@ -455,7 +457,8 @@ mod tests {
             rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
         let pem = cert.pem();
 
-        let path = std::env::temp_dir().join(format!("ironposh-test-ca-{}.pem", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("ironposh-test-ca-{}.pem", uuid::Uuid::new_v4()));
         std::fs::write(&path, &pem).expect("write temp CA pem");
 
         let mut args = https_args();
@@ -494,8 +497,12 @@ mod tests {
         args.https = false;
         args.insecure = true;
 
-        let err = create_connector_config(&args, 120, 30).expect_err("must reject --insecure without --https");
-        assert!(err.to_string().contains("--https"), "error should mention --https: {err}");
+        let err = create_connector_config(&args, 120, 30)
+            .expect_err("must reject --insecure without --https");
+        assert!(
+            err.to_string().contains("--https"),
+            "error should mention --https: {err}"
+        );
     }
 
     #[test]
@@ -504,19 +511,25 @@ mod tests {
         args.https = false;
         args.ca_cert = Some(PathBuf::from("unused.pem"));
 
-        let err = create_connector_config(&args, 120, 30).expect_err("must reject --ca-cert without --https");
-        assert!(err.to_string().contains("--https"), "error should mention --https: {err}");
+        let err = create_connector_config(&args, 120, 30)
+            .expect_err("must reject --ca-cert without --https");
+        assert!(
+            err.to_string().contains("--https"),
+            "error should mention --https: {err}"
+        );
     }
 
     #[test]
     fn ca_cert_with_invalid_pem_fails() {
-        let path = std::env::temp_dir().join(format!("ironposh-test-bad-ca-{}.pem", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("ironposh-test-bad-ca-{}.pem", uuid::Uuid::new_v4()));
         std::fs::write(&path, b"this is not a PEM certificate").expect("write temp garbage pem");
 
         let mut args = https_args();
         args.ca_cert = Some(path.clone());
 
-        let err = create_connector_config(&args, 120, 30).expect_err("must reject invalid PEM content");
+        let err =
+            create_connector_config(&args, 120, 30).expect_err("must reject invalid PEM content");
         let msg = format!("{err:#}");
         assert!(
             msg.contains(&path.display().to_string()),

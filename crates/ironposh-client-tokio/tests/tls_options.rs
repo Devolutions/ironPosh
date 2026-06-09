@@ -76,7 +76,10 @@ async fn default_tls_rejects_self_signed() {
         .send()
         .await
         .expect_err("default TLS options must reject a self-signed certificate");
-    assert!(err.is_connect(), "expected TLS connect failure, got: {err:?}");
+    assert!(
+        err.is_connect(),
+        "expected TLS connect failure, got: {err:?}"
+    );
 
     server.abort();
 }

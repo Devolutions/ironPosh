@@ -19,7 +19,10 @@ use ironposh_psrp::{
     fragmentation::Fragment, ps_value::PsObjectWithType,
 };
 use ironposh_winrm::{
-    cores::{Attribute, Namespace, ReceiveResponse, Tag, Text, tag_name::{Envelope, Stream}},
+    cores::{
+        Attribute, Namespace, ReceiveResponse, Tag, Text,
+        tag_name::{Envelope, Stream},
+    },
     rsp::receive::ReceiveResponseValue,
     soap::{SoapEnvelope, body::SoapBody},
 };
