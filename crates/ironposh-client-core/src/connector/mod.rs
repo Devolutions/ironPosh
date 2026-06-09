@@ -99,6 +99,8 @@ pub struct WinRmConfig {
     /// Changed from `Option<u32>` to `Option<f64>` to support sub-second timeouts
     /// (required by serial mode's 500 ms Receive slices).
     pub operation_timeout_secs: Option<f64>,
+    /// TLS behaviour for HTTPS transports. Ignored for plain-HTTP transports.
+    pub tls: config::TlsOptions,
 }
 
 impl WinRmConfig {
