@@ -123,6 +123,13 @@ pub struct Args {
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
     pub verbose: u8,
 
+    /// PowerShell session configuration (JEA endpoint) name.
+    #[arg(
+        long,
+        help = "PowerShell session configuration name (JEA endpoint, default: Microsoft.PowerShell)"
+    )]
+    pub configuration_name: Option<String>,
+
     /// Command to execute (if provided, runs in non-interactive mode)
     #[arg(short = 'c', long, help = "Command to execute")]
     pub command: Option<String>,
@@ -339,7 +346,7 @@ pub fn create_connector_config_with_kdc_url(
         host_info,
         operation_timeout_secs,
         tls,
-        configuration_name: None,
+        configuration_name: args.configuration_name.clone(),
     })
 }
 
@@ -368,6 +375,7 @@ mod tests {
             kdc_address: None,
             kdc_proxy_url: None,
             verbose: 0,
+            configuration_name: None,
             command: None,
         };
 
@@ -396,6 +404,7 @@ mod tests {
             kdc_address: None,
             kdc_proxy_url: None,
             verbose: 0,
+            configuration_name: None,
             command: None,
         };
 
@@ -422,6 +431,7 @@ mod tests {
             kdc_address: None,
             kdc_proxy_url: None,
             verbose: 0,
+            configuration_name: None,
             command: None,
         }
     }
@@ -455,6 +465,27 @@ mod tests {
         assert_eq!(cfg.tls.extra_ca_pem.as_deref(), Some(pem.as_bytes()));
 
         std::fs::remove_file(&path).expect("remove temp CA pem");
+    }
+
+    #[test]
+    fn configuration_name_flag_maps_to_config() {
+        let args = Args::parse_from([
+            "ironposh-client-tokio",
+            "--http-insecure",
+            "--configuration-name",
+            "Foo",
+        ]);
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert_eq!(cfg.configuration_name.as_deref(), Some("Foo"));
+    }
+
+    #[test]
+    fn absent_configuration_name_flag_maps_to_none() {
+        let args = Args::parse_from(["ironposh-client-tokio", "--http-insecure"]);
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert_eq!(cfg.configuration_name, None);
     }
 
     #[test]
