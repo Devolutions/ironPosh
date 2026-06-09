@@ -40,6 +40,8 @@ pub enum PoolLifecycleEvent {
     Disconnected { shell_id: Option<String> },
     /// The runspace pool shell has been reconnected (MS-WSMV Reconnect)
     Reconnected { shell_id: Option<String> },
+    /// A Disconnect request faulted on the server; the runspace pool stays connected
+    DisconnectFailed { shell_id: Option<String> },
 }
 
 /// Host I/O interface for handling PowerShell host calls

@@ -15,6 +15,9 @@ use crate::{
 #[derive(Clone)]
 pub struct RemoteAsyncPowershellClient {
     handle: ConnectionHandle,
+    /// Whether the session loop supports disconnect/reconnect
+    /// (parallel loop only; the serial loop rejects these operations).
+    supports_disconnect: bool,
 }
 
 impl RemoteAsyncPowershellClient {
@@ -37,7 +40,10 @@ impl RemoteAsyncPowershellClient {
             connection::establish_connection(config, client);
 
         (
-            Self { handle },
+            Self {
+                handle,
+                supports_disconnect: true,
+            },
             host_io,
             session_event_rx,
             lifecycle_event_rx,
@@ -65,7 +71,15 @@ impl RemoteAsyncPowershellClient {
         let (handle, host_io, session_event_rx, task) =
             connection::establish_connection_serial(config, client);
 
-        (Self { handle }, host_io, session_event_rx, task)
+        (
+            Self {
+                handle,
+                supports_disconnect: false,
+            },
+            host_io,
+            session_event_rx,
+            task,
+        )
     }
 
     /// Execute a PowerShell command and return its output
@@ -156,9 +170,18 @@ impl RemoteAsyncPowershellClient {
     /// Disconnect the runspace pool shell (MS-WSMV Disconnect).
     ///
     /// Completion is reported through the `PoolLifecycleEvent` channel returned
-    /// by [`Self::open_task`]. Only supported by the parallel session loop.
+    /// by [`Self::open_task`]. Only supported by the parallel session loop;
+    /// returns an error immediately for serial-mode clients
+    /// ([`Self::open_task_serial`]).
     #[instrument(skip(self))]
     pub async fn disconnect(&mut self) -> anyhow::Result<()> {
+        if !self.supports_disconnect {
+            anyhow::bail!(
+                "disconnect is not supported in serial (single-connection) mode; \
+                 use the parallel session loop"
+            );
+        }
+
         self.handle
             .pipeline_input_tx
             .send(connection::PipelineInput::Disconnect)
@@ -171,9 +194,18 @@ impl RemoteAsyncPowershellClient {
     /// Reconnect a previously disconnected runspace pool shell (MS-WSMV Reconnect).
     ///
     /// Completion is reported through the `PoolLifecycleEvent` channel returned
-    /// by [`Self::open_task`]. Only supported by the parallel session loop.
+    /// by [`Self::open_task`]. Only supported by the parallel session loop;
+    /// returns an error immediately for serial-mode clients
+    /// ([`Self::open_task_serial`]).
     #[instrument(skip(self))]
     pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        if !self.supports_disconnect {
+            anyhow::bail!(
+                "reconnect is not supported in serial (single-connection) mode; \
+                 use the parallel session loop"
+            );
+        }
+
         self.handle
             .pipeline_input_tx
             .send(connection::PipelineInput::Reconnect)
@@ -181,5 +213,40 @@ impl RemoteAsyncPowershellClient {
             .context("Failed to send Reconnect operation")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+
+    #[test]
+    fn serial_client_rejects_disconnect_and_reconnect() {
+        let (pipeline_input_tx, mut pipeline_input_rx) = futures::channel::mpsc::channel(1);
+        let mut client = RemoteAsyncPowershellClient {
+            handle: ConnectionHandle { pipeline_input_tx },
+            supports_disconnect: false,
+        };
+
+        let err = client
+            .disconnect()
+            .now_or_never()
+            .expect("serial disconnect must resolve immediately")
+            .expect_err("disconnect must fail in serial mode");
+        assert!(err.to_string().contains("serial"), "got: {err}");
+
+        let err = client
+            .reconnect()
+            .now_or_never()
+            .expect("serial reconnect must resolve immediately")
+            .expect_err("reconnect must fail in serial mode");
+        assert!(err.to_string().contains("serial"), "got: {err}");
+
+        // Nothing must have been sent into the session loop.
+        assert!(
+            pipeline_input_rx.try_next().is_err(),
+            "no operation may reach the session loop"
+        );
     }
 }

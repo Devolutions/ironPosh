@@ -1,7 +1,7 @@
 use crate::{
     PwshCoreError,
     connector::{
-        connection_pool::{ConnectionPool, ConnectionPoolAccept, TrySend},
+        connection_pool::{ConnectionId, ConnectionPool, ConnectionPoolAccept, TrySend},
         http::HttpResponseTargeted,
     },
     host::{HostCall, HostCallScope, Submission},
@@ -152,6 +152,9 @@ impl UserOperation {
 pub struct ActiveSession {
     runspace_pool: RunspacePool,
     connection_pool: ConnectionPool,
+    /// Connection carrying an in-flight Disconnect request, so a fault answering
+    /// it can be told apart from the dying in-flight Receive.
+    disconnect_conn_id: Option<ConnectionId>,
 }
 
 impl ActiveSession {
@@ -160,6 +163,7 @@ impl ActiveSession {
         Self {
             runspace_pool,
             connection_pool,
+            disconnect_conn_id: None,
         }
     }
 
@@ -286,14 +290,31 @@ impl ActiveSession {
 
             UserOperation::Disconnect => {
                 info!("disconnecting runspace pool");
-                let disconnect_xml = self.runspace_pool.fire_disconnect()?;
+                let disconnect_xml = match self.runspace_pool.fire_disconnect() {
+                    Ok(xml) => xml,
+                    Err(e @ PwshCoreError::InvalidState(_)) => {
+                        // Mistimed operation (e.g. already disconnecting) — non-fatal.
+                        warn!(error = %e, "ignoring mistimed Disconnect operation");
+                        return Ok(ActiveSessionOutput::Ignore);
+                    }
+                    Err(e) => return Err(e),
+                };
                 let ts_send = self.connection_pool.send(&disconnect_xml)?;
+                self.disconnect_conn_id = Some(ts_send.get_connection_id());
                 Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
             }
 
             UserOperation::Reconnect => {
                 info!("reconnecting runspace pool");
-                let reconnect_xml = self.runspace_pool.fire_reconnect()?;
+                let reconnect_xml = match self.runspace_pool.fire_reconnect() {
+                    Ok(xml) => xml,
+                    Err(e @ PwshCoreError::InvalidState(_)) => {
+                        // Mistimed operation (e.g. still connected) — non-fatal.
+                        warn!(error = %e, "ignoring mistimed Reconnect operation");
+                        return Ok(ActiveSessionOutput::Ignore);
+                    }
+                    Err(e) => return Err(e),
+                };
                 let ts_send = self.connection_pool.send(&reconnect_xml)?;
                 Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
             }
@@ -312,6 +333,8 @@ impl ActiveSession {
         response: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
         info!("ActiveSession: processing server response");
+
+        let conn_id = response.connection_id();
 
         // 1) Decrypt & state-transition inside the pool, get plaintext SOAP
         let xml_body = match self.connection_pool.accept(response)? {
@@ -339,7 +362,7 @@ impl ActiveSession {
         //    the dedicated pool accept methods instead of the PSRP receive path.
         match self.runspace_pool.state {
             crate::runspace_pool::RunspacePoolState::Disconnecting => {
-                return self.accept_response_while_disconnecting(&xml_body);
+                return self.accept_response_while_disconnecting(&xml_body, conn_id);
             }
             crate::runspace_pool::RunspacePoolState::Disconnected => {
                 // Late traffic from connections that were in flight when the shell
@@ -352,12 +375,13 @@ impl ActiveSession {
             }
             crate::runspace_pool::RunspacePoolState::Connecting => {
                 self.runspace_pool.accept_reconnect_response(&xml_body)?;
-                // The pre-disconnect Receive is gone; schedule a fresh pool-stream
-                // Receive so the session loop resumes the receive loop.
+                // The pre-disconnect Receive is gone; schedule a fresh Receive
+                // covering surviving pipelines (plus the pool stream when none)
+                // so the session loop resumes the receive loop.
                 return Ok(vec![
                     ActiveSessionOutput::OperationSuccess,
                     ActiveSessionOutput::PendingReceive {
-                        desired_streams: DesiredStream::runspace_pool_streams(),
+                        desired_streams: self.runspace_pool.compute_active_desired_streams(),
                     },
                 ]);
             }
@@ -447,13 +471,19 @@ impl ActiveSession {
     /// Besides the DisconnectResponse itself, the long-poll Receive that was in
     /// flight when the Disconnect was issued typically completes with a fault or
     /// unrelated body once the server tears the shell down — tolerate that
-    /// traffic instead of failing the session.
+    /// traffic instead of failing the session. A fault arriving on the connection
+    /// that carries the Disconnect itself means the Disconnect failed: abort it
+    /// so the pool does not stay stuck in `Disconnecting` forever.
     fn accept_response_while_disconnecting(
         &mut self,
         xml_body: &str,
+        conn_id: ConnectionId,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
         match self.runspace_pool.accept_disconnect_response(xml_body) {
-            Ok(()) => Ok(vec![ActiveSessionOutput::OperationSuccess]),
+            Ok(()) => {
+                self.disconnect_conn_id = None;
+                Ok(vec![ActiveSessionOutput::OperationSuccess])
+            }
             Err(PwshCoreError::InvalidResponse(reason)) => {
                 warn!(
                     reason = %reason,
@@ -462,11 +492,26 @@ impl ActiveSession {
                 Ok(vec![ActiveSessionOutput::Ignore])
             }
             Err(PwshCoreError::SoapFault { code, reason }) => {
-                warn!(
-                    %code,
-                    %reason,
-                    "ignoring fault while disconnecting (expected in-flight Receive teardown)"
-                );
+                if self.disconnect_conn_id == Some(conn_id) {
+                    // The Disconnect request itself faulted: revert the pool to
+                    // Opened. The session loop observes the Disconnecting → Opened
+                    // transition and surfaces the failure to the user.
+                    self.disconnect_conn_id = None;
+                    self.runspace_pool.abort_disconnect();
+                    error!(
+                        %code,
+                        %reason,
+                        conn_id = conn_id.inner(),
+                        "Disconnect request faulted; reverting runspace pool to Opened"
+                    );
+                } else {
+                    warn!(
+                        %code,
+                        %reason,
+                        conn_id = conn_id.inner(),
+                        "ignoring fault while disconnecting (expected in-flight Receive teardown)"
+                    );
+                }
                 Ok(vec![ActiveSessionOutput::Ignore])
             }
             Err(e) => Err(e),

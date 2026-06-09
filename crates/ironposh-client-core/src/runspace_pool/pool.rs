@@ -409,6 +409,21 @@ impl RunspacePool {
         Ok(())
     }
 
+    /// Abort an in-flight Disconnect after the server faulted the request.
+    /// Valid only in `Disconnecting` state; reverts the pool to `Opened`.
+    pub(crate) fn abort_disconnect(&mut self) {
+        if self.state == RunspacePoolState::Disconnecting {
+            self.state = RunspacePoolState::Opened;
+            warn!(runspace_pool_id = %self.id, "disconnect aborted, runspace pool reverted to Opened");
+        } else {
+            warn!(
+                runspace_pool_id = %self.id,
+                state = ?self.state,
+                "abort_disconnect called outside Disconnecting state; ignoring"
+            );
+        }
+    }
+
     /// Build a Reconnect request for this pool's shell (MS-WSMV 3.1.4.14).
     /// Valid only in `Disconnected` state; transitions the pool to `Connecting`.
     #[instrument(skip(self))]
