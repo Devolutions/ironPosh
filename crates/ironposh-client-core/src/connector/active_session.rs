@@ -1,7 +1,7 @@
 use crate::{
     PwshCoreError,
     connector::{
-        conntion_pool::{ConnectionPool, ConnectionPoolAccept, TrySend},
+        connection_pool::{ConnectionPool, ConnectionPoolAccept, TrySend},
         http::HttpResponseTargeted,
     },
     host::{HostCall, HostCallScope, Submission},

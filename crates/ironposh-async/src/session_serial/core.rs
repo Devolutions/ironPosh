@@ -12,7 +12,7 @@ use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
-use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation, conntion_pool::TrySend};
+use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation, connection_pool::TrySend};
 use ironposh_client_core::host::HostCall;
 use ironposh_client_core::runspace_pool::DesiredStream;
 use tracing::{debug, error, info, trace};
@@ -650,7 +650,7 @@ fn output_type_name(o: &ActiveSessionOutput) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ironposh_client_core::connector::conntion_pool::ConnectionId;
+    use ironposh_client_core::connector::connection_pool::ConnectionId;
     use ironposh_client_core::connector::http::{HttpRequest, Method};
     use ironposh_client_core::host::{HostCallScope, Transport};
     use ironposh_client_core::powershell::PipelineHandle;

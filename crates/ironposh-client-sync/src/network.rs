@@ -1,4 +1,4 @@
-use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
+use ironposh_client_core::connector::{connection_pool::TrySend, http::HttpResponseTargeted};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use tracing::{error, info, instrument, warn};
