@@ -21,7 +21,7 @@ async fn run_handshake<C: HttpClient>(
     session_event_tx: &mpsc::UnboundedSender<crate::SessionEvent>,
 ) -> anyhow::Result<(
     Box<ironposh_client_core::connector::active_session::ActiveSession>,
-    ironposh_client_core::connector::conntion_pool::TrySend,
+    ironposh_client_core::connector::connection_pool::TrySend,
 )> {
     let handshake_started_at = Instant::now();
     let mut step_idx: u64 = 0;

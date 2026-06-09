@@ -1,6 +1,6 @@
 use std::{fmt::Display, net::IpAddr};
 
-use crate::connector::conntion_pool::{AuthenticatedHttpChannel, ConnectionId};
+use crate::connector::connection_pool::{AuthenticatedHttpChannel, ConnectionId};
 
 pub const ENCRYPTION_BOUNDARY: &str = "Encrypted Boundary";
 

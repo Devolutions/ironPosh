@@ -8,7 +8,7 @@ use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
-    conntion_pool::{ConnectionId, SecContextInited, TrySend},
+    connection_pool::{ConnectionId, SecContextInited, TrySend},
     http::{HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted},
     NetworkProtocol, NetworkRequest,
 };

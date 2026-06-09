@@ -4,7 +4,7 @@ use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
-    conntion_pool::{ConnectionId, SecContextInited, TrySend},
+    connection_pool::{ConnectionId, SecContextInited, TrySend},
     http::{HttpBody, HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted, Method},
 };
 use reqwest::Client;

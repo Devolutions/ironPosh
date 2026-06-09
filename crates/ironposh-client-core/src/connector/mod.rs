@@ -12,7 +12,7 @@ use crate::{
     connector::{
         auth_sequence::AuthSequenceConfig,
         config::AuthenticatorConfig,
-        conntion_pool::{ConnectionPool, ConnectionPoolAccept, ConnectionPoolConfig, TrySend},
+        connection_pool::{ConnectionPool, ConnectionPoolAccept, ConnectionPoolConfig, TrySend},
         http::{HttpResponseTargeted, ServerAddress},
     },
     runspace_pool::{
@@ -26,7 +26,7 @@ pub mod active_session;
 pub mod auth_sequence;
 pub mod authenticator;
 pub mod config;
-pub mod conntion_pool;
+pub mod connection_pool;
 pub mod encryption;
 pub mod http;
 

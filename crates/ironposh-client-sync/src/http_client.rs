@@ -207,14 +207,14 @@ impl HttpClient for UreqHttpClient {
     )]
     fn send_request(
         &self,
-        try_send: ironposh_client_core::connector::conntion_pool::TrySend,
+        try_send: ironposh_client_core::connector::connection_pool::TrySend,
     ) -> Result<ironposh_client_core::connector::http::HttpResponseTargeted, anyhow::Error> {
         use crate::kerberos::send_packet;
         use anyhow::Context;
         use ironposh_client_core::connector::{
             auth_sequence::SspiAuthSequence,
             authenticator::SecContextMaybeInit,
-            conntion_pool::{SecContextInited, TrySend},
+            connection_pool::{SecContextInited, TrySend},
             http::{HttpRequestAction, HttpResponseTargeted},
         };
 

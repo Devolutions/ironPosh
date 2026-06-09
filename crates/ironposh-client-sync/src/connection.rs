@@ -1,5 +1,5 @@
 use ironposh_client_core::connector::{
-    conntion_pool::TrySend, http::HttpResponseTargeted, Connector, ConnectorStepResult, WinRmConfig,
+    connection_pool::TrySend, http::HttpResponseTargeted, Connector, ConnectorStepResult, WinRmConfig,
 };
 
 pub trait HttpClient {
@@ -44,7 +44,7 @@ impl RemotePowershell {
         self,
     ) -> (
         ironposh_client_core::connector::active_session::ActiveSession,
-        ironposh_client_core::connector::conntion_pool::TrySend,
+        ironposh_client_core::connector::connection_pool::TrySend,
     ) {
         (self.active_session, self.next_request)
     }

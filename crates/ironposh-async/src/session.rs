@@ -6,7 +6,7 @@ use futures::future::Either;
 use futures::{SinkExt, StreamExt, stream::FuturesUnordered};
 use ironposh_client_core::connector::active_session::UserEvent;
 use ironposh_client_core::connector::{
-    ActiveSessionOutput, UserOperation, conntion_pool::TrySend, http::HttpResponseTargeted,
+    ActiveSessionOutput, UserOperation, connection_pool::TrySend, http::HttpResponseTargeted,
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 

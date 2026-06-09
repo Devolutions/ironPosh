@@ -13,7 +13,7 @@ use futures::future::Either;
 use futures::{FutureExt, SinkExt, StreamExt};
 use futures_timer::Delay;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
-use ironposh_client_core::connector::conntion_pool::TrySend;
+use ironposh_client_core::connector::connection_pool::TrySend;
 use ironposh_client_core::host::HostCall;
 use std::time::Duration;
 use tracing::{info, instrument, trace};

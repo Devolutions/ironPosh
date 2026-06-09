@@ -1,5 +1,5 @@
 use futures::channel::mpsc;
-use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
+use ironposh_client_core::connector::{connection_pool::TrySend, http::HttpResponseTargeted};
 use ironposh_client_core::host::{HostCall, HostCallScope, Submission};
 use std::future::Future;
 
