@@ -339,6 +339,7 @@ pub fn create_connector_config_with_kdc_url(
         host_info,
         operation_timeout_secs,
         tls,
+        configuration_name: None,
     })
 }
 

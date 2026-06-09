@@ -274,5 +274,6 @@ pub fn create_connector_config(
         host_info,
         operation_timeout_secs: None,
         tls: TlsOptions::default(),
+        configuration_name: None,
     })
 }
