@@ -1,16 +1,19 @@
 use anyhow::Context;
 use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
+    auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
     conntion_pool::TrySend,
     conntion_pool::{ConnectionId, SecContextInited},
     http::HttpRequestAction,
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
+    NetworkProtocol, NetworkRequest,
 };
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument};
 
 pub struct ReqwestHttpClient {
@@ -55,6 +58,120 @@ impl ReqwestHttpClient {
 }
 
 impl ReqwestHttpClient {
+    #[instrument(
+        name = "kdc_request",
+        level = "debug",
+        skip(packet),
+        fields(protocol = ?packet.protocol, url = tracing::field::Empty, data_len = packet.data.len())
+    )]
+    pub(crate) async fn send_kdc_network_request(
+        packet: NetworkRequest,
+    ) -> anyhow::Result<Vec<u8>> {
+        let redacted_url = redact_network_url(&packet.url);
+        tracing::Span::current().record("url", redacted_url.as_str());
+        info!(
+            protocol = ?packet.protocol,
+            url = %redacted_url,
+            data_len = packet.data.len(),
+            "sending KDC network request"
+        );
+
+        match packet.protocol {
+            NetworkProtocol::Tcp => Self::send_kdc_tcp_packet(packet).await,
+            NetworkProtocol::Http | NetworkProtocol::Https => {
+                Self::send_kdc_http_packet(packet).await
+            }
+            NetworkProtocol::Udp => todo!("UDP protocol not implemented for Kerberos"),
+        }
+    }
+
+    #[instrument(
+        name = "kdc_tcp",
+        level = "debug",
+        skip(packet),
+        fields(host = packet.url.host_str(), port = packet.url.port())
+    )]
+    async fn send_kdc_tcp_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+        let host = packet
+            .url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing host in KDC URL"))?;
+        let port = packet
+            .url
+            .port()
+            .ok_or_else(|| anyhow::anyhow!("Missing port in KDC URL"))?;
+
+        info!(host = %host, port, "opening TCP connection to KDC");
+        let mut stream = tokio::net::TcpStream::connect((host, port))
+            .await
+            .context("failed to establish TCP connection to KDC")?;
+
+        stream
+            .write_all(&packet.data)
+            .await
+            .context("failed to write packet data to KDC")?;
+        stream
+            .flush()
+            .await
+            .context("failed to flush TCP stream to KDC")?;
+
+        let response_len = stream
+            .read_u32()
+            .await
+            .context("failed to read response length from KDC")?;
+
+        let mut response_data = vec![0_u8; response_len as usize + 4];
+        response_data[..4].copy_from_slice(&response_len.to_be_bytes());
+
+        stream
+            .read_exact(&mut response_data[4..])
+            .await
+            .context("failed to read response data from KDC")?;
+
+        info!(
+            response_len = response_data.len(),
+            "received TCP response from KDC"
+        );
+
+        Ok(response_data)
+    }
+
+    #[instrument(
+        name = "kdc_http",
+        level = "debug",
+        skip(packet),
+        fields(protocol = ?packet.protocol, url = tracing::field::Empty)
+    )]
+    async fn send_kdc_http_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+        tracing::Span::current().record("url", redact_network_url(&packet.url).as_str());
+        let response = Self::build_client()
+            .post(packet.url.clone())
+            .header("keep-alive", "true")
+            .body(packet.data)
+            .send()
+            .await
+            .context("failed to send KDC HTTP request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "KDC HTTP request failed with status {status}"
+            ));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .context("failed to read KDC HTTP response body")?;
+
+        info!(
+            response_len = bytes.len(),
+            "received HTTP response from KDC"
+        );
+
+        Ok(bytes.to_vec())
+    }
+
     async fn send_with_client(
         client: Client,
         request: HttpRequest,
@@ -151,6 +268,19 @@ impl ReqwestHttpClient {
     }
 }
 
+fn redact_network_url(url: &url::Url) -> String {
+    let mut redacted = url.clone();
+    if redacted.path_segments().is_some_and(|mut segments| {
+        segments.any(|segment| segment.eq_ignore_ascii_case("KdcProxy"))
+    }) {
+        redacted.set_path("/jet/KdcProxy/<redacted>");
+    }
+    if redacted.query().is_some() {
+        redacted.set_query(Some("<redacted>"));
+    }
+    redacted.to_string()
+}
+
 impl HttpClient for ReqwestHttpClient {
     #[instrument(name = "http_request", level = "debug", skip(self, try_send))]
     async fn send_request(&self, try_send: TrySend) -> anyhow::Result<HttpResponseTargeted> {
@@ -175,11 +305,27 @@ impl HttpClient for ReqwestHttpClient {
                     let init =
                         match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
                             SecContextMaybeInit::Initialized(sec) => sec,
-                            SecContextMaybeInit::RunGenerator { .. } => {
-                                // For async client, we don't implement KDC communication yet
-                                return Err(anyhow::anyhow!(
-                                    "KDC generator not implemented in async client"
-                                ));
+                            SecContextMaybeInit::RunGenerator {
+                                mut packet,
+                                mut generator_holder,
+                            } => {
+                                info!("running generator for KDC communication");
+                                loop {
+                                    let kdc_resp =
+                                        Self::send_kdc_network_request(packet).await.context(
+                                            "failed to send packet to KDC during authentication",
+                                        )?;
+                                    match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
+                                        SecContextMaybeInit::Initialized(sec) => break sec,
+                                        SecContextMaybeInit::RunGenerator {
+                                            packet: next_packet,
+                                            generator_holder: next_holder,
+                                        } => {
+                                            packet = next_packet;
+                                            generator_holder = next_holder;
+                                        }
+                                    }
+                                }
                             }
                         };
 
