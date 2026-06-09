@@ -10,7 +10,7 @@
 use base64::Engine;
 use ironposh_client_core::connector::{
     TransportSecurity, WinRmConfig,
-    config::AuthenticatorConfig,
+    config::{AuthenticatorConfig, TlsOptions},
     connection_pool::{ConnectionId, TrySend},
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, ServerAddress},
 };
@@ -54,6 +54,7 @@ pub fn test_config() -> WinRmConfig {
         },
         host_info,
         operation_timeout_secs: Some(1.0),
+        tls: TlsOptions::default(),
     }
 }
 

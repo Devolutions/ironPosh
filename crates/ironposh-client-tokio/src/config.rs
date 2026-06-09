@@ -1,6 +1,10 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig},
+    connector::{
+        config::{KerberosConfig, TlsOptions},
+        http::ServerAddress,
+        WinRmConfig,
+    },
     credentials::{ClientAuthIdentity, ClientUserName},
     AuthenticatorConfig, SspiAuthConfig, TransportSecurity,
 };
@@ -278,6 +282,7 @@ pub fn create_connector_config_with_kdc_url(
         authentication: auth,
         host_info,
         operation_timeout_secs,
+        tls: TlsOptions::default(),
     })
 }
 

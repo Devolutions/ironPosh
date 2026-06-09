@@ -46,3 +46,29 @@ pub enum AuthenticatorConfig {
     /// Note: SSPI message sealing is now controlled by `TransportSecurity` in `WinRmConfig`.
     Sspi(SspiAuthConfig),
 }
+
+/// TLS behaviour for HTTPS transports. Honored by `HttpClient` implementations
+/// (reqwest-based clients); ignored for plain-HTTP transports and for the WASM
+/// client (the browser owns TLS there).
+#[derive(Debug, Clone, Default)]
+pub struct TlsOptions {
+    /// Accept any server certificate (self-signed labs). DANGEROUS outside test/lab use.
+    pub accept_invalid_certs: bool,
+    /// Skip hostname verification only.
+    pub accept_invalid_hostnames: bool,
+    /// Additional root CA certificate(s), PEM-encoded.
+    pub extra_ca_pem: Option<Vec<u8>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tls_options_default_is_secure() {
+        let tls = TlsOptions::default();
+        assert!(!tls.accept_invalid_certs);
+        assert!(!tls.accept_invalid_hostnames);
+        assert!(tls.extra_ca_pem.is_none());
+    }
+}
