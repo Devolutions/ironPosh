@@ -53,6 +53,32 @@ impl RunspacePoolCreator {
             .resource_uri(connection.resource_uri().to_owned())
             .build();
 
+        self.into_runspace_pool_with_shell(connection, shell)
+    }
+
+    /// Build a pool around an EXISTING disconnected shell for WSMan Connect:
+    /// the shell id and ShellId selector are seeded upfront (creator `id` ==
+    /// shell id == pool RPID) instead of being learned from a CreateResponse.
+    pub fn into_connect_runspace_pool(self, connection: Arc<WsMan>) -> RunspacePool {
+        let shell_id = self.id.to_string().to_uppercase();
+        let shell = WinRunspace::builder()
+            .id(self.id)
+            .resource_uri(connection.resource_uri().to_owned())
+            .shell_id(Some(shell_id.clone()))
+            .selector_set(
+                ironposh_winrm::ws_management::SelectorSetValue::new()
+                    .add_selector("ShellId", shell_id),
+            )
+            .build();
+
+        self.into_runspace_pool_with_shell(connection, shell)
+    }
+
+    fn into_runspace_pool_with_shell(
+        self,
+        connection: Arc<WsMan>,
+        shell: WinRunspace,
+    ) -> RunspacePool {
         RunspacePool {
             id: self.id,
             state: self.state,

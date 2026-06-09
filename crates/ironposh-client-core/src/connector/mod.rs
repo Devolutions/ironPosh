@@ -16,8 +16,8 @@ use crate::{
         http::{HttpResponseTargeted, ServerAddress},
     },
     runspace_pool::{
-        DesiredStream, ExpectShellCreated, RunspacePool, RunspacePoolCreator, RunspacePoolState,
-        pool::AcceptResponsResult,
+        DesiredStream, ExpectShellConnected, ExpectShellCreated, RunspacePool, RunspacePoolCreator,
+        RunspacePoolState, pool::AcceptResponsResult,
     },
 };
 
@@ -170,6 +170,12 @@ pub enum ConnectorState {
         expect_shell_created: ExpectShellCreated,
         connection_pool: ConnectionPool,
     },
+    /// Waiting for the ConnectResponse of a WSMan Connect to an existing
+    /// disconnected shell (reattach path).
+    ConnectingExisting {
+        expect_shell_connected: ExpectShellConnected,
+        connection_pool: ConnectionPool,
+    },
     ConnectReceiveCycle {
         runspace_pool: RunspacePool,
         connection_pool: ConnectionPool,
@@ -182,6 +188,7 @@ impl ConnectorState {
         match self {
             Self::Idle => "Idle",
             Self::Connecting { .. } => "Connecting",
+            Self::ConnectingExisting { .. } => "ConnectingExisting",
             Self::ConnectReceiveCycle { .. } => "ConnectReceiveCycle",
             Self::Connected => "Connected",
         }
@@ -192,6 +199,10 @@ impl ConnectorState {
 pub struct Connector {
     state: ConnectorState,
     config: WinRmConfig,
+    /// When set, the connector attaches to this existing disconnected shell
+    /// (WSMan Connect) instead of creating a new one. The shell id is also
+    /// used as the pool RPID (shell id == pool RPID in this codebase).
+    connect_shell_id: Option<uuid::Uuid>,
 }
 
 impl Connector {
@@ -199,6 +210,17 @@ impl Connector {
         Self {
             state: ConnectorState::Idle,
             config,
+            connect_shell_id: None,
+        }
+    }
+
+    /// Create a connector that attaches to an existing disconnected shell
+    /// (browser-refresh / new-process reattach) instead of creating one.
+    pub fn new_connect(config: WinRmConfig, shell_id: uuid::Uuid) -> Self {
+        Self {
+            state: ConnectorState::Idle,
+            config,
+            connect_shell_id: Some(shell_id),
         }
     }
 
@@ -246,22 +268,89 @@ impl Connector {
                         .build(),
                 );
 
-                let runspace_pool = RunspacePoolCreator::builder()
-                    .host_info(self.config.host_info.clone())
-                    .build()
-                    .into_runspace_pool(ws_man);
+                if let Some(shell_id) = self.connect_shell_id {
+                    // Reattach path: WSMan Connect to an existing disconnected
+                    // shell. The provided shell id doubles as the pool RPID.
+                    let runspace_pool = RunspacePoolCreator::builder()
+                        .id(shell_id)
+                        .host_info(self.config.host_info.clone())
+                        .build()
+                        .into_connect_runspace_pool(ws_man);
 
-                let (xml_body, expect_shell_created) = runspace_pool.open()?;
-                info!(shell_creation_xml = %xml_body, "outgoing unencrypted shell creation SOAP");
+                    let (xml_body, expect_shell_connected) = runspace_pool.connect()?;
+                    info!(shell_id = %shell_id, shell_connect_xml = %xml_body, "outgoing unencrypted shell connect SOAP");
 
-                let try_send = connection_pool.send(&xml_body)?;
+                    let try_send = connection_pool.send(&xml_body)?;
 
-                let new_state = ConnectorState::Connecting {
-                    expect_shell_created,
-                    connection_pool,
-                };
+                    let new_state = ConnectorState::ConnectingExisting {
+                        expect_shell_connected,
+                        connection_pool,
+                    };
 
-                (new_state, ConnectorStepResult::SendBack { try_send })
+                    (new_state, ConnectorStepResult::SendBack { try_send })
+                } else {
+                    let runspace_pool = RunspacePoolCreator::builder()
+                        .host_info(self.config.host_info.clone())
+                        .build()
+                        .into_runspace_pool(ws_man);
+
+                    let (xml_body, expect_shell_created) = runspace_pool.open()?;
+                    info!(shell_creation_xml = %xml_body, "outgoing unencrypted shell creation SOAP");
+
+                    let try_send = connection_pool.send(&xml_body)?;
+
+                    let new_state = ConnectorState::Connecting {
+                        expect_shell_created,
+                        connection_pool,
+                    };
+
+                    (new_state, ConnectorStepResult::SendBack { try_send })
+                }
+            }
+            ConnectorState::ConnectingExisting {
+                expect_shell_connected,
+                mut connection_pool,
+            } => {
+                // Expect the response to the Connect POST on some conn
+                let targeted_response = server_response.ok_or(
+                    crate::PwshCoreError::InvalidState("Expected response in ConnectingExisting"),
+                )?;
+
+                match connection_pool.accept(targeted_response)? {
+                    ConnectionPoolAccept::Body(xml) => {
+                        // The ConnectResponse carries the full negotiation
+                        // (SESSION_CAPABILITY + RUNSPACEPOOL_INIT_DATA): the
+                        // pool is Opened right away. Fire the initial Receive
+                        // and hand off to the ActiveSession like the normal path.
+                        let runspace_pool = expect_shell_connected.accept(&xml)?;
+                        let next_receive_xml =
+                            runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
+                        info!(connect_receive_xml = %next_receive_xml, "outgoing unencrypted post-connect receive SOAP");
+                        let next_req = connection_pool.send(&next_receive_xml)?;
+
+                        let active_session = ActiveSession::new(runspace_pool, connection_pool);
+                        let new_state = ConnectorState::Connected;
+                        (
+                            new_state,
+                            ConnectorStepResult::Connected {
+                                active_session: Box::new(active_session),
+                                send_this_one_async_or_you_stuck: next_req,
+                            },
+                        )
+                    }
+                    ConnectionPoolAccept::SendBack(reqs) => {
+                        let [try_send] = <[TrySend; 1]>::try_from(reqs).map_err(|_| {
+                            crate::PwshCoreError::InvalidState(
+                                "Expected single SendBack during ConnectingExisting retry",
+                            )
+                        })?;
+                        let new_state = ConnectorState::ConnectingExisting {
+                            expect_shell_connected,
+                            connection_pool,
+                        };
+                        (new_state, ConnectorStepResult::SendBack { try_send })
+                    }
+                }
             }
             ConnectorState::Connecting {
                 expect_shell_created,

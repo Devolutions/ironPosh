@@ -5,9 +5,9 @@ use std::{
 
 use base64::Engine;
 use ironposh_psrp::{
-    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter,
-    ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue,
-    RunspacePoolStateMessage, SessionCapability, fragmentation,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, ConnectRunspacePool,
+    CreatePipeline, Defragmenter, ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions,
+    PipelineOutput, PsValue, RunspacePoolStateMessage, SessionCapability, fragmentation,
 };
 use ironposh_winrm::{
     soap::SoapEnvelope,
@@ -340,6 +340,77 @@ impl RunspacePool {
         ))
     }
 
+    /// Open this pool by attaching to an EXISTING disconnected shell
+    /// (MS-WSMV 3.1.4.15 Connect / MS-PSRP 3.1.5.4).
+    ///
+    /// Embeds SESSION_CAPABILITY + CONNECT_RUNSPACEPOOL in the `connectXml`
+    /// payload of a WSMan Connect request addressed at the shell whose id
+    /// equals this pool's RPID (shell id == pool RPID in this codebase).
+    #[instrument(skip(self), name = "RunspacePool::connect")]
+    pub fn connect(
+        mut self,
+    ) -> Result<(String, super::expect_shell_connected::ExpectShellConnected), crate::PwshCoreError>
+    {
+        if self.state != RunspacePoolState::BeforeOpen {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in BeforeOpen state to connect",
+            ));
+        }
+
+        let session_capability = SessionCapability {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            ps_version: PS_VERSION.to_string(),
+            serialization_version: SERIALIZATION_VERSION.to_string(),
+            time_zone: None,
+        };
+
+        let connect_runspace_pool = ConnectRunspacePool {
+            min_runspaces: self.min_runspaces as i32,
+            max_runspaces: self.max_runspaces as i32,
+        };
+
+        debug!(
+            session_capability = ?session_capability,
+            connect_runspace_pool = ?connect_runspace_pool,
+            runspace_pool_id = %self.id,
+            "starting runspace pool connect to existing shell"
+        );
+
+        let request_groups = self.fragmenter.fragment_multiple(
+            &[&session_capability, &connect_runspace_pool],
+            self.id,
+            None,
+        )?;
+
+        self.state = RunspacePoolState::Connecting;
+
+        debug_assert!(
+            request_groups.len() == 1,
+            "We should have only one request group for the connect negotiation"
+        );
+
+        let request = request_groups
+            .into_iter()
+            .next()
+            .ok_or(crate::PwshCoreError::UnlikelyToHappen(
+                "No request group generated for connect negotiation",
+            ))
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))?;
+
+        let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
+
+        let result = self
+            .shell
+            .connect(&self.connection, Some(option_set), &request);
+
+        Ok((
+            result.into().to_xml_string()?,
+            super::expect_shell_connected::ExpectShellConnected {
+                runspace_pool: self,
+            },
+        ))
+    }
+
     // We should accept the pipeline id here, but for now let's ignore it
     pub(crate) fn fire_receive(
         &self,
@@ -499,7 +570,9 @@ impl RunspacePool {
     }
 
     /// Surface a WSMan SOAP fault as a `SoapFault` error.
-    fn fault_to_error(soap_envelope: &SoapEnvelope<'_>) -> Result<(), crate::PwshCoreError> {
+    pub(super) fn fault_to_error(
+        soap_envelope: &SoapEnvelope<'_>,
+    ) -> Result<(), crate::PwshCoreError> {
         if let Some(fault_tag) = soap_envelope.body.as_ref().fault.as_ref() {
             let fault = fault_tag.as_ref();
             let code = fault

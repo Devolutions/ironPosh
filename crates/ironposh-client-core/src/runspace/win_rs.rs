@@ -187,6 +187,35 @@ impl WinRunspace {
         )
     }
 
+    /// Build a Connect request attaching this client to an existing
+    /// disconnected shell (MS-WSMV 3.1.4.15). `connect_payload` is the base64
+    /// PSRP payload (SESSION_CAPABILITY + CONNECT_RUNSPACEPOOL) carried in the
+    /// `connectXml` element, analogous to `creationXml` on shell create.
+    pub(crate) fn connect<'a>(
+        &'a self,
+        ws_man: &'a WsMan,
+        option_set: Option<OptionSetValue>,
+        connect_payload: &'a str,
+    ) -> impl Into<Element<'a>> {
+        use ironposh_winrm::{cores::Namespace, rsp::connect::ConnectValue};
+
+        let connect_value = ConnectValue {
+            connect_xml: Tag::new(connect_payload).with_declaration(Namespace::PowerShellRemoting),
+        };
+
+        let connect_tag = Tag::from_name(tag_name::Connect)
+            .with_declaration(Namespace::WsmanShell)
+            .with_value(connect_value);
+
+        ws_man.invoke(
+            &WsAction::Connect,
+            Some(&self.resource_uri),
+            SoapBody::builder().connect(connect_tag).build(),
+            option_set,
+            self.selector_set.clone().into(),
+        )
+    }
+
     /// Build a Reconnect request targeting this shell (MS-WSMV 3.1.4.14).
     pub(crate) fn fire_reconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
         use ironposh_winrm::cores::{Empty, Namespace};

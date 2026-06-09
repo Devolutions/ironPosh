@@ -92,6 +92,50 @@ pub fn extract_shell_id(create_xml: &str) -> Uuid {
     captures[1].parse().expect("ShellId must be a UUID")
 }
 
+/// Build a ConnectResponse SOAP envelope whose `connectResponseXml` carries the
+/// given server-to-client PSRP messages as a base64 blob of concatenated
+/// single fragments, mirroring how a real server answers a WSMan Connect to a
+/// disconnected shell (MS-WSMV 3.1.4.15).
+pub fn connect_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> String {
+    let mut payload = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        let remoting_message = PowerShellRemotingMessage::new(
+            Destination::Client,
+            message.message_type(),
+            rpid,
+            None,
+            &message.to_ps_object(),
+        )
+        .expect("serialize PSRP message");
+
+        let fragment = Fragment::new(index as u64 + 1, 0, remoting_message.pack(), true, true);
+        payload.extend(fragment.pack());
+    }
+
+    let payload_b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+
+    format!(
+        r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ConnectResponse</a:Action>
+        <a:MessageID>uuid:6C334787-EF2C-40E4-992F-DE4599ED2505</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+        <a:RelatesTo>uuid:87d0a667-c08e-4311-8d2d-069367f452d8</a:RelatesTo>
+    </s:Header>
+    <s:Body>
+        <rsp:ConnectResponse>
+            <connectResponseXml xmlns="http://schemas.microsoft.com/powershell">{payload_b64}</connectResponseXml>
+        </rsp:ConnectResponse>
+    </s:Body>
+</s:Envelope>"#
+    )
+}
+
 /// Build a ReceiveResponse SOAP envelope carrying the given server-to-client PSRP
 /// messages as single-fragment `stdout` streams (no command id => runspace pool stream).
 pub fn receive_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> String {

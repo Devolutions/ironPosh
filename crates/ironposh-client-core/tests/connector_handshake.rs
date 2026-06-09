@@ -539,6 +539,165 @@ fn reconnect_resumes_active_pipeline_streams() {
     );
 }
 
+/// Connect mode (`new_connect`) must emit a WSMan Connect addressed at the
+/// given shell whose `connectXml` payload defragments back to
+/// [SessionCapability, ConnectRunspacePool].
+#[test]
+fn connect_mode_emits_wsman_connect() {
+    use base64::Engine;
+    use ironposh_psrp::{
+        ConnectRunspacePool, MessageType, PsValue,
+        fragmentation::{DefragmentResult, Defragmenter},
+    };
+
+    let shell_id: uuid::Uuid = "2d6534d0-6b12-40e3-b773-cba26459cfa8".parse().unwrap();
+    let mut connector = Connector::new_connect(support::test_config(), shell_id);
+
+    let result = connector.step(None).expect("idle step in connect mode");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack for Connect");
+    };
+    let (request, _conn) = support::expect_just_send(try_send);
+    let xml = request
+        .body
+        .expect("connect has a body")
+        .as_str()
+        .expect("plaintext body in HttpInsecure mode")
+        .to_owned();
+
+    assert!(
+        xml.contains("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Connect"),
+        "request must carry the Connect action URI, got: {xml}"
+    );
+    assert!(
+        xml.contains(&shell_id.to_string().to_uppercase()),
+        "request must carry the ShellId selector, got: {xml}"
+    );
+    assert!(
+        xml.contains("<rsp:Connect"),
+        "request must carry the rsp:Connect body element, got: {xml}"
+    );
+
+    // Extract and decode the connectXml payload.
+    let re = regex::Regex::new(r"<connectXml[^>]*>([^<]+)</connectXml>").unwrap();
+    let payload_b64 = &re
+        .captures(&xml)
+        .expect("Connect request must carry a connectXml payload")[1];
+    let payload = base64::engine::general_purpose::STANDARD
+        .decode(payload_b64)
+        .expect("connectXml must be valid base64");
+
+    let mut defragmenter = Defragmenter::new();
+    let DefragmentResult::Complete(messages) = defragmenter
+        .defragment(&payload)
+        .expect("defragment connectXml payload")
+    else {
+        panic!("connectXml payload must defragment to complete messages");
+    };
+
+    assert_eq!(
+        messages.len(),
+        2,
+        "connectXml must carry exactly SessionCapability + ConnectRunspacePool"
+    );
+    assert_eq!(messages[0].message_type, MessageType::SessionCapability);
+    assert_eq!(messages[1].message_type, MessageType::ConnectRunspacepool);
+    for message in &messages {
+        assert_eq!(
+            message.rpid, shell_id,
+            "PSRP messages must use the shell id as the pool RPID"
+        );
+    }
+
+    // The CONNECT_RUNSPACEPOOL payload must carry the runspace limits.
+    let ps_value = messages[1]
+        .parse_ps_message()
+        .expect("parse ConnectRunspacePool payload");
+    let PsValue::Object(obj) = ps_value else {
+        panic!("expected ConnectRunspacePool as PsValue::Object");
+    };
+    let connect_runspace_pool =
+        ConnectRunspacePool::try_from(obj).expect("decode ConnectRunspacePool");
+    assert_eq!(connect_runspace_pool.min_runspaces, 1);
+    assert_eq!(connect_runspace_pool.max_runspaces, 1);
+}
+
+/// Feeding a ConnectResponse (SessionCapability + RunspacePoolInitData) must
+/// bring the connect-mode connector straight to Connected with an Opened pool.
+#[test]
+fn connect_mode_reaches_connected() {
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+    use ironposh_psrp::RunspacePoolInitData;
+
+    let shell_id: uuid::Uuid = "2d6534d0-6b12-40e3-b773-cba26459cfa8".parse().unwrap();
+    let mut connector = Connector::new_connect(support::test_config(), shell_id);
+
+    // 1. Idle step emits the WSMan Connect request.
+    let result = connector.step(None).expect("idle step in connect mode");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack for Connect");
+    };
+    let (_request, conn_id) = support::expect_just_send(try_send);
+
+    // 2. Reply with a ConnectResponse carrying the server-side negotiation.
+    let session_capability = SessionCapability {
+        protocol_version: "2.3".to_owned(),
+        ps_version: "2.0".to_owned(),
+        serialization_version: "1.1.0.1".to_owned(),
+        time_zone: None,
+    };
+    let init_data = RunspacePoolInitData {
+        min_runspaces: 1,
+        max_runspaces: 1,
+    };
+    let connect_response =
+        support::connect_response_xml(shell_id, &[&session_capability, &init_data]);
+
+    let result = connector
+        .step(Some(support::xml_response(conn_id, connect_response)))
+        .expect("accept ConnectResponse");
+
+    // 3. The connector must land in Connected with an Opened pool and fire the
+    //    initial pool-stream Receive.
+    let ConnectorStepResult::Connected {
+        active_session,
+        send_this_one_async_or_you_stuck,
+    } = result
+    else {
+        panic!(
+            "expected Connected after ConnectResponse, got {}",
+            result.name()
+        );
+    };
+
+    assert_eq!(
+        active_session.runspace_pool_state(),
+        RunspacePoolState::Opened,
+        "pool must be Opened after a successful Connect"
+    );
+    assert_eq!(
+        active_session.shell_id().as_deref(),
+        Some(shell_id.to_string().to_uppercase().as_str()),
+        "the active session must target the reattached shell"
+    );
+
+    let (request, _conn) = support::expect_just_send(send_this_one_async_or_you_stuck);
+    let receive_xml = request
+        .body
+        .expect("receive has a body")
+        .as_str()
+        .expect("plaintext body")
+        .to_owned();
+    assert!(
+        receive_xml.contains("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"),
+        "connector must fire a Receive after connecting to the shell, got: {receive_xml}"
+    );
+    assert!(
+        receive_xml.contains(&shell_id.to_string().to_uppercase()),
+        "post-connect Receive must target the reattached shell, got: {receive_xml}"
+    );
+}
+
 /// Drive the connector through the full handshake against a fake server:
 /// Create -> CreateResponse -> Receive -> ReceiveResponse(PSRP negotiation) -> Connected.
 #[test]
