@@ -3,6 +3,7 @@ use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
+    config::TlsOptions,
     connection_pool::TrySend,
     connection_pool::{ConnectionId, SecContextInited},
     http::HttpRequestAction,
@@ -16,32 +17,49 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument};
 
+/// Build a reqwest client honoring the given [`TlsOptions`] (native-tls backend).
+pub fn build_reqwest_client(tls: &TlsOptions) -> anyhow::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .use_native_tls()
+        // IMPORTANT: keep each logical `ConnectionId` on its own reqwest client to
+        // reduce the chance of SSPI contexts being mixed across TCP connections.
+        .pool_max_idle_per_host(1)
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
+        .danger_accept_invalid_certs(tls.accept_invalid_certs)
+        .danger_accept_invalid_hostnames(tls.accept_invalid_hostnames);
+
+    if let Some(pem) = &tls.extra_ca_pem {
+        let cert = reqwest::Certificate::from_pem(pem).context("invalid extra CA PEM")?;
+        builder = builder.add_root_certificate(cert);
+    }
+
+    builder.build().context("failed to build reqwest client")
+}
+
 pub struct ReqwestHttpClient {
+    tls: TlsOptions,
     clients_by_conn: Mutex<HashMap<u32, reqwest::Client>>,
 }
 
 impl ReqwestHttpClient {
     pub fn new() -> Self {
+        Self::with_tls_options(TlsOptions::default())
+    }
+
+    pub fn with_tls_options(tls: TlsOptions) -> Self {
         info!(
             connect_timeout_secs = 30,
             read_timeout_secs = 60,
+            accept_invalid_certs = tls.accept_invalid_certs,
+            accept_invalid_hostnames = tls.accept_invalid_hostnames,
+            has_extra_ca_pem = tls.extra_ca_pem.is_some(),
             "initializing ReqwestHttpClient with native-tls"
         );
         Self {
+            tls,
             clients_by_conn: Mutex::new(HashMap::new()),
         }
-    }
-
-    fn build_client() -> Client {
-        reqwest::Client::builder()
-            .use_native_tls()
-            // IMPORTANT: keep each logical `ConnectionId` on its own reqwest client to
-            // reduce the chance of SSPI contexts being mixed across TCP connections.
-            .pool_max_idle_per_host(1)
-            .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build reqwest client")
     }
 
     fn client_for_conn(&self, conn_id: ConnectionId) -> Client {
@@ -52,7 +70,9 @@ impl ReqwestHttpClient {
 
         clients
             .entry(conn_id.inner())
-            .or_insert_with(Self::build_client)
+            .or_insert_with(|| {
+                build_reqwest_client(&self.tls).expect("Failed to build reqwest client")
+            })
             .clone()
     }
 }
@@ -144,7 +164,7 @@ impl ReqwestHttpClient {
     )]
     async fn send_kdc_http_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
         tracing::Span::current().record("url", redact_network_url(&packet.url).as_str());
-        let response = Self::build_client()
+        let response = build_reqwest_client(&TlsOptions::default())?
             .post(packet.url.clone())
             .header("keep-alive", "true")
             .body(packet.data)
@@ -371,5 +391,33 @@ impl HttpClient for ReqwestHttpClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::*;
+
+    #[test]
+    fn builds_with_default_options() {
+        build_reqwest_client(&TlsOptions::default()).expect("default TLS options must build");
+    }
+
+    #[test]
+    fn builds_with_insecure_options() {
+        let tls = TlsOptions {
+            accept_invalid_certs: true,
+            ..TlsOptions::default()
+        };
+        build_reqwest_client(&tls).expect("insecure TLS options must build");
+    }
+
+    #[test]
+    fn rejects_garbage_ca_pem() {
+        let tls = TlsOptions {
+            extra_ca_pem: Some(b"not a pem".to_vec()),
+            ..TlsOptions::default()
+        };
+        assert!(build_reqwest_client(&tls).is_err());
     }
 }
