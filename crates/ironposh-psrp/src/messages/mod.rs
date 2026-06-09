@@ -1,3 +1,4 @@
+pub mod connect_runspace_pool;
 pub mod create_pipeline;
 pub mod encrypted_session_key;
 pub mod error_record;
@@ -13,9 +14,11 @@ pub mod public_key;
 pub mod public_key_request;
 pub mod runspace_pool_host_call;
 pub mod runspace_pool_host_response;
+pub mod runspace_pool_init_data;
 pub mod runspace_pool_state;
 pub mod session_capability;
 
+pub use connect_runspace_pool::*;
 pub use create_pipeline::*;
 pub use encrypted_session_key::*;
 pub use error_record::*;
@@ -30,6 +33,7 @@ pub use public_key::*;
 pub use public_key_request::*;
 pub use runspace_pool_host_call::*;
 pub use runspace_pool_host_response::*;
+pub use runspace_pool_init_data::*;
 pub use runspace_pool_state::*;
 pub use session_capability::*;
 
