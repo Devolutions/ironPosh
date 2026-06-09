@@ -48,6 +48,42 @@ fn launch<C: HttpClient>(
     client.send_request(try_send)
 }
 
+/// Emit a `PoolLifecycleEvent` when the runspace pool state crossed a
+/// disconnect/reconnect boundary since the last observation.
+fn emit_pool_lifecycle_transition(
+    prev_state: &mut ironposh_client_core::runspace_pool::RunspacePoolState,
+    active_session: &ironposh_client_core::connector::active_session::ActiveSession,
+    lifecycle_tx: &mpsc::UnboundedSender<crate::PoolLifecycleEvent>,
+) {
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let state = active_session.runspace_pool_state();
+    if state == *prev_state {
+        return;
+    }
+
+    match (*prev_state, state) {
+        (_, RunspacePoolState::Disconnected) => {
+            info!(target: "session", shell_id = ?active_session.shell_id(), "runspace pool disconnected");
+            let _ = lifecycle_tx.unbounded_send(crate::PoolLifecycleEvent::Disconnected {
+                shell_id: active_session.shell_id(),
+            });
+        }
+        (
+            RunspacePoolState::Disconnected | RunspacePoolState::Connecting,
+            RunspacePoolState::Opened,
+        ) => {
+            info!(target: "session", shell_id = ?active_session.shell_id(), "runspace pool reconnected");
+            let _ = lifecycle_tx.unbounded_send(crate::PoolLifecycleEvent::Reconnected {
+                shell_id: active_session.shell_id(),
+            });
+        }
+        _ => {}
+    }
+
+    *prev_state = state;
+}
+
 /// Main active session loop that handles network responses and user operations
 #[expect(clippy::too_many_arguments)]
 #[expect(clippy::too_many_lines)]
@@ -61,6 +97,7 @@ pub async fn start_active_session_loop(
     mut user_input_tx: mpsc::Sender<UserOperation>,
     host_call_tx: mpsc::UnboundedSender<ironposh_client_core::host::HostCall>,
     mut host_resp_rx: mpsc::UnboundedReceiver<HostResponse>,
+    lifecycle_tx: mpsc::UnboundedSender<crate::PoolLifecycleEvent>,
 ) -> anyhow::Result<()> {
     use ironposh_client_core::connector::active_session::ActiveSessionOutput;
 
@@ -69,6 +106,9 @@ pub async fn start_active_session_loop(
 
     // kick off the initial polling request
     inflight.push(launch(&client, runspace_polling_request));
+
+    // Track the pool state to surface disconnect/reconnect transitions.
+    let mut pool_state = active_session.runspace_pool_state();
 
     info!("Starting single-loop active session");
 
@@ -93,6 +133,8 @@ pub async fn start_active_session_loop(
                                 e
                             })
                             .context("Failed to accept server response")?;
+
+                        emit_pool_lifecycle_transition(&mut pool_state, &active_session, &lifecycle_tx);
 
                         // Convert ActiveSessionOutput into new HTTPs / UI events
                         for out in step_results {

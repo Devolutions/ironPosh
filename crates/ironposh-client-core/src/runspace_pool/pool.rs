@@ -353,6 +353,11 @@ impl RunspacePool {
             .to_xml_string()?)
     }
 
+    /// Server-assigned shell id (available after the shell has been created).
+    pub fn shell_id(&self) -> Option<&str> {
+        self.shell.shell_id()
+    }
+
     /// Build a Disconnect request for this pool's shell (MS-WSMV 3.1.4.13).
     /// Valid only in `Opened` state; transitions the pool to `Disconnecting`.
     #[instrument(skip(self))]

@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use ironposh_async::PoolLifecycleEvent;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_async::SessionEvent;
 use ironposh_client_core::connector::active_session::UserEvent;
@@ -1262,6 +1263,8 @@ async fn run_repl_loop(
     mut user_input_rx: Receiver<UserInput>,
     mut repl_control_rx: Receiver<ReplControl>,
     mut tab_complete_rx: Receiver<TabCompletionRequest>,
+    mut lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
+    disconnect_supported: bool,
 ) -> anyhow::Result<()> {
     info!("Starting unified REPL loop");
 
@@ -1338,6 +1341,45 @@ async fn run_repl_loop(
                             break;
                         }
 
+                        if cmd.eq_ignore_ascii_case(":disconnect") || cmd.eq_ignore_ascii_case(":reconnect") {
+                            let reconnect = cmd.eq_ignore_ascii_case(":reconnect");
+                            if disconnect_supported {
+                                let result = if reconnect {
+                                    client.reconnect().await
+                                } else {
+                                    client.disconnect().await
+                                };
+                                if let Err(e) = result {
+                                    error!(error = %e, reconnect, "failed to queue disconnect/reconnect");
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(format!("Error: {e}")))
+                                        .await;
+                                    request_prompt(client, &terminal_op_tx).await;
+                                } else if reconnect {
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(
+                                            "Reconnecting to runspace pool...".to_string(),
+                                        ))
+                                        .await;
+                                } else {
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(
+                                            "Disconnecting from runspace pool...".to_string(),
+                                        ))
+                                        .await;
+                                }
+                            } else {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(
+                                        ":disconnect/:reconnect require the parallel session loop (run with --parallel)"
+                                            .to_string(),
+                                    ))
+                                    .await;
+                                request_prompt(client, &terminal_op_tx).await;
+                            }
+                            continue;
+                        }
+
                         if cmd.is_empty() {
                             debug!("Empty command, requesting new prompt");
                             request_prompt(client, &terminal_op_tx).await;
@@ -1358,6 +1400,31 @@ async fn run_repl_loop(
                                 request_prompt(client, &terminal_op_tx).await;
                             }
                         }
+                    }
+                }
+            }
+
+            // Runspace pool disconnect/reconnect notifications
+            Some(ev) = lifecycle_event_rx.next() => {
+                match ev {
+                    PoolLifecycleEvent::Disconnected { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        info!(shell_id = %shell_id, "runspace pool disconnected");
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(format!(
+                                "Disconnected from runspace pool (ShellId: {shell_id}). Type :reconnect to resume."
+                            )))
+                            .await;
+                    }
+                    PoolLifecycleEvent::Reconnected { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        info!(shell_id = %shell_id, "runspace pool reconnected");
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(format!(
+                                "Reconnected to runspace pool (ShellId: {shell_id})."
+                            )))
+                            .await;
+                        request_prompt(client, &terminal_op_tx).await;
                     }
                 }
             }
@@ -1495,6 +1562,8 @@ pub async fn run_simple_repl(
     mut hostcall_ui_rx: tokio::sync::mpsc::Receiver<TerminalOperation>,
     mut session_event_rx: futures::channel::mpsc::UnboundedReceiver<SessionEvent>,
     repl_control_rx: Receiver<ReplControl>,
+    lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
+    disconnect_supported: bool,
 ) -> anyhow::Result<()> {
     info!("Starting async REPL with unified UI queue");
 
@@ -1530,6 +1599,8 @@ pub async fn run_simple_repl(
         terminal_request_rx,
         repl_control_rx,
         tab_complete_rx,
+        lifecycle_event_rx,
+        disconnect_supported,
     )
     .await;
 
