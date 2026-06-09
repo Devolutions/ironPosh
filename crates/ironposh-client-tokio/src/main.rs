@@ -98,19 +98,36 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create the PowerShell client (serial by default, --parallel for multi-connection)
-    let (mut client, host_io, session_event_rx, connection_task): (
+    let (mut client, host_io, session_event_rx, lifecycle_event_rx, connection_task): (
+        _,
         _,
         _,
         _,
         std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>,
     ) = if args.parallel {
         info!("Using parallel (multi-connection) session loop");
-        let (c, h, s, t) = RemoteAsyncPowershellClient::open_task(config, http_client);
-        (c, h, s, Box::pin(t))
+        let (client, host_io, session_events, lifecycle_events, task) =
+            RemoteAsyncPowershellClient::open_task(config, http_client);
+        (
+            client,
+            host_io,
+            session_events,
+            lifecycle_events,
+            Box::pin(task),
+        )
     } else {
         info!("Using serial (single-connection) session loop");
-        let (c, h, s, t) = RemoteAsyncPowershellClient::open_task_serial(config, http_client);
-        (c, h, s, Box::pin(t))
+        let (client, host_io, session_events, task) =
+            RemoteAsyncPowershellClient::open_task_serial(config, http_client);
+        // Serial mode does not support disconnect/reconnect; provide an inert channel.
+        let (_inert_lifecycle_tx, lifecycle_events) = futures::channel::mpsc::unbounded();
+        (
+            client,
+            host_io,
+            session_events,
+            lifecycle_events,
+            Box::pin(task),
+        )
     };
 
     // Extract host I/O for handling host calls
@@ -241,6 +258,8 @@ async fn main() -> anyhow::Result<()> {
             ui_rx,
             session_event_rx,
             repl_control_rx,
+            lifecycle_event_rx,
+            args.parallel,
         )
         .await
         {

@@ -185,6 +185,20 @@ fn build_pipeline_multiplexer(
                             .await
                             .context("Failed to forward KillPipeline operation")?;
                     }
+                    PipelineInput::Disconnect => {
+                        debug!("Received disconnect operation");
+                        user_input_tx
+                            .send(UserOperation::Disconnect)
+                            .await
+                            .context("Failed to forward Disconnect operation")?;
+                    }
+                    PipelineInput::Reconnect => {
+                        debug!("Received reconnect operation");
+                        user_input_tx
+                            .send(UserOperation::Reconnect)
+                            .await
+                            .context("Failed to forward Reconnect operation")?;
+                    }
                 }
             }
 
@@ -209,6 +223,7 @@ pub fn establish_connection<C>(
     ConnectionHandle,
     HostIo,
     mpsc::UnboundedReceiver<crate::SessionEvent>,
+    mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
     impl std::future::Future<Output = anyhow::Result<()>>,
 )
 where
@@ -220,6 +235,7 @@ where
     let (host_resp_tx, host_resp_rx) = mpsc::unbounded();
     let (session_event_tx, session_event_rx) = mpsc::unbounded();
     let session_event_tx_2 = session_event_tx.clone();
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded();
 
     let host_io = HostIo {
         host_call_rx,
@@ -246,6 +262,7 @@ where
             user_input_tx_clone,
             host_call_tx,
             host_resp_rx,
+            lifecycle_tx,
         )
         .instrument(info_span!("ActiveSession"))
         .await;
@@ -282,6 +299,7 @@ where
         ConnectionHandle { pipeline_input_tx },
         host_io,
         session_event_rx,
+        lifecycle_rx,
         joined_task,
     )
 }
@@ -385,4 +403,8 @@ pub enum PipelineInput {
     Kill {
         pipeline_handle: PipelineHandle,
     },
+    /// Disconnect the runspace pool shell (parallel session loop only).
+    Disconnect,
+    /// Reconnect a previously disconnected runspace pool shell.
+    Reconnect,
 }

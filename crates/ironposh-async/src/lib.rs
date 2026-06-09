@@ -32,6 +32,16 @@ pub enum SessionEvent {
     Closed,
 }
 
+/// Runspace pool lifecycle notifications for disconnect/reconnect
+/// (parallel session loop only).
+#[derive(Debug, Clone)]
+pub enum PoolLifecycleEvent {
+    /// The runspace pool shell has been disconnected (MS-WSMV Disconnect)
+    Disconnected { shell_id: Option<String> },
+    /// The runspace pool shell has been reconnected (MS-WSMV Reconnect)
+    Reconnected { shell_id: Option<String> },
+}
+
 /// Host I/O interface for handling PowerShell host calls
 pub struct HostIo {
     /// Host calls coming from the runspace/pipelines

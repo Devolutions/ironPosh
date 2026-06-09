@@ -183,6 +183,21 @@ impl<S: SessionBackend> SessionCore<S> {
 
     // ── Buffered user ops ─────────────────────────────────────────────────
 
+    /// Reject operations that cannot work in single-connection mode.
+    ///
+    /// Disconnect/Reconnect require the parallel session loop: the serial loop
+    /// keeps exactly one request in flight (usually a long-poll Receive), so a
+    /// Disconnect could never be issued concurrently with it.
+    fn reject_unsupported_op(op: &UserOperation) -> anyhow::Result<()> {
+        if matches!(op, UserOperation::Disconnect | UserOperation::Reconnect) {
+            anyhow::bail!(
+                "disconnect/reconnect is not supported in serial (single-connection) mode; \
+                 use the parallel session loop"
+            );
+        }
+        Ok(())
+    }
+
     /// Process ONE buffered user operation, if the connection is idle
     /// (`work_queue` is empty). Only one per call because
     /// `accept_client_operation` may itself call `send()`, moving the
@@ -191,6 +206,7 @@ impl<S: SessionBackend> SessionCore<S> {
         if let Some(op) = self.queues.user_ops.pop_front() {
             diag!("DIAG process buffered: {}", op.operation_type());
             debug!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
+            Self::reject_unsupported_op(&op)?;
             let priority = SendPriority::for_user_op(&op);
             self.observe_user_op(&op);
             let output = self
@@ -400,6 +416,7 @@ impl<S: SessionBackend> SessionCore<S> {
             operation = op.operation_type(),
             "user operation received while idle"
         );
+        Self::reject_unsupported_op(&op)?;
         let priority = SendPriority::for_user_op(&op);
         self.observe_user_op(&op);
         let output = self

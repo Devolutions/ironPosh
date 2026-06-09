@@ -128,6 +128,10 @@ pub enum UserOperation {
         call_id: i64,
         reason: Option<String>,
     },
+    /// disconnect the runspace pool shell (MS-WSMV Disconnect)
+    Disconnect,
+    /// reconnect a previously disconnected runspace pool shell (MS-WSMV Reconnect)
+    Reconnect,
 }
 
 impl UserOperation {
@@ -137,6 +141,8 @@ impl UserOperation {
             Self::KillPipeline { .. } => "KillPipeline",
             Self::SubmitHostResponse { .. } => "SubmitHostResponse",
             Self::CancelHostCall { .. } => "CancelHostCall",
+            Self::Disconnect => "Disconnect",
+            Self::Reconnect => "Reconnect",
         }
     }
 }
@@ -155,6 +161,17 @@ impl ActiveSession {
             runspace_pool,
             connection_pool,
         }
+    }
+
+    /// Current runspace pool state (used by session loops to observe
+    /// disconnect/reconnect transitions).
+    pub fn runspace_pool_state(&self) -> crate::runspace_pool::RunspacePoolState {
+        self.runspace_pool.state
+    }
+
+    /// Server-assigned shell id of the runspace pool, if the shell was created.
+    pub fn shell_id(&self) -> Option<String> {
+        self.runspace_pool.shell_id().map(ToOwned::to_owned)
     }
 
     /// Generate a Receive TrySend for the given streams.
@@ -266,6 +283,20 @@ impl ActiveSession {
                     ),
                 }
             }
+
+            UserOperation::Disconnect => {
+                info!("disconnecting runspace pool");
+                let disconnect_xml = self.runspace_pool.fire_disconnect()?;
+                let ts_send = self.connection_pool.send(&disconnect_xml)?;
+                Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
+            }
+
+            UserOperation::Reconnect => {
+                info!("reconnecting runspace pool");
+                let reconnect_xml = self.runspace_pool.fire_reconnect()?;
+                let ts_send = self.connection_pool.send(&reconnect_xml)?;
+                Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
+            }
         }
     }
 
@@ -304,7 +335,36 @@ impl ActiveSession {
             );
         }
 
-        // 2) Feed PSRP
+        // 2) While a disconnect/reconnect is in progress, responses are routed to
+        //    the dedicated pool accept methods instead of the PSRP receive path.
+        match self.runspace_pool.state {
+            crate::runspace_pool::RunspacePoolState::Disconnecting => {
+                return self.accept_response_while_disconnecting(&xml_body);
+            }
+            crate::runspace_pool::RunspacePoolState::Disconnected => {
+                // Late traffic from connections that were in flight when the shell
+                // was disconnected (e.g. the long-poll Receive). Drop it.
+                warn!(
+                    body_length = xml_body.len(),
+                    "dropping server traffic while runspace pool is disconnected"
+                );
+                return Ok(vec![ActiveSessionOutput::Ignore]);
+            }
+            crate::runspace_pool::RunspacePoolState::Connecting => {
+                self.runspace_pool.accept_reconnect_response(&xml_body)?;
+                // The pre-disconnect Receive is gone; schedule a fresh pool-stream
+                // Receive so the session loop resumes the receive loop.
+                return Ok(vec![
+                    ActiveSessionOutput::OperationSuccess,
+                    ActiveSessionOutput::PendingReceive {
+                        desired_streams: DesiredStream::runspace_pool_streams(),
+                    },
+                ]);
+            }
+            _ => {}
+        }
+
+        // 3) Feed PSRP
         let results = self.runspace_pool.accept_response(&xml_body).map_err(|e| {
             error!("RunspacePool.accept_response failed: {:#}", e);
             e
@@ -312,7 +372,7 @@ impl ActiveSession {
 
         info!(result_count = results.len(), "PSRP processed response");
 
-        // 3) Translate PSRP results to outputs
+        // 4) Translate PSRP results to outputs
         let mut outs = Vec::new();
         for (idx, res_accepted) in results.into_iter().enumerate() {
             info!(index = idx, "processing PSRP result");
@@ -380,6 +440,37 @@ impl ActiveSession {
         outs.sort();
         info!(output_count = outs.len(), "returning ActiveSession outputs");
         Ok(outs)
+    }
+
+    /// Handle a server response that arrives while a Disconnect is in flight.
+    ///
+    /// Besides the DisconnectResponse itself, the long-poll Receive that was in
+    /// flight when the Disconnect was issued typically completes with a fault or
+    /// unrelated body once the server tears the shell down — tolerate that
+    /// traffic instead of failing the session.
+    fn accept_response_while_disconnecting(
+        &mut self,
+        xml_body: &str,
+    ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
+        match self.runspace_pool.accept_disconnect_response(xml_body) {
+            Ok(()) => Ok(vec![ActiveSessionOutput::OperationSuccess]),
+            Err(PwshCoreError::InvalidResponse(reason)) => {
+                warn!(
+                    reason = %reason,
+                    "ignoring non-disconnect traffic while disconnecting"
+                );
+                Ok(vec![ActiveSessionOutput::Ignore])
+            }
+            Err(PwshCoreError::SoapFault { code, reason }) => {
+                warn!(
+                    %code,
+                    %reason,
+                    "ignoring fault while disconnecting (expected in-flight Receive teardown)"
+                );
+                Ok(vec![ActiveSessionOutput::Ignore])
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Build + send a pipeline host response, then queue a receive for that pipeline.

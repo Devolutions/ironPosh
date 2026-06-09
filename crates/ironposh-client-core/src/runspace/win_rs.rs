@@ -165,6 +165,11 @@ impl WinRunspace {
         )
     }
 
+    /// Server-assigned shell id (set when the create response is accepted).
+    pub(crate) fn shell_id(&self) -> Option<&str> {
+        self.shell_id.as_deref()
+    }
+
     /// Build a Disconnect request targeting this shell (MS-WSMV 3.1.4.13).
     pub(crate) fn fire_disconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
         use ironposh_winrm::{cores::Namespace, rsp::disconnect::DisconnectValue};

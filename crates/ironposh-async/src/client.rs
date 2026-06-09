@@ -19,7 +19,7 @@ pub struct RemoteAsyncPowershellClient {
 
 impl RemoteAsyncPowershellClient {
     /// Create a new client and background task for the given configuration
-    /// Returns (client, host_io, session_event_rx, connection_task)
+    /// Returns (client, host_io, session_event_rx, lifecycle_event_rx, connection_task)
     pub fn open_task(
         config: WinRmConfig,
         client: impl HttpClient,
@@ -27,15 +27,22 @@ impl RemoteAsyncPowershellClient {
         Self,
         crate::HostIo,
         futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
+        futures::channel::mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
         impl std::future::Future<Output = anyhow::Result<()>>,
     )
     where
         Self: Sized,
     {
-        let (handle, host_io, session_event_rx, task) =
+        let (handle, host_io, session_event_rx, lifecycle_event_rx, task) =
             connection::establish_connection(config, client);
 
-        (Self { handle }, host_io, session_event_rx, task)
+        (
+            Self { handle },
+            host_io,
+            session_event_rx,
+            lifecycle_event_rx,
+            task,
+        )
     }
 
     /// Create a new client using the serial (single-connection) session loop.
@@ -142,6 +149,36 @@ impl RemoteAsyncPowershellClient {
             .send(connection::PipelineInput::Kill { pipeline_handle })
             .await
             .context("Failed to send KillPipeline operation")?;
+
+        Ok(())
+    }
+
+    /// Disconnect the runspace pool shell (MS-WSMV Disconnect).
+    ///
+    /// Completion is reported through the `PoolLifecycleEvent` channel returned
+    /// by [`Self::open_task`]. Only supported by the parallel session loop.
+    #[instrument(skip(self))]
+    pub async fn disconnect(&mut self) -> anyhow::Result<()> {
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Disconnect)
+            .await
+            .context("Failed to send Disconnect operation")?;
+
+        Ok(())
+    }
+
+    /// Reconnect a previously disconnected runspace pool shell (MS-WSMV Reconnect).
+    ///
+    /// Completion is reported through the `PoolLifecycleEvent` channel returned
+    /// by [`Self::open_task`]. Only supported by the parallel session loop.
+    #[instrument(skip(self))]
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Reconnect)
+            .await
+            .context("Failed to send Reconnect operation")?;
 
         Ok(())
     }
