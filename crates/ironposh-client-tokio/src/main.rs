@@ -1,4 +1,5 @@
 mod config;
+mod gateway_http_client;
 mod hostcall;
 mod http_client;
 mod repl;
@@ -11,7 +12,11 @@ use ironposh_terminal::Terminal;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
-use config::{create_connector_config, init_logging, Args};
+use config::{create_connector_config, create_connector_config_with_kdc_url, init_logging, Args};
+use gateway_http_client::{
+    create_gateway_session, redact_gateway_url, CliHttpClient, GatewayHttpViaWsClient,
+    GatewayTokenConfig,
+};
 use http_client::ReqwestHttpClient;
 
 #[tokio::main]
@@ -44,9 +49,40 @@ async fn main() -> anyhow::Result<()> {
     let (cols, rows) = terminal.size()?;
     info!("Terminal created with size: {}x{}", cols, rows);
 
+    let gateway_session = if let Some(gateway) = &args.gateway {
+        let session = create_gateway_session(&GatewayTokenConfig {
+            base_url: gateway.clone(),
+            webapp_username: args.gateway_webapp_username.clone(),
+            webapp_password: args.gateway_webapp_password.clone(),
+            server: args.server.clone(),
+            port: args.port,
+            domain: args.domain.clone(),
+            auth_method: args.auth_method,
+            kdc_address: args.kdc_address.clone(),
+            kdc_proxy_url: args.kdc_proxy_url.clone(),
+        })
+        .await?;
+        let redacted_gateway_url = redact_gateway_url(&session.websocket_url);
+        info!(
+            gateway_url = %redacted_gateway_url,
+            has_kdc_proxy = session.kdc_proxy_url.is_some(),
+            "Gateway session prepared"
+        );
+        Some(session)
+    } else {
+        None
+    };
+
     // Create configuration and HTTP client with real terminal dimensions
-    let config = create_connector_config(&args, cols, rows)?;
-    let http_client = ReqwestHttpClient::new();
+    let config = if let Some(session) = gateway_session.as_ref() {
+        create_connector_config_with_kdc_url(&args, cols, rows, session.kdc_proxy_url.clone())?
+    } else {
+        create_connector_config(&args, cols, rows)?
+    };
+    let http_client = gateway_session.map_or_else(
+        || CliHttpClient::Direct(ReqwestHttpClient::new()),
+        |session| CliHttpClient::Gateway(GatewayHttpViaWsClient::new(session.websocket_url)),
+    );
 
     // Create the PowerShell client (serial by default, --parallel for multi-connection)
     let (mut client, host_io, session_event_rx, connection_task): (

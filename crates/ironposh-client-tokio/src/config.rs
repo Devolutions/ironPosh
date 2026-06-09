@@ -10,6 +10,7 @@ use ironposh_psrp::{
 };
 use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, registry::Registry, EnvFilter};
+use url::Url;
 
 /// PowerShell Remoting Client (Async/Tokio)
 #[derive(Parser)]
@@ -75,6 +76,26 @@ pub struct Args {
         help = "Use parallel session loop (default: serial/single-connection)"
     )]
     pub parallel: bool,
+
+    /// Gateway base URL used to mimic the web demo path (for example http://localhost:7272).
+    #[arg(long, help = "Use Gateway /jet/fwd/tcp WebSocket transport")]
+    pub gateway: Option<String>,
+
+    /// Gateway webapp username for /jet/webapp/app-token.
+    #[arg(long, help = "Gateway webapp username (defaults to env or admin)")]
+    pub gateway_webapp_username: Option<String>,
+
+    /// Gateway webapp password for /jet/webapp/app-token.
+    #[arg(long, help = "Gateway webapp password (defaults to env or admin)")]
+    pub gateway_webapp_password: Option<String>,
+
+    /// KDC address for Gateway KdcProxy token generation, e.g. tcp://dc.example.com:88.
+    #[arg(long, help = "KDC address for Gateway KdcProxy token generation")]
+    pub kdc_address: Option<String>,
+
+    /// Full KDC proxy URL. When supplied, token generation for KDC is skipped.
+    #[arg(long, help = "Full KDC proxy URL to use for Kerberos/Negotiate")]
+    pub kdc_proxy_url: Option<String>,
 
     /// Verbose logging (can be repeated for more verbosity)
     #[arg(short, long, action = clap::ArgAction::Count, help = "Increase logging verbosity")]
@@ -161,6 +182,15 @@ pub fn init_logging(verbose_level: u8) -> anyhow::Result<()> {
 /// When `parallel` is false (default serial mode), `operation_timeout_secs` is set
 /// to a short slice so inbound Receives don't block outbound sends for too long.
 pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Result<WinRmConfig> {
+    create_connector_config_with_kdc_url(args, cols, rows, None)
+}
+
+pub fn create_connector_config_with_kdc_url(
+    args: &Args,
+    cols: u16,
+    rows: u16,
+    kdc_url_override: Option<Url>,
+) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
 
     // Determine transport security from CLI flags
@@ -199,7 +229,7 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
                 target: args.server.clone(),
                 identity,
                 kerberos_config: KerberosConfig {
-                    kdc_url: None,
+                    kdc_url: kdc_url_override,
                     client_computer_name: whoami::fallible::hostname()
                         .unwrap_or_else(|_| "localhost".to_string()),
                 },
@@ -212,7 +242,7 @@ pub fn create_connector_config(args: &Args, cols: u16, rows: u16) -> anyhow::Res
                 target: args.server.clone(),
                 identity,
                 kerberos_config: Some(KerberosConfig {
-                    kdc_url: None,
+                    kdc_url: kdc_url_override,
                     client_computer_name: whoami::fallible::hostname()
                         .unwrap_or_else(|_| "localhost".to_string()),
                 }),
@@ -268,6 +298,11 @@ mod tests {
             https: false,
             http_insecure: true,
             parallel: false,
+            gateway: None,
+            gateway_webapp_username: None,
+            gateway_webapp_password: None,
+            kdc_address: None,
+            kdc_proxy_url: None,
             verbose: 0,
             command: None,
         };
@@ -289,6 +324,11 @@ mod tests {
             https: false,
             http_insecure: true,
             parallel: true,
+            gateway: None,
+            gateway_webapp_username: None,
+            gateway_webapp_password: None,
+            kdc_address: None,
+            kdc_proxy_url: None,
             verbose: 0,
             command: None,
         };

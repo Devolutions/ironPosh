@@ -16,6 +16,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 uuid = { version = "1.18.0", features = ["v4"] }
 futures = "0.3"
+serde_json = "1.0"
+tokio-tungstenite = { version = "0.27", features = ["native-tls"] }
+url = "2.5"
 crossbeam-channel = "0.5"
 whoami = "1.5"
 crossterm = "0.29"
