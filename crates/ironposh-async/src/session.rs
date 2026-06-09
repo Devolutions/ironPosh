@@ -78,6 +78,13 @@ fn emit_pool_lifecycle_transition(
                 shell_id: active_session.shell_id(),
             });
         }
+        (RunspacePoolState::Disconnecting, RunspacePoolState::Opened) => {
+            // The Disconnect request faulted and was aborted by the active session.
+            warn!(target: "session", shell_id = ?active_session.shell_id(), "disconnect failed; runspace pool stays connected");
+            let _ = lifecycle_tx.unbounded_send(crate::PoolLifecycleEvent::DisconnectFailed {
+                shell_id: active_session.shell_id(),
+            });
+        }
         _ => {}
     }
 
@@ -223,6 +230,10 @@ pub async fn start_active_session_loop(
                              .context("Failed to accept user operation")?,
                          &mut active_session,
                      )?;
+
+                     // Track state changes driven by user operations (e.g. Opened →
+                     // Disconnecting) so a later fault-driven revert is observable.
+                     emit_pool_lifecycle_transition(&mut pool_state, &active_session, &lifecycle_tx);
 
                      match step_result {
                          ActiveSessionOutput::SendBack(reqs) => {

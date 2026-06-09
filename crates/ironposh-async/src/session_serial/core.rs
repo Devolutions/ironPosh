@@ -17,7 +17,7 @@ use ironposh_client_core::connector::{
 };
 use ironposh_client_core::host::HostCall;
 use ironposh_client_core::runspace_pool::DesiredStream;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use super::diag;
@@ -183,19 +183,25 @@ impl<S: SessionBackend> SessionCore<S> {
 
     // ── Buffered user ops ─────────────────────────────────────────────────
 
-    /// Reject operations that cannot work in single-connection mode.
+    /// Drop operations that cannot work in single-connection mode.
     ///
     /// Disconnect/Reconnect require the parallel session loop: the serial loop
     /// keeps exactly one request in flight (usually a long-poll Receive), so a
-    /// Disconnect could never be issued concurrently with it.
-    fn reject_unsupported_op(op: &UserOperation) -> anyhow::Result<()> {
+    /// Disconnect could never be issued concurrently with it. The client API
+    /// rejects these up front ([`crate::RemoteAsyncPowershellClient::disconnect`]);
+    /// this is defense-in-depth — drop the op instead of terminating the session.
+    ///
+    /// Returns `true` when the operation was dropped.
+    fn drop_unsupported_op(op: &UserOperation) -> bool {
         if matches!(op, UserOperation::Disconnect | UserOperation::Reconnect) {
-            anyhow::bail!(
-                "disconnect/reconnect is not supported in serial (single-connection) mode; \
-                 use the parallel session loop"
+            warn!(
+                target: "serial",
+                operation = op.operation_type(),
+                "dropping disconnect/reconnect: not supported in serial (single-connection) mode"
             );
+            return true;
         }
-        Ok(())
+        false
     }
 
     /// Process ONE buffered user operation, if the connection is idle
@@ -206,7 +212,9 @@ impl<S: SessionBackend> SessionCore<S> {
         if let Some(op) = self.queues.user_ops.pop_front() {
             diag!("DIAG process buffered: {}", op.operation_type());
             debug!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
-            Self::reject_unsupported_op(&op)?;
+            if Self::drop_unsupported_op(&op) {
+                return Ok(());
+            }
             let priority = SendPriority::for_user_op(&op);
             self.observe_user_op(&op);
             let output = self
@@ -416,7 +424,9 @@ impl<S: SessionBackend> SessionCore<S> {
             operation = op.operation_type(),
             "user operation received while idle"
         );
-        Self::reject_unsupported_op(&op)?;
+        if Self::drop_unsupported_op(&op) {
+            return Ok(());
+        }
         let priority = SendPriority::for_user_op(&op);
         self.observe_user_op(&op);
         let output = self
@@ -1084,6 +1094,39 @@ mod tests {
 
         let events2 = core.drain_user_events();
         assert!(events2.is_empty());
+    }
+
+    // ── Unsupported ops in serial mode (2 tests) ────────────────────────
+
+    #[test]
+    fn disconnect_reconnect_dropped_when_idle() {
+        // MockBackend panics if the op reaches the backend (op_responses empty),
+        // so this also proves the ops never hit ActiveSession.
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        core.accept_user_op(UserOperation::Disconnect)
+            .expect("Disconnect must be dropped, not terminate the serial loop");
+        core.accept_user_op(UserOperation::Reconnect)
+            .expect("Reconnect must be dropped, not terminate the serial loop");
+
+        assert!(
+            core.queues.work.is_empty(),
+            "dropped ops must not enqueue work"
+        );
+    }
+
+    #[test]
+    fn disconnect_dropped_when_buffered() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        core.buffer_user_op(UserOperation::Disconnect);
+        core.process_one_buffered_op()
+            .expect("buffered Disconnect must be dropped, not terminate the serial loop");
+
+        assert!(core.queues.user_ops.is_empty());
+        assert!(core.queues.work.is_empty());
     }
 
     // ── Scheduler integration (2 tests) ─────────────────────────────────

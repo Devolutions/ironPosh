@@ -299,6 +299,246 @@ fn disconnect_reconnect_through_active_session() {
     );
 }
 
+/// Minimal WSMan fault envelope (adapted from ironposh-winrm's error_response fixture).
+const FAULT_ENVELOPE: &str = r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
+        <a:MessageID>uuid:BB7AF8AE-D64A-422D-B36E-15A04FA17C5C</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+        <a:RelatesTo>uuid:bead0162-a67d-424d-9e22-4a18b6aefea8</a:RelatesTo>
+    </s:Header>
+    <s:Body>
+        <s:Fault>
+            <s:Code>
+                <s:Value>s:Sender</s:Value>
+                <s:Subcode>
+                    <s:Value>w:SchemaValidationError</s:Value>
+                </s:Subcode>
+            </s:Code>
+            <s:Reason>
+                <s:Text xml:lang="en-US">The SOAP XML in the message does not match the corresponding XML schema definition.</s:Text>
+            </s:Reason>
+        </s:Fault>
+    </s:Body>
+</s:Envelope>"#;
+
+/// Mistimed Disconnect/Reconnect operations must be ignored, not kill the session.
+#[test]
+fn mistimed_disconnect_reconnect_is_nonfatal() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    // :reconnect while connected must be a no-op, not a session-fatal error.
+    let out = session
+        .accept_client_operation(UserOperation::Reconnect)
+        .expect("mistimed Reconnect must be non-fatal");
+    assert!(
+        matches!(out, ActiveSessionOutput::Ignore),
+        "mistimed Reconnect must be ignored, got: {out:?}"
+    );
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Opened);
+
+    // A second :disconnect while already Disconnecting must also be a no-op.
+    let _ = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("mistimed Disconnect must be non-fatal");
+    assert!(
+        matches!(out, ActiveSessionOutput::Ignore),
+        "mistimed Disconnect must be ignored, got: {out:?}"
+    );
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnecting
+    );
+}
+
+/// A SOAP fault answering the Disconnect request itself must abort the disconnect:
+/// the pool reverts to Opened instead of staying stuck in Disconnecting forever.
+#[test]
+fn faulted_disconnect_reverts_pool_to_opened() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnecting
+    );
+
+    // The server faults the Disconnect request on the same connection.
+    let outputs = session
+        .accept_server_response(support::xml_response(conn_id, FAULT_ENVELOPE.to_owned()))
+        .expect("a faulted Disconnect must not kill the session");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Opened,
+        "a faulted Disconnect must revert the pool to Opened"
+    );
+    assert!(
+        !outputs
+            .iter()
+            .any(|o| matches!(o, ActiveSessionOutput::OperationSuccess)),
+        "a faulted Disconnect must not report success, got: {outputs:?}"
+    );
+}
+
+/// While disconnecting, faults from OTHER connections (the dying in-flight Receive)
+/// must still be tolerated without aborting the disconnect.
+#[test]
+fn fault_on_other_connection_while_disconnecting_is_tolerated() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    // Park a pipeline request on its own connection.
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid: uuid::Uuid::new_v4(),
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke pipeline");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for invoke, got {out:?}");
+    };
+    let (_request, pipeline_conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+
+    // Fire the Disconnect; it is carried by a different connection.
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, disconnect_conn_id) =
+        support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_ne!(pipeline_conn_id, disconnect_conn_id);
+
+    // The in-flight pipeline request faults during teardown → tolerated.
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            pipeline_conn_id,
+            FAULT_ENVELOPE.to_owned(),
+        ))
+        .expect("teardown fault must be tolerated while disconnecting");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnecting,
+        "a fault on another connection must not abort the disconnect"
+    );
+    assert!(
+        outputs
+            .iter()
+            .all(|o| matches!(o, ActiveSessionOutput::Ignore)),
+        "teardown fault must be ignored, got: {outputs:?}"
+    );
+
+    // The real DisconnectResponse still completes the disconnect.
+    session
+        .accept_server_response(support::xml_response(
+            disconnect_conn_id,
+            shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+        ))
+        .expect("accept DisconnectResponse");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnected
+    );
+}
+
+/// Reconnect after a mid-pipeline disconnect must resume the pipeline's Receive,
+/// not just the runspace pool stream.
+#[test]
+fn reconnect_resumes_active_pipeline_streams() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    // Start a pipeline that will survive the disconnect.
+    let pipeline_id = uuid::Uuid::new_v4();
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid: pipeline_id,
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke pipeline");
+    assert!(
+        matches!(out, ActiveSessionOutput::SendBack(_)),
+        "expected SendBack for invoke, got {out:?}"
+    );
+
+    // Disconnect mid-pipeline.
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    session
+        .accept_server_response(support::xml_response(
+            conn_id,
+            shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+        ))
+        .expect("accept DisconnectResponse");
+
+    // Reconnect.
+    let out = session
+        .accept_client_operation(UserOperation::Reconnect)
+        .expect("accept Reconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Reconnect, got {out:?}");
+    };
+    let (_request, conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            conn_id,
+            shell_op_response_xml("ReconnectResponse", "<rsp:ReconnectResponse/>"),
+        ))
+        .expect("accept ReconnectResponse");
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Opened);
+
+    // The post-reconnect Receive must include the surviving pipeline's stream.
+    let resumed_streams: Vec<_> = outputs
+        .iter()
+        .filter_map(|o| match o {
+            ActiveSessionOutput::PendingReceive { desired_streams } => Some(desired_streams),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        resumed_streams
+            .iter()
+            .any(|s| s.command_id() == Some(&pipeline_id)),
+        "post-reconnect Receive must cover the surviving pipeline, got: {resumed_streams:?}"
+    );
+}
+
 /// Drive the connector through the full handshake against a fake server:
 /// Create -> CreateResponse -> Receive -> ReceiveResponse(PSRP negotiation) -> Connected.
 #[test]
