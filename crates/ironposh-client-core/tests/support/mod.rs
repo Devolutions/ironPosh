@@ -3,6 +3,10 @@
 //! Uses `AuthenticatorConfig::Basic` + `TransportSecurity::HttpInsecure` so request
 //! and response bodies stay plaintext XML (no SSPI, no encryption, zero network).
 
+// Shared across integration-test binaries; each binary uses a subset of helpers,
+// and unused ones would otherwise fail CI under -D warnings.
+#![allow(dead_code)]
+
 use base64::Engine;
 use ironposh_client_core::connector::{
     TransportSecurity, WinRmConfig,

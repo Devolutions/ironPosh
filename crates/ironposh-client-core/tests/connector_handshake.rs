@@ -24,12 +24,16 @@ fn idle_step_emits_shell_create() {
 
     assert!(xml.contains("http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"));
     assert!(xml.contains("http://schemas.microsoft.com/powershell/Microsoft.PowerShell"));
-    assert!(
-        request
-            .headers
-            .iter()
-            .any(|(k, _)| k == "Authorization"),
-        "Basic auth header must be present"
+    let auth_value = request
+        .headers
+        .iter()
+        .find(|(k, _)| k == "Authorization")
+        .map(|(_, v)| v.as_str())
+        .expect("Basic auth header must be present");
+    // base64("user:pass") — pinned to the harness config credentials.
+    assert_eq!(
+        auth_value, "Basic dXNlcjpwYXNz",
+        "Authorization header must carry the exact Basic credentials"
     );
 }
 
@@ -54,6 +58,9 @@ fn handshake_reaches_connected() {
     let rpid = support::extract_shell_id(&create_xml);
 
     // 2. Reply with a CreateResponse fixture; the connector must fire a Receive.
+    // Note: the fixture's ShellId differs from the client-generated RPID. The connector
+    // currently accepts whatever id the server returns without cross-checking, so the
+    // mismatch is harmless here; if id validation is ever added, regenerate the fixture.
     let create_response = include_str!("resources/resource_created.xml");
     let result = connector
         .step(Some(support::xml_response(
