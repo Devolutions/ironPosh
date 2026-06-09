@@ -91,8 +91,9 @@ async fn main() -> anyhow::Result<()> {
     } else {
         create_connector_config(&args, cols, rows)?
     };
+    // TLS options apply to direct connections only; the gateway path owns its own transport.
     let http_client = gateway_session.map_or_else(
-        || CliHttpClient::Direct(ReqwestHttpClient::new()),
+        || CliHttpClient::Direct(ReqwestHttpClient::with_tls_options(config.tls.clone())),
         |session| CliHttpClient::Gateway(GatewayHttpViaWsClient::new(session.websocket_url)),
     );
 
