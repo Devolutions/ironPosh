@@ -85,8 +85,11 @@ pub struct Args {
     )]
     pub insecure: bool,
 
-    /// Path to an additional root CA certificate (PEM) to trust for HTTPS.
-    #[arg(long, help = "Path to an extra root CA certificate (PEM) for HTTPS")]
+    /// Path to an additional root CA certificate (single PEM certificate, not a bundle) to trust for HTTPS.
+    #[arg(
+        long,
+        help = "Path to an extra root CA certificate for HTTPS (single PEM certificate; bundles not supported)"
+    )]
     pub ca_cert: Option<PathBuf>,
 
     /// Use parallel (multi-connection) session loop instead of the default serial mode.
@@ -217,17 +220,31 @@ pub fn create_connector_config_with_kdc_url(
         anyhow::bail!("--insecure only applies to HTTPS connections; add --https or drop --insecure");
     }
 
+    if args.ca_cert.is_some() && !args.https {
+        anyhow::bail!("--ca-cert only applies to HTTPS connections; add --https or drop --ca-cert");
+    }
+
     let extra_ca_pem = args
         .ca_cert
         .as_ref()
         .map(|path| {
-            std::fs::read(path)
-                .with_context(|| format!("failed to read CA certificate file {}", path.display()))
+            let pem = std::fs::read(path).with_context(|| {
+                format!("failed to read CA certificate file {}", path.display())
+            })?;
+            // Validate eagerly so a bad PEM fails at startup instead of inside the HTTP client.
+            reqwest::Certificate::from_pem(&pem).with_context(|| {
+                format!(
+                    "failed to parse CA certificate file {} as a PEM certificate",
+                    path.display()
+                )
+            })?;
+            Ok::<_, anyhow::Error>(pem)
         })
         .transpose()?;
 
     if args.insecure {
         tracing::warn!("Accepting invalid HTTPS certificates - this is INSECURE!");
+        eprintln!("Accepting invalid HTTPS certificates - this is INSECURE!");
     }
 
     let tls = TlsOptions {
@@ -447,5 +464,33 @@ mod tests {
 
         let err = create_connector_config(&args, 120, 30).expect_err("must reject --insecure without --https");
         assert!(err.to_string().contains("--https"), "error should mention --https: {err}");
+    }
+
+    #[test]
+    fn ca_cert_without_https_fails() {
+        let mut args = https_args();
+        args.https = false;
+        args.ca_cert = Some(PathBuf::from("unused.pem"));
+
+        let err = create_connector_config(&args, 120, 30).expect_err("must reject --ca-cert without --https");
+        assert!(err.to_string().contains("--https"), "error should mention --https: {err}");
+    }
+
+    #[test]
+    fn ca_cert_with_invalid_pem_fails() {
+        let path = std::env::temp_dir().join(format!("ironposh-test-bad-ca-{}.pem", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"this is not a PEM certificate").expect("write temp garbage pem");
+
+        let mut args = https_args();
+        args.ca_cert = Some(path.clone());
+
+        let err = create_connector_config(&args, 120, 30).expect_err("must reject invalid PEM content");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains(&path.display().to_string()),
+            "error should mention the file path: {msg}"
+        );
+
+        std::fs::remove_file(&path).expect("remove temp garbage pem");
     }
 }
