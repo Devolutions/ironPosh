@@ -71,11 +71,12 @@ async fn default_tls_rejects_self_signed() {
     let (addr, server) = spawn_tls_server(chain, key).await;
 
     let client = build_reqwest_client(&TlsOptions::default()).expect("client");
-    let result = client.get(wsman_url(addr)).send().await;
-    assert!(
-        result.is_err(),
-        "default TLS options must reject a self-signed certificate"
-    );
+    let err = client
+        .get(wsman_url(addr))
+        .send()
+        .await
+        .expect_err("default TLS options must reject a self-signed certificate");
+    assert!(err.is_connect(), "expected TLS connect failure, got: {err:?}");
 
     server.abort();
 }
