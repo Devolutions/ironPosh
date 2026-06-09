@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
     connector::{
@@ -19,6 +20,8 @@ use url::Url;
 /// PowerShell Remoting Client (Async/Tokio)
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
+// CLI flags are naturally independent booleans; grouping them adds no clarity here.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Args {
     /// Server IP address to connect to
     #[arg(
@@ -73,6 +76,18 @@ pub struct Args {
         help = "DANGEROUS: HTTP without SSPI sealing (insecure, for testing only)"
     )]
     pub http_insecure: bool,
+
+    /// DANGEROUS: Accept any HTTPS server certificate (self-signed labs).
+    /// Only meaningful together with `--https`.
+    #[arg(
+        long,
+        help = "DANGEROUS: accept invalid HTTPS certificates (requires --https)"
+    )]
+    pub insecure: bool,
+
+    /// Path to an additional root CA certificate (PEM) to trust for HTTPS.
+    #[arg(long, help = "Path to an extra root CA certificate (PEM) for HTTPS")]
+    pub ca_cert: Option<PathBuf>,
 
     /// Use parallel (multi-connection) session loop instead of the default serial mode.
     #[arg(
@@ -197,6 +212,30 @@ pub fn create_connector_config_with_kdc_url(
 ) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
 
+    // TLS flags only apply to HTTPS WinRM; reject meaningless combinations early.
+    if args.insecure && !args.https {
+        anyhow::bail!("--insecure only applies to HTTPS connections; add --https or drop --insecure");
+    }
+
+    let extra_ca_pem = args
+        .ca_cert
+        .as_ref()
+        .map(|path| {
+            std::fs::read(path)
+                .with_context(|| format!("failed to read CA certificate file {}", path.display()))
+        })
+        .transpose()?;
+
+    if args.insecure {
+        tracing::warn!("Accepting invalid HTTPS certificates - this is INSECURE!");
+    }
+
+    let tls = TlsOptions {
+        accept_invalid_certs: args.insecure,
+        accept_invalid_hostnames: false,
+        extra_ca_pem,
+    };
+
     // Determine transport security from CLI flags
     let transport = if args.https {
         TransportSecurity::Https
@@ -282,7 +321,7 @@ pub fn create_connector_config_with_kdc_url(
         authentication: auth,
         host_info,
         operation_timeout_secs,
-        tls: TlsOptions::default(),
+        tls,
     })
 }
 
@@ -302,6 +341,8 @@ mod tests {
             auth_method: AuthMethod::Basic,
             https: false,
             http_insecure: true,
+            insecure: false,
+            ca_cert: None,
             parallel: false,
             gateway: None,
             gateway_webapp_username: None,
@@ -328,6 +369,8 @@ mod tests {
             auth_method: AuthMethod::Basic,
             https: false,
             http_insecure: true,
+            insecure: false,
+            ca_cert: None,
             parallel: true,
             gateway: None,
             gateway_webapp_username: None,
@@ -340,5 +383,69 @@ mod tests {
 
         let cfg = create_connector_config(&args, 120, 30).expect("create config");
         assert_eq!(cfg.operation_timeout_secs, None);
+    }
+
+    fn https_args() -> Args {
+        Args {
+            server: "127.0.0.1".to_string(),
+            port: 5986,
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            domain: String::new(),
+            auth_method: AuthMethod::Basic,
+            https: true,
+            http_insecure: false,
+            insecure: false,
+            ca_cert: None,
+            parallel: false,
+            gateway: None,
+            gateway_webapp_username: None,
+            gateway_webapp_password: None,
+            kdc_address: None,
+            kdc_proxy_url: None,
+            verbose: 0,
+            command: None,
+        }
+    }
+
+    #[test]
+    fn insecure_with_https_maps_to_tls_options() {
+        let mut args = https_args();
+        args.insecure = true;
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert!(cfg.tls.accept_invalid_certs);
+        assert!(!cfg.tls.accept_invalid_hostnames);
+
+        // The mapped options must be usable to construct the reqwest client.
+        crate::http_client::build_reqwest_client(&cfg.tls).expect("client from mapped options");
+    }
+
+    #[test]
+    fn ca_cert_flag_reads_pem_file() {
+        let rcgen::CertifiedKey { cert, .. } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+        let pem = cert.pem();
+
+        let path = std::env::temp_dir().join(format!("ironposh-test-ca-{}.pem", uuid::Uuid::new_v4()));
+        std::fs::write(&path, &pem).expect("write temp CA pem");
+
+        let mut args = https_args();
+        args.ca_cert = Some(path.clone());
+
+        let cfg = create_connector_config(&args, 120, 30).expect("create config");
+        assert_eq!(cfg.tls.extra_ca_pem.as_deref(), Some(pem.as_bytes()));
+
+        std::fs::remove_file(&path).expect("remove temp CA pem");
+    }
+
+    #[test]
+    fn insecure_without_https_fails() {
+        let mut args = https_args();
+        args.https = false;
+        args.insecure = true;
+
+        let err = create_connector_config(&args, 120, 30).expect_err("must reject --insecure without --https");
+        assert!(err.to_string().contains("--https"), "error should mention --https: {err}");
     }
 }
