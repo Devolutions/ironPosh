@@ -101,6 +101,10 @@ pub struct WinRmConfig {
     pub operation_timeout_secs: Option<f64>,
     /// TLS behaviour for HTTPS transports. Ignored for plain-HTTP transports.
     pub tls: config::TlsOptions,
+    /// PowerShell session configuration (JEA endpoint) name.
+    /// `None` → `Microsoft.PowerShell`. Becomes the shell resource URI
+    /// `http://schemas.microsoft.com/powershell/{name}`.
+    pub configuration_name: Option<String>,
 }
 
 impl WinRmConfig {
@@ -113,6 +117,18 @@ impl WinRmConfig {
             Scheme::Http => format!("http://{}:{}/wsman{}", self.server.0, self.server.1, query),
             Scheme::Https => format!("https://{}:{}/wsman{}", self.server.0, self.server.1, query),
         }
+    }
+
+    /// Shell resource URI for the configured PowerShell session configuration
+    /// (JEA endpoint). Defaults to `Microsoft.PowerShell` when no
+    /// `configuration_name` is set.
+    pub fn shell_resource_uri(&self) -> String {
+        format!(
+            "http://schemas.microsoft.com/powershell/{}",
+            self.configuration_name
+                .as_deref()
+                .unwrap_or("Microsoft.PowerShell")
+        )
     }
 }
 
@@ -226,6 +242,7 @@ impl Connector {
                     WsMan::builder()
                         .to(self.config.wsman_to(None))
                         .operation_timeout(operation_timeout)
+                        .resource_uri(self.config.shell_resource_uri())
                         .build(),
                 );
 
@@ -352,5 +369,54 @@ impl Connector {
         self.set_state(new_state);
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_configuration_name(configuration_name: Option<String>) -> WinRmConfig {
+        let size = ironposh_psrp::Size {
+            width: 80,
+            height: 25,
+        };
+        let host_data = ironposh_psrp::HostDefaultData::builder()
+            .buffer_size(size.clone())
+            .window_size(size.clone())
+            .max_window_size(size.clone())
+            .max_physical_window_size(size)
+            .build();
+
+        WinRmConfig {
+            server: (ServerAddress::parse("127.0.0.1").unwrap(), 5985),
+            transport: TransportSecurity::HttpInsecure,
+            authentication: AuthenticatorConfig::Basic {
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            host_info: HostInfo::builder().host_default_data(host_data).build(),
+            operation_timeout_secs: None,
+            tls: config::TlsOptions::default(),
+            configuration_name,
+        }
+    }
+
+    #[test]
+    fn shell_resource_uri_defaults_to_microsoft_powershell() {
+        let config = config_with_configuration_name(None);
+        assert_eq!(
+            config.shell_resource_uri(),
+            "http://schemas.microsoft.com/powershell/Microsoft.PowerShell"
+        );
+    }
+
+    #[test]
+    fn shell_resource_uri_uses_configuration_name() {
+        let config = config_with_configuration_name(Some("MyJEAEndpoint".to_owned()));
+        assert_eq!(
+            config.shell_resource_uri(),
+            "http://schemas.microsoft.com/powershell/MyJEAEndpoint"
+        );
     }
 }

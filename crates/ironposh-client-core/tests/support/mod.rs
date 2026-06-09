@@ -55,6 +55,7 @@ pub fn test_config() -> WinRmConfig {
         host_info,
         operation_timeout_secs: Some(1.0),
         tls: TlsOptions::default(),
+        configuration_name: None,
     }
 }
 

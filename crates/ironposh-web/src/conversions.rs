@@ -190,6 +190,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             operation_timeout_secs: Some(0.01),
             // The browser owns TLS for the WASM client; options are ignored there.
             tls: ironposh_client_core::connector::config::TlsOptions::default(),
+            configuration_name: None,
         }
     }
 }

@@ -37,6 +37,32 @@ fn idle_step_emits_shell_create() {
     );
 }
 
+/// A JEA `configuration_name` must replace the default shell resource URI.
+#[test]
+fn configuration_name_sets_shell_resource_uri() {
+    let mut config = support::test_config();
+    config.configuration_name = Some("MyJEAEndpoint".into());
+    let mut connector = Connector::new(config);
+
+    let result = connector.step(None).expect("idle step");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack");
+    };
+
+    let (request, _conn) = support::expect_just_send(try_send);
+    let body = request.body.expect("create has a body");
+    let xml = body.as_str().expect("plaintext body in HttpInsecure mode");
+
+    assert!(
+        xml.contains("http://schemas.microsoft.com/powershell/MyJEAEndpoint"),
+        "shell Create must target the JEA endpoint resource URI"
+    );
+    assert!(
+        !xml.contains("powershell/Microsoft.PowerShell"),
+        "default resource URI must not appear when configuration_name is set"
+    );
+}
+
 /// Drive the connector through the full handshake against a fake server:
 /// Create -> CreateResponse -> Receive -> ReceiveResponse(PSRP negotiation) -> Connected.
 #[test]
