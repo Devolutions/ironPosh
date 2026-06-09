@@ -45,6 +45,7 @@ pub enum RunspacePoolState {
     NegotiationSucceeded = 7,
     Connecting = 8,
     Disconnected = 9,
+    Disconnecting = 10,
 }
 
 impl From<&RunspacePoolStateValue> for RunspacePoolState {

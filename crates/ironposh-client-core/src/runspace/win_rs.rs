@@ -165,6 +165,40 @@ impl WinRunspace {
         )
     }
 
+    /// Build a Disconnect request targeting this shell (MS-WSMV 3.1.4.13).
+    pub(crate) fn fire_disconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
+        use ironposh_winrm::{cores::Namespace, rsp::disconnect::DisconnectValue};
+
+        let disconnect_tag = Tag::from_name(tag_name::Disconnect)
+            .with_declaration(Namespace::WsmanShell)
+            .with_value(DisconnectValue::builder().build());
+
+        ws_man.invoke(
+            &WsAction::Disconnect,
+            Some(&self.resource_uri),
+            SoapBody::builder().disconnect(disconnect_tag).build(),
+            None,
+            self.selector_set.clone().into(),
+        )
+    }
+
+    /// Build a Reconnect request targeting this shell (MS-WSMV 3.1.4.14).
+    pub(crate) fn fire_reconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
+        use ironposh_winrm::cores::{Empty, Namespace};
+
+        let reconnect_tag = Tag::from_name(tag_name::Reconnect)
+            .with_declaration(Namespace::WsmanShell)
+            .with_value(Empty);
+
+        ws_man.invoke(
+            &WsAction::Reconnect,
+            Some(&self.resource_uri),
+            SoapBody::builder().reconnect(reconnect_tag).build(),
+            None,
+            self.selector_set.clone().into(),
+        )
+    }
+
     #[instrument(skip_all)]
     pub(crate) fn accept_receive_response(
         soap_envelope: &SoapEnvelope<'_>,
