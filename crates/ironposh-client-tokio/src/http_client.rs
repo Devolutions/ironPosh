@@ -42,6 +42,12 @@ pub struct ReqwestHttpClient {
     clients_by_conn: Mutex<HashMap<u32, reqwest::Client>>,
 }
 
+impl Default for ReqwestHttpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReqwestHttpClient {
     pub fn new() -> Self {
         Self::with_tls_options(TlsOptions::default())
