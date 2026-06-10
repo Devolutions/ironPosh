@@ -12,7 +12,10 @@ use ironposh_terminal::Terminal;
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
-use config::{create_connector_config, create_connector_config_with_kdc_url, init_logging, Args};
+use config::{
+    build_reattach_command_prefix, build_reattach_credentials_hint, create_connector_config,
+    create_connector_config_with_kdc_url, init_logging, Args,
+};
 use gateway_http_client::{
     create_gateway_session, redact_gateway_url, CliHttpClient, GatewayHttpViaWsClient,
     GatewayTokenConfig,
@@ -34,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
             "--gateway does not support --parallel because the Gateway WebSocket transport serializes HTTP requests; omit --parallel"
         );
     }
+    let gateway_enabled = args.gateway.is_some();
 
     if args.gateway.is_some() && args.https {
         anyhow::bail!(
@@ -68,6 +72,8 @@ async fn main() -> anyhow::Result<()> {
             webapp_password: args.gateway_webapp_password.clone(),
             server: args.server.clone(),
             port: args.port,
+            https: args.https,
+            username: args.username.clone(),
             domain: args.domain.clone(),
             auth_method: args.auth_method,
             kdc_address: args.kdc_address.clone(),
@@ -159,6 +165,8 @@ async fn main() -> anyhow::Result<()> {
     ));
 
     info!("Runspace pool is now open and ready for operations!");
+    let reattach_command_prefix = build_reattach_command_prefix(&args);
+    let reattach_credentials_hint = build_reattach_credentials_hint(&args);
 
     // Check if we have a command to execute
     if let Some(command) = args.command {
@@ -268,7 +276,11 @@ async fn main() -> anyhow::Result<()> {
             session_event_rx,
             repl_control_rx,
             lifecycle_event_rx,
-            args.parallel,
+            repl::ReplSessionOptions {
+                disconnect_supported: args.parallel && !gateway_enabled,
+                reattach_command_prefix,
+                reattach_credentials_hint,
+            },
         )
         .await
         {

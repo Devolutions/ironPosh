@@ -1,12 +1,17 @@
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use ironposh_async::HttpClient;
-use ironposh_client_core::connector::{
-    auth_sequence::SspiAuthSequence,
-    authenticator::SecContextMaybeInit,
-    config::TlsOptions,
-    connection_pool::{ConnectionId, SecContextInited, TrySend},
-    http::{HttpBody, HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted, Method},
+use ironposh_client_core::{
+    connector::{
+        auth_sequence::SspiAuthSequence,
+        authenticator::SecContextMaybeInit,
+        config::TlsOptions,
+        connection_pool::{ConnectionId, SecContextInited, TrySend},
+        http::{
+            HttpBody, HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted, Method,
+        },
+    },
+    credentials::ClientUserName,
 };
 use reqwest::Client;
 use serde_json::json;
@@ -34,6 +39,8 @@ pub struct GatewayTokenConfig {
     pub webapp_password: Option<String>,
     pub server: String,
     pub port: u16,
+    pub https: bool,
+    pub username: String,
     pub domain: String,
     pub auth_method: AuthMethod,
     pub kdc_address: Option<String>,
@@ -237,13 +244,14 @@ pub async fn create_gateway_session(config: &GatewayTokenConfig) -> Result<Gatew
     let app_token = generate_app_token(&http_base, &webapp_username, &webapp_password).await?;
 
     let session_id = Uuid::new_v4();
-    let destination = format!("tcp://{}:{}", config.server, config.port);
+    let (destination_scheme, protocol) = gateway_winrm_transport(config.https);
+    let destination = format!("{destination_scheme}://{}:{}", config.server, config.port);
     let association_token = generate_session_token(
         &http_base,
         &app_token,
         json!({
             "content_type": "ASSOCIATION",
-            "protocol": "winrm-http-pwsh",
+            "protocol": protocol,
             "destination": destination,
             "lifetime": 60,
             "session_id": session_id.to_string(),
@@ -253,7 +261,7 @@ pub async fn create_gateway_session(config: &GatewayTokenConfig) -> Result<Gatew
 
     let websocket_url = ws_base
         .join(&format!(
-            "/jet/fwd/tcp/{session_id}?token={association_token}"
+            "/jet/fwd/{destination_scheme}/{session_id}?token={association_token}"
         ))
         .context("failed to build Gateway WebSocket URL")?;
 
@@ -262,17 +270,18 @@ pub async fn create_gateway_session(config: &GatewayTokenConfig) -> Result<Gatew
             if let Some(kdc_proxy_url) = &config.kdc_proxy_url {
                 Some(kdc_proxy_url.parse().context("invalid KDC proxy URL")?)
             } else {
+                let krb_realm = kerberos_realm(&config.username, &config.domain)?;
                 let kdc_address = config
                     .kdc_address
                     .clone()
-                    .unwrap_or_else(|| default_kdc_address(&config.server, &config.domain));
+                    .unwrap_or_else(|| default_kdc_address(&config.server, &krb_realm));
                 let kdc_token = generate_session_token(
                     &http_base,
                     &app_token,
                     json!({
                         "content_type": "KDC",
                         "krb_kdc": kdc_address,
-                        "krb_realm": config.domain,
+                        "krb_realm": krb_realm,
                         "lifetime": 60,
                     }),
                 )
@@ -341,12 +350,30 @@ async fn generate_session_token(
     Ok(token)
 }
 
+fn gateway_winrm_transport(https: bool) -> (&'static str, &'static str) {
+    if https {
+        ("tls", "winrm-https-pwsh")
+    } else {
+        ("tcp", "winrm-http-pwsh")
+    }
+}
+
 fn default_kdc_address(server: &str, domain: &str) -> String {
     if !domain.is_empty() && !server.contains('.') {
         format!("tcp://{server}.{domain}:88")
     } else {
         format!("tcp://{server}:88")
     }
+}
+
+fn kerberos_realm(username: &str, domain: &str) -> Result<String> {
+    let domain = domain.trim();
+    if !domain.is_empty() {
+        return Ok(domain.to_string());
+    }
+
+    let username = ClientUserName::parse(username)?;
+    Ok(username.domain_name().unwrap_or_default().to_string())
 }
 
 fn to_http_base_url(raw_url: &str) -> Result<Url> {
@@ -499,15 +526,23 @@ impl HttpResponseDecoder {
         let mut headers = Vec::new();
         let mut content_length = None;
         let mut content_type = None;
+        let mut transfer_encoding = None;
         for line in lines {
             if let Some((name, value)) = line.split_once(':') {
                 let name = name.trim().to_string();
                 let value = value.trim().to_string();
                 if name.eq_ignore_ascii_case("content-length") {
-                    content_length = value.parse::<usize>().ok();
+                    content_length = Some(
+                        value
+                            .parse::<usize>()
+                            .context("Gateway HTTP response Content-Length was invalid")?,
+                    );
                 }
                 if name.eq_ignore_ascii_case("content-type") {
                     content_type = Some(value.clone());
+                }
+                if name.eq_ignore_ascii_case("transfer-encoding") {
+                    transfer_encoding = Some(value.clone());
                 }
                 headers.push((name, value));
             }
@@ -515,7 +550,7 @@ impl HttpResponseDecoder {
 
         let body_start = header_end + 4;
         let body_len = self.buffer.len() - body_start;
-        if let Some(expected_len) = content_length {
+        let body_bytes: std::borrow::Cow<'_, [u8]> = if let Some(expected_len) = content_length {
             if body_len < expected_len {
                 return Ok(None);
             }
@@ -524,10 +559,31 @@ impl HttpResponseDecoder {
                     "Gateway HTTP response body exceeded Content-Length"
                 ));
             }
-        }
+            std::borrow::Cow::Borrowed(&self.buffer[body_start..body_start + expected_len])
+        } else if let Some(transfer_encoding) = transfer_encoding.as_deref() {
+            if !transfer_encoding_is_chunked(transfer_encoding) {
+                return Err(anyhow::anyhow!(
+                    "Gateway HTTP response used unsupported Transfer-Encoding: {transfer_encoding}"
+                ));
+            }
+            let Some(body) = decode_chunked_body(&self.buffer[body_start..])? else {
+                return Ok(None);
+            };
+            std::borrow::Cow::Owned(body)
+        } else if response_status_forbids_body(status_code) {
+            if body_len > 0 {
+                return Err(anyhow::anyhow!(
+                    "Gateway HTTP response included a body for status {status_code}"
+                ));
+            }
+            std::borrow::Cow::Borrowed(&[])
+        } else {
+            return Err(anyhow::anyhow!(
+                "Gateway HTTP response missing Content-Length; close-delimited bodies are unsupported"
+            ));
+        };
 
-        let body_bytes = &self.buffer[body_start..];
-        let body = classify_body(body_bytes, content_type.as_deref())?;
+        let body = classify_body(&body_bytes, content_type.as_deref())?;
 
         Ok(Some(HttpResponse {
             status_code,
@@ -535,6 +591,81 @@ impl HttpResponseDecoder {
             body,
         }))
     }
+}
+
+fn transfer_encoding_is_chunked(value: &str) -> bool {
+    let mut codings = value
+        .split(',')
+        .map(str::trim)
+        .filter(|coding| !coding.is_empty());
+    let Some(coding) = codings.next() else {
+        return false;
+    };
+    coding.eq_ignore_ascii_case("chunked") && codings.next().is_none()
+}
+
+fn find_crlf(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(2).position(|window| window == b"\r\n")
+}
+
+fn decode_chunked_body(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    let mut pos = 0;
+    let mut decoded = Vec::new();
+
+    loop {
+        let Some(line_end) = find_crlf(&bytes[pos..]) else {
+            return Ok(None);
+        };
+        let line = &bytes[pos..pos + line_end];
+        let line = std::str::from_utf8(line).context("Gateway HTTP chunk size was not UTF-8")?;
+        let size_text = line.split(';').next().unwrap_or_default().trim();
+        if size_text.is_empty() {
+            return Err(anyhow::anyhow!("Gateway HTTP chunk size was missing"));
+        }
+        let size =
+            usize::from_str_radix(size_text, 16).context("Gateway HTTP chunk size was invalid")?;
+        pos += line_end + 2;
+
+        if size == 0 {
+            if bytes.len() < pos + 2 {
+                return Ok(None);
+            }
+            let end = if bytes[pos..].starts_with(b"\r\n") {
+                pos + 2
+            } else if let Some(trailer_end) = header_end(&bytes[pos..]) {
+                pos + trailer_end + 4
+            } else {
+                return Ok(None);
+            };
+            if bytes.len() > end {
+                return Err(anyhow::anyhow!(
+                    "Gateway HTTP response had trailing data after chunked body"
+                ));
+            }
+            return Ok(Some(decoded));
+        }
+
+        let data_end = pos
+            .checked_add(size)
+            .ok_or_else(|| anyhow::anyhow!("Gateway HTTP chunk size overflowed"))?;
+        let chunk_end = data_end
+            .checked_add(2)
+            .ok_or_else(|| anyhow::anyhow!("Gateway HTTP chunk size overflowed"))?;
+        if bytes.len() < chunk_end {
+            return Ok(None);
+        }
+        if bytes.get(data_end..chunk_end) != Some(&b"\r\n"[..]) {
+            return Err(anyhow::anyhow!(
+                "Gateway HTTP chunk missing CRLF terminator"
+            ));
+        }
+        decoded.extend_from_slice(&bytes[pos..data_end]);
+        pos = chunk_end;
+    }
+}
+
+fn response_status_forbids_body(status_code: u16) -> bool {
+    (100..200).contains(&status_code) || matches!(status_code, 204 | 304)
 }
 
 fn classify_body(bytes: &[u8], content_type: Option<&str>) -> Result<HttpBody> {
@@ -570,4 +701,83 @@ pub fn redact_gateway_url(url: &Url) -> String {
         redacted.set_query(Some("<redacted>"));
     }
     redacted.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kerberos_realm_prefers_explicit_domain() {
+        let realm = kerberos_realm("Administrator@ad.it-help.ninja", "EXAMPLE.COM").expect("realm");
+
+        assert_eq!(realm, "EXAMPLE.COM");
+    }
+
+    #[test]
+    fn kerberos_realm_uses_upn_suffix_when_domain_is_empty() {
+        let realm = kerberos_realm("Administrator@ad.it-help.ninja", "").expect("realm");
+
+        assert_eq!(realm, "ad.it-help.ninja");
+    }
+
+    #[test]
+    fn kerberos_realm_allows_plain_username_without_domain() {
+        let realm = kerberos_realm("Administrator", "").expect("realm");
+
+        assert_eq!(realm, "");
+    }
+
+    #[test]
+    fn gateway_winrm_transport_uses_tls_for_https() {
+        assert_eq!(gateway_winrm_transport(true), ("tls", "winrm-https-pwsh"));
+    }
+
+    #[test]
+    fn gateway_winrm_transport_uses_tcp_for_http() {
+        assert_eq!(gateway_winrm_transport(false), ("tcp", "winrm-http-pwsh"));
+    }
+
+    #[test]
+    fn decoder_rejects_body_without_framing() {
+        let mut decoder = HttpResponseDecoder::new(1024);
+
+        let err = decoder
+            .feed(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\npartial")
+            .expect_err("missing framing must fail");
+
+        assert!(err.to_string().contains("missing Content-Length"));
+    }
+
+    #[test]
+    fn decoder_waits_for_complete_chunked_body() {
+        let mut decoder = HttpResponseDecoder::new(1024);
+
+        assert!(
+            decoder
+                .feed(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n5\r\nhe")
+                .expect("partial chunk")
+                .is_none()
+        );
+        let response = decoder
+            .feed(b"llo\r\n0\r\n\r\n")
+            .expect("complete chunk")
+            .expect("response");
+
+        assert_eq!(response.status_code, 200);
+        assert!(matches!(response.body, HttpBody::Text(ref text) if text == "hello"));
+    }
+
+    #[test]
+    fn decoder_accepts_no_body_status_without_content_length() {
+        let mut decoder = HttpResponseDecoder::new(1024);
+
+        let response = decoder
+            .feed(b"HTTP/1.1 204 No Content\r\n\r\n")
+            .expect("no-body status")
+            .expect("response");
+
+        assert_eq!(response.status_code, 204);
+        assert!(matches!(response.body, HttpBody::Text(ref text) if text.is_empty()));
+    }
 }

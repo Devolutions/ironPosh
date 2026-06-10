@@ -11,9 +11,12 @@ use ironposh_client_core::connector::{
     NetworkProtocol, NetworkRequest,
 };
 use reqwest::Client;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::Mutex,
+    time::Duration,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument};
 
@@ -108,7 +111,7 @@ impl ReqwestHttpClient {
             NetworkProtocol::Http | NetworkProtocol::Https => {
                 Self::send_kdc_http_packet(packet, tls).await
             }
-            NetworkProtocol::Udp => todo!("UDP protocol not implemented for Kerberos"),
+            NetworkProtocol::Udp => Self::send_kdc_udp_packet(packet).await,
         }
     }
 
@@ -161,6 +164,77 @@ impl ReqwestHttpClient {
         );
 
         Ok(response_data)
+    }
+
+    #[instrument(
+        name = "kdc_udp",
+        level = "debug",
+        skip(packet),
+        fields(host = packet.url.host_str(), port = packet.url.port())
+    )]
+    async fn send_kdc_udp_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+        // Matches sspi-rs' default maximum token length for UDP KDC replies.
+        const MAX_UDP_RESPONSE: usize = 0xbb80;
+
+        let host = packet
+            .url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing host in KDC URL"))?;
+        let port = packet
+            .url
+            .port()
+            .ok_or_else(|| anyhow::anyhow!("Missing port in KDC URL"))?;
+
+        let remote_addr = tokio::net::lookup_host((host, port))
+            .await
+            .context("failed to resolve KDC UDP address")?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("KDC UDP address resolved to no endpoints"))?;
+        let local_addr = match remote_addr.ip() {
+            IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+            IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+        };
+
+        info!(
+            host = %host,
+            port,
+            remote_addr = %remote_addr,
+            "opening UDP connection to KDC"
+        );
+        let socket = tokio::net::UdpSocket::bind(local_addr)
+            .await
+            .context("failed to bind UDP socket for KDC request")?;
+        socket
+            .connect(remote_addr)
+            .await
+            .context("failed to connect UDP socket to KDC")?;
+
+        let bytes_sent = socket
+            .send(&packet.data)
+            .await
+            .context("failed to send UDP packet to KDC")?;
+        if bytes_sent != packet.data.len() {
+            return Err(anyhow::anyhow!(
+                "failed to send full KDC UDP packet: sent {bytes_sent} of {} bytes",
+                packet.data.len()
+            ));
+        }
+        info!(bytes_sent, "sent UDP packet to KDC");
+
+        let mut response_data = vec![0_u8; MAX_UDP_RESPONSE];
+        let datagram_len =
+            tokio::time::timeout(Duration::from_secs(30), socket.recv(&mut response_data))
+                .await
+                .context("timed out waiting for KDC UDP response")?
+                .context("failed to read UDP response from KDC")?;
+
+        info!(datagram_len, "received UDP response from KDC");
+
+        let mut framed_response = Vec::with_capacity(datagram_len + 4);
+        framed_response.extend_from_slice(&(datagram_len as u32).to_be_bytes());
+        framed_response.extend_from_slice(&response_data[..datagram_len]);
+
+        Ok(framed_response)
     }
 
     #[instrument(

@@ -188,7 +188,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             host_info,
             // Short timeout for serial/single-connection mode so Receives
             // don't block outbound sends for too long.
-            operation_timeout_secs: Some(0.01),
+            operation_timeout_secs: Some(0.25),
             // The browser owns TLS for the WASM client; options are ignored there.
             tls: ironposh_client_core::connector::config::TlsOptions::default(),
             configuration_name,

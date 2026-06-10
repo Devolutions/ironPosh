@@ -119,12 +119,33 @@ pub async fn start_active_session_loop(
 
     info!("Starting single-loop active session");
 
+    enum LoopEvent {
+        Http(Box<anyhow::Result<HttpResponseTargeted>>),
+        User(Box<Option<UserOperation>>),
+    }
+
     // main single-threaded loop
     loop {
-        futures::select! {
+        let loop_event = {
+            let http_next = if inflight.is_empty() {
+                Either::Left(futures::future::pending::<
+                    anyhow::Result<HttpResponseTargeted>,
+                >())
+            } else {
+                Either::Right(inflight.select_next_some())
+            };
+            futures::pin_mut!(http_next);
+
+            futures::select! {
+                ready = http_next => LoopEvent::Http(Box::new(ready)),
+                user_op = user_input_rx.next() => LoopEvent::User(Box::new(user_op)),
+            }
+        };
+
+        match loop_event {
             // 1) any HTTP finishes
-            ready = inflight.select_next_some() => {
-                match ready {
+            LoopEvent::Http(ready) => {
+                match *ready {
                     Ok(http_response) => {
                         trace!(
                             target: "network",
@@ -141,7 +162,11 @@ pub async fn start_active_session_loop(
                             })
                             .context("Failed to accept server response")?;
 
-                        emit_pool_lifecycle_transition(&mut pool_state, &active_session, &lifecycle_tx);
+                        emit_pool_lifecycle_transition(
+                            &mut pool_state,
+                            &active_session,
+                            &lifecycle_tx,
+                        );
 
                         // Convert ActiveSessionOutput into new HTTPs / UI events
                         for out in step_results {
@@ -161,7 +186,9 @@ pub async fn start_active_session_loop(
                                 ActiveSessionOutput::UserEvent(event) => {
                                     trace!(target: "user", event = ?event, "sending user event");
                                     if user_output_tx.send(event).await.is_err() {
-                                        return Err(anyhow::anyhow!("User output channel disconnected"));
+                                        return Err(anyhow::anyhow!(
+                                            "User output channel disconnected"
+                                        ));
                                     }
                                 }
                                 ActiveSessionOutput::HostCall(host_call) => {
@@ -171,13 +198,22 @@ pub async fn start_active_session_loop(
                                         return Err(anyhow::anyhow!("Host-call channel closed"));
                                     }
 
-                                    let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
-                                        .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
+                                    let HostResponse {
+                                        call_id,
+                                        scope,
+                                        submission,
+                                    } = host_resp_rx.next().await.ok_or_else(|| {
+                                        anyhow::anyhow!("Host-response channel closed")
+                                    })?;
 
                                     let step_result = resolve_deferred_sends(
                                         active_session
                                             .accept_client_operation(
-                                                UserOperation::SubmitHostResponse { call_id, scope, submission },
+                                                UserOperation::SubmitHostResponse {
+                                                    call_id,
+                                                    scope,
+                                                    submission,
+                                                },
                                             )
                                             .context("Failed to submit host response")?,
                                         &mut active_session,
@@ -219,88 +255,95 @@ pub async fn start_active_session_loop(
             }
 
             // 2) user operations
-            user_op = user_input_rx.next() => {
+            LoopEvent::User(user_op) => {
                 debug!(target: "user", "processing user operation");
-                 if let Some(user_operation) = user_op {
-                     debug!(target: "user", operation = ?user_operation, "processing user operation");
+                if let Some(user_operation) = *user_op {
+                    debug!(target: "user", operation = ?user_operation, "processing user operation");
 
-                     let step_result = resolve_deferred_sends(
-                         active_session
-                             .accept_client_operation(user_operation)
-                             .context("Failed to accept user operation")?,
-                         &mut active_session,
-                     )?;
+                    let step_result = resolve_deferred_sends(
+                        active_session
+                            .accept_client_operation(user_operation)
+                            .context("Failed to accept user operation")?,
+                        &mut active_session,
+                    )?;
 
-                     // Track state changes driven by user operations (e.g. Opened →
-                     // Disconnecting) so a later fault-driven revert is observable.
-                     emit_pool_lifecycle_transition(&mut pool_state, &active_session, &lifecycle_tx);
+                    // Track state changes driven by user operations (e.g. Opened →
+                    // Disconnecting) so a later fault-driven revert is observable.
+                    emit_pool_lifecycle_transition(&mut pool_state, &active_session, &lifecycle_tx);
 
-                     match step_result {
-                         ActiveSessionOutput::SendBack(reqs) => {
-                             trace!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
-                             for r in reqs {
-                                 inflight.push(launch(&client, r));
-                             }
-                         }
-                         ActiveSessionOutput::UserEvent(event) => {
-                             trace!(target: "user", event = ?event, "sending user event from user operation");
-                             if user_output_tx.send(event).await.is_err() {
-                                 return Err(anyhow::anyhow!("User output channel disconnected"));
-                             }
-                         }
-                         ActiveSessionOutput::HostCall(host_call) => {
-                             debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
+                    match step_result {
+                        ActiveSessionOutput::SendBack(reqs) => {
+                            trace!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
+                            for r in reqs {
+                                inflight.push(launch(&client, r));
+                            }
+                        }
+                        ActiveSessionOutput::UserEvent(event) => {
+                            trace!(target: "user", event = ?event, "sending user event from user operation");
+                            if user_output_tx.send(event).await.is_err() {
+                                return Err(anyhow::anyhow!("User output channel disconnected"));
+                            }
+                        }
+                        ActiveSessionOutput::HostCall(host_call) => {
+                            debug!(host_call = ?host_call.method_name(), call_id = host_call.call_id(), scope = ?host_call.scope());
 
-                             if host_call_tx.unbounded_send(host_call).is_err() {
-                                 return Err(anyhow::anyhow!("Host-call channel closed"));
-                             }
+                            if host_call_tx.unbounded_send(host_call).is_err() {
+                                return Err(anyhow::anyhow!("Host-call channel closed"));
+                            }
 
-                             let HostResponse { call_id, scope, submission } = host_resp_rx.next().await
-                                 .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
+                            let HostResponse {
+                                call_id,
+                                scope,
+                                submission,
+                            } = host_resp_rx
+                                .next()
+                                .await
+                                .ok_or_else(|| anyhow::anyhow!("Host-response channel closed"))?;
 
-                             let step_result = resolve_deferred_sends(
-                                 active_session
-                                     .accept_client_operation(
-                                         UserOperation::SubmitHostResponse { call_id, scope, submission },
-                                     )
-                                     .context("Failed to submit host response")?,
-                                 &mut active_session,
-                             )?;
+                            let step_result = resolve_deferred_sends(
+                                active_session
+                                    .accept_client_operation(UserOperation::SubmitHostResponse {
+                                        call_id,
+                                        scope,
+                                        submission,
+                                    })
+                                    .context("Failed to submit host response")?,
+                                &mut active_session,
+                            )?;
 
-                             match step_result {
-                                 ActiveSessionOutput::SendBack(reqs) => {
-                                     for r in reqs {
-                                         inflight.push(launch(&client, r));
-                                     }
-                                 }
-                                 other => {
-                                     process_session_outputs(
-                                         vec![other],
-                                         &mut user_output_tx,
-                                         &mut user_input_tx,
-                                         &host_call_tx,
-                                         &mut host_resp_rx,
-                                     )
-                                     .await?;
-                                 }
-                             }
-                         }
-                         ActiveSessionOutput::OperationSuccess => {
-                             trace!(target: "session", "operation completed successfully");
-                         }
-                         ActiveSessionOutput::SendBackError(e) => {
-                             error!(target: "session", error = %e, "session step failed");
-                             return Err(anyhow::anyhow!("Session step failed: {e}"));
-                         }
-                         ActiveSessionOutput::Ignore => {}
-                         ActiveSessionOutput::SendAndThenReceive { .. }
-                         | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
-                     }
-
-                 } else {
-                     info!("User input channel disconnected");
-                     break; // UI side closed
-                 }
+                            match step_result {
+                                ActiveSessionOutput::SendBack(reqs) => {
+                                    for r in reqs {
+                                        inflight.push(launch(&client, r));
+                                    }
+                                }
+                                other => {
+                                    process_session_outputs(
+                                        vec![other],
+                                        &mut user_output_tx,
+                                        &mut user_input_tx,
+                                        &host_call_tx,
+                                        &mut host_resp_rx,
+                                    )
+                                    .await?;
+                                }
+                            }
+                        }
+                        ActiveSessionOutput::OperationSuccess => {
+                            trace!(target: "session", "operation completed successfully");
+                        }
+                        ActiveSessionOutput::SendBackError(e) => {
+                            error!(target: "session", error = %e, "session step failed");
+                            return Err(anyhow::anyhow!("Session step failed: {e}"));
+                        }
+                        ActiveSessionOutput::Ignore => {}
+                        ActiveSessionOutput::SendAndThenReceive { .. }
+                        | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
+                    }
+                } else {
+                    info!("User input channel disconnected");
+                    break; // UI side closed
+                }
             }
         }
     }

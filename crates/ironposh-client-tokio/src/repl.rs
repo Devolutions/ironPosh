@@ -127,6 +127,12 @@ struct TabCompletionRequest {
     respond_to: oneshot::Sender<Option<String>>,
 }
 
+pub struct ReplSessionOptions {
+    pub disconnect_supported: bool,
+    pub reattach_command_prefix: String,
+    pub reattach_credentials_hint: String,
+}
+
 fn escape_ps_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
 }
@@ -1276,7 +1282,7 @@ async fn run_repl_loop(
     mut repl_control_rx: Receiver<ReplControl>,
     mut tab_complete_rx: Receiver<TabCompletionRequest>,
     mut lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
-    disconnect_supported: bool,
+    options: ReplSessionOptions,
 ) -> anyhow::Result<()> {
     info!("Starting unified REPL loop");
 
@@ -1362,7 +1368,7 @@ async fn run_repl_loop(
 
                         if cmd.eq_ignore_ascii_case(":disconnect") || cmd.eq_ignore_ascii_case(":reconnect") {
                             let reconnect = cmd.eq_ignore_ascii_case(":reconnect");
-                            if !disconnect_supported {
+                            if !options.disconnect_supported {
                                 let _ = terminal_op_tx
                                     .send(TerminalOperation::Print(
                                         ":disconnect/:reconnect require the parallel session loop (run with --parallel)"
@@ -1470,10 +1476,17 @@ async fn run_repl_loop(
                             )))
                             .await;
                         if let Some(shell_id) = shell_id {
+                            let reattach_command = format!(
+                                "reattach with: {} {shell_id}",
+                                options.reattach_command_prefix
+                            );
                             let _ = terminal_op_tx
-                                .send(TerminalOperation::Print(format!(
-                                    "reattach with: --connect-shell-id {shell_id} --parallel"
-                                )))
+                                .send(TerminalOperation::Print(reattach_command))
+                                .await;
+                            let _ = terminal_op_tx
+                                .send(TerminalOperation::Print(
+                                    options.reattach_credentials_hint.clone(),
+                                ))
                                 .await;
                         }
                         // Input is pull-based: without a local input request the user
@@ -1641,7 +1654,7 @@ pub async fn run_simple_repl(
     mut session_event_rx: futures::channel::mpsc::UnboundedReceiver<SessionEvent>,
     repl_control_rx: Receiver<ReplControl>,
     lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
-    disconnect_supported: bool,
+    options: ReplSessionOptions,
 ) -> anyhow::Result<()> {
     info!("Starting async REPL with unified UI queue");
 
@@ -1678,7 +1691,7 @@ pub async fn run_simple_repl(
         repl_control_rx,
         tab_complete_rx,
         lifecycle_event_rx,
-        disconnect_supported,
+        options,
     )
     .await;
 

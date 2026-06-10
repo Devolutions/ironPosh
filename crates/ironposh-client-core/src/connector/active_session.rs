@@ -155,6 +155,9 @@ pub struct ActiveSession {
     /// Connection carrying an in-flight Disconnect request, so a fault answering
     /// it can be told apart from the dying in-flight Receive.
     disconnect_conn_id: Option<ConnectionId>,
+    /// Connection carrying an in-flight Reconnect request, so late responses from
+    /// pre-disconnect traffic are not mistaken for the ReconnectResponse.
+    reconnect_conn_id: Option<ConnectionId>,
 }
 
 impl ActiveSession {
@@ -164,6 +167,7 @@ impl ActiveSession {
             runspace_pool,
             connection_pool,
             disconnect_conn_id: None,
+            reconnect_conn_id: None,
         }
     }
 
@@ -321,6 +325,7 @@ impl ActiveSession {
                     Err(e) => return Err(e),
                 };
                 let ts_send = self.connection_pool.send(&reconnect_xml)?;
+                self.reconnect_conn_id = Some(ts_send.get_connection_id());
                 Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
             }
         }
@@ -379,16 +384,7 @@ impl ActiveSession {
                 return Ok(vec![ActiveSessionOutput::Ignore]);
             }
             crate::runspace_pool::RunspacePoolState::Connecting => {
-                self.runspace_pool.accept_reconnect_response(&xml_body)?;
-                // The pre-disconnect Receive is gone; schedule a fresh Receive
-                // covering surviving pipelines (plus the pool stream when none)
-                // so the session loop resumes the receive loop.
-                return Ok(vec![
-                    ActiveSessionOutput::OperationSuccess,
-                    ActiveSessionOutput::PendingReceive {
-                        desired_streams: self.runspace_pool.compute_active_desired_streams(),
-                    },
-                ]);
+                return self.accept_response_while_connecting(&xml_body, conn_id);
             }
             _ => {}
         }
@@ -490,11 +486,26 @@ impl ActiveSession {
                 Ok(vec![ActiveSessionOutput::OperationSuccess])
             }
             Err(PwshCoreError::InvalidResponse(reason)) => {
-                warn!(
-                    reason = %reason,
-                    body = %xml_body,
-                    "ignoring non-disconnect traffic while disconnecting"
-                );
+                if self.disconnect_conn_id == Some(conn_id) {
+                    // The Disconnect request itself received the wrong shape of
+                    // response: revert to Opened so the session loop can surface
+                    // the failed disconnect instead of remaining stuck.
+                    self.disconnect_conn_id = None;
+                    self.runspace_pool.abort_disconnect();
+                    error!(
+                        reason = %reason,
+                        body = %xml_body,
+                        conn_id = conn_id.inner(),
+                        "Disconnect request returned an invalid response; reverting runspace pool to Opened"
+                    );
+                } else {
+                    warn!(
+                        reason = %reason,
+                        body = %xml_body,
+                        conn_id = conn_id.inner(),
+                        "ignoring non-disconnect traffic while disconnecting"
+                    );
+                }
                 Ok(vec![ActiveSessionOutput::Ignore])
             }
             Err(PwshCoreError::SoapFault { code, reason }) => {
@@ -522,6 +533,40 @@ impl ActiveSession {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Handle a server response that arrives while a Reconnect is in flight.
+    ///
+    /// Late traffic from the pre-disconnect Receive can race ahead of the
+    /// ReconnectResponse. Only the tracked reconnect connection is allowed to
+    /// complete the reconnect; everything else is discarded like disconnected
+    /// state traffic.
+    fn accept_response_while_connecting(
+        &mut self,
+        xml_body: &str,
+        conn_id: ConnectionId,
+    ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
+        if self.reconnect_conn_id.is_some() && self.reconnect_conn_id != Some(conn_id) {
+            warn!(
+                conn_id = conn_id.inner(),
+                reconnect_conn_id = self.reconnect_conn_id.map(|id| id.inner()),
+                body_length = xml_body.len(),
+                "dropping non-reconnect traffic while runspace pool is reconnecting"
+            );
+            return Ok(vec![ActiveSessionOutput::Ignore]);
+        }
+
+        self.runspace_pool.accept_reconnect_response(xml_body)?;
+        self.reconnect_conn_id = None;
+        // The pre-disconnect Receive is gone; schedule a fresh Receive
+        // covering surviving pipelines (plus the pool stream when none)
+        // so the session loop resumes the receive loop.
+        Ok(vec![
+            ActiveSessionOutput::OperationSuccess,
+            ActiveSessionOutput::PendingReceive {
+                desired_streams: self.runspace_pool.compute_active_desired_streams(),
+            },
+        ])
     }
 
     /// Build + send a pipeline host response, then queue a receive for that pipeline.

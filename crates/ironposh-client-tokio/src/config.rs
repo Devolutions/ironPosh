@@ -361,6 +361,89 @@ pub fn create_connector_config_with_kdc_url(
     })
 }
 
+pub fn build_reattach_command_prefix(args: &Args) -> String {
+    let mut parts = vec![
+        "--server".to_string(),
+        quote_command_arg(&args.server),
+        "--port".to_string(),
+        args.port.to_string(),
+        "--username".to_string(),
+        quote_command_arg(&args.username),
+        "--auth-method".to_string(),
+        args.auth_method.to_string(),
+    ];
+
+    if !args.domain.trim().is_empty() {
+        parts.push("--domain".to_string());
+        parts.push(quote_command_arg(&args.domain));
+    }
+    if args.https {
+        parts.push("--https".to_string());
+    }
+    if args.http_insecure {
+        parts.push("--http-insecure".to_string());
+    }
+    if args.insecure {
+        parts.push("--insecure".to_string());
+    }
+    if let Some(ca_cert) = &args.ca_cert {
+        parts.push("--ca-cert".to_string());
+        parts.push(quote_command_arg(&ca_cert.display().to_string()));
+    }
+    if let Some(gateway) = &args.gateway {
+        parts.push("--gateway".to_string());
+        parts.push(quote_command_arg(gateway));
+    }
+    if let Some(username) = &args.gateway_webapp_username {
+        parts.push("--gateway-webapp-username".to_string());
+        parts.push(quote_command_arg(username));
+    }
+    if let Some(kdc_address) = &args.kdc_address {
+        parts.push("--kdc-address".to_string());
+        parts.push(quote_command_arg(kdc_address));
+    }
+    if let Some(kdc_proxy_url) = &args.kdc_proxy_url {
+        parts.push("--kdc-proxy-url".to_string());
+        parts.push(quote_command_arg(kdc_proxy_url));
+    }
+    if let Some(configuration_name) = &args.configuration_name {
+        parts.push("--configuration-name".to_string());
+        parts.push(quote_command_arg(configuration_name));
+    }
+
+    parts.push("--parallel".to_string());
+    parts.push("--connect-shell-id".to_string());
+    parts.join(" ")
+}
+
+pub fn build_reattach_credentials_hint(args: &Args) -> String {
+    let mut flags = vec!["--password"];
+    if args.gateway.is_some() {
+        flags.push("--gateway-webapp-password");
+    }
+
+    format!(
+        "credentials are not included; add {} if needed",
+        flags.join(" and ")
+    )
+}
+
+fn quote_command_arg(arg: &str) -> String {
+    if !arg.is_empty()
+        && arg.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '-' | '_' | '.' | ':' | '/' | '\\' | '@' | '=' | '?' | '&' | '%'
+                )
+        })
+    {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', "''"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,6 +613,55 @@ mod tests {
         let result =
             Args::try_parse_from(["ironposh-client-tokio", "--connect-shell-id", "not-a-uuid"]);
         assert!(result.is_err(), "invalid UUID must fail to parse");
+    }
+
+    #[test]
+    fn reattach_command_prefix_carries_connection_options() {
+        let args = Args::parse_from([
+            "ironposh-client-tokio",
+            "--server",
+            "dc01.example.com",
+            "--port",
+            "5986",
+            "--username",
+            "Administrator@ad.it-help.ninja",
+            "--domain",
+            "AD",
+            "--auth-method",
+            "kerberos",
+            "--https",
+            "--insecure",
+            "--gateway",
+            "https://gateway.example.com",
+            "--gateway-webapp-username",
+            "gateway-admin",
+            "--kdc-address",
+            "tcp://dc01.example.com:88",
+            "--configuration-name",
+            "JEA Endpoint",
+            "--parallel",
+        ]);
+
+        let prefix = build_reattach_command_prefix(&args);
+
+        assert!(prefix.contains("--server dc01.example.com"));
+        assert!(prefix.contains("--port 5986"));
+        assert!(prefix.contains("--username Administrator@ad.it-help.ninja"));
+        assert!(prefix.contains("--domain AD"));
+        assert!(prefix.contains("--auth-method kerberos"));
+        assert!(prefix.contains("--https"));
+        assert!(prefix.contains("--insecure"));
+        assert!(prefix.contains("--gateway https://gateway.example.com"));
+        assert!(prefix.contains("--gateway-webapp-username gateway-admin"));
+        assert!(prefix.contains("--kdc-address tcp://dc01.example.com:88"));
+        assert!(prefix.contains("--configuration-name 'JEA Endpoint'"));
+        assert!(prefix.ends_with("--parallel --connect-shell-id"));
+        assert!(!prefix.contains(&args.password));
+
+        let credentials_hint = build_reattach_credentials_hint(&args);
+        assert!(credentials_hint.contains("--password"));
+        assert!(credentials_hint.contains("--gateway-webapp-password"));
+        assert!(!credentials_hint.contains(&args.password));
     }
 
     #[test]
