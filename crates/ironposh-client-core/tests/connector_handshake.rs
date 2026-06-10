@@ -640,6 +640,8 @@ fn connect_mode_reaches_connected() {
     let (_request, conn_id) = support::expect_just_send(try_send);
 
     // 2. Reply with a ConnectResponse carrying the server-side negotiation.
+    //    ApplicationPrivateData may ride along in connectResponseXml (MS-PSRP)
+    //    and must land in the pool instead of being warn-dropped.
     let session_capability = SessionCapability {
         protocol_version: "2.3".to_owned(),
         ps_version: "2.0".to_owned(),
@@ -650,8 +652,11 @@ fn connect_mode_reaches_connected() {
         min_runspaces: 1,
         max_runspaces: 1,
     };
-    let connect_response =
-        support::connect_response_xml(shell_id, &[&session_capability, &init_data]);
+    let application_private_data = ApplicationPrivateData::new();
+    let connect_response = support::connect_response_xml(
+        shell_id,
+        &[&session_capability, &init_data, &application_private_data],
+    );
 
     let result = connector
         .step(Some(support::xml_response(conn_id, connect_response)))
@@ -679,6 +684,10 @@ fn connect_mode_reaches_connected() {
         active_session.shell_id().as_deref(),
         Some(shell_id.to_string().to_uppercase().as_str()),
         "the active session must target the reattached shell"
+    );
+    assert!(
+        active_session.application_private_data().is_some(),
+        "ApplicationPrivateData delivered in connectResponseXml must land in the pool"
     );
 
     let (request, _conn) = support::expect_just_send(send_this_one_async_or_you_stuck);

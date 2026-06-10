@@ -1,8 +1,8 @@
 use base64::Engine;
-use ironposh_psrp::{MessageType, PsValue, RunspacePoolInitData, SessionCapability, fragmentation};
+use ironposh_psrp::{MessageType, PsValue, RunspacePoolInitData, fragmentation};
 use ironposh_winrm::soap::SoapEnvelope;
 use ironposh_xml::parser::XmlDeserialize;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::enums::RunspacePoolState;
 use super::pool::RunspacePool;
@@ -68,17 +68,10 @@ impl ExpectShellConnected {
             let ps_value = message.parse_ps_message()?;
             match message.message_type {
                 MessageType::SessionCapability => {
-                    let PsValue::Object(obj) = ps_value else {
-                        return Err(crate::PwshCoreError::InvalidResponse(
-                            "Expected SessionCapability as PsValue::Object".into(),
-                        ));
-                    };
-                    let session_capability = SessionCapability::try_from(obj)?;
-                    info!(
-                        ?session_capability,
-                        "received SessionCapability in ConnectResponse"
-                    );
-                    runspace_pool.session_capability = Some(session_capability);
+                    runspace_pool.handle_session_capability(ps_value)?;
+                }
+                MessageType::ApplicationPrivateData => {
+                    runspace_pool.handle_application_private_data(ps_value)?;
                 }
                 MessageType::RunspacepoolInitData => {
                     let PsValue::Object(obj) = ps_value else {
@@ -95,6 +88,15 @@ impl ExpectShellConnected {
                         usize::try_from(init_data.min_runspaces).unwrap_or(1);
                     runspace_pool.max_runspaces =
                         usize::try_from(init_data.max_runspaces).unwrap_or(1);
+                }
+                MessageType::RunspacepoolState => {
+                    // Protocol drift: a connect response carries INIT_DATA, not a
+                    // pool state transition. Surface loudly but keep the reattach.
+                    error!(
+                        message_type = ?MessageType::RunspacepoolState,
+                        data_len = message.data.len(),
+                        "unexpected RunspacepoolState in ConnectResponse; ignoring"
+                    );
                 }
                 other => {
                     // Be tolerant: unknown payloads must not kill the reattach.

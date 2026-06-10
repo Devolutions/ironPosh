@@ -263,17 +263,14 @@ impl RunspacePool {
         encrypt_secure_strings_in_value_rec(value, session_key)
     }
 
-    #[instrument(skip(self), name = "RunspacePool::open")]
-    pub fn open(
-        mut self,
-    ) -> Result<(String, super::expect_shell_created::ExpectShellCreated), crate::PwshCoreError>
-    {
-        if self.state != RunspacePoolState::BeforeOpen {
-            return Err(crate::PwshCoreError::InvalidState(
-                "RunspacePool must be in BeforeOpen state to open",
-            ));
-        }
-
+    /// Build the negotiation payload shared by [`Self::open`] and
+    /// [`Self::connect`]: SESSION_CAPABILITY plus the path-specific second
+    /// message, fragmented into a single base64-encoded request group, with
+    /// the matching `protocolversion` OptionSet.
+    fn negotiation_payload(
+        &mut self,
+        second_message: &dyn ironposh_psrp::PsObjectWithType,
+    ) -> Result<(String, OptionSetValue), crate::PwshCoreError> {
         let session_capability = SessionCapability {
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
@@ -281,25 +278,13 @@ impl RunspacePool {
             time_zone: None,
         };
 
-        let init_runspace_pool = InitRunspacePool {
-            min_runspaces: self.min_runspaces as i32,
-            max_runspaces: self.max_runspaces as i32,
-            thread_options: self.thread_options,
-            apartment_state: self.apartment_state,
-            host_info: self.host_info.clone(),
-            application_arguments: self.application_arguments.clone(),
-        };
-
         debug!(
             session_capability = ?session_capability,
-            min_runspaces = self.min_runspaces,
-            max_runspaces = self.max_runspaces,
-            "starting runspace pool open"
+            "building negotiation payload"
         );
-        debug!(init_runspace_pool = ?init_runspace_pool);
 
         let request_groups = self.fragmenter.fragment_multiple(
-            &[&session_capability, &init_runspace_pool],
+            &[&session_capability, second_message],
             self.id,
             None,
         )?;
@@ -311,11 +296,9 @@ impl RunspacePool {
             "fragmented negotiation requests"
         );
 
-        self.state = RunspacePoolState::NegotiationSent;
-
         debug_assert!(
             request_groups.len() == 1,
-            "We should have only one request group for the opening negotiation"
+            "We should have only one request group for the negotiation"
         );
 
         let request = request_groups
@@ -327,6 +310,40 @@ impl RunspacePool {
             .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))?;
 
         let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
+
+        Ok((request, option_set))
+    }
+
+    #[instrument(skip(self), name = "RunspacePool::open")]
+    pub fn open(
+        mut self,
+    ) -> Result<(String, super::expect_shell_created::ExpectShellCreated), crate::PwshCoreError>
+    {
+        if self.state != RunspacePoolState::BeforeOpen {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in BeforeOpen state to open",
+            ));
+        }
+
+        let init_runspace_pool = InitRunspacePool {
+            min_runspaces: self.min_runspaces as i32,
+            max_runspaces: self.max_runspaces as i32,
+            thread_options: self.thread_options,
+            apartment_state: self.apartment_state,
+            host_info: self.host_info.clone(),
+            application_arguments: self.application_arguments.clone(),
+        };
+
+        debug!(
+            min_runspaces = self.min_runspaces,
+            max_runspaces = self.max_runspaces,
+            "starting runspace pool open"
+        );
+        debug!(init_runspace_pool = ?init_runspace_pool);
+
+        let (request, option_set) = self.negotiation_payload(&init_runspace_pool)?;
+
+        self.state = RunspacePoolState::NegotiationSent;
 
         let result = self
             .shell
@@ -357,47 +374,20 @@ impl RunspacePool {
             ));
         }
 
-        let session_capability = SessionCapability {
-            protocol_version: PROTOCOL_VERSION.to_string(),
-            ps_version: PS_VERSION.to_string(),
-            serialization_version: SERIALIZATION_VERSION.to_string(),
-            time_zone: None,
-        };
-
         let connect_runspace_pool = ConnectRunspacePool {
             min_runspaces: self.min_runspaces as i32,
             max_runspaces: self.max_runspaces as i32,
         };
 
         debug!(
-            session_capability = ?session_capability,
             connect_runspace_pool = ?connect_runspace_pool,
             runspace_pool_id = %self.id,
             "starting runspace pool connect to existing shell"
         );
 
-        let request_groups = self.fragmenter.fragment_multiple(
-            &[&session_capability, &connect_runspace_pool],
-            self.id,
-            None,
-        )?;
+        let (request, option_set) = self.negotiation_payload(&connect_runspace_pool)?;
 
         self.state = RunspacePoolState::Connecting;
-
-        debug_assert!(
-            request_groups.len() == 1,
-            "We should have only one request group for the connect negotiation"
-        );
-
-        let request = request_groups
-            .into_iter()
-            .next()
-            .ok_or(crate::PwshCoreError::UnlikelyToHappen(
-                "No request group generated for connect negotiation",
-            ))
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(&bytes[..]))?;
-
-        let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
 
         let result = self
             .shell
@@ -427,6 +417,11 @@ impl RunspacePool {
     /// Server-assigned shell id (available after the shell has been created).
     pub fn shell_id(&self) -> Option<&str> {
         self.shell.shell_id()
+    }
+
+    /// Server-supplied ApplicationPrivateData, if delivered during open/connect.
+    pub fn application_private_data(&self) -> Option<&ApplicationPrivateData> {
+        self.application_private_data.as_ref()
     }
 
     /// Build a Disconnect request for this pool's shell (MS-WSMV 3.1.4.13).
@@ -1341,7 +1336,7 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self, session_capability), fields(protocol_version = tracing::field::Empty, ps_version = tracing::field::Empty))]
-    fn handle_session_capability(
+    pub(super) fn handle_session_capability(
         &mut self,
         session_capability: PsValue,
     ) -> Result<(), crate::PwshCoreError> {
@@ -1363,7 +1358,7 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self, app_data))]
-    fn handle_application_private_data(
+    pub(super) fn handle_application_private_data(
         &mut self,
         app_data: PsValue,
     ) -> Result<(), crate::PwshCoreError> {

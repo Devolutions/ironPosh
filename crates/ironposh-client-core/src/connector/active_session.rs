@@ -178,6 +178,11 @@ impl ActiveSession {
         self.runspace_pool.shell_id().map(ToOwned::to_owned)
     }
 
+    /// Server-supplied ApplicationPrivateData, if delivered during open/connect.
+    pub fn application_private_data(&self) -> Option<&ironposh_psrp::ApplicationPrivateData> {
+        self.runspace_pool.application_private_data()
+    }
+
     /// Generate a Receive TrySend for the given streams.
     /// Used by the serial session loop to issue Receives after processing sends.
     pub fn fire_receive(

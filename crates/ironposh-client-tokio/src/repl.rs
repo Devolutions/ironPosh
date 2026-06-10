@@ -1461,19 +1461,21 @@ async fn run_repl_loop(
             Some(ev) = lifecycle_event_rx.next() => {
                 match ev {
                     PoolLifecycleEvent::Disconnected { shell_id } => {
-                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
-                        info!(shell_id = %shell_id, "runspace pool disconnected");
+                        let display_id = shell_id.as_deref().unwrap_or("<unknown>");
+                        info!(shell_id = %display_id, "runspace pool disconnected");
                         disconnected = true;
                         let _ = terminal_op_tx
                             .send(TerminalOperation::Print(format!(
-                                "Disconnected from runspace pool (ShellId: {shell_id}). Type :reconnect to resume."
+                                "Disconnected from runspace pool (ShellId: {display_id}). Type :reconnect to resume."
                             )))
                             .await;
-                        let _ = terminal_op_tx
-                            .send(TerminalOperation::Print(format!(
-                                "reattach with: --connect-shell-id {shell_id} --parallel"
-                            )))
-                            .await;
+                        if let Some(shell_id) = shell_id {
+                            let _ = terminal_op_tx
+                                .send(TerminalOperation::Print(format!(
+                                    "reattach with: --connect-shell-id {shell_id} --parallel"
+                                )))
+                                .await;
+                        }
                         // Input is pull-based: without a local input request the user
                         // could never type :reconnect. Do NOT fetch the remote prompt
                         // here — that would run a remote pipeline while disconnected.
