@@ -115,14 +115,19 @@ async fn main() -> anyhow::Result<()> {
         if let Some(shell_id) = args.connect_shell_id {
             info!(shell_id = %shell_id, "reattaching to existing disconnected shell");
         }
-        let (client, host_io, session_events, lifecycle_events, task) =
-            RemoteAsyncPowershellClient::open_task(config, args.connect_shell_id, http_client);
+        let ironposh_async::client::OpenedSession {
+            client,
+            host_io,
+            session_events,
+            lifecycle_events,
+            connection_task,
+        } = RemoteAsyncPowershellClient::open_task(config, args.connect_shell_id, http_client);
         (
             client,
             host_io,
             session_events,
             lifecycle_events,
-            Box::pin(task),
+            Box::pin(connection_task),
         )
     } else {
         if args.connect_shell_id.is_some() {

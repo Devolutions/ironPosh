@@ -20,9 +20,30 @@ pub struct RemoteAsyncPowershellClient {
     supports_disconnect: bool,
 }
 
+/// Everything produced by [`RemoteAsyncPowershellClient::open_task`].
+///
+/// Bundles the client handle, the host I/O and event channels, and the
+/// background connection task that must be polled (typically spawned) to
+/// drive the session.
+pub struct OpenedSession<T> {
+    /// Client handle for issuing pipelines and disconnect/reconnect requests.
+    pub client: RemoteAsyncPowershellClient,
+    /// Host call I/O (host calls from the runspace plus the response submitter).
+    pub host_io: crate::HostIo,
+    /// Session lifecycle events (connection established, errors, closed, ...).
+    pub session_events: futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
+    /// Runspace pool disconnect/reconnect notifications.
+    pub lifecycle_events: futures::channel::mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
+    /// Background task driving the connection; resolves when the session ends.
+    ///
+    /// Generic rather than boxed because `HttpClient::send_request` futures
+    /// carry no `Send` bound (the wasm client's futures are thread-local), so
+    /// the task can only be boxed where the concrete client type is known.
+    pub connection_task: T,
+}
+
 impl RemoteAsyncPowershellClient {
     /// Create a new client and background task for the given configuration.
-    /// Returns (client, host_io, session_event_rx, lifecycle_event_rx, connection_task)
     ///
     /// When `connect_shell_id` is set, the client attaches to that existing
     /// disconnected runspace pool shell (WSMan Connect / browser-refresh
@@ -31,29 +52,20 @@ impl RemoteAsyncPowershellClient {
         config: WinRmConfig,
         connect_shell_id: Option<uuid::Uuid>,
         client: impl HttpClient,
-    ) -> (
-        Self,
-        crate::HostIo,
-        futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
-        futures::channel::mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
-        impl std::future::Future<Output = anyhow::Result<()>>,
-    )
-    where
-        Self: Sized,
-    {
+    ) -> OpenedSession<impl std::future::Future<Output = anyhow::Result<()>>> {
         let (handle, host_io, session_event_rx, lifecycle_event_rx, task) =
             connection::establish_connection(config, connect_shell_id, client);
 
-        (
-            Self {
+        OpenedSession {
+            client: Self {
                 handle,
                 supports_disconnect: true,
             },
             host_io,
-            session_event_rx,
-            lifecycle_event_rx,
-            task,
-        )
+            session_events: session_event_rx,
+            lifecycle_events: lifecycle_event_rx,
+            connection_task: task,
+        }
     }
 
     /// Create a new client using the serial (single-connection) session loop.
