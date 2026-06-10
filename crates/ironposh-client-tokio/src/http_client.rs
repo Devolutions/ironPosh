@@ -92,6 +92,7 @@ impl ReqwestHttpClient {
     )]
     pub(crate) async fn send_kdc_network_request(
         packet: NetworkRequest,
+        tls: &TlsOptions,
     ) -> anyhow::Result<Vec<u8>> {
         let redacted_url = redact_network_url(&packet.url);
         tracing::Span::current().record("url", redacted_url.as_str());
@@ -105,7 +106,7 @@ impl ReqwestHttpClient {
         match packet.protocol {
             NetworkProtocol::Tcp => Self::send_kdc_tcp_packet(packet).await,
             NetworkProtocol::Http | NetworkProtocol::Https => {
-                Self::send_kdc_http_packet(packet).await
+                Self::send_kdc_http_packet(packet, tls).await
             }
             NetworkProtocol::Udp => todo!("UDP protocol not implemented for Kerberos"),
         }
@@ -168,9 +169,12 @@ impl ReqwestHttpClient {
         skip(packet),
         fields(protocol = ?packet.protocol, url = tracing::field::Empty)
     )]
-    async fn send_kdc_http_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+    async fn send_kdc_http_packet(
+        packet: NetworkRequest,
+        tls: &TlsOptions,
+    ) -> anyhow::Result<Vec<u8>> {
         tracing::Span::current().record("url", redact_network_url(&packet.url).as_str());
-        let response = build_reqwest_client(&TlsOptions::default())?
+        let response = build_reqwest_client(tls)?
             .post(packet.url.clone())
             .header("keep-alive", "true")
             .body(packet.data)
@@ -328,32 +332,34 @@ impl HttpClient for ReqwestHttpClient {
                 loop {
                     // 1) Initialize security context
                     let (seq, mut holder) = auth_sequence.prepare();
-                    let init =
-                        match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
-                            SecContextMaybeInit::Initialized(sec) => sec,
-                            SecContextMaybeInit::RunGenerator {
-                                mut packet,
-                                mut generator_holder,
-                            } => {
-                                info!("running generator for KDC communication");
-                                loop {
-                                    let kdc_resp =
-                                        Self::send_kdc_network_request(packet).await.context(
-                                            "failed to send packet to KDC during authentication",
-                                        )?;
-                                    match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
-                                        SecContextMaybeInit::Initialized(sec) => break sec,
-                                        SecContextMaybeInit::RunGenerator {
-                                            packet: next_packet,
-                                            generator_holder: next_holder,
-                                        } => {
-                                            packet = next_packet;
-                                            generator_holder = next_holder;
-                                        }
+                    let init = match seq
+                        .try_init_sec_context(auth_response.as_ref(), &mut holder)?
+                    {
+                        SecContextMaybeInit::Initialized(sec) => sec,
+                        SecContextMaybeInit::RunGenerator {
+                            mut packet,
+                            mut generator_holder,
+                        } => {
+                            info!("running generator for KDC communication");
+                            loop {
+                                let kdc_resp = Self::send_kdc_network_request(packet, &self.tls)
+                                    .await
+                                    .context(
+                                        "failed to send packet to KDC during authentication",
+                                    )?;
+                                match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
+                                    SecContextMaybeInit::Initialized(sec) => break sec,
+                                    SecContextMaybeInit::RunGenerator {
+                                        packet: next_packet,
+                                        generator_holder: next_holder,
+                                    } => {
+                                        packet = next_packet;
+                                        generator_holder = next_holder;
                                     }
                                 }
                             }
-                        };
+                        }
+                    };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
                     match auth_sequence.process_sec_ctx_init(&init)? {
@@ -425,5 +431,121 @@ mod tls_tests {
             ..TlsOptions::default()
         };
         assert!(build_reqwest_client(&tls).is_err());
+    }
+}
+
+#[cfg(test)]
+mod kdc_tls_tests {
+    //! KDC HTTP requests must honor [`TlsOptions`] (mirrors tests/tls_options.rs,
+    //! which exercises the WSMan path with the same self-signed listener setup).
+
+    use super::*;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+    use tokio_rustls::rustls::pki_types::PrivateKeyDer;
+    use tokio_rustls::rustls::ServerConfig;
+    use tokio_rustls::TlsAcceptor;
+
+    const RESPONSE_401: &[u8] = b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
+
+    /// Spawn a self-signed ("localhost") TLS listener on 127.0.0.1:0 answering
+    /// any request with 401.
+    async fn spawn_tls_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let rcgen::CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
+                .expect("self-signed cert");
+        let chain = vec![cert.der().clone()];
+        let key = PrivateKeyDer::Pkcs8(key_pair.serialize_der().into());
+
+        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+        let config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .expect("protocol versions")
+            .with_no_client_auth()
+            .with_single_cert(chain, key)
+            .expect("server config");
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    let Ok(mut tls) = acceptor.accept(stream).await else {
+                        return;
+                    };
+                    let mut buf = [0_u8; 4096];
+                    let _ = tls.read(&mut buf).await;
+                    let _ = tls.write_all(RESPONSE_401).await;
+                    let _ = tls.shutdown().await;
+                });
+            }
+        });
+
+        (addr, handle)
+    }
+
+    fn kdc_http_request(addr: SocketAddr) -> NetworkRequest {
+        NetworkRequest {
+            protocol: NetworkProtocol::Https,
+            // Hostname must match the cert SAN ("localhost"), so don't use addr.ip().
+            url: url::Url::parse(&format!("https://localhost:{}/KdcProxy", addr.port()))
+                .expect("kdc url"),
+            data: vec![0x01, 0x02, 0x03],
+        }
+    }
+
+    fn chain_has_connect_error(err: &anyhow::Error) -> bool {
+        err.chain().any(|e| {
+            e.downcast_ref::<reqwest::Error>()
+                .is_some_and(reqwest::Error::is_connect)
+        })
+    }
+
+    #[tokio::test]
+    async fn kdc_http_default_tls_rejects_self_signed() {
+        let (addr, server) = spawn_tls_server().await;
+
+        let err = ReqwestHttpClient::send_kdc_network_request(
+            kdc_http_request(addr),
+            &TlsOptions::default(),
+        )
+        .await
+        .expect_err("default TLS options must reject a self-signed certificate");
+        assert!(
+            chain_has_connect_error(&err),
+            "expected a TLS connect failure, got: {err:?}"
+        );
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn kdc_http_honors_accept_invalid_certs() {
+        let (addr, server) = spawn_tls_server().await;
+
+        let tls = TlsOptions {
+            accept_invalid_certs: true,
+            ..TlsOptions::default()
+        };
+        let err = ReqwestHttpClient::send_kdc_network_request(kdc_http_request(addr), &tls)
+            .await
+            .expect_err("listener answers 401, so the KDC request still fails");
+        assert!(
+            !chain_has_connect_error(&err),
+            "TLS handshake must succeed with accept_invalid_certs, got connect failure: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("401"),
+            "expected the 401 status error past the TLS layer, got: {err:?}"
+        );
+
+        server.abort();
     }
 }

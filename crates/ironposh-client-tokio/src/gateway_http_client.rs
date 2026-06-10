@@ -4,6 +4,7 @@ use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
     auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
+    config::TlsOptions,
     connection_pool::{ConnectionId, SecContextInited, TrySend},
     http::{HttpBody, HttpRequest, HttpRequestAction, HttpResponse, HttpResponseTargeted, Method},
 };
@@ -163,12 +164,14 @@ impl HttpClient for GatewayHttpViaWsClient {
                         } => {
                             info!("running generator for KDC communication");
                             loop {
-                                let kdc_response =
-                                    ReqwestHttpClient::send_kdc_network_request(packet)
-                                        .await
-                                        .context(
-                                            "failed to send KDC request during Gateway auth",
-                                        )?;
+                                // Gateway KDC-proxy TLS policy is the gateway deployment's own;
+                                // client TLS flags are rejected with --gateway.
+                                let kdc_response = ReqwestHttpClient::send_kdc_network_request(
+                                    packet,
+                                    &TlsOptions::default(),
+                                )
+                                .await
+                                .context("failed to send KDC request during Gateway auth")?;
 
                                 match SspiAuthSequence::resume(generator_holder, kdc_response)? {
                                     SecContextMaybeInit::Initialized(sec) => break sec,
