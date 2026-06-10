@@ -11,7 +11,7 @@ use ironposh_psrp::{
 };
 use ironposh_winrm::{
     soap::SoapEnvelope,
-    ws_management::{OptionSetValue, WsMan},
+    ws_management::{OptionSetValue, WsAction, WsMan},
 };
 use ironposh_xml::parser::XmlDeserialize;
 use rsa::traits::PublicKeyParts;
@@ -398,7 +398,12 @@ impl RunspacePool {
 
         Self::fault_to_error(&soap_envelope)?;
 
-        if soap_envelope.body.as_ref().disconnect_response.is_none() {
+        // Real Windows servers answer shell Disconnect with an empty Body and
+        // identify the operation via the `a:Action` header only; the
+        // documented `rsp:DisconnectResponse` body element is accepted too.
+        if soap_envelope.body.as_ref().disconnect_response.is_none()
+            && !Self::header_action_is(&soap_envelope, &WsAction::DisconnectResponse)
+        {
             return Err(crate::PwshCoreError::InvalidResponse(
                 "No DisconnectResponse found in response".into(),
             ));
@@ -465,7 +470,12 @@ impl RunspacePool {
 
         Self::fault_to_error(&soap_envelope)?;
 
-        if soap_envelope.body.as_ref().reconnect_response.is_none() {
+        // Real Windows servers answer shell Reconnect with an empty Body and
+        // identify the operation via the `a:Action` header only; the
+        // documented `rsp:ReconnectResponse` body element is accepted too.
+        if soap_envelope.body.as_ref().reconnect_response.is_none()
+            && !Self::header_action_is(&soap_envelope, &WsAction::ReconnectResponse)
+        {
             return Err(crate::PwshCoreError::InvalidResponse(
                 "No ReconnectResponse found in response".into(),
             ));
@@ -477,6 +487,15 @@ impl RunspacePool {
         self.desired_stream_is_pooling = false;
         info!(runspace_pool_id = %self.id, "runspace pool reconnected");
         Ok(())
+    }
+
+    /// Whether the envelope's `a:Action` header equals the given WSMan action.
+    fn header_action_is(soap_envelope: &SoapEnvelope<'_>, action: &WsAction) -> bool {
+        soap_envelope
+            .header
+            .as_ref()
+            .and_then(|header| header.as_ref().action.as_ref())
+            .is_some_and(|tag| tag.as_ref().as_ref() == action.as_str())
     }
 
     /// Surface a WSMan SOAP fault as a `SoapFault` error.
@@ -1897,6 +1916,16 @@ mod tests {
         )
     }
 
+    /// Envelope shape real Windows WinRM servers send for shell
+    /// Disconnect/Reconnect responses: the operation is identified by the
+    /// `a:Action` header and the `s:Body` is empty (no `rsp:*Response`
+    /// element). Captured live from a Windows Server WinRM endpoint.
+    fn empty_body_response_envelope(action: &str) -> String {
+        format!(
+            r#"<s:Envelope xml:lang="en-US" xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd"><s:Header><a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/{action}</a:Action><a:MessageID>uuid:D853D945-103C-47C0-933B-227915A3B45E</a:MessageID><p:OperationID s:mustUnderstand="false">uuid:9f0f3ab8-15d4-4421-a687-adac10be157f</p:OperationID><p:SequenceId>1</p:SequenceId><a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To><a:RelatesTo>uuid:e5ec8121-80b1-408f-825c-f6e2c4cccad1</a:RelatesTo></s:Header><s:Body></s:Body></s:Envelope>"#
+        )
+    }
+
     const FAULT_ENVELOPE: &str = r#"<s:Envelope xml:lang="en-US"
     xmlns:s="http://www.w3.org/2003/05/soap-envelope"
     xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
@@ -2005,6 +2034,40 @@ mod tests {
         pool.accept_reconnect_response(&reconnect_response)
             .expect("accept_reconnect_response");
         assert_eq!(pool.state, RunspacePoolState::Opened);
+    }
+
+    #[test]
+    fn accept_disconnect_response_accepts_empty_body_with_action_header() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.fire_disconnect().expect("fire_disconnect");
+
+        pool.accept_disconnect_response(&empty_body_response_envelope("DisconnectResponse"))
+            .expect("real-server DisconnectResponse (empty body + action header) must be accepted");
+        assert_eq!(pool.state, RunspacePoolState::Disconnected);
+    }
+
+    #[test]
+    fn accept_reconnect_response_accepts_empty_body_with_action_header() {
+        let mut pool = test_pool(RunspacePoolState::Disconnected);
+        pool.fire_reconnect().expect("fire_reconnect");
+
+        pool.accept_reconnect_response(&empty_body_response_envelope("ReconnectResponse"))
+            .expect("real-server ReconnectResponse (empty body + action header) must be accepted");
+        assert_eq!(pool.state, RunspacePoolState::Opened);
+    }
+
+    #[test]
+    fn accept_disconnect_response_rejects_unrelated_action_with_empty_body() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.fire_disconnect().expect("fire_disconnect");
+
+        let result =
+            pool.accept_disconnect_response(&empty_body_response_envelope("ReceiveResponse"));
+        assert!(
+            matches!(result, Err(PwshCoreError::InvalidResponse(_))),
+            "unrelated traffic must stay rejected so the tolerance logic can ignore it, got: {result:?}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::Disconnecting);
     }
 
     #[test]

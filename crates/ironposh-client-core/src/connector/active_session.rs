@@ -487,6 +487,7 @@ impl ActiveSession {
             Err(PwshCoreError::InvalidResponse(reason)) => {
                 warn!(
                     reason = %reason,
+                    body = %xml_body,
                     "ignoring non-disconnect traffic while disconnecting"
                 );
                 Ok(vec![ActiveSessionOutput::Ignore])

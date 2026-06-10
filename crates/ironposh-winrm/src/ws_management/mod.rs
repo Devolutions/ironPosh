@@ -63,7 +63,10 @@ pub enum WsAction {
     Send,
     Signal,
     Disconnect,
+    DisconnectResponse,
     Reconnect,
+    ReconnectResponse,
+    Connect,
 }
 
 impl WsAction {
@@ -84,7 +87,14 @@ impl WsAction {
             Self::Disconnect => {
                 "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Disconnect"
             }
+            Self::DisconnectResponse => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/DisconnectResponse"
+            }
             Self::Reconnect => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Reconnect",
+            Self::ReconnectResponse => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReconnectResponse"
+            }
+            Self::Connect => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Connect",
         }
     }
 }
