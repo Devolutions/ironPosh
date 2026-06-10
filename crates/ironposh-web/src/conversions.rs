@@ -383,7 +383,7 @@ mod tests {
         };
 
         let winrm: WinRmConfig = cfg.into();
-        assert_eq!(winrm.operation_timeout_secs, Some(0.01));
+        assert_eq!(winrm.operation_timeout_secs, Some(0.25));
         assert_eq!(winrm.configuration_name, None);
     }
 

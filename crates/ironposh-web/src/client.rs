@@ -359,9 +359,88 @@ impl WasmPowerShellClient {
     #[wasm_bindgen]
     pub fn disconnect(&self) -> Promise {
         info!("disconnecting PowerShell client");
+        let client = self.client.clone();
         future_to_promise(async move {
-            info!("PowerShell client disconnected");
+            disconnect_client(client).await?;
+            info!("PowerShell client disconnect requested");
             Ok(JsValue::NULL)
         })
+    }
+}
+
+async fn disconnect_client(mut client: RemoteAsyncPowershellClient) -> Result<(), WasmError> {
+    // The web client always runs the serial session loop, where disconnect is not
+    // supported yet. The WebTerminal component calls disconnect() fire-and-forget,
+    // so resolve with a warning instead of rejecting (an unhandled rejection would
+    // surface as console noise on every page teardown).
+    if let Err(e) = client.disconnect().await {
+        tracing::warn!(error = %e, "disconnect is a no-op in serial mode; session will close with the page");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+    use ironposh_async::HttpClient;
+    use ironposh_client_core::connector::{
+        config::{AuthenticatorConfig, TlsOptions},
+        connection_pool::TrySend,
+        http::{HttpResponseTargeted, ServerAddress},
+        TransportSecurity, WinRmConfig,
+    };
+    use ironposh_psrp::{HostDefaultData, HostInfo, Size};
+
+    struct NeverHttpClient;
+
+    impl HttpClient for NeverHttpClient {
+        fn send_request(
+            &self,
+            _try_send: TrySend,
+        ) -> impl std::future::Future<Output = anyhow::Result<HttpResponseTargeted>> {
+            futures::future::pending()
+        }
+    }
+
+    #[test]
+    fn web_disconnect_resolves_in_serial_mode() {
+        let (client, _host_io, _session_event_rx, _task) =
+            RemoteAsyncPowershellClient::open_task_serial(test_config(), NeverHttpClient);
+
+        disconnect_client(client)
+            .now_or_never()
+            .expect("serial disconnect must complete immediately")
+            .expect("web disconnect must resolve (with a warning) in serial mode");
+    }
+
+    fn test_config() -> WinRmConfig {
+        let size = Size {
+            width: 120,
+            height: 30,
+        };
+        let host_data = HostDefaultData::builder()
+            .buffer_size(size.clone())
+            .window_size(size.clone())
+            .max_window_size(size.clone())
+            .max_physical_window_size(size)
+            .build();
+        let host_info = HostInfo::builder()
+            .host_default_data(host_data)
+            .use_runspace_host(true)
+            .build();
+
+        WinRmConfig {
+            server: (ServerAddress::parse("127.0.0.1").unwrap(), 5985),
+            transport: TransportSecurity::HttpInsecure,
+            authentication: AuthenticatorConfig::Basic {
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            host_info,
+            operation_timeout_secs: Some(0.25),
+            tls: TlsOptions::default(),
+            configuration_name: None,
+        }
     }
 }
