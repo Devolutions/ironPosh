@@ -1524,10 +1524,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
+ "base64",
  "crossbeam",
  "futures",
  "futures-timer",
  "ironposh-client-core",
+ "ironposh-psrp",
  "tracing",
  "uuid",
  "web-sys",
