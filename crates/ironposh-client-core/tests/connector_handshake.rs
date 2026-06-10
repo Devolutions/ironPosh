@@ -466,6 +466,47 @@ fn fault_on_other_connection_while_disconnecting_is_tolerated() {
     );
 }
 
+/// If the Disconnect request itself receives an unrelated response body/action,
+/// the pool must abort back to Opened instead of remaining stuck in Disconnecting.
+#[test]
+fn invalid_disconnect_response_on_disconnect_connection_reverts_pool_to_opened() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, disconnect_conn_id) =
+        support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnecting
+    );
+
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            disconnect_conn_id,
+            shell_op_response_xml("ReceiveResponse", "<rsp:ReceiveResponse/>"),
+        ))
+        .expect("invalid Disconnect response must not kill the session");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Opened,
+        "invalid response on the Disconnect connection must abort the disconnect"
+    );
+    assert!(
+        outputs
+            .iter()
+            .all(|o| matches!(o, ActiveSessionOutput::Ignore)),
+        "invalid Disconnect response must be ignored after aborting, got: {outputs:?}"
+    );
+}
+
 /// Reconnect after a mid-pipeline disconnect must resume the pipeline's Receive,
 /// not just the runspace pool stream.
 #[test]
@@ -536,6 +577,94 @@ fn reconnect_resumes_active_pipeline_streams() {
             .iter()
             .any(|s| s.command_id() == Some(&pipeline_id)),
         "post-reconnect Receive must cover the surviving pipeline, got: {resumed_streams:?}"
+    );
+}
+
+/// Late traffic from a pre-disconnect connection can race ahead of the real
+/// ReconnectResponse. Only the tracked reconnect connection may complete the
+/// transition back to Opened.
+#[test]
+fn reconnect_ignores_stale_traffic_before_real_response() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid: uuid::Uuid::new_v4(),
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke pipeline");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for invoke, got {out:?}");
+    };
+    let (_request, stale_conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, disconnect_conn_id) =
+        support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_ne!(stale_conn_id, disconnect_conn_id);
+
+    session
+        .accept_server_response(support::xml_response(
+            disconnect_conn_id,
+            shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+        ))
+        .expect("accept DisconnectResponse");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnected
+    );
+
+    let out = session
+        .accept_client_operation(UserOperation::Reconnect)
+        .expect("accept Reconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Reconnect, got {out:?}");
+    };
+    let (_request, reconnect_conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_ne!(stale_conn_id, reconnect_conn_id);
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Connecting);
+
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            stale_conn_id,
+            FAULT_ENVELOPE.to_owned(),
+        ))
+        .expect("stale traffic while reconnecting must be ignored");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Connecting,
+        "stale traffic must not complete reconnect"
+    );
+    assert!(
+        outputs
+            .iter()
+            .all(|o| matches!(o, ActiveSessionOutput::Ignore)),
+        "stale reconnect traffic must be ignored, got: {outputs:?}"
+    );
+
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            reconnect_conn_id,
+            shell_op_response_xml("ReconnectResponse", "<rsp:ReconnectResponse/>"),
+        ))
+        .expect("real ReconnectResponse must complete reconnect");
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Opened);
+    assert!(
+        outputs
+            .iter()
+            .any(|o| matches!(o, ActiveSessionOutput::PendingReceive { .. })),
+        "real ReconnectResponse must resume receives, got: {outputs:?}"
     );
 }
 
