@@ -147,6 +147,20 @@ impl UserOperation {
     }
 }
 
+/// Outcome of a transport-level failure on an in-flight connection,
+/// correlated against the disconnect/reconnect bookkeeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportErrorDisposition {
+    /// Unexpected failure; the session cannot continue.
+    Fatal,
+    /// Failure on a dying/stale connection during disconnect; ignore it.
+    Tolerated,
+    /// The Disconnect request itself failed; the pool reverted to Opened.
+    DisconnectAborted,
+    /// The Reconnect request itself failed; the pool reverted to Disconnected.
+    ReconnectAborted,
+}
+
 /// Manages post-connect PSRP operations. Produces `TrySend` for the caller to send.
 #[derive(Debug)]
 pub struct ActiveSession {
@@ -465,6 +479,54 @@ impl ActiveSession {
         outs.sort();
         info!(output_count = outs.len(), "returning ActiveSession outputs");
         Ok(outs)
+    }
+
+    /// Classify a transport-level error (e.g. TCP reset) on an in-flight connection.
+    ///
+    /// While a Disconnect is in flight the dying long-poll Receive (or other
+    /// stale connections) may fail at the transport level instead of answering
+    /// with a SOAP fault; those failures are tolerated. A failure on the
+    /// connection carrying the Disconnect/Reconnect itself aborts that
+    /// operation so the pool does not stay stuck in a transitional state.
+    pub fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition {
+        use crate::runspace_pool::RunspacePoolState;
+
+        match self.runspace_pool.state {
+            RunspacePoolState::Disconnecting if self.disconnect_conn_id == Some(conn_id) => {
+                self.disconnect_conn_id = None;
+                self.runspace_pool.abort_disconnect();
+                error!(
+                    conn_id = conn_id.inner(),
+                    "transport error on the Disconnect connection; reverting runspace pool to Opened"
+                );
+                TransportErrorDisposition::DisconnectAborted
+            }
+            state @ (RunspacePoolState::Disconnecting | RunspacePoolState::Disconnected) => {
+                warn!(
+                    conn_id = conn_id.inner(),
+                    ?state,
+                    "tolerating transport error on dying connection during disconnect"
+                );
+                TransportErrorDisposition::Tolerated
+            }
+            RunspacePoolState::Connecting if self.reconnect_conn_id == Some(conn_id) => {
+                self.reconnect_conn_id = None;
+                self.runspace_pool.abort_reconnect();
+                error!(
+                    conn_id = conn_id.inner(),
+                    "transport error on the Reconnect connection; reverting runspace pool to Disconnected"
+                );
+                TransportErrorDisposition::ReconnectAborted
+            }
+            state => {
+                error!(
+                    conn_id = conn_id.inner(),
+                    ?state,
+                    "fatal transport error on connection"
+                );
+                TransportErrorDisposition::Fatal
+            }
+        }
     }
 
     /// Handle a server response that arrives while a Disconnect is in flight.

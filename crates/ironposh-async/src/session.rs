@@ -4,9 +4,11 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::future::Either;
 use futures::{SinkExt, StreamExt, stream::FuturesUnordered};
-use ironposh_client_core::connector::active_session::UserEvent;
+use ironposh_client_core::connector::active_session::{TransportErrorDisposition, UserEvent};
 use ironposh_client_core::connector::{
-    ActiveSessionOutput, UserOperation, connection_pool::TrySend, http::HttpResponseTargeted,
+    ActiveSessionOutput, UserOperation,
+    connection_pool::{ConnectionId, TrySend},
+    http::HttpResponseTargeted,
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -44,8 +46,10 @@ fn resolve_deferred_sends(
 fn launch<C: HttpClient>(
     client: &C,
     try_send: TrySend,
-) -> impl core::future::Future<Output = anyhow::Result<HttpResponseTargeted>> {
-    client.send_request(try_send)
+) -> impl core::future::Future<Output = (ConnectionId, anyhow::Result<HttpResponseTargeted>)> {
+    let conn_id = try_send.get_connection_id();
+    let response = client.send_request(try_send);
+    async move { (conn_id, response.await) }
 }
 
 /// Emit a `PoolLifecycleEvent` when the runspace pool state crossed a
@@ -63,6 +67,13 @@ fn emit_pool_lifecycle_transition(
     }
 
     match (*prev_state, state) {
+        (RunspacePoolState::Connecting, RunspacePoolState::Disconnected) => {
+            // The Reconnect request failed and was aborted by the active session.
+            warn!(target: "session", shell_id = ?active_session.shell_id(), "reconnect failed; runspace pool stays disconnected");
+            let _ = lifecycle_tx.unbounded_send(crate::PoolLifecycleEvent::ReconnectFailed {
+                shell_id: active_session.shell_id(),
+            });
+        }
         (_, RunspacePoolState::Disconnected) => {
             info!(target: "session", shell_id = ?active_session.shell_id(), "runspace pool disconnected");
             let _ = lifecycle_tx.unbounded_send(crate::PoolLifecycleEvent::Disconnected {
@@ -120,7 +131,7 @@ pub async fn start_active_session_loop(
     info!("Starting single-loop active session");
 
     enum LoopEvent {
-        Http(Box<anyhow::Result<HttpResponseTargeted>>),
+        Http(Box<(ConnectionId, anyhow::Result<HttpResponseTargeted>)>),
         User(Box<Option<UserOperation>>),
     }
 
@@ -128,9 +139,10 @@ pub async fn start_active_session_loop(
     loop {
         let loop_event = {
             let http_next = if inflight.is_empty() {
-                Either::Left(futures::future::pending::<
+                Either::Left(futures::future::pending::<(
+                    ConnectionId,
                     anyhow::Result<HttpResponseTargeted>,
-                >())
+                )>())
             } else {
                 Either::Right(inflight.select_next_some())
             };
@@ -145,7 +157,8 @@ pub async fn start_active_session_loop(
         match loop_event {
             // 1) any HTTP finishes
             LoopEvent::Http(ready) => {
-                match *ready {
+                let (conn_id, result) = *ready;
+                match result {
                     Ok(http_response) => {
                         trace!(
                             target: "network",
@@ -247,9 +260,36 @@ pub async fn start_active_session_loop(
                         }
                     }
                     Err(e) => {
-                        // Any HTTP error terminates the session
-                        error!(target: "network", error = %e, "HTTP request failed");
-                        return Err(anyhow::anyhow!("HTTP error: {e:#}"));
+                        // A transport-level failure on a dying connection during
+                        // disconnect/reconnect must not kill the whole session.
+                        match active_session.handle_transport_error(conn_id) {
+                            TransportErrorDisposition::Fatal => {
+                                error!(target: "network", error = %e, "HTTP request failed");
+                                return Err(anyhow::anyhow!("HTTP error: {e:#}"));
+                            }
+                            TransportErrorDisposition::Tolerated => {
+                                warn!(
+                                    target: "network",
+                                    conn_id = conn_id.inner(),
+                                    error = %e,
+                                    "tolerating transport error on dying connection during disconnect"
+                                );
+                            }
+                            TransportErrorDisposition::DisconnectAborted
+                            | TransportErrorDisposition::ReconnectAborted => {
+                                warn!(
+                                    target: "network",
+                                    conn_id = conn_id.inner(),
+                                    error = %e,
+                                    "transport error aborted the in-flight disconnect/reconnect"
+                                );
+                                emit_pool_lifecycle_transition(
+                                    &mut pool_state,
+                                    &active_session,
+                                    &lifecycle_tx,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -580,6 +620,262 @@ mod tests {
         assert_pending(poll_session(session.as_mut()));
         let post_reconnect_receive = recv_request(&sent_rx);
         assert_eq!(post_reconnect_receive.kind, RequestKind::Receive);
+    }
+
+    #[test]
+    fn transport_error_on_dying_receive_is_tolerated_during_disconnect() {
+        let (active_session, initial_receive) = establish_active_session();
+        let (sent_tx, sent_rx) = std_mpsc::channel();
+        let client = ControlledHttpClient { sent_tx };
+        let (mut user_input_tx, user_input_rx) = mpsc::channel(8);
+        let (user_output_tx, _user_output_rx) = mpsc::channel(8);
+        let (host_call_tx, _host_call_rx) = mpsc::unbounded();
+        let (_host_resp_tx, host_resp_rx) = mpsc::unbounded();
+        let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded();
+
+        let session = start_active_session_loop(
+            initial_receive,
+            active_session,
+            client,
+            user_input_rx,
+            user_output_tx,
+            user_input_tx.clone(),
+            host_call_tx,
+            host_resp_rx,
+            lifecycle_tx,
+        );
+        futures::pin_mut!(session);
+
+        assert_pending(poll_session(session.as_mut()));
+        let dying_receive = recv_request(&sent_rx);
+        assert_eq!(dying_receive.kind, RequestKind::Receive);
+
+        user_input_tx
+            .try_send(UserOperation::Disconnect)
+            .expect("send Disconnect operation");
+        assert_pending(poll_session(session.as_mut()));
+        let disconnect = recv_request(&sent_rx);
+        assert_eq!(disconnect.kind, RequestKind::Disconnect);
+
+        // The long-poll Receive dies at the transport level (e.g. TCP reset)
+        // while the Disconnect response is still pending.
+        dying_receive
+            .responder
+            .send(Err(anyhow::anyhow!("connection reset by peer")))
+            .expect("fail dying receive request");
+        assert_pending(poll_session(session.as_mut()));
+
+        disconnect
+            .responder
+            .send(Ok(xml_response(
+                disconnect.conn_id,
+                shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+            )))
+            .expect("complete Disconnect request");
+        assert_pending(poll_session(session.as_mut()));
+
+        let event = lifecycle_rx
+            .try_next()
+            .expect("a lifecycle event must be emitted")
+            .expect("lifecycle channel must stay open");
+        assert!(
+            matches!(event, crate::PoolLifecycleEvent::Disconnected { .. }),
+            "expected Disconnected lifecycle event, got {event:?}"
+        );
+    }
+
+    #[test]
+    fn transport_error_on_disconnect_connection_aborts_disconnect() {
+        let (active_session, initial_receive) = establish_active_session();
+        let (sent_tx, sent_rx) = std_mpsc::channel();
+        let client = ControlledHttpClient { sent_tx };
+        let (mut user_input_tx, user_input_rx) = mpsc::channel(8);
+        let (user_output_tx, _user_output_rx) = mpsc::channel(8);
+        let (host_call_tx, _host_call_rx) = mpsc::unbounded();
+        let (_host_resp_tx, host_resp_rx) = mpsc::unbounded();
+        let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded();
+
+        let session = start_active_session_loop(
+            initial_receive,
+            active_session,
+            client,
+            user_input_rx,
+            user_output_tx,
+            user_input_tx.clone(),
+            host_call_tx,
+            host_resp_rx,
+            lifecycle_tx,
+        );
+        futures::pin_mut!(session);
+
+        assert_pending(poll_session(session.as_mut()));
+        let initial_receive = recv_request(&sent_rx);
+        assert_eq!(initial_receive.kind, RequestKind::Receive);
+
+        user_input_tx
+            .try_send(UserOperation::Disconnect)
+            .expect("send Disconnect operation");
+        assert_pending(poll_session(session.as_mut()));
+        let disconnect = recv_request(&sent_rx);
+        assert_eq!(disconnect.kind, RequestKind::Disconnect);
+
+        // The Disconnect request itself fails at the transport level.
+        disconnect
+            .responder
+            .send(Err(anyhow::anyhow!("connection reset by peer")))
+            .expect("fail Disconnect request");
+        assert_pending(poll_session(session.as_mut()));
+
+        let event = lifecycle_rx
+            .try_next()
+            .expect("a lifecycle event must be emitted")
+            .expect("lifecycle channel must stay open");
+        assert!(
+            matches!(event, crate::PoolLifecycleEvent::DisconnectFailed { .. }),
+            "expected DisconnectFailed lifecycle event, got {event:?}"
+        );
+
+        // The pool reverted to Opened: a subsequent user operation still works.
+        user_input_tx
+            .try_send(UserOperation::Disconnect)
+            .expect("send Disconnect operation after aborted disconnect");
+        assert_pending(poll_session(session.as_mut()));
+        let retry = recv_request(&sent_rx);
+        assert_eq!(retry.kind, RequestKind::Disconnect);
+    }
+
+    #[test]
+    fn transport_error_on_reconnect_connection_aborts_reconnect() {
+        let (active_session, initial_receive) = establish_active_session();
+        let (sent_tx, sent_rx) = std_mpsc::channel();
+        let client = ControlledHttpClient { sent_tx };
+        let (mut user_input_tx, user_input_rx) = mpsc::channel(8);
+        let (user_output_tx, _user_output_rx) = mpsc::channel(8);
+        let (host_call_tx, _host_call_rx) = mpsc::unbounded();
+        let (_host_resp_tx, host_resp_rx) = mpsc::unbounded();
+        let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded();
+
+        let session = start_active_session_loop(
+            initial_receive,
+            active_session,
+            client,
+            user_input_rx,
+            user_output_tx,
+            user_input_tx.clone(),
+            host_call_tx,
+            host_resp_rx,
+            lifecycle_tx,
+        );
+        futures::pin_mut!(session);
+
+        assert_pending(poll_session(session.as_mut()));
+        let dying_receive = recv_request(&sent_rx);
+        assert_eq!(dying_receive.kind, RequestKind::Receive);
+
+        user_input_tx
+            .try_send(UserOperation::Disconnect)
+            .expect("send Disconnect operation");
+        assert_pending(poll_session(session.as_mut()));
+        let disconnect = recv_request(&sent_rx);
+        assert_eq!(disconnect.kind, RequestKind::Disconnect);
+
+        disconnect
+            .responder
+            .send(Ok(xml_response(
+                disconnect.conn_id,
+                shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+            )))
+            .expect("complete Disconnect request");
+        assert_pending(poll_session(session.as_mut()));
+
+        let event = lifecycle_rx
+            .try_next()
+            .expect("a lifecycle event must be emitted")
+            .expect("lifecycle channel must stay open");
+        assert!(
+            matches!(event, crate::PoolLifecycleEvent::Disconnected { .. }),
+            "expected Disconnected lifecycle event, got {event:?}"
+        );
+
+        // The stale Receive dies at the transport level while disconnected.
+        dying_receive
+            .responder
+            .send(Err(anyhow::anyhow!("connection reset by peer")))
+            .expect("fail stale receive request");
+        assert_pending(poll_session(session.as_mut()));
+
+        user_input_tx
+            .try_send(UserOperation::Reconnect)
+            .expect("send Reconnect operation");
+        assert_pending(poll_session(session.as_mut()));
+        let reconnect = recv_request(&sent_rx);
+        assert_eq!(reconnect.kind, RequestKind::Reconnect);
+
+        // The Reconnect request itself fails at the transport level.
+        reconnect
+            .responder
+            .send(Err(anyhow::anyhow!("connection reset by peer")))
+            .expect("fail Reconnect request");
+        assert_pending(poll_session(session.as_mut()));
+
+        let event = lifecycle_rx
+            .try_next()
+            .expect("a lifecycle event must be emitted")
+            .expect("lifecycle channel must stay open");
+        assert!(
+            matches!(event, crate::PoolLifecycleEvent::ReconnectFailed { .. }),
+            "expected ReconnectFailed lifecycle event, got {event:?}"
+        );
+
+        // The pool reverted to Disconnected: a reconnect retry still works.
+        user_input_tx
+            .try_send(UserOperation::Reconnect)
+            .expect("send Reconnect operation after aborted reconnect");
+        assert_pending(poll_session(session.as_mut()));
+        let retry = recv_request(&sent_rx);
+        assert_eq!(retry.kind, RequestKind::Reconnect);
+    }
+
+    #[test]
+    fn transport_error_in_normal_state_is_fatal() {
+        let (active_session, initial_receive) = establish_active_session();
+        let (sent_tx, sent_rx) = std_mpsc::channel();
+        let client = ControlledHttpClient { sent_tx };
+        let (user_input_tx, user_input_rx) = mpsc::channel(8);
+        let (user_output_tx, _user_output_rx) = mpsc::channel(8);
+        let (host_call_tx, _host_call_rx) = mpsc::unbounded();
+        let (_host_resp_tx, host_resp_rx) = mpsc::unbounded();
+        let (lifecycle_tx, _lifecycle_rx) = mpsc::unbounded();
+
+        let session = start_active_session_loop(
+            initial_receive,
+            active_session,
+            client,
+            user_input_rx,
+            user_output_tx,
+            user_input_tx,
+            host_call_tx,
+            host_resp_rx,
+            lifecycle_tx,
+        );
+        futures::pin_mut!(session);
+
+        assert_pending(poll_session(session.as_mut()));
+        let receive = recv_request(&sent_rx);
+        assert_eq!(receive.kind, RequestKind::Receive);
+
+        receive
+            .responder
+            .send(Err(anyhow::anyhow!("connection reset by peer")))
+            .expect("fail Receive request");
+
+        match poll_session(session.as_mut()) {
+            Poll::Ready(Err(_)) => {}
+            Poll::Ready(Ok(())) => panic!("session loop ended without surfacing the error"),
+            Poll::Pending => {
+                panic!("transport error in Opened state must terminate the session loop")
+            }
+        }
     }
 
     fn poll_session<F>(future: Pin<&mut F>) -> Poll<anyhow::Result<()>>

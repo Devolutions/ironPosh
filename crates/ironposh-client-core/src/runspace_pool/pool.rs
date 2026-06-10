@@ -495,6 +495,21 @@ impl RunspacePool {
         }
     }
 
+    /// Abort an in-flight Reconnect after a transport-level failure.
+    /// Valid only in `Connecting` state; reverts the pool to `Disconnected`.
+    pub(crate) fn abort_reconnect(&mut self) {
+        if self.state == RunspacePoolState::Connecting {
+            self.state = RunspacePoolState::Disconnected;
+            warn!(runspace_pool_id = %self.id, "reconnect aborted, runspace pool reverted to Disconnected");
+        } else {
+            warn!(
+                runspace_pool_id = %self.id,
+                state = ?self.state,
+                "abort_reconnect called outside Connecting state; ignoring"
+            );
+        }
+    }
+
     /// Build a Reconnect request for this pool's shell (MS-WSMV 3.1.4.14).
     /// Valid only in `Disconnected` state; transitions the pool to `Connecting`.
     #[instrument(skip(self))]
@@ -2136,6 +2151,27 @@ mod tests {
             "unrelated traffic must stay rejected so the tolerance logic can ignore it, got: {result:?}"
         );
         assert_eq!(pool.state, RunspacePoolState::Disconnecting);
+    }
+
+    #[test]
+    fn abort_reconnect_reverts_connecting_to_disconnected() {
+        let mut pool = test_pool(RunspacePoolState::Disconnected);
+        pool.fire_reconnect().expect("fire_reconnect");
+        assert_eq!(pool.state, RunspacePoolState::Connecting);
+
+        pool.abort_reconnect();
+        assert_eq!(pool.state, RunspacePoolState::Disconnected);
+    }
+
+    #[test]
+    fn abort_reconnect_outside_connecting_is_ignored() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.abort_reconnect();
+        assert_eq!(
+            pool.state,
+            RunspacePoolState::Opened,
+            "abort_reconnect must not touch the state outside Connecting"
+        );
     }
 
     #[test]

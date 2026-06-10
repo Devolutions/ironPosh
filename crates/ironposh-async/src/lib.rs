@@ -42,6 +42,8 @@ pub enum PoolLifecycleEvent {
     Reconnected { shell_id: Option<String> },
     /// A Disconnect request faulted on the server; the runspace pool stays connected
     DisconnectFailed { shell_id: Option<String> },
+    /// A Reconnect request failed at the transport level; the runspace pool stays disconnected
+    ReconnectFailed { shell_id: Option<String> },
 }
 
 /// Host I/O interface for handling PowerShell host calls

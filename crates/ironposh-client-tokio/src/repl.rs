@@ -1523,6 +1523,18 @@ async fn run_repl_loop(
                             .await;
                         request_prompt(client, &terminal_op_tx).await;
                     }
+                    PoolLifecycleEvent::ReconnectFailed { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        warn!(shell_id = %shell_id, "reconnect failed; session is still disconnected");
+                        disconnected = true;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(
+                                "Reconnect failed (connection error); still disconnected. Type :reconnect to retry."
+                                    .to_string(),
+                            ))
+                            .await;
+                        request_disconnected_prompt(&terminal_op_tx).await;
+                    }
                 }
             }
 
