@@ -231,6 +231,14 @@ pub fn create_connector_config_with_kdc_url(
 ) -> anyhow::Result<WinRmConfig> {
     let server = ServerAddress::parse(&args.server)?;
 
+    // With --gateway the client never speaks TLS to the target itself.
+    if args.gateway.is_some() && (args.insecure || args.ca_cert.is_some()) {
+        anyhow::bail!(
+            "TLS to the target is terminated by the gateway; \
+             --insecure/--ca-cert have no effect with --gateway"
+        );
+    }
+
     // TLS flags only apply to HTTPS WinRM; reject meaningless combinations early.
     if args.insecure && !args.https {
         anyhow::bail!(
@@ -675,6 +683,51 @@ mod tests {
         assert!(
             err.to_string().contains("--https"),
             "error should mention --https: {err}"
+        );
+    }
+
+    #[test]
+    fn gateway_with_insecure_fails() {
+        let mut args = https_args();
+        args.gateway = Some("http://localhost:7272".to_string());
+        args.insecure = true;
+
+        let err = create_connector_config(&args, 120, 30)
+            .expect_err("must reject --insecure with --gateway");
+        assert!(
+            err.to_string().contains("--gateway"),
+            "error should mention --gateway: {err}"
+        );
+    }
+
+    #[test]
+    fn gateway_with_ca_cert_fails() {
+        let mut args = https_args();
+        args.gateway = Some("http://localhost:7272".to_string());
+        args.ca_cert = Some(PathBuf::from("unused.pem"));
+
+        let err = create_connector_config(&args, 120, 30)
+            .expect_err("must reject --ca-cert with --gateway");
+        assert!(
+            err.to_string().contains("--gateway"),
+            "error should mention --gateway: {err}"
+        );
+    }
+
+    #[test]
+    fn gateway_error_takes_precedence_over_https_requirement() {
+        // `--gateway --insecure` without `--https` must hit the gateway error,
+        // not the "--insecure requires --https" one.
+        let mut args = https_args();
+        args.https = false;
+        args.gateway = Some("http://localhost:7272".to_string());
+        args.insecure = true;
+
+        let err = create_connector_config(&args, 120, 30)
+            .expect_err("must reject --insecure with --gateway");
+        assert!(
+            err.to_string().contains("--gateway"),
+            "error should mention --gateway: {err}"
         );
     }
 
