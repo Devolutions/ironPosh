@@ -797,27 +797,14 @@ fn run_ui_thread(
                         }
                         continue;
                     }
-                    if let Some(read_line) = io.try_read_line_queued(&mut event_queue)? {
-                        match read_line {
-                            ReadOutcome::Line(s) => {
-                                info!(command = %s.trim(), "user entered command");
-                                if user_input_tx.blocking_send(UserInput::Cmd(s)).is_err() {
-                                    warn!("failed to send command to REPL - channel closed");
-                                    return Ok(());
-                                }
-                            }
-                            ReadOutcome::Interrupt => {
-                                info!("user pressed Ctrl+C");
-                                if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
-                                    warn!("failed to send interrupt to REPL - channel closed");
-                                    return Ok(());
-                                }
-                            }
-                            ReadOutcome::Eof => {
-                                info!("received EOF from user input");
-                                let _ = user_input_tx.blocking_send(UserInput::Eof);
-                                return Ok(());
-                            }
+                    // Only consume a Ctrl+C here; any other pending events are
+                    // buffered in `event_queue` so the next line read still
+                    // sees keystrokes typed while a pipeline was running.
+                    if io.check_interrupt_queued(&mut event_queue)? {
+                        info!("user pressed Ctrl+C");
+                        if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                            warn!("failed to send interrupt to REPL - channel closed");
+                            return Ok(());
                         }
                     }
                 }

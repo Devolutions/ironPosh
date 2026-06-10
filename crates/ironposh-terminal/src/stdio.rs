@@ -211,21 +211,35 @@ impl<'a> StdTerm<'a> {
         self.process_event(&mut scratch, evt, /*edit_line=*/ false)
     }
 
-    /// Like [`try_read_line`](Self::try_read_line), but reads from `queue` first.
+    /// Non-blocking interrupt check that does not steal typed input.
     ///
-    /// This is useful when higher-level code needs to "peek" events (for example,
-    /// to implement `KeyAvailable`) without losing them for future reads.
-    pub fn try_read_line_queued(
-        &mut self,
-        queue: &mut VecDeque<Event>,
-    ) -> io::Result<Option<ReadOutcome>> {
-        let Some(evt) = Self::next_event_from_queue_or_host(queue, Duration::from_millis(0))?
-        else {
-            return Ok(None);
-        };
+    /// Scans `queue` and any host events pending right now for Ctrl+C. Every
+    /// other key event is pushed onto `queue` so the next read still sees it;
+    /// resize events are applied immediately. Returns `true` when a Ctrl+C
+    /// was consumed.
+    pub fn check_interrupt_queued(&mut self, queue: &mut VecDeque<Event>) -> io::Result<bool> {
+        if take_queued_interrupt(queue) {
+            self.write_all(b"^C\r\n")?;
+            self.flush()?;
+            return Ok(true);
+        }
 
-        let mut scratch = String::new();
-        self.process_event(&mut scratch, evt, /*edit_line=*/ false)
+        while event::poll(Duration::from_millis(0))? {
+            match event::read()? {
+                Event::Resize(cols, rows) => {
+                    self.term.on_host_resize(cols, rows);
+                    self.term.render().map_err(io::Error::other)?;
+                }
+                evt if is_interrupt_event(&evt) => {
+                    self.write_all(b"^C\r\n")?;
+                    self.flush()?;
+                    return Ok(true);
+                }
+                evt => queue.push_back(evt),
+            }
+        }
+
+        Ok(false)
     }
 
     /// Line-buffered input with prompt. Filters key repeats; supports paste.
@@ -341,6 +355,29 @@ impl<'a> StdTerm<'a> {
     }
 }
 
+fn is_interrupt_event(evt: &Event) -> bool {
+    matches!(
+        evt,
+        Event::Key(KeyEvent {
+            kind: KeyEventKind::Press,
+            code: KeyCode::Char('c'),
+            modifiers,
+            ..
+        }) if modifiers.contains(KeyModifiers::CONTROL)
+    )
+}
+
+/// Remove the first queued Ctrl+C, leaving every other event untouched.
+fn take_queued_interrupt(queue: &mut VecDeque<Event>) -> bool {
+    queue
+        .iter()
+        .position(is_interrupt_event)
+        .is_some_and(|pos| {
+            queue.remove(pos);
+            true
+        })
+}
+
 impl IoWrite for StdTerm<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         // Normalize newlines: LF -> CRLF unless already CRLF
@@ -371,5 +408,48 @@ impl Drop for StdTerm<'_> {
     fn drop(&mut self) {
         // Best-effort flush on scope exit; ignore errors in Drop.
         let _ = IoWrite::flush(self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(c: char, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), modifiers))
+    }
+
+    #[test]
+    fn plain_chars_are_not_interrupts() {
+        assert!(!is_interrupt_event(&key(':', KeyModifiers::NONE)));
+        assert!(!is_interrupt_event(&key('c', KeyModifiers::NONE)));
+        assert!(is_interrupt_event(&key('c', KeyModifiers::CONTROL)));
+    }
+
+    #[test]
+    fn take_queued_interrupt_leaves_typed_input_untouched() {
+        let mut queue: VecDeque<Event> =
+            [key(':', KeyModifiers::NONE), key('d', KeyModifiers::NONE)].into();
+
+        assert!(!take_queued_interrupt(&mut queue));
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.front(), Some(&key(':', KeyModifiers::NONE)));
+    }
+
+    #[test]
+    fn take_queued_interrupt_removes_only_the_ctrl_c() {
+        let mut queue: VecDeque<Event> = [
+            key(':', KeyModifiers::NONE),
+            key('c', KeyModifiers::CONTROL),
+            key('d', KeyModifiers::NONE),
+        ]
+        .into();
+
+        assert!(take_queued_interrupt(&mut queue));
+        let remaining: Vec<Event> = queue.into_iter().collect();
+        assert_eq!(
+            remaining,
+            vec![key(':', KeyModifiers::NONE), key('d', KeyModifiers::NONE)]
+        );
     }
 }
