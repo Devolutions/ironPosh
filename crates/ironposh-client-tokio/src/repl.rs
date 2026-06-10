@@ -1295,9 +1295,15 @@ async fn run_repl_loop(
     // Tracked from PoolLifecycleEvents; while true, remote pipelines (commands,
     // remote prompt, tab completion) must not be attempted.
     let mut disconnected = false;
+    let mut interrupt_poll = tokio::time::interval(std::time::Duration::from_millis(50));
+    interrupt_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
+        let pipeline_active = current_stream.is_some();
         tokio::select! {
+            _ = interrupt_poll.tick(), if pipeline_active => {
+                let _ = terminal_op_tx.send(TerminalOperation::CheckInterrupt).await;
+            }
             Some(req) = tab_complete_rx.recv() => {
                 if current_stream.is_some() || disconnected {
                     let _ = req.respond_to.send(None);
