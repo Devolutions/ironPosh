@@ -1,4 +1,4 @@
-mod e2e_auths;
+use crate::auths;
 
 use ironposh_test_support::pty_harness::PtyHarness;
 use std::path::Path;
@@ -7,7 +7,7 @@ use std::time::Duration;
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn real_server_terminal_and_hostcalls_matrix_all_auths() {
-    for auth in e2e_auths::auths_from_env_or_default() {
+    for auth in auths::auths_from_env_or_default() {
         let mut h = PtyHarness::try_spawn_tokio_client_with_args(
             Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
             &["--auth-method", auth],

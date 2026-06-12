@@ -1,4 +1,4 @@
-mod e2e_auths;
+use crate::auths;
 use ironposh_test_support::e2e_pwsh_config;
 
 use std::process::Command;
@@ -41,7 +41,7 @@ fn run_noninteractive(auth: &str, script: &str) -> (bool, String, String) {
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn real_server_command_matrix_all_auths() {
-    for auth in e2e_auths::auths_from_env_or_default() {
+    for auth in auths::auths_from_env_or_default() {
         // C1: marker output
         {
             let marker = format!("__E2E_CMD_{auth}_C1__");
