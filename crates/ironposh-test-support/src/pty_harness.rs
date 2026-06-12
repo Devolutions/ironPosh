@@ -1,12 +1,11 @@
-#![allow(dead_code)]
-
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::e2e_pwsh_config;
+use crate::e2e_pwsh_config;
 
 pub struct PtyHarness {
     pub out: Arc<Mutex<VecDeque<u8>>>,
@@ -20,13 +19,14 @@ pub struct PtyHarness {
 }
 
 impl PtyHarness {
-    pub fn try_spawn_tokio_client() -> Self {
-        Self::try_spawn_tokio_client_with_args(&[])
+    /// `bin` is the tokio client binary to drive; callers resolve it with
+    /// `env!("CARGO_BIN_EXE_ironposh-client-tokio")` (only available when
+    /// compiling client-tokio's own tests).
+    pub fn try_spawn_tokio_client(bin: &Path) -> Self {
+        Self::try_spawn_tokio_client_with_args(bin, &[])
     }
 
-    pub fn try_spawn_tokio_client_with_args(extra_args: &[&str]) -> Self {
-        let bin = env!("CARGO_BIN_EXE_ironposh-client-tokio");
-
+    pub fn try_spawn_tokio_client_with_args(bin: &Path, extra_args: &[&str]) -> Self {
         let cfg = e2e_pwsh_config::load_from_env_or_default();
 
         // Keep logs under the workspace so they are easy to inspect after failures.

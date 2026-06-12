@@ -5,19 +5,12 @@ pub struct Pwshe2eConfig {
     pub username: String,
     pub password: String,
     pub domain: Option<String>,
-    #[allow(dead_code)]
     pub https: bool,
-    #[allow(dead_code)]
     pub insecure: bool,
-    #[allow(dead_code)]
     pub ca_cert: Option<String>,
-    #[allow(dead_code)]
     pub gateway: Option<String>,
-    #[allow(dead_code)]
     pub gateway_webapp_username: Option<String>,
-    #[allow(dead_code)]
     pub gateway_webapp_password: Option<String>,
-    #[allow(dead_code)]
     pub configuration_name: Option<String>,
 }
 
@@ -172,13 +165,10 @@ fn load_from_lookup(
     })
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
 pub fn load_from_test_vars(get_env: impl FnMut(&str) -> Option<String>) -> Option<Pwshe2eConfig> {
     load_from_lookup(get_env, None)
 }
 
-#[allow(dead_code)]
 pub fn load_from_env() -> Option<Pwshe2eConfig> {
     // Mirror WebTerminal's E2E config env vars so running both suites uses the same
     // environment.

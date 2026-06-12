@@ -1,12 +1,12 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_burst_sequential_pipelines_no_sleep() {
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     for i in 1..=10 {
@@ -35,7 +35,8 @@ fn serial_tokio_client_burst_sequential_pipelines_no_sleep() {
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_large_output_last_line_arrives() {
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // Large output to stress Receive draining + fragmentation.
@@ -59,7 +60,8 @@ fn serial_tokio_client_large_output_last_line_arrives() {
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_terminating_error_does_not_break_next_pipeline() {
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // A terminating error.
@@ -80,7 +82,8 @@ fn serial_tokio_client_terminating_error_does_not_break_next_pipeline() {
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_error_and_warning_streams_are_delivered() {
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     h.send_line(
@@ -115,7 +118,8 @@ fn serial_tokio_client_error_and_warning_streams_are_delivered() {
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_delayed_output_burst_recovers_after_silence() {
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // Silence, then a burst. This exercises receive scheduler backoff and recovery.

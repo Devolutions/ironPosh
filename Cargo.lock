@@ -1547,6 +1547,7 @@ dependencies = [
  "cipher",
  "hyper",
  "ironposh-psrp",
+ "ironposh-test-support",
  "ironposh-winrm",
  "ironposh-xml",
  "rand 0.8.5",
@@ -1600,7 +1601,7 @@ dependencies = [
  "ironposh-client-core",
  "ironposh-psrp",
  "ironposh-terminal",
- "portable-pty",
+ "ironposh-test-support",
  "rcgen",
  "reqwest",
  "serde_json",
@@ -1652,6 +1653,25 @@ dependencies = [
  "crossterm 0.29.0",
  "event-stream",
  "tracing",
+ "vt100",
+]
+
+[[package]]
+name = "ironposh-test-support"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ironposh-client-core",
+ "ironposh-psrp",
+ "ironposh-winrm",
+ "ironposh-xml",
+ "portable-pty",
+ "rcgen",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "uuid",
  "vt100",
 ]
 

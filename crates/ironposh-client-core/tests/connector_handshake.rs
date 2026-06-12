@@ -1,12 +1,11 @@
 //! Fixture-driven Connector handshake tests: a fake server drives `Connector::step`
 //! all the way to `Connected` with zero network.
 
-mod support;
-
 use ironposh_client_core::connector::{Connector, ConnectorStepResult};
 use ironposh_psrp::{
     ApplicationPrivateData, RunspacePoolStateMessage, RunspacePoolStateValue, SessionCapability,
 };
+use ironposh_test_support::fake_server as support;
 
 /// Idle step must emit the shell Create envelope with Basic auth preformatted.
 #[test]

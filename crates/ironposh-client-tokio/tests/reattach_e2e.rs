@@ -4,10 +4,9 @@
 //!
 //! Requires the parallel session loop (`--parallel`) on both processes.
 
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 /// Extract `needle`-prefixed token from `haystack`, stopping at the first
 /// character not in `allowed`.
@@ -26,7 +25,10 @@ fn extract_after<'a>(
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn parallel_tokio_client_reattaches_disconnected_shell_from_new_process() {
     // ---- Process A: create state, disconnect, exit. ----
-    let mut a = PtyHarness::try_spawn_tokio_client_with_args(&["--parallel"]);
+    let mut a = PtyHarness::try_spawn_tokio_client_with_args(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &["--parallel"],
+    );
     a.sleep_for_connect();
 
     a.send_line("$marker = \"alive-$(Get-Random)\"");
@@ -75,13 +77,16 @@ fn parallel_tokio_client_reattaches_disconnected_shell_from_new_process() {
     drop(a);
 
     // ---- Process B: fresh client reattaches and reads the marker. ----
-    let b = PtyHarness::try_spawn_tokio_client_with_args(&[
-        "--parallel",
-        "--connect-shell-id",
-        &shell_id,
-        "-c",
-        "Write-Output \"REATTACHED=$marker\"",
-    ]);
+    let b = PtyHarness::try_spawn_tokio_client_with_args(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &[
+            "--parallel",
+            "--connect-shell-id",
+            &shell_id,
+            "-c",
+            "Write-Output \"REATTACHED=$marker\"",
+        ],
+    );
 
     assert!(
         b.wait_for_output_contains(&format!("REATTACHED={marker}"), Duration::from_secs(60)),

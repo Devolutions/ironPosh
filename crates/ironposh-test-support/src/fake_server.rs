@@ -3,28 +3,24 @@
 //! Uses `AuthenticatorConfig::Basic` + `TransportSecurity::HttpInsecure` so request
 //! and response bodies stay plaintext XML (no SSPI, no encryption, zero network).
 
-// Shared across integration-test binaries; each binary uses a subset of helpers,
-// and unused ones would otherwise fail CI under -D warnings.
-#![allow(dead_code)]
-
 use base64::Engine;
 use ironposh_client_core::connector::{
-    TransportSecurity, WinRmConfig,
     config::{AuthenticatorConfig, TlsOptions},
     connection_pool::{ConnectionId, TrySend},
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, ServerAddress},
+    TransportSecurity, WinRmConfig,
 };
 use ironposh_psrp::{
-    Destination, HostDefaultData, HostInfo, PowerShellRemotingMessage, Size,
-    fragmentation::Fragment, ps_value::PsObjectWithType,
+    fragmentation::Fragment, ps_value::PsObjectWithType, Destination, HostDefaultData, HostInfo,
+    PowerShellRemotingMessage, Size,
 };
 use ironposh_winrm::{
     cores::{
-        Attribute, Namespace, ReceiveResponse, Tag, Text,
         tag_name::{Envelope, Stream},
+        Attribute, Namespace, ReceiveResponse, Tag, Text,
     },
     rsp::receive::ReceiveResponseValue,
-    soap::{SoapEnvelope, body::SoapBody},
+    soap::{body::SoapBody, SoapEnvelope},
 };
 use ironposh_xml::builder::Element;
 use uuid::Uuid;
@@ -93,9 +89,11 @@ pub fn extract_shell_id(create_xml: &str) -> Uuid {
 }
 
 /// Build a ConnectResponse SOAP envelope whose `connectResponseXml` carries the
-/// given server-to-client PSRP messages as a base64 blob of concatenated
-/// single fragments, mirroring how a real server answers a WSMan Connect to a
-/// disconnected shell (MS-WSMV 3.1.4.15).
+/// given server-to-client PSRP messages.
+///
+/// The messages ride as a base64 blob of concatenated single fragments,
+/// mirroring how a real server answers a WSMan Connect to a disconnected
+/// shell (MS-WSMV 3.1.4.15).
 pub fn connect_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> String {
     let mut payload = Vec::new();
     for (index, message) in messages.iter().enumerate() {

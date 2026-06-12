@@ -1,14 +1,14 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_readhost_ctrl_c_race() {
     const MARKER: &str = "__READHOST_SURVIVED__";
 
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // 1) Start Read-Host which blocks waiting for user input.

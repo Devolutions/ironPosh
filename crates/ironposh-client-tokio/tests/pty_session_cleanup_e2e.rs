@@ -1,14 +1,14 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_clean_exit() {
     const MARKER: &str = "__CLEANUP_OK__";
 
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // Verify basic connectivity before exit.

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use serde_json::json;
 use std::{
@@ -165,17 +163,20 @@ impl PtyRecording {
     }
 }
 
-pub fn run_native_alignment_cases(cases: &[MatrixCase]) {
+/// `tokio_bin` is the tokio client binary to drive; callers resolve it with
+/// `env!("CARGO_BIN_EXE_ironposh-client-tokio")` (only available when
+/// compiling client-tokio's own tests).
+pub fn run_native_alignment_cases(tokio_bin: &Path, cases: &[MatrixCase]) {
     let cfg = NativeEndpointConfig::load();
     for case in cases {
-        run_native_alignment_case(&cfg, case);
+        run_native_alignment_case(&cfg, tokio_bin, case);
     }
 }
 
-fn run_native_alignment_case(cfg: &NativeEndpointConfig, case: &MatrixCase) {
+fn run_native_alignment_case(cfg: &NativeEndpointConfig, tokio_bin: &Path, case: &MatrixCase) {
     let root = artifact_root(case);
-    let native = drive_role(cfg, case, PtyRole::Native, &root);
-    let tokio = drive_role(cfg, case, PtyRole::Tokio, &root);
+    let native = drive_role(cfg, tokio_bin, case, PtyRole::Native, &root);
+    let tokio = drive_role(cfg, tokio_bin, case, PtyRole::Tokio, &root);
     assert_recording_observations(case, &native);
     assert_recording_observations(case, &tokio);
     assert_recordings_align(case, &native, &tokio);
@@ -183,11 +184,12 @@ fn run_native_alignment_case(cfg: &NativeEndpointConfig, case: &MatrixCase) {
 
 fn drive_role(
     cfg: &NativeEndpointConfig,
+    tokio_bin: &Path,
     case: &MatrixCase,
     role: PtyRole,
     artifact_root: &Path,
 ) -> PtyRecording {
-    let mut session = PtyRecorder::spawn(cfg, case, role, artifact_root);
+    let mut session = PtyRecorder::spawn(cfg, tokio_bin, case, role, artifact_root);
     let ready = format!("__NPTY_READY_{}_{}__", case.id, role.as_str());
     let mut failure = session.wait_until_ready(cfg, case, &ready);
 
@@ -233,6 +235,7 @@ struct PtyRecorder {
 impl PtyRecorder {
     fn spawn(
         cfg: &NativeEndpointConfig,
+        tokio_bin: &Path,
         case: &MatrixCase,
         role: PtyRole,
         artifact_root: &Path,
@@ -249,7 +252,7 @@ impl PtyRecorder {
 
         let cmd = match role {
             PtyRole::Native => native_command(cfg, case.transport),
-            PtyRole::Tokio => tokio_command(cfg, case, artifact_root),
+            PtyRole::Tokio => tokio_command(cfg, tokio_bin, case, artifact_root),
         };
 
         let child = pair.slave.spawn_command(cmd).expect("spawn pty command");
@@ -451,11 +454,11 @@ fn native_command(cfg: &NativeEndpointConfig, transport: NativeTransport) -> Com
 
 fn tokio_command(
     cfg: &NativeEndpointConfig,
+    tokio_bin: &Path,
     case: &MatrixCase,
     artifact_root: &Path,
 ) -> CommandBuilder {
-    let bin = env!("CARGO_BIN_EXE_ironposh-client-tokio");
-    let mut cmd = CommandBuilder::new(bin);
+    let mut cmd = CommandBuilder::new(tokio_bin);
     let port = cfg.port_for(case.transport);
     let log_file = artifact_root.join("tokio.log");
     cmd.env("IRONPOSH_TOKIO_LOG_FILE", log_file.as_os_str());

@@ -1,4 +1,4 @@
-mod support;
+use ironposh_test_support::e2e_pwsh_config;
 
 use std::process::Command;
 
@@ -12,7 +12,7 @@ fn explicit_default_configuration_name_executes_command() {
     let bin = env!("CARGO_BIN_EXE_ironposh-client-tokio");
     let mut cmd = Command::new(bin);
 
-    let cfg = support::e2e_pwsh_config::load_from_env_or_default();
+    let cfg = e2e_pwsh_config::load_from_env_or_default();
 
     cmd.arg("--server").arg(cfg.hostname);
     cmd.arg("--port").arg(cfg.port);

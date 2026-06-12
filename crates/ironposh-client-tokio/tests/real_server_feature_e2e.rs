@@ -1,8 +1,5 @@
-mod support;
-
+use ironposh_test_support::e2e_pwsh_config::{self, Pwshe2eConfig};
 use std::process::Command;
-
-use support::e2e_pwsh_config::Pwshe2eConfig;
 
 fn base_command(cfg: &Pwshe2eConfig) -> Command {
     let bin = env!("CARGO_BIN_EXE_ironposh-client-tokio");
@@ -53,7 +50,7 @@ fn run_marker(mut cmd: Command, marker: &str) {
 #[test]
 #[ignore = "e2e test: requires real WinRM HTTPS server + valid credentials"]
 fn real_server_https_executes_command() {
-    let Some(cfg) = support::e2e_pwsh_config::load_from_env() else {
+    let Some(cfg) = e2e_pwsh_config::load_from_env() else {
         eprintln!("skipping: set IRONPOSH_E2E_* or web demo env vars for real-server HTTPS E2E");
         return;
     };
@@ -70,7 +67,7 @@ fn real_server_https_executes_command() {
 #[test]
 #[ignore = "e2e test: requires real Gateway + WinRM server + valid credentials"]
 fn real_server_gateway_executes_command() {
-    let Some(cfg) = support::e2e_pwsh_config::load_from_env() else {
+    let Some(cfg) = e2e_pwsh_config::load_from_env() else {
         eprintln!("skipping: set IRONPOSH_E2E_* or web demo env vars for real-server Gateway E2E");
         return;
     };
@@ -96,7 +93,7 @@ fn real_server_gateway_executes_command() {
 #[test]
 #[ignore = "e2e test: requires real custom PowerShell configuration/JEA endpoint"]
 fn real_server_custom_configuration_name_executes_command() {
-    let Some(cfg) = support::e2e_pwsh_config::load_from_env() else {
+    let Some(cfg) = e2e_pwsh_config::load_from_env() else {
         eprintln!("skipping: set IRONPOSH_E2E_* or web demo env vars for real-server JEA E2E");
         return;
     };
@@ -126,7 +123,7 @@ fn e2e_config_accepts_terminal_app_env_aliases() {
         ("VITE_PWSH_TER_GATEWAY_WEBAPP_PASSWORD", "gateway-secret"),
     ];
 
-    let cfg = support::e2e_pwsh_config::load_from_test_vars(|name| {
+    let cfg = e2e_pwsh_config::load_from_test_vars(|name| {
         vars.iter()
             .find_map(|(key, value)| (*key == name).then(|| (*value).to_string()))
     })
@@ -156,7 +153,7 @@ fn e2e_config_prefers_explicit_port_over_https_default() {
         ("IRONPOSH_E2E_PASSWORD", "secret"),
     ];
 
-    let cfg = support::e2e_pwsh_config::load_from_test_vars(|name| {
+    let cfg = e2e_pwsh_config::load_from_test_vars(|name| {
         vars.iter()
             .find_map(|(key, value)| (*key == name).then(|| (*value).to_string()))
     })

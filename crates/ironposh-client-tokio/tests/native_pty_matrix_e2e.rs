@@ -1,15 +1,16 @@
-mod support;
-
+use std::path::Path;
 use std::time::Duration;
 
-use support::native_pty_matrix::{
+use ironposh_test_support::native_pty_matrix::{
     run_native_alignment_cases, MatrixCase, MatrixStep, NativeTransport,
 };
 
 #[test]
 #[ignore = "e2e test: requires native Windows PSRemoting endpoint from Enable-PSRemoting -Force"]
 fn native_pty_matrix_commands_and_records() {
-    run_native_alignment_cases(&[
+    run_native_alignment_cases(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &[
         MatrixCase {
             id: "http_basic_order",
             category: "commands",
@@ -86,7 +87,9 @@ fn native_pty_matrix_commands_and_records() {
 #[test]
 #[ignore = "e2e test: requires native Windows PSRemoting endpoint from Enable-PSRemoting -Force"]
 fn native_pty_matrix_streams_and_host_calls() {
-    run_native_alignment_cases(&[
+    run_native_alignment_cases(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &[
         MatrixCase {
             id: "http_stream_records",
             category: "streams",
@@ -154,7 +157,9 @@ fn native_pty_matrix_streams_and_host_calls() {
 #[test]
 #[ignore = "e2e test: requires native Windows PSRemoting endpoint from Enable-PSRemoting -Force"]
 fn native_pty_matrix_interactive_operations() {
-    run_native_alignment_cases(&[
+    run_native_alignment_cases(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &[
         MatrixCase {
             id: "http_read_host",
             category: "interactive",
@@ -247,21 +252,24 @@ fn native_pty_matrix_interactive_operations() {
 #[test]
 #[ignore = "e2e test: requires native Windows PSRemoting HTTPS endpoint and test certificate trust bypass"]
 fn native_pty_matrix_https_insecure() {
-    run_native_alignment_cases(&[MatrixCase {
-        id: "https_insecure_basic",
-        category: "ssl",
-        transport: NativeTransport::HttpsInsecure,
-        steps: vec![
-            line(
-                "https-basic",
-                "$p='__NPTY_HTTPS_'; Write-Output ($p + 'BASIC__')",
-            ),
-            wait("https-basic-done", "__NPTY_HTTPS_BASIC__", 45),
-        ],
-        expect_contains: vec!["__NPTY_HTTPS_BASIC__"],
-        expect_absent: vec![],
-        expect_order: vec!["__NPTY_HTTPS_BASIC__"],
-    }]);
+    run_native_alignment_cases(
+        Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")),
+        &[MatrixCase {
+            id: "https_insecure_basic",
+            category: "ssl",
+            transport: NativeTransport::HttpsInsecure,
+            steps: vec![
+                line(
+                    "https-basic",
+                    "$p='__NPTY_HTTPS_'; Write-Output ($p + 'BASIC__')",
+                ),
+                wait("https-basic-done", "__NPTY_HTTPS_BASIC__", 45),
+            ],
+            expect_contains: vec!["__NPTY_HTTPS_BASIC__"],
+            expect_absent: vec![],
+            expect_order: vec!["__NPTY_HTTPS_BASIC__"],
+        }],
+    );
 }
 
 fn line(label: &'static str, text: &'static str) -> MatrixStep {

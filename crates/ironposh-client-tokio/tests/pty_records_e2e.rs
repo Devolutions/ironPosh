@@ -1,7 +1,6 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
@@ -9,7 +8,8 @@ fn serial_tokio_client_record_streams_and_clear_host_keep_session_alive() {
     const DONE: &str = "__PTY_RECORDS_DONE__";
     const AFTER: &str = "__PTY_RECORDS_AFTER__";
 
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // Stabilize preferences so record streams won't prompt.

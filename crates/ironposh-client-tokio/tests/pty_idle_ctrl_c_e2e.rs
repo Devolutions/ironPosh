@@ -1,14 +1,14 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 #[test]
 #[ignore = "e2e test: requires reachable WinRM server + valid credentials"]
 fn serial_tokio_client_idle_ctrl_c_burst_does_not_disconnect() {
     const MARKER: &str = "__PTY_IDLE_CTRL_C_AFTER__";
 
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // No running pipeline: spam Ctrl+C and ensure the session survives.

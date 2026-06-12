@@ -514,55 +514,14 @@ mod kdc_tls_tests {
     //! which exercises the WSMan path with the same self-signed listener setup).
 
     use super::*;
+    use ironposh_test_support::tls_listener::{self_signed_localhost, spawn_tls_server};
     use std::net::SocketAddr;
-    use std::sync::Arc;
-    use tokio::net::TcpListener;
-    use tokio_rustls::rustls::pki_types::PrivateKeyDer;
-    use tokio_rustls::rustls::ServerConfig;
-    use tokio_rustls::TlsAcceptor;
-
-    const RESPONSE_401: &[u8] = b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
 
     /// Spawn a self-signed ("localhost") TLS listener on 127.0.0.1:0 answering
     /// any request with 401.
-    async fn spawn_tls_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
-        let rcgen::CertifiedKey { cert, key_pair } =
-            rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-                .expect("self-signed cert");
-        let chain = vec![cert.der().clone()];
-        let key = PrivateKeyDer::Pkcs8(key_pair.serialize_der().into());
-
-        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-        let config = ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("protocol versions")
-            .with_no_client_auth()
-            .with_single_cert(chain, key)
-            .expect("server config");
-        let acceptor = TlsAcceptor::from(Arc::new(config));
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("local addr");
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let Ok((stream, _)) = listener.accept().await else {
-                    return;
-                };
-                let acceptor = acceptor.clone();
-                tokio::spawn(async move {
-                    let Ok(mut tls) = acceptor.accept(stream).await else {
-                        return;
-                    };
-                    let mut buf = [0_u8; 4096];
-                    let _ = tls.read(&mut buf).await;
-                    let _ = tls.write_all(RESPONSE_401).await;
-                    let _ = tls.shutdown().await;
-                });
-            }
-        });
-
-        (addr, handle)
+    async fn spawn_self_signed_tls_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let (chain, key) = self_signed_localhost();
+        spawn_tls_server(chain, key).await
     }
 
     fn kdc_http_request(addr: SocketAddr) -> NetworkRequest {
@@ -584,7 +543,7 @@ mod kdc_tls_tests {
 
     #[tokio::test]
     async fn kdc_http_default_tls_rejects_self_signed() {
-        let (addr, server) = spawn_tls_server().await;
+        let (addr, server) = spawn_self_signed_tls_server().await;
 
         let err = ReqwestHttpClient::send_kdc_network_request(
             kdc_http_request(addr),
@@ -602,7 +561,7 @@ mod kdc_tls_tests {
 
     #[tokio::test]
     async fn kdc_http_honors_accept_invalid_certs() {
-        let (addr, server) = spawn_tls_server().await;
+        let (addr, server) = spawn_self_signed_tls_server().await;
 
         let tls = TlsOptions {
             accept_invalid_certs: true,

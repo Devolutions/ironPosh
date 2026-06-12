@@ -1,7 +1,6 @@
-mod support;
-
+use ironposh_test_support::pty_harness::PtyHarness;
+use std::path::Path;
 use std::time::Duration;
-use support::pty_harness::PtyHarness;
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -38,7 +37,8 @@ fn serial_tokio_client_terminal_stress_ctrl_c_hostcalls_and_output() {
     let hostcall_lines = env_usize("IRONPOSH_STRESS_HOSTCALL_LINES", 50);
     let wait_secs = env_u64("IRONPOSH_STRESS_WAIT_SECS", 60);
 
-    let mut h = PtyHarness::try_spawn_tokio_client();
+    let mut h =
+        PtyHarness::try_spawn_tokio_client(Path::new(env!("CARGO_BIN_EXE_ironposh-client-tokio")));
     h.sleep_for_connect();
 
     // Warm-up: make sure the session is alive before we start stressing it.

@@ -26,8 +26,9 @@ vt100 = "0.16"
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
-portable-pty = "0.8"
-# TLS behavior tests (tests/tls_options.rs): local self-signed listener.
+ironposh-test-support = { path = "../ironposh-test-support" }
+# TLS behavior tests: certificate generation for the local self-signed
+# listener provided by ironposh-test-support.
 # Pinned to the rustls 0.23 line already present in the workspace lockfile.
 rcgen = "0.13"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
