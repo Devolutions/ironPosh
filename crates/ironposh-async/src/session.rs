@@ -253,9 +253,16 @@ pub async fn start_active_session_loop(
                                 ActiveSessionOutput::OperationSuccess => {
                                     trace!(target: "session", "operation completed successfully");
                                 }
-                                // Already resolved by resolve_deferred_sends
+                                // INVARIANT: resolve_deferred_sends converts these into
+                                // SendBack before they reach here. Surface a recoverable
+                                // error rather than panicking the session task if that
+                                // ever stops holding.
                                 ActiveSessionOutput::SendAndThenReceive { .. }
-                                | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
+                                | ActiveSessionOutput::PendingReceive { .. } => {
+                                    anyhow::bail!(
+                                        "internal error: unresolved deferred session output reached the loop"
+                                    );
+                                }
                             }
                         }
                     }
@@ -377,8 +384,15 @@ pub async fn start_active_session_loop(
                             return Err(anyhow::anyhow!("Session step failed: {e}"));
                         }
                         ActiveSessionOutput::Ignore => {}
+                        // INVARIANT: resolve_deferred_sends converts these into SendBack
+                        // before they reach here. Surface a recoverable error rather than
+                        // panicking the session task if that ever stops holding.
                         ActiveSessionOutput::SendAndThenReceive { .. }
-                        | ActiveSessionOutput::PendingReceive { .. } => unreachable!(),
+                        | ActiveSessionOutput::PendingReceive { .. } => {
+                            anyhow::bail!(
+                                "internal error: unresolved deferred session output reached the loop"
+                            );
+                        }
                     }
                 } else {
                     info!("User input channel disconnected");

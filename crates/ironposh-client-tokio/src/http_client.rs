@@ -230,8 +230,10 @@ impl ReqwestHttpClient {
 
         info!(datagram_len, "received UDP response from KDC");
 
+        let datagram_len_u32 =
+            u32::try_from(datagram_len).context("KDC UDP response length does not fit in u32")?;
         let mut framed_response = Vec::with_capacity(datagram_len + 4);
-        framed_response.extend_from_slice(&(datagram_len as u32).to_be_bytes());
+        framed_response.extend_from_slice(&datagram_len_u32.to_be_bytes());
         framed_response.extend_from_slice(&response_data[..datagram_len]);
 
         Ok(framed_response)

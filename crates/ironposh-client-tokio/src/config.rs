@@ -224,6 +224,14 @@ pub fn validate_gateway_flags(args: &Args) -> anyhow::Result<()> {
         return Ok(());
     };
 
+    // The Gateway WebSocket transport serializes HTTP requests over a single socket, which
+    // the parallel (multi-connection) session loop cannot use.
+    if args.parallel {
+        anyhow::bail!(
+            "--gateway does not support --parallel because the Gateway WebSocket transport serializes HTTP requests; omit --parallel"
+        );
+    }
+
     // TLS to the target is terminated by the gateway, so client-side target TLS knobs
     // have no effect here.
     if args.insecure || args.ca_cert.is_some() {
@@ -237,6 +245,11 @@ pub fn validate_gateway_flags(args: &Args) -> anyhow::Result<()> {
     // transport). With the gateway, the encrypted hop is the client-to-Gateway WebSocket,
     // so it must itself be TLS (wss://). Reject plaintext gateway URLs to avoid sending
     // unsealed WinRM/PSRP traffic over the client-to-Gateway leg.
+    //
+    // We match the scheme as a string rather than via `url::Url`: gateway URLs may be
+    // scheme-less (e.g. `host:7171`, normalized to `ws://` later), and `Url::parse` would
+    // misread the host as the scheme in that case. A scheme-less URL has no explicit TLS
+    // scheme, so it is correctly rejected here under --https.
     if args.https {
         let scheme = gateway
             .split_once("://")
@@ -779,6 +792,35 @@ mod tests {
         args.gateway = Some("http://localhost:7272".to_string());
 
         validate_gateway_flags(&args).expect("--gateway without --https must accept http:// URL");
+    }
+
+    #[test]
+    fn gateway_https_rejects_scheme_less_gateway_url() {
+        // A scheme-less gateway URL has no explicit TLS scheme; under --https it must be
+        // rejected rather than silently defaulting to a plaintext ws:// hop.
+        let mut args = https_args();
+        args.gateway = Some("localhost:7272".to_string());
+
+        let err = validate_gateway_flags(&args)
+            .expect_err("must reject --gateway --https with a scheme-less gateway URL");
+        assert!(
+            err.to_string().contains("https://") || err.to_string().contains("wss://"),
+            "error should require a TLS gateway URL: {err}"
+        );
+    }
+
+    #[test]
+    fn gateway_with_parallel_fails() {
+        let mut args = https_args();
+        args.https = false;
+        args.gateway = Some("http://localhost:7272".to_string());
+        args.parallel = true;
+
+        let err = validate_gateway_flags(&args).expect_err("must reject --parallel with --gateway");
+        assert!(
+            err.to_string().contains("--parallel"),
+            "error should mention --parallel: {err}"
+        );
     }
 
     #[test]

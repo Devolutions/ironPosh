@@ -32,11 +32,6 @@ async fn main() -> anyhow::Result<()> {
     init_logging(args.verbose)?;
     info!("Starting WinRM PowerShell client (Async/Tokio)");
 
-    if args.gateway.is_some() && args.parallel {
-        anyhow::bail!(
-            "--gateway does not support --parallel because the Gateway WebSocket transport serializes HTTP requests; omit --parallel"
-        );
-    }
     let gateway_enabled = args.gateway.is_some();
 
     // Validate gateway-specific flag combinations before any network call to the gateway.

@@ -326,8 +326,8 @@ impl RunspacePool {
         }
 
         let init_runspace_pool = InitRunspacePool {
-            min_runspaces: self.min_runspaces as i32,
-            max_runspaces: self.max_runspaces as i32,
+            min_runspaces: i32::try_from(self.min_runspaces).unwrap_or(i32::MAX),
+            max_runspaces: i32::try_from(self.max_runspaces).unwrap_or(i32::MAX),
             thread_options: self.thread_options,
             apartment_state: self.apartment_state,
             host_info: self.host_info.clone(),
@@ -375,8 +375,8 @@ impl RunspacePool {
         }
 
         let connect_runspace_pool = ConnectRunspacePool {
-            min_runspaces: self.min_runspaces as i32,
-            max_runspaces: self.max_runspaces as i32,
+            min_runspaces: i32::try_from(self.min_runspaces).unwrap_or(i32::MAX),
+            max_runspaces: i32::try_from(self.max_runspaces).unwrap_or(i32::MAX),
         };
 
         debug!(
