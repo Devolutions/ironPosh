@@ -14,7 +14,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use config::{
     build_reattach_command_prefix, build_reattach_credentials_hint, create_connector_config,
-    create_connector_config_with_kdc_url, init_logging, Args,
+    create_connector_config_with_kdc_url, init_logging, validate_gateway_flags, Args,
 };
 use gateway_http_client::{
     create_gateway_session, redact_gateway_url, CliHttpClient, GatewayHttpViaWsClient,
@@ -39,11 +39,8 @@ async fn main() -> anyhow::Result<()> {
     }
     let gateway_enabled = args.gateway.is_some();
 
-    if args.gateway.is_some() && args.https {
-        anyhow::bail!(
-            "--gateway does not yet support HTTPS targets (--https); the Gateway tunnel is HTTP-only in this build"
-        );
-    }
+    // Validate gateway-specific flag combinations before any network call to the gateway.
+    validate_gateway_flags(&args)?;
 
     // On Windows/ConPTY, Ctrl+C can arrive as a console control event (not only a key event).
     // Install a handler that prevents process termination so the REPL can treat it as an interrupt.
