@@ -442,7 +442,7 @@ fn quote_command_arg(arg: &str) -> String {
             ch.is_ascii_alphanumeric()
                 || matches!(
                     ch,
-                    '-' | '_' | '.' | ':' | '/' | '\\' | '@' | '=' | '?' | '&' | '%'
+                    '-' | '_' | '.' | ':' | '/' | '\\' | '@' | '=' | '?' | '%'
                 )
         })
     {
@@ -763,5 +763,19 @@ mod tests {
         );
 
         std::fs::remove_file(&path).expect("remove temp garbage pem");
+    }
+
+    #[test]
+    fn quote_command_arg_single_quotes_query_string_url() {
+        let url = "https://gw/jet/KdcProxy/tok?x=1&y=2";
+        let quoted = quote_command_arg(url);
+        assert!(
+            quoted.starts_with('\''),
+            "URL with PowerShell metacharacters must be single-quoted: {quoted}"
+        );
+        assert!(
+            quoted.contains(url),
+            "quoted argument must contain the full URL: {quoted}"
+        );
     }
 }
