@@ -35,6 +35,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    if args.gateway.is_some() && args.https {
+        anyhow::bail!(
+            "--gateway does not yet support HTTPS targets (--https); the Gateway tunnel is HTTP-only in this build"
+        );
+    }
+
     // On Windows/ConPTY, Ctrl+C can arrive as a console control event (not only a key event).
     // Install a handler that prevents process termination so the REPL can treat it as an interrupt.
     #[cfg(windows)]
