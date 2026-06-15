@@ -29,6 +29,12 @@ async fn main() -> anyhow::Result<()> {
     init_logging(args.verbose)?;
     info!("Starting WinRM PowerShell client (Async/Tokio)");
 
+    if args.gateway.is_some() && args.parallel {
+        anyhow::bail!(
+            "--gateway does not support --parallel because the Gateway WebSocket transport serializes HTTP requests; omit --parallel"
+        );
+    }
+
     // On Windows/ConPTY, Ctrl+C can arrive as a console control event (not only a key event).
     // Install a handler that prevents process termination so the REPL can treat it as an interrupt.
     #[cfg(windows)]
