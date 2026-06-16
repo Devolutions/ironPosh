@@ -423,7 +423,7 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 mod tests {
     use super::*;
 
-    const REAL_ENCRYPTED_SOAP: &str = include_str!("..\\..\\test_data\\real_encrypted_soap.txt");
+    const REAL_ENCRYPTED_SOAP: &str = include_str!("../../test_data/real_encrypted_soap.txt");
 
     fn hex_decode(hex_str: &str) -> Vec<u8> {
         (0..hex_str.len())
