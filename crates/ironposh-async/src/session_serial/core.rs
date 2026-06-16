@@ -1115,14 +1115,16 @@ mod tests {
                 scope: HostCallScope::RunspacePool,
                 submission: ironposh_client_core::host::Submission::NoSend,
             });
-        core.queues.user_ops.push_back(UserOperation::InvokeWithSpec {
-            uuid: Uuid::new_v4(),
-            spec: ironposh_client_core::pipeline::PipelineSpec {
-                commands: vec![ironposh_client_core::pipeline::PipelineCommand::new_script(
-                    "prompt".to_string(),
-                )],
-            },
-        });
+        core.queues
+            .user_ops
+            .push_back(UserOperation::InvokeWithSpec {
+                uuid: Uuid::new_v4(),
+                spec: ironposh_client_core::pipeline::PipelineSpec {
+                    commands: vec![ironposh_client_core::pipeline::PipelineCommand::new_script(
+                        "prompt".to_string(),
+                    )],
+                },
+            });
 
         // Process one buffered op (the SubmitHostResponse), as the loop does.
         core.process_one_buffered_op().unwrap();
