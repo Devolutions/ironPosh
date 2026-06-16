@@ -28,10 +28,7 @@ pub trait FromPsValue: Sized {
 }
 
 fn type_mismatch<T: FromPsValue>(value: &PsValue) -> PowerShellRemotingError {
-    PowerShellRemotingError::InvalidMessage(format!(
-        "expected {}, got {value:?}",
-        T::TYPE_LABEL
-    ))
+    PowerShellRemotingError::InvalidMessage(format!("expected {}, got {value:?}", T::TYPE_LABEL))
 }
 
 macro_rules! impl_from_primitive {
@@ -89,9 +86,7 @@ impl<T: FromPsValue> FromPsValue for Vec<T> {
         match value {
             PsValue::Object(obj) => match &obj.content {
                 ComplexObjectContent::Container(
-                    Container::List(items)
-                    | Container::Stack(items)
-                    | Container::Queue(items),
+                    Container::List(items) | Container::Stack(items) | Container::Queue(items),
                 ) => items.iter().map(T::from_ps_value).collect(),
                 _ => Err(type_mismatch::<Self>(value)),
             },
@@ -153,8 +148,10 @@ impl<T: ToPsValue> ToPsValue for Vec<T> {
 
 impl<T: ToPsValue> ToPsValue for Option<T> {
     fn to_ps_value(&self) -> PsValue {
-        self.as_ref()
-            .map_or_else(|| PsValue::Primitive(PsPrimitiveValue::Nil), ToPsValue::to_ps_value)
+        self.as_ref().map_or_else(
+            || PsValue::Primitive(PsPrimitiveValue::Nil),
+            ToPsValue::to_ps_value,
+        )
     }
 }
 

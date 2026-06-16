@@ -2,9 +2,7 @@
 //! `FromPsValue`/`ToPsValue`, the `req`/`opt` accessors, the
 //! `ComplexObject` builder, and the `as_string_array` fix.
 
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsValue,
-};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsValue};
 
 #[test]
 fn builder_writes_property_name_once_and_roundtrips() {
@@ -25,15 +23,26 @@ fn builder_writes_property_name_once_and_roundtrips() {
 fn req_missing_property_reports_name() {
     let obj = ComplexObject::standard().build();
     let err = obj.req::<i32>("MinRunspaces").unwrap_err().to_string();
-    assert!(err.contains("MinRunspaces"), "error should name the property: {err}");
+    assert!(
+        err.contains("MinRunspaces"),
+        "error should name the property: {err}"
+    );
 }
 
 #[test]
 fn req_type_mismatch_reports_name_and_expected_type() {
-    let obj = ComplexObject::standard().extended("Count", "not-a-number").build();
+    let obj = ComplexObject::standard()
+        .extended("Count", "not-a-number")
+        .build();
     let err = obj.req::<i32>("Count").unwrap_err().to_string();
-    assert!(err.contains("Count"), "error should name the property: {err}");
-    assert!(err.contains("I32"), "error should name expected type: {err}");
+    assert!(
+        err.contains("Count"),
+        "error should name the property: {err}"
+    );
+    assert!(
+        err.contains("I32"),
+        "error should name expected type: {err}"
+    );
 }
 
 #[test]
@@ -44,9 +53,7 @@ fn opt_missing_and_nil_are_none_present_is_some() {
     let missing = ComplexObject::standard().build();
     assert_eq!(missing.opt::<i32>("X").unwrap(), None);
 
-    let nil = ComplexObject::standard()
-        .extended("X", None::<i32>)
-        .build();
+    let nil = ComplexObject::standard().extended("X", None::<i32>).build();
     assert_eq!(nil.opt::<i32>("X").unwrap(), None);
 }
 

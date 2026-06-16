@@ -305,8 +305,7 @@ impl Connector {
                     // shell. The provided shell id doubles as the pool RPID.
                     // Advertise the original pool's runspace limits when known,
                     // otherwise the creator defaults to 1/1 (see issue #12).
-                    let (min_runspaces, max_runspaces) =
-                        self.connect_runspaces.unwrap_or((1, 1));
+                    let (min_runspaces, max_runspaces) = self.connect_runspaces.unwrap_or((1, 1));
                     let runspace_pool = RunspacePoolCreator::builder()
                         .id(shell_id)
                         .min_runspaces(min_runspaces)

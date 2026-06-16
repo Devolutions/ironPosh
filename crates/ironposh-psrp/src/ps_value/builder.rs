@@ -48,11 +48,9 @@ impl ComplexObject {
     pub fn opt<T: FromPsValue>(&self, name: &str) -> Result<Option<T>> {
         match self.get_property(name) {
             None | Some(PsValue::Primitive(super::PsPrimitiveValue::Nil)) => Ok(None),
-            Some(value) => T::from_ps_value(value)
-                .map(Some)
-                .map_err(|err| {
-                    PowerShellRemotingError::InvalidMessage(format!("Property '{name}': {err}"))
-                }),
+            Some(value) => T::from_ps_value(value).map(Some).map_err(|err| {
+                PowerShellRemotingError::InvalidMessage(format!("Property '{name}': {err}"))
+            }),
         }
     }
 

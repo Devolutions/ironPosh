@@ -19,20 +19,62 @@ pub struct PrimitiveType {
 /// The primitive types ironPosh serializes, with their CLIXML tags and .NET
 /// type names. See MS-PSRP §2.2.5.1.
 pub const PRIMITIVE_TYPES: &[PrimitiveType] = &[
-    PrimitiveType { tag: "S", dotnet_type: "System.String" },
-    PrimitiveType { tag: "B", dotnet_type: "System.Boolean" },
-    PrimitiveType { tag: "I32", dotnet_type: "System.Int32" },
-    PrimitiveType { tag: "U32", dotnet_type: "System.UInt32" },
-    PrimitiveType { tag: "I64", dotnet_type: "System.Int64" },
-    PrimitiveType { tag: "U64", dotnet_type: "System.UInt64" },
-    PrimitiveType { tag: "G", dotnet_type: "System.Guid" },
-    PrimitiveType { tag: "C", dotnet_type: "System.Char" },
-    PrimitiveType { tag: "Nil", dotnet_type: "System.Object" },
-    PrimitiveType { tag: "BA", dotnet_type: "System.Byte[]" },
-    PrimitiveType { tag: "SS", dotnet_type: "System.Security.SecureString" },
-    PrimitiveType { tag: "Version", dotnet_type: "System.Version" },
-    PrimitiveType { tag: "DT", dotnet_type: "System.DateTime" },
-    PrimitiveType { tag: "TS", dotnet_type: "System.TimeSpan" },
+    PrimitiveType {
+        tag: "S",
+        dotnet_type: "System.String",
+    },
+    PrimitiveType {
+        tag: "B",
+        dotnet_type: "System.Boolean",
+    },
+    PrimitiveType {
+        tag: "I32",
+        dotnet_type: "System.Int32",
+    },
+    PrimitiveType {
+        tag: "U32",
+        dotnet_type: "System.UInt32",
+    },
+    PrimitiveType {
+        tag: "I64",
+        dotnet_type: "System.Int64",
+    },
+    PrimitiveType {
+        tag: "U64",
+        dotnet_type: "System.UInt64",
+    },
+    PrimitiveType {
+        tag: "G",
+        dotnet_type: "System.Guid",
+    },
+    PrimitiveType {
+        tag: "C",
+        dotnet_type: "System.Char",
+    },
+    PrimitiveType {
+        tag: "Nil",
+        dotnet_type: "System.Object",
+    },
+    PrimitiveType {
+        tag: "BA",
+        dotnet_type: "System.Byte[]",
+    },
+    PrimitiveType {
+        tag: "SS",
+        dotnet_type: "System.Security.SecureString",
+    },
+    PrimitiveType {
+        tag: "Version",
+        dotnet_type: "System.Version",
+    },
+    PrimitiveType {
+        tag: "DT",
+        dotnet_type: "System.DateTime",
+    },
+    PrimitiveType {
+        tag: "TS",
+        dotnet_type: "System.TimeSpan",
+    },
 ];
 
 /// Look up a primitive's .NET type name by its CLIXML tag.
