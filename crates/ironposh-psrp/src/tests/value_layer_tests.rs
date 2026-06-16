@@ -11,9 +11,9 @@ fn builder_writes_property_name_once_and_roundtrips() {
         .extended("MaxRunspaces", 4i32)
         .build();
 
-    // Map key and PsProperty.name agree (no duplication bug).
-    let prop = obj.extended_properties.get("MinRunspaces").unwrap();
-    assert_eq!(prop.name, "MinRunspaces");
+    // The value is stored under its name with no duplicated name field.
+    assert!(obj.properties.get("MinRunspaces").is_some());
+    assert_eq!(obj.properties.extended().count(), 2);
 
     assert_eq!(obj.req::<i32>("MinRunspaces").unwrap(), 1);
     assert_eq!(obj.req::<i32>("MaxRunspaces").unwrap(), 4);

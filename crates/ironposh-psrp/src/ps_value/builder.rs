@@ -8,10 +8,9 @@
 //! collapse into one ordered map (RFC step 4) without touching call sites.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 use super::{
-    ComplexObject, ComplexObjectContent, FromPsValue, PsProperty, PsType, PsValue, ToPsValue,
+    ComplexObject, ComplexObjectContent, FromPsValue, Properties, PsType, PsValue, ToPsValue,
 };
 use crate::PowerShellRemotingError;
 
@@ -26,10 +25,7 @@ impl ComplexObject {
     /// 4) — so a single lookup over both is correct.
     #[must_use]
     pub fn get_property(&self, name: &str) -> Option<&PsValue> {
-        self.extended_properties
-            .get(name)
-            .or_else(|| self.adapted_properties.get(name))
-            .map(|p| &p.value)
+        self.properties.get(name)
     }
 
     /// Extract a required, typed property. Produces a precise missing-property
@@ -81,8 +77,7 @@ impl ComplexObjectBuilder {
                 type_def: None,
                 to_string: None,
                 content,
-                adapted_properties: BTreeMap::new(),
-                extended_properties: BTreeMap::new(),
+                properties: Properties::new(),
             },
         }
     }
@@ -136,21 +131,14 @@ impl ComplexObjectBuilder {
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn adapted(mut self, name: impl Into<String>, value: impl ToPsValue) -> Self {
-        let name = name.into();
-        self.obj.adapted_properties.insert(
-            name.clone(),
-            PsProperty {
-                name,
-                value: value.to_ps_value(),
-            },
-        );
+        self.obj
+            .properties
+            .insert_adapted(name.into(), value.to_ps_value());
         self
     }
 
     fn insert_extended(&mut self, name: String, value: PsValue) {
-        self.obj
-            .extended_properties
-            .insert(name.clone(), PsProperty { name, value });
+        self.obj.properties.insert_extended(name, value);
     }
 
     /// Finish building.

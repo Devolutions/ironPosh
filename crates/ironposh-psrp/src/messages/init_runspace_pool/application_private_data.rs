@@ -1,6 +1,6 @@
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsObjectWithType, PsPrimitiveValue,
     PsType, PsValue,
 };
 use std::collections::BTreeMap;
@@ -39,7 +39,7 @@ impl PsObjectWithType for ApplicationPrivateData {
 
 impl From<ApplicationPrivateData> for ComplexObject {
     fn from(app_data: ApplicationPrivateData) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
         let application_private_data_value =
             app_data
@@ -55,25 +55,17 @@ impl From<ApplicationPrivateData> for ComplexObject {
                         type_def: Some(PsType::ps_primitive_dictionary()),
                         to_string: None,
                         content: ComplexObjectContent::Container(Container::Dictionary(ps_dict)),
-                        adapted_properties: BTreeMap::new(),
-                        extended_properties: BTreeMap::new(),
+                        properties: Properties::new(),
                     })
                 });
 
-        extended_properties.insert(
-            "ApplicationPrivateData".to_string(),
-            PsProperty {
-                name: "ApplicationPrivateData".to_string(),
-                value: application_private_data_value,
-            },
-        );
+        properties.insert_extended("ApplicationPrivateData", application_private_data_value);
 
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -82,20 +74,20 @@ impl TryFrom<ComplexObject> for ApplicationPrivateData {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let app_data_property = value
-            .extended_properties
-            .get("ApplicationPrivateData")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing ApplicationPrivateData property".to_string())
-            })?;
+        let app_data_property =
+            value
+                .properties
+                .get("ApplicationPrivateData")
+                .ok_or_else(|| {
+                    Self::Error::InvalidMessage(
+                        "Missing ApplicationPrivateData property".to_string(),
+                    )
+                })?;
 
-        let data = if matches!(
-            &app_data_property.value,
-            PsValue::Primitive(PsPrimitiveValue::Nil)
-        ) {
+        let data = if matches!(app_data_property, PsValue::Primitive(PsPrimitiveValue::Nil)) {
             None
         } else {
-            let PsValue::Object(obj) = &app_data_property.value else {
+            let PsValue::Object(obj) = app_data_property else {
                 return Err(Self::Error::InvalidMessage(
                     "ApplicationPrivateData property has invalid type".to_string(),
                 ));

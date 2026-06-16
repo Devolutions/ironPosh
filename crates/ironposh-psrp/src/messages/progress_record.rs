@@ -1,9 +1,9 @@
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsType,
     PsValue,
 };
-use std::{borrow::Cow, collections::BTreeMap};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgressRecordType {
@@ -71,60 +71,42 @@ impl PsObjectWithType for ProgressRecord {
 
 impl From<ProgressRecord> for ComplexObject {
     fn from(record: ProgressRecord) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "Activity".to_string(),
-            PsProperty {
-                name: "Activity".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(record.activity)),
-            },
+        properties.insert_extended(
+            "Activity",
+            PsValue::Primitive(PsPrimitiveValue::Str(record.activity)),
         );
 
-        extended_properties.insert(
-            "ActivityId".to_string(),
-            PsProperty {
-                name: "ActivityId".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(record.activity_id)),
-            },
+        properties.insert_extended(
+            "ActivityId",
+            PsValue::Primitive(PsPrimitiveValue::I32(record.activity_id)),
         );
 
         if let Some(status) = record.status_description {
-            extended_properties.insert(
-                "StatusDescription".to_string(),
-                PsProperty {
-                    name: "StatusDescription".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(status)),
-                },
+            properties.insert_extended(
+                "StatusDescription",
+                PsValue::Primitive(PsPrimitiveValue::Str(status)),
             );
         }
 
         if let Some(current_op) = record.current_operation {
-            extended_properties.insert(
-                "CurrentOperation".to_string(),
-                PsProperty {
-                    name: "CurrentOperation".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(current_op)),
-                },
+            properties.insert_extended(
+                "CurrentOperation",
+                PsValue::Primitive(PsPrimitiveValue::Str(current_op)),
             );
         }
 
         if let Some(parent_id) = record.parent_activity_id {
-            extended_properties.insert(
-                "ParentActivityId".to_string(),
-                PsProperty {
-                    name: "ParentActivityId".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(parent_id)),
-                },
+            properties.insert_extended(
+                "ParentActivityId",
+                PsValue::Primitive(PsPrimitiveValue::I32(parent_id)),
             );
         }
 
-        extended_properties.insert(
-            "PercentComplete".to_string(),
-            PsProperty {
-                name: "PercentComplete".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(record.percent_complete)),
-            },
+        properties.insert_extended(
+            "PercentComplete",
+            PsValue::Primitive(PsPrimitiveValue::I32(record.percent_complete)),
         );
 
         let progress_type_obj = Self {
@@ -140,25 +122,15 @@ impl From<ProgressRecord> for ComplexObject {
             content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
                 record.progress_type.as_i32(),
             )),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
-        extended_properties.insert(
-            "Type".to_string(),
-            PsProperty {
-                name: "Type".to_string(),
-                value: PsValue::Object(progress_type_obj),
-            },
-        );
+        properties.insert_extended("Type", PsValue::Object(progress_type_obj));
 
         if let Some(seconds) = record.seconds_remaining {
-            extended_properties.insert(
-                "SecondsRemaining".to_string(),
-                PsProperty {
-                    name: "SecondsRemaining".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(seconds)),
-                },
+            properties.insert_extended(
+                "SecondsRemaining",
+                PsValue::Primitive(PsPrimitiveValue::I32(seconds)),
             );
         }
 
@@ -166,8 +138,7 @@ impl From<ProgressRecord> for ComplexObject {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -177,10 +148,10 @@ impl TryFrom<ComplexObject> for ProgressRecord {
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let activity = value
-            .extended_properties
+            .properties
             .get("Activity")
             .ok_or_else(|| Self::Error::InvalidMessage("Missing Activity property".to_string()))?;
-        let activity = match &activity.value {
+        let activity = match activity {
             PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
             _ => {
                 return Err(Self::Error::InvalidMessage(
@@ -189,10 +160,10 @@ impl TryFrom<ComplexObject> for ProgressRecord {
             }
         };
 
-        let activity_id = value.extended_properties.get("ActivityId").ok_or_else(|| {
+        let activity_id = value.properties.get("ActivityId").ok_or_else(|| {
             Self::Error::InvalidMessage("Missing ActivityId property".to_string())
         })?;
-        let activity_id = match &activity_id.value {
+        let activity_id = match activity_id {
             PsValue::Primitive(PsPrimitiveValue::I32(id)) => *id,
             _ => {
                 return Err(Self::Error::InvalidMessage(
@@ -203,44 +174,44 @@ impl TryFrom<ComplexObject> for ProgressRecord {
 
         let status_description =
             value
-                .extended_properties
+                .properties
                 .get("StatusDescription")
-                .and_then(|prop| match &prop.value {
+                .and_then(|value| match value {
                     PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                     _ => None,
                 });
 
         let current_operation =
             value
-                .extended_properties
+                .properties
                 .get("CurrentOperation")
-                .and_then(|prop| match &prop.value {
+                .and_then(|value| match value {
                     PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                     _ => None,
                 });
 
         let parent_activity_id =
             value
-                .extended_properties
+                .properties
                 .get("ParentActivityId")
-                .and_then(|prop| match &prop.value {
+                .and_then(|value| match value {
                     PsValue::Primitive(PsPrimitiveValue::I32(id)) if *id >= 0 => Some(*id),
                     _ => None,
                 });
 
         let percent_complete =
             value
-                .extended_properties
+                .properties
                 .get("PercentComplete")
-                .map_or(-1, |prop| match &prop.value {
+                .map_or(-1, |value| match value {
                     PsValue::Primitive(PsPrimitiveValue::I32(percent)) => *percent,
                     _ => -1,
                 });
 
         let progress_type = value
-            .extended_properties
+            .properties
             .get("Type")
-            .and_then(|prop| match &prop.value {
+            .and_then(|value| match value {
                 PsValue::Object(obj) => match &obj.content {
                     ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(val)) => {
                         ProgressRecordType::try_from(*val).ok()
@@ -253,9 +224,9 @@ impl TryFrom<ComplexObject> for ProgressRecord {
 
         let seconds_remaining =
             value
-                .extended_properties
+                .properties
                 .get("SecondsRemaining")
-                .and_then(|prop| match &prop.value {
+                .and_then(|value| match value {
                     PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
                     _ => None,
                 });

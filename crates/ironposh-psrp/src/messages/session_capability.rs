@@ -1,8 +1,7 @@
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
+    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsValue,
 };
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCapability {
@@ -33,39 +32,27 @@ impl PsObjectWithType for SessionCapability {
 
 impl From<SessionCapability> for ComplexObject {
     fn from(cap: SessionCapability) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "protocolversion".to_string(),
-            PsProperty {
-                name: "protocolversion".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.protocol_version)),
-            },
+        properties.insert_extended(
+            "protocolversion",
+            PsValue::Primitive(PsPrimitiveValue::Version(cap.protocol_version)),
         );
 
-        extended_properties.insert(
-            "PSVersion".to_string(),
-            PsProperty {
-                name: "PSVersion".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.ps_version)),
-            },
+        properties.insert_extended(
+            "PSVersion",
+            PsValue::Primitive(PsPrimitiveValue::Version(cap.ps_version)),
         );
 
-        extended_properties.insert(
-            "SerializationVersion".to_string(),
-            PsProperty {
-                name: "SerializationVersion".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Version(cap.serialization_version)),
-            },
+        properties.insert_extended(
+            "SerializationVersion",
+            PsValue::Primitive(PsPrimitiveValue::Version(cap.serialization_version)),
         );
 
         if let Some(time_zone) = cap.time_zone {
-            extended_properties.insert(
-                "TimeZone".to_string(),
-                PsProperty {
-                    name: "TimeZone".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Bytes(time_zone.into_bytes())),
-                },
+            properties.insert_extended(
+                "TimeZone",
+                PsValue::Primitive(PsPrimitiveValue::Bytes(time_zone.into_bytes())),
             );
         }
 
@@ -73,8 +60,7 @@ impl From<SessionCapability> for ComplexObject {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -85,11 +71,11 @@ impl TryFrom<ComplexObject> for SessionCapability {
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         let get_version_property = |name: &str| -> Result<String, Self::Error> {
             let property = value
-                .extended_properties
+                .properties
                 .get(name)
                 .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))?;
 
-            match &property.value {
+            match property {
                 PsValue::Primitive(PsPrimitiveValue::Version(version)) => Ok(version.clone()),
                 _ => Err(Self::Error::InvalidMessage(format!(
                     "Property '{name}' is not a Version"
@@ -101,16 +87,15 @@ impl TryFrom<ComplexObject> for SessionCapability {
         let ps_version = get_version_property("PSVersion")?;
         let serialization_version = get_version_property("SerializationVersion")?;
 
-        let time_zone =
-            value
-                .extended_properties
-                .get("TimeZone")
-                .and_then(|prop| match &prop.value {
-                    PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) => {
-                        Some(String::from_utf8_lossy(bytes).to_string())
-                    }
-                    _ => None,
-                });
+        let time_zone = value
+            .properties
+            .get("TimeZone")
+            .and_then(|prop| match prop {
+                PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) => {
+                    Some(String::from_utf8_lossy(bytes).to_string())
+                }
+                _ => None,
+            });
 
         Ok(Self {
             protocol_version,

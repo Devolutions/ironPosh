@@ -1,9 +1,8 @@
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsObjectWithType, PsPrimitiveValue,
     PsType, PsValue,
 };
-use std::collections::BTreeMap;
 
 /// RunspacePoolHostCall is a message sent from the server to the client to perform
 /// a method call on the host associated with the RunspacePool on the server.
@@ -41,15 +40,12 @@ impl PsObjectWithType for RunspacePoolHostCall {
 
 impl From<RunspacePoolHostCall> for ComplexObject {
     fn from(host_call: RunspacePoolHostCall) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
         // Call ID (ci)
-        extended_properties.insert(
-            "ci".to_string(),
-            PsProperty {
-                name: "ci".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I64(host_call.call_id)),
-            },
+        properties.insert_extended(
+            "ci",
+            PsValue::Primitive(PsPrimitiveValue::I64(host_call.call_id)),
         );
 
         // Host method identifier (mi)
@@ -59,41 +55,26 @@ impl From<RunspacePoolHostCall> for ComplexObject {
             content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
                 host_call.method_id,
             )),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
-        extended_properties.insert(
-            "mi".to_string(),
-            PsProperty {
-                name: "mi".to_string(),
-                value: PsValue::Object(method_id_obj),
-            },
-        );
+        properties.insert_extended("mi", PsValue::Object(method_id_obj));
 
         // Method parameters (mp) as ArrayList
         let parameters_obj = Self {
             type_def: Some(PsType::array_list()),
             to_string: None,
             content: ComplexObjectContent::Container(Container::List(host_call.parameters)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
-        extended_properties.insert(
-            "mp".to_string(),
-            PsProperty {
-                name: "mp".to_string(),
-                value: PsValue::Object(parameters_obj),
-            },
-        );
+        properties.insert_extended("mp", PsValue::Object(parameters_obj));
 
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -103,22 +84,22 @@ impl TryFrom<ComplexObject> for RunspacePoolHostCall {
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         // Extract call_id (ci)
-        let ci_property = value.extended_properties.get("ci").ok_or_else(|| {
+        let ci_value = value.properties.get("ci").ok_or_else(|| {
             Self::Error::InvalidMessage("Missing call ID (ci) property".to_string())
         })?;
 
-        let PsValue::Primitive(PsPrimitiveValue::I64(call_id)) = &ci_property.value else {
+        let PsValue::Primitive(PsPrimitiveValue::I64(call_id)) = ci_value else {
             return Err(Self::Error::InvalidMessage(
                 "Call ID (ci) is not a signed long integer".to_string(),
             ));
         };
 
         // Extract method identifier (mi)
-        let mi_property = value.extended_properties.get("mi").ok_or_else(|| {
+        let mi_value = value.properties.get("mi").ok_or_else(|| {
             Self::Error::InvalidMessage("Missing method identifier (mi) property".to_string())
         })?;
 
-        let PsValue::Object(mi_obj) = &mi_property.value else {
+        let PsValue::Object(mi_obj) = mi_value else {
             return Err(Self::Error::InvalidMessage(
                 "Method identifier (mi) is not an object".to_string(),
             ));
@@ -135,11 +116,11 @@ impl TryFrom<ComplexObject> for RunspacePoolHostCall {
         let method_name = mi_obj.to_string.clone().unwrap_or_default();
 
         // Extract method parameters (mp)
-        let mp = value.extended_properties.get("mp").ok_or_else(|| {
+        let mp = value.properties.get("mp").ok_or_else(|| {
             Self::Error::InvalidMessage("Missing method parameters (mp) property".to_string())
         })?;
 
-        let PsValue::Object(obj) = &mp.value else {
+        let PsValue::Object(obj) = mp else {
             return Err(Self::Error::InvalidMessage(
                 "Method parameters (mp) is not an object".to_string(),
             ));

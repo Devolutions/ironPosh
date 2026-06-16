@@ -1,8 +1,8 @@
-use std::{borrow::Cow, collections::BTreeMap, fmt::Write};
+use std::{borrow::Cow, fmt::Write};
 
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsType,
     PsValue,
 };
 
@@ -125,154 +125,102 @@ impl PsObjectWithType for ErrorRecord {
 }
 
 impl From<ErrorRecord> for ComplexObject {
-    #[expect(clippy::too_many_lines)]
     fn from(record: ErrorRecord) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
         // Core error record properties
-        extended_properties.insert(
-            "ErrorRecord".to_string(),
-            PsProperty {
-                name: "ErrorRecord".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
-            },
+        properties.insert_extended(
+            "ErrorRecord",
+            PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
         );
 
         if let Some(command_name) = record.command_name {
-            extended_properties.insert(
-                "CommandName".to_string(),
-                PsProperty {
-                    name: "CommandName".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(command_name)),
-                },
+            properties.insert_extended(
+                "CommandName",
+                PsValue::Primitive(PsPrimitiveValue::Str(command_name)),
             );
         }
 
-        extended_properties.insert(
-            "WasThrownFromThrowStatement".to_string(),
-            PsProperty {
-                name: "WasThrownFromThrowStatement".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(
-                    record.was_thrown_from_throw_statement,
-                )),
-            },
+        properties.insert_extended(
+            "WasThrownFromThrowStatement",
+            PsValue::Primitive(PsPrimitiveValue::Bool(
+                record.was_thrown_from_throw_statement,
+            )),
         );
 
-        extended_properties.insert(
-            "Message".to_string(),
-            PsProperty {
-                name: "Message".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
-            },
+        properties.insert_extended(
+            "Message",
+            PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
         );
 
         if let Some(exception) = record.exception {
-            extended_properties.insert(
-                "Exception".to_string(),
-                PsProperty {
-                    name: "Exception".to_string(),
-                    value: exception,
-                },
-            );
+            properties.insert_extended("Exception", exception);
         }
 
         if let Some(target_object) = record.target_object {
-            extended_properties.insert(
-                "TargetObject".to_string(),
-                PsProperty {
-                    name: "TargetObject".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(target_object)),
-                },
+            properties.insert_extended(
+                "TargetObject",
+                PsValue::Primitive(PsPrimitiveValue::Str(target_object)),
             );
         }
 
         if let Some(fully_qualified_error_id) = record.fully_qualified_error_id {
-            extended_properties.insert(
-                "FullyQualifiedErrorId".to_string(),
-                PsProperty {
-                    name: "FullyQualifiedErrorId".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(fully_qualified_error_id)),
-                },
+            properties.insert_extended(
+                "FullyQualifiedErrorId",
+                PsValue::Primitive(PsPrimitiveValue::Str(fully_qualified_error_id)),
             );
         }
 
         if let Some(invocation_info) = record.invocation_info {
-            extended_properties.insert(
-                "InvocationInfo".to_string(),
-                PsProperty {
-                    name: "InvocationInfo".to_string(),
-                    value: invocation_info,
-                },
-            );
+            properties.insert_extended("InvocationInfo", invocation_info);
         }
 
         // Error category properties
         if let Some(error_category) = record.error_category {
-            extended_properties.insert(
-                "ErrorCategory_Category".to_string(),
-                PsProperty {
-                    name: "ErrorCategory_Category".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(error_category.category)),
-                },
+            properties.insert_extended(
+                "ErrorCategory_Category",
+                PsValue::Primitive(PsPrimitiveValue::I32(error_category.category)),
             );
 
             if let Some(activity) = error_category.activity {
-                extended_properties.insert(
-                    "ErrorCategory_Activity".to_string(),
-                    PsProperty {
-                        name: "ErrorCategory_Activity".to_string(),
-                        value: PsValue::Primitive(PsPrimitiveValue::Str(activity)),
-                    },
+                properties.insert_extended(
+                    "ErrorCategory_Activity",
+                    PsValue::Primitive(PsPrimitiveValue::Str(activity)),
                 );
             }
 
             if let Some(reason) = error_category.reason {
-                extended_properties.insert(
-                    "ErrorCategory_Reason".to_string(),
-                    PsProperty {
-                        name: "ErrorCategory_Reason".to_string(),
-                        value: PsValue::Primitive(PsPrimitiveValue::Str(reason)),
-                    },
+                properties.insert_extended(
+                    "ErrorCategory_Reason",
+                    PsValue::Primitive(PsPrimitiveValue::Str(reason)),
                 );
             }
 
             if let Some(target_name) = error_category.target_name {
-                extended_properties.insert(
-                    "ErrorCategory_TargetName".to_string(),
-                    PsProperty {
-                        name: "ErrorCategory_TargetName".to_string(),
-                        value: PsValue::Primitive(PsPrimitiveValue::Str(target_name)),
-                    },
+                properties.insert_extended(
+                    "ErrorCategory_TargetName",
+                    PsValue::Primitive(PsPrimitiveValue::Str(target_name)),
                 );
             }
 
             if let Some(target_type) = error_category.target_type {
-                extended_properties.insert(
-                    "ErrorCategory_TargetType".to_string(),
-                    PsProperty {
-                        name: "ErrorCategory_TargetType".to_string(),
-                        value: PsValue::Primitive(PsPrimitiveValue::Str(target_type)),
-                    },
+                properties.insert_extended(
+                    "ErrorCategory_TargetType",
+                    PsValue::Primitive(PsPrimitiveValue::Str(target_type)),
                 );
             }
 
             if let Some(message) = error_category.message {
-                extended_properties.insert(
-                    "ErrorCategory_Message".to_string(),
-                    PsProperty {
-                        name: "ErrorCategory_Message".to_string(),
-                        value: PsValue::Primitive(PsPrimitiveValue::Str(message)),
-                    },
+                properties.insert_extended(
+                    "ErrorCategory_Message",
+                    PsValue::Primitive(PsPrimitiveValue::Str(message)),
                 );
             }
         }
 
-        extended_properties.insert(
-            "SerializeExtendedInfo".to_string(),
-            PsProperty {
-                name: "SerializeExtendedInfo".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(record.serialize_extended_info)),
-            },
+        properties.insert_extended(
+            "SerializeExtendedInfo",
+            PsValue::Primitive(PsPrimitiveValue::Bool(record.serialize_extended_info)),
         );
 
         Self {
@@ -284,8 +232,7 @@ impl From<ErrorRecord> for ComplexObject {
             }),
             to_string: Some(record.message),
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -309,7 +256,7 @@ impl TryFrom<ComplexObject> for ErrorRecord {
     #[expect(clippy::too_many_lines)]
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
         // Debug logging to understand what properties are actually available
-        debug!(?value.extended_properties, "ErrorRecord extended_properties");
+        debug!(?value.properties, "ErrorRecord properties");
 
         // Try multiple locations for the message:
         // 1. Top-level "Message" property
@@ -317,23 +264,23 @@ impl TryFrom<ComplexObject> for ErrorRecord {
         // 3. Extract from nested Exception object
         // 4. Use the ToString value as fallback
         let message = value
-            .extended_properties
+            .properties
             .get("Message")
-            .or_else(|| value.extended_properties.get("ErrorRecord"))
-            .and_then(|prop| match &prop.value {
+            .or_else(|| value.properties.get("ErrorRecord"))
+            .and_then(|value| match value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
             })
             .or_else(|| {
                 // Try to extract message from Exception object's properties
-                value.extended_properties
+                value.properties
                     .get("Exception")
-                    .and_then(|exception_prop| match &exception_prop.value {
+                    .and_then(|exception_value| match exception_value {
                         PsValue::Object(exception_obj) => {
-                            exception_obj.extended_properties
+                            exception_obj.properties
                                 .get("Message")
-                                .or_else(|| exception_obj.extended_properties.get("ErrorRecord"))
-                                .and_then(|prop| match &prop.value {
+                                .or_else(|| exception_obj.properties.get("ErrorRecord"))
+                                .and_then(|value| match value {
                                     PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                                     _ => None,
                                 })
@@ -347,7 +294,7 @@ impl TryFrom<ComplexObject> for ErrorRecord {
             })
             .ok_or_else(|| {
                 // Enhanced error message with available property names for debugging
-                let available_properties: Vec<&String> = value.extended_properties.keys().collect();
+                let available_properties: Vec<&String> = value.properties.iter().map(|(name, _)| name).collect();
                 error!(?available_properties, "ErrorRecord TryFrom failed - available properties");
                 Self::Error::InvalidMessage(
                     format!("Missing Message or ErrorRecord property in all expected locations. Available properties: {available_properties:?}")
@@ -357,138 +304,134 @@ impl TryFrom<ComplexObject> for ErrorRecord {
         debug!(?message, "ErrorRecord message found");
 
         let command_name = value
-            .extended_properties
+            .properties
             .get("CommandName")
-            .and_then(|prop| match &prop.value {
+            .and_then(|value| match value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
             })
             .or_else(|| {
                 // Try to extract CommandName from Exception object's properties
-                value
-                    .extended_properties
-                    .get("Exception")
-                    .and_then(|exception_prop| match &exception_prop.value {
+                value.properties.get("Exception").and_then(
+                    |exception_value| match exception_value {
                         PsValue::Object(exception_obj) => exception_obj
-                            .extended_properties
+                            .properties
                             .get("CommandName")
-                            .and_then(|prop| match &prop.value {
+                            .and_then(|value| match value {
                                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                                 _ => None,
                             }),
                         PsValue::Primitive(_) => None,
-                    })
+                    },
+                )
             });
 
         let was_thrown_from_throw_statement = value
-            .extended_properties
+            .properties
             .get("WasThrownFromThrowStatement")
-            .is_some_and(|prop| {
-                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
-                    b
+            .is_some_and(|value| {
+                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = value {
+                    *b
                 } else {
                     false
                 }
             });
 
-        let fully_qualified_error_id = value
-            .extended_properties
-            .get("FullyQualifiedErrorId")
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
+        let fully_qualified_error_id =
+            value
+                .properties
+                .get("FullyQualifiedErrorId")
+                .and_then(|value| match value {
+                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                    _ => None,
+                });
 
         let target_object = value
-            .extended_properties
+            .properties
             .get("TargetObject")
-            .and_then(|prop| match &prop.value {
+            .and_then(|value| match value {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
             });
 
-        let exception = value
-            .extended_properties
-            .get("Exception")
-            .map(|prop| prop.value.clone());
+        let exception = value.properties.get("Exception").cloned();
 
         let invocation_info = value
-            .extended_properties
+            .properties
             .get("InvocationInfo")
-            .map(|prop| prop.value.clone())
+            .cloned()
             .filter(|v| !matches!(v, PsValue::Primitive(PsPrimitiveValue::Nil)));
 
-        let serialize_extended_info = value
-            .extended_properties
-            .get("SerializeExtendedInfo")
-            .is_some_and(|prop| {
-                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
-                    b
-                } else {
-                    false
-                }
-            });
+        let serialize_extended_info =
+            value
+                .properties
+                .get("SerializeExtendedInfo")
+                .is_some_and(|value| {
+                    if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = value {
+                        *b
+                    } else {
+                        false
+                    }
+                });
 
         // Parse error category
-        let error_category =
-            if let Some(category_prop) = value.extended_properties.get("ErrorCategory_Category") {
-                if let PsValue::Primitive(PsPrimitiveValue::I32(category)) = &category_prop.value {
-                    let activity = value
-                        .extended_properties
-                        .get("ErrorCategory_Activity")
-                        .and_then(|prop| match &prop.value {
-                            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        });
+        let error_category = if let Some(PsValue::Primitive(PsPrimitiveValue::I32(category))) =
+            value.properties.get("ErrorCategory_Category")
+        {
+            {
+                let activity = value
+                    .properties
+                    .get("ErrorCategory_Activity")
+                    .and_then(|value| match value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    });
 
-                    let reason = value
-                        .extended_properties
-                        .get("ErrorCategory_Reason")
-                        .and_then(|prop| match &prop.value {
-                            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        });
+                let reason = value
+                    .properties
+                    .get("ErrorCategory_Reason")
+                    .and_then(|value| match value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    });
 
-                    let target_name = value
-                        .extended_properties
-                        .get("ErrorCategory_TargetName")
-                        .and_then(|prop| match &prop.value {
-                            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        });
+                let target_name = value.properties.get("ErrorCategory_TargetName").and_then(
+                    |value| match value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    },
+                );
 
-                    let target_type = value
-                        .extended_properties
-                        .get("ErrorCategory_TargetType")
-                        .and_then(|prop| match &prop.value {
-                            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        });
+                let target_type = value.properties.get("ErrorCategory_TargetType").and_then(
+                    |value| match value {
+                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
+                        _ => None,
+                    },
+                );
 
-                    let category_message = value
-                        .extended_properties
+                let category_message =
+                    value
+                        .properties
                         .get("ErrorCategory_Message")
-                        .and_then(|prop| match &prop.value {
+                        .and_then(|value| match value {
                             PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                             _ => None,
                         });
 
-                    Some(
-                        ErrorCategory::builder()
-                            .category(*category)
-                            .activity(activity)
-                            .reason(reason)
-                            .target_name(target_name)
-                            .target_type(target_type)
-                            .message(category_message)
-                            .build(),
-                    )
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+                Some(
+                    ErrorCategory::builder()
+                        .category(*category)
+                        .activity(activity)
+                        .reason(reason)
+                        .target_name(target_name)
+                        .target_type(target_type)
+                        .message(category_message)
+                        .build(),
+                )
+            }
+        } else {
+            None
+        };
 
         Ok(Self::builder()
             .message(message)
@@ -540,7 +483,7 @@ fn extract_position_block(invocation_info: Option<&PsValue>) -> Option<String> {
     };
 
     // 1) If PowerShell already provided PositionMessage, use it.
-    if let Some(pm) = get_str(&obj.extended_properties, "PositionMessage") {
+    if let Some(pm) = get_str(&obj.properties, "PositionMessage") {
         let pm = normalize(&pm);
         if !pm.is_empty() {
             return Some(pm);
@@ -548,16 +491,16 @@ fn extract_position_block(invocation_info: Option<&PsValue>) -> Option<String> {
     }
 
     // 2) Otherwise synthesize from ScriptName/ScriptLineNumber/OffsetInLine/Line/LineText
-    let script = get_str(&obj.extended_properties, "ScriptName")
-        .or_else(|| get_str(&obj.extended_properties, "ScriptPath"))
+    let script = get_str(&obj.properties, "ScriptName")
+        .or_else(|| get_str(&obj.properties, "ScriptPath"))
         .unwrap_or_default();
 
-    let line = get_i32(&obj.extended_properties, "ScriptLineNumber").unwrap_or(0);
-    let col = get_i32(&obj.extended_properties, "OffsetInLine").unwrap_or(0);
+    let line = get_i32(&obj.properties, "ScriptLineNumber").unwrap_or(0);
+    let col = get_i32(&obj.properties, "OffsetInLine").unwrap_or(0);
 
     // Some serializations include the line text
-    let line_text = get_str(&obj.extended_properties, "Line")
-        .or_else(|| get_str(&obj.extended_properties, "LineText"))
+    let line_text = get_str(&obj.properties, "Line")
+        .or_else(|| get_str(&obj.properties, "LineText"))
         .unwrap_or_default();
 
     if script.is_empty() && line == 0 && col == 0 && line_text.is_empty() {
@@ -619,8 +562,8 @@ fn extract_position_block(invocation_info: Option<&PsValue>) -> Option<String> {
 
 /* ------- tiny PsValue extractors for InvocationInfo ------- */
 
-fn get_str(map: &BTreeMap<String, PsProperty>, key: &str) -> Option<String> {
-    map.get(key).and_then(|p| match &p.value {
+fn get_str(properties: &Properties, key: &str) -> Option<String> {
+    properties.get(key).and_then(|value| match value {
         PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
         // Some shapes might stick a char
         PsValue::Primitive(PsPrimitiveValue::Char(c)) => Some(c.to_string()),
@@ -630,8 +573,8 @@ fn get_str(map: &BTreeMap<String, PsProperty>, key: &str) -> Option<String> {
     })
 }
 
-fn get_i32(map: &BTreeMap<String, PsProperty>, key: &str) -> Option<i32> {
-    map.get(key).and_then(|p| match &p.value {
+fn get_i32(properties: &Properties, key: &str) -> Option<i32> {
+    properties.get(key).and_then(|value| match value {
         PsValue::Primitive(PsPrimitiveValue::I32(v)) => Some(*v),
         PsValue::Primitive(PsPrimitiveValue::I64(v)) => i32::try_from(*v).ok(),
         _ => None,

@@ -303,24 +303,20 @@ mod tests {
 
         // Navigate to PowerShell -> Cmds -> Command list
         let powershell_prop = top_level_obj
-            .extended_properties
+            .properties
             .get("PowerShell")
             .expect("Missing PowerShell property");
 
         let powershell_obj = powershell_prop
-            .value
             .as_object()
             .expect("PowerShell should be an object");
 
         let cmds_prop = powershell_obj
-            .extended_properties
+            .properties
             .get("Cmds")
             .expect("Missing Cmds property");
 
-        let cmds_obj = cmds_prop
-            .value
-            .as_object()
-            .expect("Cmds should be an object");
+        let cmds_obj = cmds_prop.as_object().expect("Cmds should be an object");
 
         if let crate::ps_value::ComplexObjectContent::Container(crate::ps_value::Container::List(
             cmd_list,

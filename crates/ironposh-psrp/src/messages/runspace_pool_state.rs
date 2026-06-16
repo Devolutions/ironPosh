@@ -1,8 +1,7 @@
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
+    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsValue,
 };
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunspacePoolStateValue {
@@ -76,32 +75,22 @@ impl PsObjectWithType for RunspacePoolStateMessage {
 
 impl From<RunspacePoolStateMessage> for ComplexObject {
     fn from(state: RunspacePoolStateMessage) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "RunspaceState".to_string(),
-            PsProperty {
-                name: "RunspaceState".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(state.runspace_state.as_i32())),
-            },
+        properties.insert_extended(
+            "RunspaceState",
+            PsValue::Primitive(PsPrimitiveValue::I32(state.runspace_state.as_i32())),
         );
 
         if let Some(exception) = state.exception_as_error_record {
-            extended_properties.insert(
-                "ExceptionAsErrorRecord".to_string(),
-                PsProperty {
-                    name: "ExceptionAsErrorRecord".to_string(),
-                    value: exception,
-                },
-            );
+            properties.insert_extended("ExceptionAsErrorRecord", exception);
         }
 
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -110,15 +99,11 @@ impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let runspace_state_prop =
-            value
-                .extended_properties
-                .get("RunspaceState")
-                .ok_or_else(|| {
-                    Self::Error::InvalidMessage("Missing RunspaceState property".to_string())
-                })?;
+        let runspace_state_value = value.properties.get("RunspaceState").ok_or_else(|| {
+            Self::Error::InvalidMessage("Missing RunspaceState property".to_string())
+        })?;
 
-        let runspace_state = match &runspace_state_prop.value {
+        let runspace_state = match runspace_state_value {
             PsValue::Primitive(PsPrimitiveValue::I32(state)) => {
                 RunspacePoolStateValue::try_from(*state)?
             }
@@ -129,10 +114,7 @@ impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
             }
         };
 
-        let exception_as_error_record = value
-            .extended_properties
-            .get("ExceptionAsErrorRecord")
-            .map(|prop| prop.value.clone());
+        let exception_as_error_record = value.properties.get("ExceptionAsErrorRecord").cloned();
 
         Ok(Self {
             runspace_state,

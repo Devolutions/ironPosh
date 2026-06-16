@@ -41,6 +41,6 @@ pub use session_capability::*;
 
 // Re-export ps_value types for backwards compatibility
 pub use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
-    PsValue, deserialize,
+    ComplexObject, ComplexObjectContent, Container, Properties, Property, PropertyKind, PsEnums,
+    PsPrimitiveValue, PsType, PsValue, deserialize,
 };

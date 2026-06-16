@@ -1,5 +1,5 @@
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsEnums, PsPrimitiveValue, PsType,
     PsValue,
     deserialize::{DeserializationContext, PsXmlDeserialize},
 };
@@ -15,33 +15,23 @@ fn test_session_capability_message() {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
     // Add extended properties (MS section)
-    complex_obj.extended_properties.insert(
-        "protocolversion".to_string(),
-        PsProperty {
-            name: "protocolversion".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Version("2.2".to_string())),
-        },
+    complex_obj.properties.insert_extended(
+        "protocolversion",
+        PsValue::Primitive(PsPrimitiveValue::Version("2.2".to_string())),
     );
 
-    complex_obj.extended_properties.insert(
-        "PSVersion".to_string(),
-        PsProperty {
-            name: "PSVersion".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Version("2.0".to_string())),
-        },
+    complex_obj.properties.insert_extended(
+        "PSVersion",
+        PsValue::Primitive(PsPrimitiveValue::Version("2.0".to_string())),
     );
 
-    complex_obj.extended_properties.insert(
-        "SerializationVersion".to_string(),
-        PsProperty {
-            name: "SerializationVersion".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Version("1.1.0.1".to_string())),
-        },
+    complex_obj.properties.insert_extended(
+        "SerializationVersion",
+        PsValue::Primitive(PsPrimitiveValue::Version("1.1.0.1".to_string())),
     );
 
     // The base64 encoded timezone data from the example
@@ -50,12 +40,9 @@ fn test_session_capability_message() {
         .decode(timezone_data)
         .unwrap();
 
-    complex_obj.extended_properties.insert(
-        "TimeZone".to_string(),
-        PsProperty {
-            name: "TimeZone".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bytes(timezone_bytes)),
-        },
+    complex_obj.properties.insert_extended(
+        "TimeZone",
+        PsValue::Primitive(PsPrimitiveValue::Bytes(timezone_bytes)),
     );
 
     // Generate XML
@@ -81,27 +68,18 @@ fn test_runspace_pool_message() {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
     // Add MinRunspaces property
-    complex_obj.extended_properties.insert(
-        "MinRunspaces".to_string(),
-        PsProperty {
-            name: "MinRunspaces".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(1)),
-        },
-    );
+    complex_obj
+        .properties
+        .insert_extended("MinRunspaces", PsValue::Primitive(PsPrimitiveValue::I32(1)));
 
     // Add MaxRunspaces property
-    complex_obj.extended_properties.insert(
-        "MaxRunspaces".to_string(),
-        PsProperty {
-            name: "MaxRunspaces".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(1)),
-        },
-    );
+    complex_obj
+        .properties
+        .insert_extended("MaxRunspaces", PsValue::Primitive(PsPrimitiveValue::I32(1)));
 
     // Create PSThreadOptions enum object
     let ps_thread_options = ComplexObject {
@@ -115,17 +93,12 @@ fn test_runspace_pool_message() {
         }),
         to_string: Some("Default".to_string()),
         content: ComplexObjectContent::PsEnums(PsEnums { value: 0 }),
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    complex_obj.extended_properties.insert(
-        "PSThreadOptions".to_string(),
-        PsProperty {
-            name: "PSThreadOptions".to_string(),
-            value: PsValue::Object(ps_thread_options),
-        },
-    );
+    complex_obj
+        .properties
+        .insert_extended("PSThreadOptions", PsValue::Object(ps_thread_options));
 
     // Create ApartmentState enum object
     let apartment_state = ComplexObject {
@@ -139,17 +112,12 @@ fn test_runspace_pool_message() {
         }),
         to_string: Some("MTA".to_string()),
         content: ComplexObjectContent::PsEnums(PsEnums { value: 1 }),
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    complex_obj.extended_properties.insert(
-        "ApartmentState".to_string(),
-        PsProperty {
-            name: "ApartmentState".to_string(),
-            value: PsValue::Object(apartment_state),
-        },
-    );
+    complex_obj
+        .properties
+        .insert_extended("ApartmentState", PsValue::Object(apartment_state));
 
     // Create the complex HostInfo object structure
     let mut host_data_dict = BTreeMap::new();
@@ -215,8 +183,7 @@ fn test_runspace_pool_message() {
         }),
         to_string: None,
         content: ComplexObjectContent::Container(Container::Dictionary(host_data_dict)),
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
     // Create _hostDefaultData object
@@ -224,82 +191,53 @@ fn test_runspace_pool_message() {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    host_default_data.extended_properties.insert(
-        "data".to_string(),
-        PsProperty {
-            name: "data".to_string(),
-            value: PsValue::Object(host_hashtable),
-        },
-    );
+    host_default_data
+        .properties
+        .insert_extended("data", PsValue::Object(host_hashtable));
 
     // Create the main HostInfo object
     let mut host_info = ComplexObject {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    host_info.extended_properties.insert(
-        "_hostDefaultData".to_string(),
-        PsProperty {
-            name: "_hostDefaultData".to_string(),
-            value: PsValue::Object(host_default_data),
-        },
+    host_info
+        .properties
+        .insert_extended("_hostDefaultData", PsValue::Object(host_default_data));
+
+    host_info.properties.insert_extended(
+        "_isHostNull",
+        PsValue::Primitive(PsPrimitiveValue::Bool(false)),
     );
 
-    host_info.extended_properties.insert(
-        "_isHostNull".to_string(),
-        PsProperty {
-            name: "_isHostNull".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bool(false)),
-        },
+    host_info.properties.insert_extended(
+        "_isHostUINull",
+        PsValue::Primitive(PsPrimitiveValue::Bool(false)),
     );
 
-    host_info.extended_properties.insert(
-        "_isHostUINull".to_string(),
-        PsProperty {
-            name: "_isHostUINull".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bool(false)),
-        },
+    host_info.properties.insert_extended(
+        "_isHostRawUINull",
+        PsValue::Primitive(PsPrimitiveValue::Bool(false)),
     );
 
-    host_info.extended_properties.insert(
-        "_isHostRawUINull".to_string(),
-        PsProperty {
-            name: "_isHostRawUINull".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bool(false)),
-        },
+    host_info.properties.insert_extended(
+        "_useRunspaceHost",
+        PsValue::Primitive(PsPrimitiveValue::Bool(false)),
     );
 
-    host_info.extended_properties.insert(
-        "_useRunspaceHost".to_string(),
-        PsProperty {
-            name: "_useRunspaceHost".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bool(false)),
-        },
-    );
-
-    complex_obj.extended_properties.insert(
-        "HostInfo".to_string(),
-        PsProperty {
-            name: "HostInfo".to_string(),
-            value: PsValue::Object(host_info),
-        },
-    );
+    complex_obj
+        .properties
+        .insert_extended("HostInfo", PsValue::Object(host_info));
 
     // Add ApplicationArguments as Nil
-    complex_obj.extended_properties.insert(
-        "ApplicationArguments".to_string(),
-        PsProperty {
-            name: "ApplicationArguments".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Nil),
-        },
+    complex_obj.properties.insert_extended(
+        "ApplicationArguments",
+        PsValue::Primitive(PsPrimitiveValue::Nil),
     );
 
     // Generate XML
@@ -325,24 +263,17 @@ fn create_string_value_object(value: &str) -> PsValue {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    obj.extended_properties.insert(
-        "T".to_string(),
-        PsProperty {
-            name: "T".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str("System.String".to_string())),
-        },
+    obj.properties.insert_extended(
+        "T",
+        PsValue::Primitive(PsPrimitiveValue::Str("System.String".to_string())),
     );
 
-    obj.extended_properties.insert(
-        "V".to_string(),
-        PsProperty {
-            name: "V".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str(value.to_string())),
-        },
+    obj.properties.insert_extended(
+        "V",
+        PsValue::Primitive(PsPrimitiveValue::Str(value.to_string())),
     );
 
     PsValue::Object(obj)
@@ -353,51 +284,34 @@ fn create_size_value_object(width: i32, height: i32) -> PsValue {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    size_obj.extended_properties.insert(
-        "width".to_string(),
-        PsProperty {
-            name: "width".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(width)),
-        },
-    );
+    size_obj
+        .properties
+        .insert_extended("width", PsValue::Primitive(PsPrimitiveValue::I32(width)));
 
-    size_obj.extended_properties.insert(
-        "height".to_string(),
-        PsProperty {
-            name: "height".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(height)),
-        },
-    );
+    size_obj
+        .properties
+        .insert_extended("height", PsValue::Primitive(PsPrimitiveValue::I32(height)));
 
     let mut wrapper_obj = ComplexObject {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    wrapper_obj.extended_properties.insert(
-        "T".to_string(),
-        PsProperty {
-            name: "T".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str(
-                "System.Management.Automation.Host.Size".to_string(),
-            )),
-        },
+    wrapper_obj.properties.insert_extended(
+        "T",
+        PsValue::Primitive(PsPrimitiveValue::Str(
+            "System.Management.Automation.Host.Size".to_string(),
+        )),
     );
 
-    wrapper_obj.extended_properties.insert(
-        "V".to_string(),
-        PsProperty {
-            name: "V".to_string(),
-            value: PsValue::Object(size_obj),
-        },
-    );
+    wrapper_obj
+        .properties
+        .insert_extended("V", PsValue::Object(size_obj));
 
     PsValue::Object(wrapper_obj)
 }
@@ -407,51 +321,34 @@ fn create_coordinates_value_object(x: i32, y: i32) -> PsValue {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    coords_obj.extended_properties.insert(
-        "x".to_string(),
-        PsProperty {
-            name: "x".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(x)),
-        },
-    );
+    coords_obj
+        .properties
+        .insert_extended("x", PsValue::Primitive(PsPrimitiveValue::I32(x)));
 
-    coords_obj.extended_properties.insert(
-        "y".to_string(),
-        PsProperty {
-            name: "y".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(y)),
-        },
-    );
+    coords_obj
+        .properties
+        .insert_extended("y", PsValue::Primitive(PsPrimitiveValue::I32(y)));
 
     let mut wrapper_obj = ComplexObject {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    wrapper_obj.extended_properties.insert(
-        "T".to_string(),
-        PsProperty {
-            name: "T".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str(
-                "System.Management.Automation.Host.Coordinates".to_string(),
-            )),
-        },
+    wrapper_obj.properties.insert_extended(
+        "T",
+        PsValue::Primitive(PsPrimitiveValue::Str(
+            "System.Management.Automation.Host.Coordinates".to_string(),
+        )),
     );
 
-    wrapper_obj.extended_properties.insert(
-        "V".to_string(),
-        PsProperty {
-            name: "V".to_string(),
-            value: PsValue::Object(coords_obj),
-        },
-    );
+    wrapper_obj
+        .properties
+        .insert_extended("V", PsValue::Object(coords_obj));
 
     PsValue::Object(wrapper_obj)
 }
@@ -461,25 +358,16 @@ fn create_int32_value_object(value: i32) -> PsValue {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    obj.extended_properties.insert(
-        "T".to_string(),
-        PsProperty {
-            name: "T".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str("System.Int32".to_string())),
-        },
+    obj.properties.insert_extended(
+        "T",
+        PsValue::Primitive(PsPrimitiveValue::Str("System.Int32".to_string())),
     );
 
-    obj.extended_properties.insert(
-        "V".to_string(),
-        PsProperty {
-            name: "V".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(value)),
-        },
-    );
+    obj.properties
+        .insert_extended("V", PsValue::Primitive(PsPrimitiveValue::I32(value)));
 
     PsValue::Object(obj)
 }
@@ -489,25 +377,16 @@ fn create_console_color_value_object(value: i32) -> PsValue {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    obj.extended_properties.insert(
-        "T".to_string(),
-        PsProperty {
-            name: "T".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Str("System.ConsoleColor".to_string())),
-        },
+    obj.properties.insert_extended(
+        "T",
+        PsValue::Primitive(PsPrimitiveValue::Str("System.ConsoleColor".to_string())),
     );
 
-    obj.extended_properties.insert(
-        "V".to_string(),
-        PsProperty {
-            name: "V".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::I32(value)),
-        },
-    );
+    obj.properties
+        .insert_extended("V", PsValue::Primitive(PsPrimitiveValue::I32(value)));
 
     PsValue::Object(obj)
 }
@@ -523,24 +402,17 @@ fn test_round_trip_session_capability() {
         type_def: None,
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
-    original.extended_properties.insert(
-        "protocolversion".to_string(),
-        PsProperty {
-            name: "protocolversion".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Version("2.2".to_string())),
-        },
+    original.properties.insert_extended(
+        "protocolversion",
+        PsValue::Primitive(PsPrimitiveValue::Version("2.2".to_string())),
     );
 
-    original.extended_properties.insert(
-        "PSVersion".to_string(),
-        PsProperty {
-            name: "PSVersion".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Version("2.0".to_string())),
-        },
+    original.properties.insert_extended(
+        "PSVersion",
+        PsValue::Primitive(PsPrimitiveValue::Version("2.0".to_string())),
     );
 
     let timezone_data = "AAEAAAD/////AQAAAAAAAAAEAQAAABxTeXN0ZW0uQ3VycmVudFN5c3RlbVRpbWVab25lBAAAABdtX0NhY2hlZERheWxpZ2h0Q2hhbmdlcw1tX3RpY2tzT2Zmc2V0Dm1fc3RhbmRhcmROYW1lDm1fZGF5bGlnaHROYW1lAwABARxTeXN0ZW0uQ29sbGVjdGlvbnMuSGFzaHRhYmxlCQkCAAAAAMDc8bz///8KCgQCAAAAHFN5c3RlbS5Db2xsZWN0aW9ucy5IYXNodGFibGUHAAAACkxvYWRGYWN0b3IHVmVyc2lvbghDb21wYXJlchBIYXNoQ29kZVByb3ZpZGVyCEhhc2hTaXplBEtleXMGVmFsdWVzAAADAwAFBQsIHFN5c3RlbS5Db2xsZWN0aW9ucy5JQ29tcGFyZXIkU3lzdGVtLkNvbGxlY3Rpb25zLklIYXNoQ29kZVByb3ZpZGVyCOxROD8BAAAACgoLAAAACQMAAAAJBAAAABADAAAAAQAAAAgI2QcAABAEAAAAAQAAAAkFAAAABAUAAAAhU3lzdGVtLkdsb2JhbGl6YXRpb24uRGF5bGlnaHRUaW1lAwAAAAdtX3N0YXJ0BW1fZW5kB21fZGVsdGEAAAANDQwAkOq4qG3LiAAQOyeuKMyIAGjEYQgAAAAL";
@@ -548,12 +420,9 @@ fn test_round_trip_session_capability() {
         .decode(timezone_data)
         .unwrap();
 
-    original.extended_properties.insert(
-        "TimeZone".to_string(),
-        PsProperty {
-            name: "TimeZone".to_string(),
-            value: PsValue::Primitive(PsPrimitiveValue::Bytes(timezone_bytes.clone())),
-        },
+    original.properties.insert_extended(
+        "TimeZone",
+        PsValue::Primitive(PsPrimitiveValue::Bytes(timezone_bytes.clone())),
     );
 
     // Step 1: Serialize to XML
@@ -571,22 +440,27 @@ fn test_round_trip_session_capability() {
 
     // Step 3: Compare key properties
     assert_eq!(
-        deserialized.extended_properties.len(),
-        original.extended_properties.len()
+        deserialized.properties.extended().count(),
+        original.properties.extended().count()
     );
 
     // Check protocolversion
-    let proto_version = &deserialized.extended_properties["protocolversion"];
-    assert_eq!(proto_version.name, "protocolversion");
-    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = &proto_version.value {
+    let proto_version = deserialized
+        .properties
+        .get("protocolversion")
+        .expect("Missing protocolversion property");
+    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = proto_version {
         assert_eq!(version, "2.2");
     } else {
         panic!("Expected Version value for protocolversion");
     }
 
     // Check TimeZone bytes
-    let timezone = &deserialized.extended_properties["TimeZone"];
-    if let PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) = &timezone.value {
+    let timezone = deserialized
+        .properties
+        .get("TimeZone")
+        .expect("Missing TimeZone property");
+    if let PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) = timezone {
         assert_eq!(bytes, &timezone_bytes);
     } else {
         panic!("Expected Bytes value for TimeZone");
@@ -609,8 +483,7 @@ fn test_round_trip_enum_object() {
         }),
         to_string: Some("Default".to_string()),
         content: ComplexObjectContent::PsEnums(PsEnums { value: 0 }),
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
     // Serialize
@@ -666,8 +539,7 @@ fn test_round_trip_dictionary_container() {
         }),
         to_string: None,
         content: ComplexObjectContent::Container(Container::Dictionary(dict)),
-        adapted_properties: BTreeMap::new(),
-        extended_properties: BTreeMap::new(),
+        properties: Properties::new(),
     };
 
     // Serialize
@@ -739,27 +611,36 @@ fn test_deserialize_predefined_session_capability_xml() {
 
     // Verify structure
     assert_eq!(deserialized.content, ComplexObjectContent::Standard);
-    assert_eq!(deserialized.extended_properties.len(), 4);
+    assert_eq!(deserialized.properties.extended().count(), 4);
 
     // Check protocolversion
-    let proto_version = &deserialized.extended_properties["protocolversion"];
-    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = &proto_version.value {
+    let proto_version = deserialized
+        .properties
+        .get("protocolversion")
+        .expect("Missing protocolversion property");
+    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = proto_version {
         assert_eq!(version, "2.2");
     } else {
         panic!("Expected Version value for protocolversion");
     }
 
     // Check PSVersion
-    let ps_version = &deserialized.extended_properties["PSVersion"];
-    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = &ps_version.value {
+    let ps_version = deserialized
+        .properties
+        .get("PSVersion")
+        .expect("Missing PSVersion property");
+    if let PsValue::Primitive(PsPrimitiveValue::Version(version)) = ps_version {
         assert_eq!(version, "2.0");
     } else {
         panic!("Expected Version value for PSVersion");
     }
 
     // Check TimeZone (base64 data)
-    let timezone = &deserialized.extended_properties["TimeZone"];
-    if let PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) = &timezone.value {
+    let timezone = deserialized
+        .properties
+        .get("TimeZone")
+        .expect("Missing TimeZone property");
+    if let PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) = timezone {
         assert!(!bytes.is_empty());
     } else {
         panic!("Expected Bytes value for TimeZone");
@@ -891,8 +772,7 @@ fn test_primitive_values_round_trip() {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::ExtendedPrimitive(original_primitive.clone()),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
         // Serialize

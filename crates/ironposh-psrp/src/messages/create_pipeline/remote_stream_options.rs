@@ -1,5 +1,5 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
-use std::{borrow::Cow, collections::BTreeMap};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteStreamOptions {
@@ -29,8 +29,7 @@ impl From<RemoteStreamOptions> for ComplexObject {
             content: ComplexObjectContent::PsEnums(PsEnums {
                 value: options as i32,
             }),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }
     }
 }

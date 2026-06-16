@@ -1,5 +1,5 @@
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsPrimitiveValue, PsType, PsValue,
 };
 use std::{borrow::Cow, collections::BTreeMap};
 
@@ -81,8 +81,7 @@ impl From<PSVersionTable> for ComplexObject {
             }),
             to_string: None,
             content: ComplexObjectContent::Container(Container::List(compatible_versions)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
         entries.insert(
@@ -144,8 +143,7 @@ impl From<PSVersionTable> for ComplexObject {
             }),
             to_string: None,
             content: ComplexObjectContent::Container(Container::Dictionary(entries)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }
     }
 }
@@ -293,8 +291,7 @@ impl From<ApplicationArguments> for ComplexObject {
             }),
             to_string: None,
             content: ComplexObjectContent::Container(Container::Dictionary(entries)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }
     }
 }

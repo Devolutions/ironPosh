@@ -15,33 +15,24 @@ fn list_items(value: &PsValue) -> Option<&[PsValue]> {
 }
 
 fn obj_prop_i32(obj: &ComplexObject, keys: &[&str]) -> Option<i32> {
-    keys.iter().find_map(|k| {
-        obj.extended_properties
-            .get(*k)
-            .and_then(|p| p.value.as_i32())
-    })
+    keys.iter()
+        .find_map(|k| obj.properties.get(k).and_then(PsValue::as_i32))
 }
 
 fn obj_prop_bool(obj: &ComplexObject, keys: &[&str]) -> Option<bool> {
-    keys.iter().find_map(
-        |k| match obj.extended_properties.get(*k).map(|p| &p.value) {
-            Some(PsValue::Primitive(PsPrimitiveValue::Bool(b))) => Some(*b),
-            _ => None,
-        },
-    )
-}
-
-fn obj_prop_string(obj: &ComplexObject, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|k| {
-        obj.extended_properties
-            .get(*k)
-            .and_then(|p| p.value.as_string())
+    keys.iter().find_map(|k| match obj.properties.get(k) {
+        Some(PsValue::Primitive(PsPrimitiveValue::Bool(b))) => Some(*b),
+        _ => None,
     })
 }
 
-fn obj_prop_value(obj: &ComplexObject, keys: &[&str]) -> Option<PsValue> {
+fn obj_prop_string(obj: &ComplexObject, keys: &[&str]) -> Option<String> {
     keys.iter()
-        .find_map(|k| obj.extended_properties.get(*k).map(|p| p.value.clone()))
+        .find_map(|k| obj.properties.get(k).and_then(PsValue::as_string))
+}
+
+fn obj_prop_value(obj: &ComplexObject, keys: &[&str]) -> Option<PsValue> {
+    keys.iter().find_map(|k| obj.properties.get(k).cloned())
 }
 
 // Complex parameter type implementations
@@ -69,27 +60,27 @@ impl FromParams for (i64, methods::ProgressRecord) {
             PsValue::Object(complex_obj) => {
                 // Extract required fields
                 let activity = complex_obj
-                    .extended_properties
+                    .properties
                     .get("Activity")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();
 
                 let activity_id = complex_obj
-                    .extended_properties
+                    .properties
                     .get("ActivityId")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
                         _ => None,
                     })
                     .unwrap_or(0);
 
                 let status_description = complex_obj
-                    .extended_properties
+                    .properties
                     .get("StatusDescription")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                         PsValue::Primitive(PsPrimitiveValue::Nil) => Some(String::new()),
                         _ => None,
@@ -97,9 +88,9 @@ impl FromParams for (i64, methods::ProgressRecord) {
                     .unwrap_or_else(String::new);
 
                 let current_operation = complex_obj
-                    .extended_properties
+                    .properties
                     .get("CurrentOperation")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                         PsValue::Primitive(PsPrimitiveValue::Nil) => Some(String::new()),
                         _ => None,
@@ -107,27 +98,27 @@ impl FromParams for (i64, methods::ProgressRecord) {
                     .unwrap_or_else(String::new);
 
                 let parent_activity_id = complex_obj
-                    .extended_properties
+                    .properties
                     .get("ParentActivityId")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
                         _ => None,
                     })
                     .unwrap_or(-1);
 
                 let percent_complete = complex_obj
-                    .extended_properties
+                    .properties
                     .get("PercentComplete")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::I32(percent)) => Some(*percent),
                         _ => None,
                     })
                     .unwrap_or(-1);
 
                 let seconds_remaining = complex_obj
-                    .extended_properties
+                    .properties
                     .get("SecondsRemaining")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
                         _ => None,
                     })
@@ -135,9 +126,9 @@ impl FromParams for (i64, methods::ProgressRecord) {
 
                 // Extract the record type from the nested Type object
                 let record_type = complex_obj
-                    .extended_properties
+                    .properties
                     .get("Type")
-                    .and_then(|prop| match &prop.value {
+                    .and_then(|prop| match prop {
                         PsValue::Object(type_obj) => match &type_obj.content {
                             ComplexObjectContent::PsEnums(enums) => Some(enums.value),
                             _ => None,
@@ -330,15 +321,15 @@ impl FromParams for methods::Coordinates {
         match &a[0] {
             PsValue::Object(obj) => {
                 let x = obj
-                    .extended_properties
+                    .properties
                     .get("x")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let y = obj
-                    .extended_properties
+                    .properties
                     .get("y")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 Ok(Self { x, y })
@@ -393,27 +384,27 @@ impl FromParams for methods::Rectangle {
         match &a[0] {
             PsValue::Object(obj) => {
                 let left = obj
-                    .extended_properties
+                    .properties
                     .get("left")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let top = obj
-                    .extended_properties
+                    .properties
                     .get("top")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let right = obj
-                    .extended_properties
+                    .properties
                     .get("right")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let bottom = obj
-                    .extended_properties
+                    .properties
                     .get("bottom")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 Ok(Self {
@@ -510,12 +501,10 @@ impl FromParams for methods::BufferCell {
         match &a[0] {
             PsValue::Object(obj) => {
                 let character = obj
-                    .extended_properties
+                    .properties
                     .get("character")
                     .and_then(|prop| {
-                        if let PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Char(c)) =
-                            &prop.value
-                        {
+                        if let PsValue::Primitive(ironposh_psrp::PsPrimitiveValue::Char(c)) = prop {
                             Some(*c)
                         } else {
                             None
@@ -524,21 +513,21 @@ impl FromParams for methods::BufferCell {
                     .ok_or(HostError::InvalidParameters)?;
 
                 let foreground = obj
-                    .extended_properties
+                    .properties
                     .get("foregroundColor")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let background = obj
-                    .extended_properties
+                    .properties
                     .get("backgroundColor")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 let flags = obj
-                    .extended_properties
+                    .properties
                     .get("bufferCellType")
-                    .and_then(|prop| prop.value.as_i32())
+                    .and_then(PsValue::as_i32)
                     .ok_or(HostError::InvalidParameters)?;
 
                 Ok(Self {

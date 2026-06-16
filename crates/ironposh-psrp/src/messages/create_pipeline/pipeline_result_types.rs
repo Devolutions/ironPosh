@@ -1,5 +1,4 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
-use std::collections::BTreeMap;
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PipelineResultTypes {
@@ -54,8 +53,7 @@ impl From<PipelineResultTypes> for ComplexObject {
             content: ComplexObjectContent::PsEnums(PsEnums {
                 value: result_type.value(),
             }),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::PowerShellRemotingError;
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsPrimitiveValue, PsValue};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use typed_builder::TypedBuilder;
@@ -47,30 +47,20 @@ impl ValueWrapper {
 
 impl From<ValueWrapper> for ComplexObject {
     fn from(wrapper: ValueWrapper) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "T".to_string(),
-            PsProperty {
-                name: "T".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(wrapper.type_name)),
-            },
+        properties.insert_extended(
+            "T",
+            PsValue::Primitive(PsPrimitiveValue::Str(wrapper.type_name)),
         );
 
-        extended_properties.insert(
-            "V".to_string(),
-            PsProperty {
-                name: "V".to_string(),
-                value: wrapper.value,
-            },
-        );
+        properties.insert_extended("V", wrapper.value);
 
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -80,9 +70,9 @@ impl TryFrom<&ComplexObject> for ValueWrapper {
 
     fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
         let type_name = obj
-            .extended_properties
+            .properties
             .get("T")
-            .and_then(|p| match &p.value {
+            .and_then(|v| match v {
                 PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
                 _ => None,
             })
@@ -92,15 +82,11 @@ impl TryFrom<&ComplexObject> for ValueWrapper {
                 )
             })?;
 
-        let value = obj
-            .extended_properties
-            .get("V")
-            .map(|p| p.value.clone())
-            .ok_or_else(|| {
-                PowerShellRemotingError::InvalidMessage(
-                    "Missing value property 'V' in ValueWrapper".to_string(),
-                )
-            })?;
+        let value = obj.properties.get("V").cloned().ok_or_else(|| {
+            PowerShellRemotingError::InvalidMessage(
+                "Missing value property 'V' in ValueWrapper".to_string(),
+            )
+        })?;
 
         Ok(Self { type_name, value })
     }
@@ -116,27 +102,14 @@ pub struct Coordinates {
 
 impl From<Coordinates> for ComplexObject {
     fn from(coords: Coordinates) -> Self {
-        let mut extended_properties = BTreeMap::new();
-        extended_properties.insert(
-            "x".to_string(),
-            PsProperty {
-                name: "x".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(coords.x)),
-            },
-        );
-        extended_properties.insert(
-            "y".to_string(),
-            PsProperty {
-                name: "y".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(coords.y)),
-            },
-        );
+        let mut properties = Properties::new();
+        properties.insert_extended("x", PsValue::Primitive(PsPrimitiveValue::I32(coords.x)));
+        properties.insert_extended("y", PsValue::Primitive(PsPrimitiveValue::I32(coords.y)));
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -146,9 +119,9 @@ impl TryFrom<&ComplexObject> for Coordinates {
 
     fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
         let get_i32 = |name: &str| {
-            obj.extended_properties
+            obj.properties
                 .get(name)
-                .and_then(|p| match &p.value {
+                .and_then(|v| match v {
                     PsValue::Primitive(PsPrimitiveValue::I32(val)) => Some(*val),
                     _ => None,
                 })
@@ -174,27 +147,20 @@ pub struct Size {
 
 impl From<Size> for ComplexObject {
     fn from(size: Size) -> Self {
-        let mut extended_properties = BTreeMap::new();
-        extended_properties.insert(
-            "width".to_string(),
-            PsProperty {
-                name: "width".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(size.width)),
-            },
+        let mut properties = Properties::new();
+        properties.insert_extended(
+            "width",
+            PsValue::Primitive(PsPrimitiveValue::I32(size.width)),
         );
-        extended_properties.insert(
-            "height".to_string(),
-            PsProperty {
-                name: "height".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(size.height)),
-            },
+        properties.insert_extended(
+            "height",
+            PsValue::Primitive(PsPrimitiveValue::I32(size.height)),
         );
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -204,9 +170,9 @@ impl TryFrom<&ComplexObject> for Size {
 
     fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
         let get_i32 = |name: &str| {
-            obj.extended_properties
+            obj.properties
                 .get(name)
-                .and_then(|p| match &p.value {
+                .and_then(|v| match v {
                     PsValue::Primitive(PsPrimitiveValue::I32(val)) => Some(*val),
                     _ => None,
                 })

@@ -84,8 +84,7 @@ impl PsValue {
             type_def: Some(PsType::array_list()),
             to_string: None,
             content: super::ComplexObjectContent::Container(super::Container::List(values)),
-            adapted_properties: std::collections::BTreeMap::new(),
-            extended_properties: std::collections::BTreeMap::new(),
+            properties: super::Properties::new(),
         })
     }
 

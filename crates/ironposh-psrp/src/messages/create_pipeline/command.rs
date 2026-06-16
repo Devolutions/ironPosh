@@ -1,8 +1,7 @@
 use super::{CommandParameter, PipelineResultTypes};
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsPrimitiveValue, PsType, PsValue,
 };
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct Command {
@@ -33,26 +32,19 @@ pub struct Command {
 }
 
 impl From<Command> for ComplexObject {
-    #[expect(clippy::too_many_lines)]
     fn from(command: Command) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
         let cmd_str = command.cmd.clone();
 
-        extended_properties.insert(
-            "Cmd".to_string(),
-            PsProperty {
-                name: "Cmd".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(command.cmd)),
-            },
+        properties.insert_extended(
+            "Cmd",
+            PsValue::Primitive(PsPrimitiveValue::Str(command.cmd)),
         );
 
-        extended_properties.insert(
-            "IsScript".to_string(),
-            PsProperty {
-                name: "IsScript".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(command.is_script)),
-            },
+        properties.insert_extended(
+            "IsScript",
+            PsValue::Primitive(PsPrimitiveValue::Bool(command.is_script)),
         );
 
         // Args as ArrayList of CommandParameter objects
@@ -66,99 +58,58 @@ impl From<Command> for ComplexObject {
             type_def: Some(PsType::array_list()),
             to_string: cmd_str.clone().into(),
             content: ComplexObjectContent::Container(Container::List(args_values)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         };
 
-        extended_properties.insert(
-            "Args".to_string(),
-            PsProperty {
-                name: "Args".to_string(),
-                value: PsValue::Object(args_obj),
-            },
+        properties.insert_extended("Args", PsValue::Object(args_obj));
+
+        properties.insert_extended(
+            "UseLocalScope",
+            command.use_local_scope.map_or(
+                PsValue::Primitive(PsPrimitiveValue::Nil),
+                |use_local_scope| PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope)),
+            ),
         );
 
-        extended_properties.insert(
-            "UseLocalScope".to_string(),
-            PsProperty {
-                name: "UseLocalScope".to_string(),
-                value: command.use_local_scope.map_or(
-                    PsValue::Primitive(PsPrimitiveValue::Nil),
-                    |use_local_scope| PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope)),
-                ),
-            },
+        properties.insert_extended(
+            "MergeMyResult",
+            PsValue::Object(command.merge_my_result.into()),
         );
 
-        extended_properties.insert(
-            "MergeMyResult".to_string(),
-            PsProperty {
-                name: "MergeMyResult".to_string(),
-                value: PsValue::Object(command.merge_my_result.into()),
-            },
+        properties.insert_extended(
+            "MergeToResult",
+            PsValue::Object(command.merge_to_result.into()),
         );
 
-        extended_properties.insert(
-            "MergeToResult".to_string(),
-            PsProperty {
-                name: "MergeToResult".to_string(),
-                value: PsValue::Object(command.merge_to_result.into()),
-            },
+        properties.insert_extended(
+            "MergePreviousResults",
+            PsValue::Object(command.merge_previous_results.into()),
         );
 
-        extended_properties.insert(
-            "MergePreviousResults".to_string(),
-            PsProperty {
-                name: "MergePreviousResults".to_string(),
-                value: PsValue::Object(command.merge_previous_results.into()),
-            },
+        properties.insert_extended("MergeDebug", PsValue::Object(command.merge_debug.into()));
+
+        properties.insert_extended("MergeError", PsValue::Object(command.merge_error.into()));
+
+        properties.insert_extended(
+            "MergeInformation",
+            PsValue::Object(command.merge_information.into()),
         );
 
-        extended_properties.insert(
-            "MergeDebug".to_string(),
-            PsProperty {
-                name: "MergeDebug".to_string(),
-                value: PsValue::Object(command.merge_debug.into()),
-            },
+        properties.insert_extended(
+            "MergeVerbose",
+            PsValue::Object(command.merge_verbose.into()),
         );
 
-        extended_properties.insert(
-            "MergeError".to_string(),
-            PsProperty {
-                name: "MergeError".to_string(),
-                value: PsValue::Object(command.merge_error.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeInformation".to_string(),
-            PsProperty {
-                name: "MergeInformation".to_string(),
-                value: PsValue::Object(command.merge_information.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeVerbose".to_string(),
-            PsProperty {
-                name: "MergeVerbose".to_string(),
-                value: PsValue::Object(command.merge_verbose.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeWarning".to_string(),
-            PsProperty {
-                name: "MergeWarning".to_string(),
-                value: PsValue::Object(command.merge_warning.into()),
-            },
+        properties.insert_extended(
+            "MergeWarning",
+            PsValue::Object(command.merge_warning.into()),
         );
 
         Self {
             type_def: None,
             to_string: Some(cmd_str),
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -167,14 +118,14 @@ impl TryFrom<ComplexObject> for Command {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
+        let get_property = |name: &str| -> Result<&PsValue, Self::Error> {
             value
-                .extended_properties
+                .properties
                 .get(name)
                 .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
-        let cmd = match &get_property("Cmd")?.value {
+        let cmd = match get_property("Cmd")? {
             PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
             _ => {
                 return Err(Self::Error::InvalidMessage(
@@ -183,7 +134,7 @@ impl TryFrom<ComplexObject> for Command {
             }
         };
 
-        let is_script = match &get_property("IsScript")?.value {
+        let is_script = match get_property("IsScript")? {
             PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
             _ => {
                 return Err(Self::Error::InvalidMessage(
@@ -192,7 +143,7 @@ impl TryFrom<ComplexObject> for Command {
             }
         };
 
-        let args = match &get_property("Args")?.value {
+        let args = match get_property("Args")? {
             PsValue::Object(obj) => match &obj.content {
                 ComplexObjectContent::Container(Container::List(list)) => {
                     let mut command_params = Vec::new();
@@ -210,8 +161,8 @@ impl TryFrom<ComplexObject> for Command {
             PsValue::Primitive(_) => vec![],
         };
 
-        let use_local_scope = if let Some(prop) = value.extended_properties.get("UseLocalScope")
-            && let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = &prop.value
+        let use_local_scope = if let Some(value) = value.properties.get("UseLocalScope")
+            && let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = value
         {
             Some(*b)
         } else {
@@ -219,15 +170,15 @@ impl TryFrom<ComplexObject> for Command {
         };
 
         let get_merge_property = |name: &str| -> PipelineResultTypes {
-            value
-                .extended_properties
-                .get(name)
-                .map_or_else(PipelineResultTypes::default, |prop| match &prop.value {
+            value.properties.get(name).map_or_else(
+                PipelineResultTypes::default,
+                |value| match value {
                     PsValue::Object(obj) => {
                         PipelineResultTypes::try_from(obj.clone()).unwrap_or_default()
                     }
                     PsValue::Primitive(_) => PipelineResultTypes::default(),
-                })
+                },
+            )
         };
 
         let merge_my_result = get_merge_property("MergeMyResult");

@@ -1,5 +1,4 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
-use std::collections::BTreeMap;
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsPrimitiveValue, PsValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandParameter {
@@ -25,34 +24,24 @@ impl CommandParameter {
 
 impl From<CommandParameter> for ComplexObject {
     fn from(param: CommandParameter) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "N".to_string(),
-            PsProperty {
-                name: "N".to_string(),
-                value: param
-                    .name
-                    .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |name| {
-                        PsValue::Primitive(PsPrimitiveValue::Str(name))
-                    }),
-            },
+        properties.insert_extended(
+            "N",
+            param
+                .name
+                .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |name| {
+                    PsValue::Primitive(PsPrimitiveValue::Str(name))
+                }),
         );
 
-        extended_properties.insert(
-            "V".to_string(),
-            PsProperty {
-                name: "V".to_string(),
-                value: param.value,
-            },
-        );
+        properties.insert_extended("V", param.value);
 
         Self {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -61,20 +50,20 @@ impl TryFrom<ComplexObject> for CommandParameter {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
+        let get_property = |name: &str| -> Result<&PsValue, Self::Error> {
             value
-                .extended_properties
+                .properties
                 .get(name)
                 .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
-        let name = if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = &get_property("N")?.value {
+        let name = if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = get_property("N")? {
             Some(s.clone())
         } else {
             None
         };
 
-        let value = get_property("V")?.value.clone();
+        let value = get_property("V")?.clone();
 
         Ok(Self { name, value })
     }

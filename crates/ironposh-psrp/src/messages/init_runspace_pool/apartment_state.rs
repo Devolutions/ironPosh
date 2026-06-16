@@ -1,5 +1,5 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
-use std::{borrow::Cow, collections::BTreeMap};
+use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApartmentState {
@@ -31,8 +31,7 @@ impl From<ApartmentState> for ComplexObject {
             content: ComplexObjectContent::PsEnums(PsEnums {
                 value: state as i32,
             }),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }
     }
 }

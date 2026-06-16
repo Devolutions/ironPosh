@@ -2,19 +2,13 @@ use std::{borrow::Cow, collections::BTreeMap, collections::HashMap};
 
 use super::{methods, traits::ToPs};
 use ironposh_psrp::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsPrimitiveValue, PsType, PsValue,
 };
 
 fn obj_with_extended_props(type_names: &[&'static str], props: Vec<(&str, PsValue)>) -> PsValue {
-    let mut extended_properties = BTreeMap::new();
+    let mut properties = Properties::new();
     for (name, value) in props {
-        extended_properties.insert(
-            name.to_string(),
-            PsProperty {
-                name: name.to_string(),
-                value,
-            },
-        );
+        properties.insert_extended(name, value);
     }
 
     PsValue::Object(ComplexObject {
@@ -23,8 +17,7 @@ fn obj_with_extended_props(type_names: &[&'static str], props: Vec<(&str, PsValu
         }),
         to_string: None,
         content: ComplexObjectContent::Standard,
-        adapted_properties: BTreeMap::new(),
-        extended_properties,
+        properties,
     })
 }
 
@@ -45,8 +38,7 @@ impl<S: ::std::hash::BuildHasher> ToPs for HashMap<String, PsValue, S> {
             }),
             to_string: None,
             content: ComplexObjectContent::Container(Container::Dictionary(dict)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
+            properties: Properties::new(),
         }))
     }
 }

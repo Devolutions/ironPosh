@@ -1,10 +1,9 @@
 #[cfg(test)]
 mod error_record_integration_tests {
     use crate::ps_value::{
-        ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue,
+        ComplexObject, ComplexObjectContent, Properties, PsPrimitiveValue, PsValue,
     };
     use crate::{ErrorCategory, ErrorRecord};
-    use std::collections::BTreeMap;
 
     /// Test based on the actual failing message from the logs:
     /// "Protocol error: Invalid PowerShell remoting message: Missing Message or ErrorRecord property"
@@ -34,8 +33,9 @@ mod error_record_integration_tests {
         println!(
             "   Available properties: {:?}",
             complex_object
-                .extended_properties
-                .keys()
+                .properties
+                .extended()
+                .map(|(name, _)| name)
                 .collect::<Vec<_>>()
         );
 
@@ -50,9 +50,13 @@ mod error_record_integration_tests {
                 println!("   Target: {:?}", error_record.target_object);
                 println!("   Error ID: {:?}", error_record.fully_qualified_error_id);
 
+                // RFC #12 L1: property accessors now search both the adapted and
+                // extended bags, so the clean top-level `Message` is found instead
+                // of the Exception rendering that carried a doubled-comma artifact
+                // ("cmdlet,, function"). The single-comma message is the correct one.
                 assert_eq!(
                     error_record.message,
-                    "The term 'ed' is not recognized as the name of a cmdlet,, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again."
+                    "The term 'ed' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again."
                 );
                 // CommandName may not be present in this specific error structure
                 // assert_eq!(error_record.command_name, Some("ed".to_string()));
@@ -93,22 +97,18 @@ mod error_record_integration_tests {
     /// Test the edge case where only "ErrorRecord" property is present (no "Message")
     #[test]
     fn test_error_record_with_only_error_record_property() {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "ErrorRecord".to_string(),
-            PsProperty {
-                name: "ErrorRecord".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str("Test error message".to_string())),
-            },
+        properties.insert_extended(
+            "ErrorRecord",
+            PsValue::Primitive(PsPrimitiveValue::Str("Test error message".to_string())),
         );
 
         let complex_object = ComplexObject {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         };
 
         let result = ErrorRecord::try_from(complex_object);
@@ -121,22 +121,18 @@ mod error_record_integration_tests {
     /// Test the edge case where only "Message" property is present (no "ErrorRecord")
     #[test]
     fn test_error_record_with_only_message_property() {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "Message".to_string(),
-            PsProperty {
-                name: "Message".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str("Test error message".to_string())),
-            },
+        properties.insert_extended(
+            "Message",
+            PsValue::Primitive(PsPrimitiveValue::Str("Test error message".to_string())),
         );
 
         let complex_object = ComplexObject {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         };
 
         let result = ErrorRecord::try_from(complex_object);
@@ -150,22 +146,18 @@ mod error_record_integration_tests {
     /// This should fail with the error we've been seeing
     #[test]
     fn test_error_record_missing_both_message_and_error_record() {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "SomeOtherProperty".to_string(),
-            PsProperty {
-                name: "SomeOtherProperty".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str("Some value".to_string())),
-            },
+        properties.insert_extended(
+            "SomeOtherProperty",
+            PsValue::Primitive(PsPrimitiveValue::Str("Some value".to_string())),
         );
 
         let complex_object = ComplexObject {
             type_def: None,
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         };
 
         let result = ErrorRecord::try_from(complex_object);

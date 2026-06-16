@@ -54,19 +54,20 @@ impl TryFrom<&PsValue> for CommandCompletion {
         let replacement_index = get_i32(value, "CommandCompletion", "ReplacementIndex")?;
         let replacement_length = get_i32(value, "CommandCompletion", "ReplacementLength")?;
 
-        let matches_value = obj.adapted_properties.get("CompletionMatches").ok_or(
+        let matches_value = obj.properties.get("CompletionMatches").ok_or(
             CommandCompletionError::MissingProperty {
                 context: "CommandCompletion",
                 name: "CompletionMatches",
             },
         )?;
 
-        let matches_obj = matches_value.value.as_object().ok_or_else(|| {
-            CommandCompletionError::ExpectedObject {
-                context: "CommandCompletion.CompletionMatches",
-                found: ps_value_kind(&matches_value.value),
-            }
-        })?;
+        let matches_obj =
+            matches_value
+                .as_object()
+                .ok_or_else(|| CommandCompletionError::ExpectedObject {
+                    context: "CommandCompletion.CompletionMatches",
+                    found: ps_value_kind(matches_value),
+                })?;
 
         let Container::List(items) = matches_obj.content.container().ok_or_else(|| {
             CommandCompletionError::UnexpectedType {
@@ -136,10 +137,10 @@ fn get_i32(
             found: ps_value_kind(value),
         })?;
     let prop = obj
-        .adapted_properties
+        .properties
         .get(name)
         .ok_or(CommandCompletionError::MissingProperty { context, name })?;
-    match &prop.value {
+    match prop {
         PsValue::Primitive(PsPrimitiveValue::I32(v)) => Ok(*v),
         other => Err(CommandCompletionError::UnexpectedType {
             context,
@@ -156,10 +157,10 @@ fn get_string_from_obj(
     name: &'static str,
 ) -> Result<String, CommandCompletionError> {
     let prop = obj
-        .adapted_properties
+        .properties
         .get(name)
         .ok_or(CommandCompletionError::MissingProperty { context, name })?;
-    match &prop.value {
+    match prop {
         PsValue::Primitive(PsPrimitiveValue::Str(v)) => Ok(v.clone()),
         other => Err(CommandCompletionError::UnexpectedType {
             context,

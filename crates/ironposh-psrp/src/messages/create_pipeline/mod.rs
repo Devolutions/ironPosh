@@ -15,11 +15,11 @@ pub use remote_stream_options::RemoteStreamOptions;
 use super::init_runspace_pool::{ApartmentState, HostInfo};
 use crate::MessageType;
 use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsEnums, PsObjectWithType, PsPrimitiveValue, PsProperty,
+    ComplexObject, ComplexObjectContent, Properties, PsEnums, PsObjectWithType, PsPrimitiveValue,
     PsType, PsValue,
 };
+use std::borrow::Cow;
 use std::vec;
-use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
 pub struct CreatePipeline {
@@ -49,62 +49,41 @@ impl PsObjectWithType for CreatePipeline {
 
 impl From<CreatePipeline> for ComplexObject {
     fn from(create_pipeline: CreatePipeline) -> Self {
-        let mut extended_properties = BTreeMap::new();
+        let mut properties = Properties::new();
 
-        extended_properties.insert(
-            "NoInput".to_string(),
-            PsProperty {
-                name: "NoInput".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.no_input)),
-            },
+        properties.insert_extended(
+            "NoInput",
+            PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.no_input)),
         );
 
-        extended_properties.insert(
-            "ApartmentState".to_string(),
-            PsProperty {
-                name: "ApartmentState".to_string(),
-                value: PsValue::Object(Self::from(create_pipeline.apartment_state)),
-            },
+        properties.insert_extended(
+            "ApartmentState",
+            PsValue::Object(Self::from(create_pipeline.apartment_state)),
         );
 
-        extended_properties.insert(
-            "RemoteStreamOptions".to_string(),
-            PsProperty {
-                name: "RemoteStreamOptions".to_string(),
-                value: PsValue::Object(Self::from(create_pipeline.remote_stream_options)),
-            },
+        properties.insert_extended(
+            "RemoteStreamOptions",
+            PsValue::Object(Self::from(create_pipeline.remote_stream_options)),
         );
 
-        extended_properties.insert(
-            "AddToHistory".to_string(),
-            PsProperty {
-                name: "AddToHistory".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.add_to_history)),
-            },
+        properties.insert_extended(
+            "AddToHistory",
+            PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.add_to_history)),
         );
 
-        extended_properties.insert(
-            "HostInfo".to_string(),
-            PsProperty {
-                name: "HostInfo".to_string(),
-                value: PsValue::Object(Self::from(create_pipeline.host_info)),
-            },
+        properties.insert_extended(
+            "HostInfo",
+            PsValue::Object(Self::from(create_pipeline.host_info)),
         );
 
-        extended_properties.insert(
-            "PowerShell".to_string(),
-            PsProperty {
-                name: "PowerShell".to_string(),
-                value: PsValue::Object(Self::from(create_pipeline.pipeline)),
-            },
+        properties.insert_extended(
+            "PowerShell",
+            PsValue::Object(Self::from(create_pipeline.pipeline)),
         );
 
-        extended_properties.insert(
-            "IsNested".to_string(),
-            PsProperty {
-                name: "IsNested".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.is_nested)),
-            },
+        properties.insert_extended(
+            "IsNested",
+            PsValue::Primitive(PsPrimitiveValue::Bool(create_pipeline.is_nested)),
         );
 
         Self {
@@ -113,8 +92,7 @@ impl From<CreatePipeline> for ComplexObject {
             }),
             to_string: None,
             content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+            properties,
         }
     }
 }
@@ -123,19 +101,19 @@ impl TryFrom<ComplexObject> for CreatePipeline {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
+        let get_property = |name: &str| -> Result<&PsValue, Self::Error> {
             value
-                .extended_properties
+                .properties
                 .get(name)
                 .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
         };
 
-        let no_input = match &get_property("NoInput")?.value {
+        let no_input = match get_property("NoInput")? {
             PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
             _ => true,
         };
 
-        let apartment_state = match &get_property("ApartmentState")?.value {
+        let apartment_state = match get_property("ApartmentState")? {
             PsValue::Object(obj) => match &obj.content {
                 ComplexObjectContent::PsEnums(PsEnums { value }) => match *value {
                     0 => ApartmentState::STA,
@@ -147,17 +125,17 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             PsValue::Primitive(_) => ApartmentState::Unknown,
         };
 
-        let remote_stream_options = match &get_property("RemoteStreamOptions")?.value {
+        let remote_stream_options = match get_property("RemoteStreamOptions")? {
             PsValue::Object(obj) => RemoteStreamOptions::try_from(obj.clone())?,
             PsValue::Primitive(_) => RemoteStreamOptions::None,
         };
 
-        let add_to_history = match &get_property("AddToHistory")?.value {
+        let add_to_history = match get_property("AddToHistory")? {
             PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
             _ => false,
         };
 
-        let host_info = match &get_property("HostInfo")?.value {
+        let host_info = match get_property("HostInfo")? {
             PsValue::Object(obj) => HostInfo::try_from(obj.clone())
                 .map_err(|_| Self::Error::InvalidMessage("Failed to parse HostInfo".to_string()))?,
             PsValue::Primitive(_) => {
@@ -167,7 +145,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             }
         };
 
-        let power_shell = match &get_property("PowerShell")?.value {
+        let power_shell = match get_property("PowerShell")? {
             PsValue::Object(obj) => PowerShellPipeline::try_from(obj.clone())?,
             PsValue::Primitive(_) => {
                 return Err(Self::Error::InvalidMessage(
@@ -176,7 +154,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
             }
         };
 
-        let is_nested = match &get_property("IsNested")?.value {
+        let is_nested = match get_property("IsNested")? {
             PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
             _ => false,
         };

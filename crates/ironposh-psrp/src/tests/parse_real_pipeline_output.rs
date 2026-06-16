@@ -48,26 +48,26 @@ fn test_parse_real_pipeline_output() {
 
     // Test adapted properties
     assert!(
-        !complex_obj.adapted_properties.is_empty(),
+        complex_obj.properties.has_adapted(),
         "Should have adapted properties"
     );
 
     // Check specific properties
     let name_prop = complex_obj
-        .adapted_properties
+        .properties
         .get("Name")
         .expect("Should have Name property");
-    if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = &name_prop.value {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = name_prop {
         assert_eq!(name, "ADMF", "Name should be ADMF");
     } else {
         panic!("Name property should be a string");
     }
 
     let full_name_prop = complex_obj
-        .adapted_properties
+        .properties
         .get("FullName")
         .expect("Should have FullName property");
-    if let PsValue::Primitive(PsPrimitiveValue::Str(full_name)) = &full_name_prop.value {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(full_name)) = full_name_prop {
         assert_eq!(
             full_name, "C:\\Users\\Administrator\\Documents\\ADMF",
             "FullName should match"
@@ -77,10 +77,10 @@ fn test_parse_real_pipeline_output() {
     }
 
     let exists_prop = complex_obj
-        .adapted_properties
+        .properties
         .get("Exists")
         .expect("Should have Exists property");
-    if let PsValue::Primitive(PsPrimitiveValue::Bool(exists)) = &exists_prop.value {
+    if let PsValue::Primitive(PsPrimitiveValue::Bool(exists)) = exists_prop {
         assert!(exists, "Exists should be true");
     } else {
         panic!("Exists property should be a boolean");
@@ -88,15 +88,15 @@ fn test_parse_real_pipeline_output() {
 
     // Test extended properties (MS section)
     assert!(
-        !complex_obj.extended_properties.is_empty(),
+        complex_obj.properties.has_extended(),
         "Should have extended properties"
     );
 
     let ps_path_prop = complex_obj
-        .extended_properties
+        .properties
         .get("PSPath")
         .expect("Should have PSPath property");
-    if let PsValue::Primitive(PsPrimitiveValue::Str(ps_path)) = &ps_path_prop.value {
+    if let PsValue::Primitive(PsPrimitiveValue::Str(ps_path)) = ps_path_prop {
         assert_eq!(
             ps_path,
             "Microsoft.PowerShell.Core\\FileSystem::C:\\Users\\Administrator\\Documents\\ADMF",
@@ -108,10 +108,10 @@ fn test_parse_real_pipeline_output() {
 
     // Test nested objects (PSDrive)
     let ps_drive_prop = complex_obj
-        .extended_properties
+        .properties
         .get("PSDrive")
         .expect("Should have PSDrive property");
-    if let PsValue::Object(ps_drive_obj) = &ps_drive_prop.value {
+    if let PsValue::Object(ps_drive_obj) = ps_drive_prop {
         assert!(
             ps_drive_obj.type_def.is_some(),
             "PSDrive should have type definition"
@@ -131,10 +131,10 @@ fn test_parse_real_pipeline_output() {
 
         // Test PSDrive properties
         let name_prop = ps_drive_obj
-            .adapted_properties
+            .properties
             .get("Name")
             .expect("PSDrive should have Name property");
-        if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = &name_prop.value {
+        if let PsValue::Primitive(PsPrimitiveValue::Str(name)) = name_prop {
             assert_eq!(name, "C", "PSDrive Name should be C");
         } else {
             panic!("PSDrive Name property should be a string");
@@ -145,15 +145,15 @@ fn test_parse_real_pipeline_output() {
 
     // Test object references (in the Drives collection)
     let ps_provider_prop = complex_obj
-        .extended_properties
+        .properties
         .get("PSProvider")
         .expect("Should have PSProvider property");
-    if let PsValue::Object(ps_provider_obj) = &ps_provider_prop.value {
+    if let PsValue::Object(ps_provider_obj) = ps_provider_prop {
         let drives_prop = ps_provider_obj
-            .adapted_properties
+            .properties
             .get("Drives")
             .expect("PSProvider should have Drives property");
-        if let PsValue::Object(drives_obj) = &drives_prop.value {
+        if let PsValue::Object(drives_obj) = drives_prop {
             if let ComplexObjectContent::Container(Container::List(drives_list)) =
                 &drives_obj.content
             {
@@ -188,11 +188,11 @@ fn test_parse_real_pipeline_output() {
     println!("ToString: {:?}", complex_obj.to_string);
     println!(
         "Adapted properties count: {}",
-        complex_obj.adapted_properties.len()
+        complex_obj.properties.adapted().count()
     );
     println!(
         "Extended properties count: {}",
-        complex_obj.extended_properties.len()
+        complex_obj.properties.extended().count()
     );
 }
 
@@ -220,14 +220,20 @@ fn test_parse_real_pipeline_output_detailed_inspection() {
 
             println!("ToString: {:?}", obj.to_string);
 
-            println!("\nAdapted Properties ({}):", obj.adapted_properties.len());
-            for (name, prop) in &obj.adapted_properties {
-                println!("  {}: {:?}", name, classify_ps_value(&prop.value));
+            println!(
+                "\nAdapted Properties ({}):",
+                obj.properties.adapted().count()
+            );
+            for (name, value) in obj.properties.adapted() {
+                println!("  {}: {:?}", name, classify_ps_value(value));
             }
 
-            println!("\nExtended Properties ({}):", obj.extended_properties.len());
-            for (name, prop) in &obj.extended_properties {
-                println!("  {}: {:?}", name, classify_ps_value(&prop.value));
+            println!(
+                "\nExtended Properties ({}):",
+                obj.properties.extended().count()
+            );
+            for (name, value) in obj.properties.extended() {
+                println!("  {}: {:?}", name, classify_ps_value(value));
             }
 
             // Check if we have any container content
@@ -277,8 +283,8 @@ fn classify_ps_value(value: &PsValue) -> String {
                 "Object({}, content: {}, props: {}, ext_props: {})",
                 type_name,
                 content_type,
-                obj.adapted_properties.len(),
-                obj.extended_properties.len()
+                obj.properties.adapted().count(),
+                obj.properties.extended().count()
             )
         }
     }
