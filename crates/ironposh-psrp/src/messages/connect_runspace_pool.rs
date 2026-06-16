@@ -1,8 +1,5 @@
 use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
-};
-use std::collections::BTreeMap;
+use crate::ps_value::{ComplexObject, PsObjectWithType, PsValue};
 
 /// Client → Server CONNECT_RUNSPACEPOOL message (MS-PSRP 2.2.2.14).
 ///
@@ -14,48 +11,30 @@ pub struct ConnectRunspacePool {
     pub max_runspaces: i32,
 }
 
-impl PsObjectWithType for ConnectRunspacePool {
-    fn message_type(&self) -> MessageType {
-        MessageType::ConnectRunspacepool
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
 // <Obj RefId="0">
 //   <MS>
 //     <I32 N="MinRunspaces">1</I32>
 //     <I32 N="MaxRunspaces">1</I32>
 //   </MS>
 // </Obj>
+impl PsObjectWithType for ConnectRunspacePool {
+    fn message_type(&self) -> MessageType {
+        MessageType::ConnectRunspacepool
+    }
+
+    fn to_ps_object(&self) -> PsValue {
+        ComplexObject::standard()
+            .extended("MinRunspaces", self.min_runspaces)
+            .extended("MaxRunspaces", self.max_runspaces)
+            .build_value()
+    }
+}
+
 impl From<ConnectRunspacePool> for ComplexObject {
     fn from(value: ConnectRunspacePool) -> Self {
-        let mut extended_properties = BTreeMap::new();
-
-        extended_properties.insert(
-            "MinRunspaces".to_string(),
-            PsProperty {
-                name: "MinRunspaces".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(value.min_runspaces)),
-            },
-        );
-
-        extended_properties.insert(
-            "MaxRunspaces".to_string(),
-            PsProperty {
-                name: "MaxRunspaces".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(value.max_runspaces)),
-            },
-        );
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
+        match value.to_ps_object() {
+            PsValue::Object(obj) => obj,
+            PsValue::Primitive(_) => unreachable!("ConnectRunspacePool serializes to an object"),
         }
     }
 }
@@ -64,23 +43,9 @@ impl TryFrom<ComplexObject> for ConnectRunspacePool {
     type Error = crate::PowerShellRemotingError;
 
     fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_i32_property = |name: &str| -> Result<i32, Self::Error> {
-            let property = value
-                .extended_properties
-                .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))?;
-
-            match &property.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(v)) => Ok(*v),
-                other => Err(Self::Error::InvalidMessage(format!(
-                    "Property '{name}' must be an I32, got {other:?}"
-                ))),
-            }
-        };
-
         Ok(Self {
-            min_runspaces: get_i32_property("MinRunspaces")?,
-            max_runspaces: get_i32_property("MaxRunspaces")?,
+            min_runspaces: value.req("MinRunspaces")?,
+            max_runspaces: value.req("MaxRunspaces")?,
         })
     }
 }
