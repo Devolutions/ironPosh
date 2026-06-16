@@ -538,6 +538,20 @@ impl<S: SessionBackend> SessionCore<S> {
         matches!(self.host_call_state, HostCallState::Waiting { .. })
     }
 
+    /// Whether buffered user operations are still waiting to be processed.
+    ///
+    /// The main loop drains `user_ops` one op per iteration via
+    /// [`Self::process_one_buffered_op`]. When a buffered op produces no
+    /// promotable HTTP work (e.g. `SubmitHostResponse`), `promote_next_request`
+    /// returns `None` and the loop would otherwise block in its idle `select!`,
+    /// which only wakes on *external* events. Any remaining buffered op (e.g. a
+    /// queued pipeline invoke issued right after a Ctrl+C kill) would then stall
+    /// until an unrelated wake-up. The loop consults this to keep iterating
+    /// while internal work remains.
+    pub(super) fn has_pending_buffered_ops(&self) -> bool {
+        !self.queues.user_ops.is_empty()
+    }
+
     // ── Internal routing ─────────────────────────────────────────────────
 
     /// Route an [`ActiveSessionOutput`] to the appropriate internal queue.
@@ -1077,6 +1091,52 @@ mod tests {
         assert_eq!(core.queues.user_ops.len(), 0);
         // And the SendBack from KillPipeline should be at the FRONT (priority=Front).
         assert_eq!(core.queues.work[0].get_connection_id().inner(), 99);
+    }
+
+    /// Regression: when a buffered op produces no promotable HTTP work but
+    /// another buffered op remains, the loop must keep iterating instead of
+    /// blocking in its idle `select!`. Reproduces the serial Ctrl+C wedge where
+    /// a `SubmitHostResponse` (no work) was processed ahead of the queued prompt
+    /// `InvokeWithSpec`, and the loop slept on external events while the invoke
+    /// sat unprocessed — hanging the REPL.
+    #[test]
+    fn pending_buffered_op_keeps_loop_from_idling() {
+        let mut mock = MockBackend::new();
+        // SubmitHostResponse yields no work; the InvokeWithSpec is never reached
+        // in this test (we only process one op, like the loop does per iteration).
+        mock.op_responses.push_back(ActiveSessionOutput::Ignore);
+
+        let mut core = core_idle(mock);
+        // Order mirrors the live wedge: a host response ahead of the queued invoke.
+        core.queues
+            .user_ops
+            .push_back(UserOperation::SubmitHostResponse {
+                call_id: 1,
+                scope: HostCallScope::RunspacePool,
+                submission: ironposh_client_core::host::Submission::NoSend,
+            });
+        core.queues.user_ops.push_back(UserOperation::InvokeWithSpec {
+            uuid: Uuid::new_v4(),
+            spec: ironposh_client_core::pipeline::PipelineSpec {
+                commands: vec![ironposh_client_core::pipeline::PipelineCommand::new_script(
+                    "prompt".to_string(),
+                )],
+            },
+        });
+
+        // Process one buffered op (the SubmitHostResponse), as the loop does.
+        core.process_one_buffered_op().unwrap();
+
+        // No HTTP work was produced...
+        assert!(
+            core.promote_next_request().unwrap().is_none(),
+            "SubmitHostResponse should not promote any HTTP request"
+        );
+        // ...but the queued invoke is still pending, so the loop must NOT idle.
+        assert!(
+            core.has_pending_buffered_ops(),
+            "buffered InvokeWithSpec must keep the loop iterating, not blocking on external events"
+        );
     }
 
     #[test]

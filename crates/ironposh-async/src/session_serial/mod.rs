@@ -82,6 +82,14 @@ pub async fn start_serial_session_loop(
             if drain_channel(&mut core, &mut user_input_rx) {
                 return Ok(()); // channel closed
             }
+        } else if core.has_pending_buffered_ops() {
+            // A buffered op produced no promotable HTTP work this iteration
+            // (e.g. SubmitHostResponse), but more buffered ops remain. Loop
+            // again to process them instead of blocking on external events —
+            // otherwise a queued pipeline invoke (e.g. the prompt fetched right
+            // after a Ctrl+C kill) would stall until an unrelated wake-up,
+            // wedging the REPL.
+            trace!(target: "serial", "buffered ops pending; re-looping without idle wait");
         } else {
             // Idle — wait for user op or host response.
             trace!(target: "serial", "idle: no pending work, waiting for user input or host response");
