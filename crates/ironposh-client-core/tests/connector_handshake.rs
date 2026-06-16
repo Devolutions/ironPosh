@@ -721,6 +721,79 @@ fn invoke_while_disconnected_emits_terminal_pipeline_finished() {
     }
 }
 
+/// A straggler (late fault or transport error) from a connection retired at disconnect
+/// time must be ignored in ANY state — including after a reconnect returns the pool to
+/// Opened — so a stale pre-disconnect Receive cannot kill the session.
+#[test]
+fn straggler_from_retired_connection_is_ignored_even_when_opened() {
+    use ironposh_client_core::connector::active_session::TransportErrorDisposition;
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    // Obtain a real connection id by issuing a pipeline invoke while Opened.
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid: uuid::Uuid::new_v4(),
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for invoke, got {out:?}");
+    };
+    let (_request, doomed_conn) = support::expect_just_send(reqs.into_iter().next().unwrap());
+
+    // Simulate the session loop retiring that connection at disconnect time.
+    session.retire_connections([doomed_conn]);
+
+    // The pool is still Opened. A fault straggler on the retired connection must be
+    // ignored (one straggler), not surface as a fatal error.
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            doomed_conn,
+            FAULT_ENVELOPE.to_owned(),
+        ))
+        .expect("straggler must be ignored, not fatal");
+    assert!(
+        outputs
+            .iter()
+            .all(|o| matches!(o, ActiveSessionOutput::Ignore)),
+        "retired-connection straggler must be ignored, got: {outputs:?}"
+    );
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Opened);
+
+    // A transport error on a retired connection is tolerated, not fatal.
+    session.retire_connections([doomed_conn]);
+    assert_eq!(
+        session.handle_transport_error(doomed_conn),
+        TransportErrorDisposition::Tolerated
+    );
+
+    // Sanity: a non-retired connection error while Opened is still fatal.
+    let fresh = uuid::Uuid::new_v4();
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid: fresh,
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack, got {out:?}");
+    };
+    let (_request, live_conn) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_eq!(
+        session.handle_transport_error(live_conn),
+        TransportErrorDisposition::Fatal,
+        "a non-retired connection error while Opened must stay fatal"
+    );
+}
+
 /// A fault answering the Reconnect request itself (on the reconnect connection) must
 /// revert the pool to Disconnected so the session surfaces ReconnectFailed, rather than
 /// becoming a fatal error or sticking in Connecting.

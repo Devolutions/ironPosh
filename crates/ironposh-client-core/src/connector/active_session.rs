@@ -172,6 +172,11 @@ pub struct ActiveSession {
     /// Connection carrying an in-flight Reconnect request, so late responses from
     /// pre-disconnect traffic are not mistaken for the ReconnectResponse.
     reconnect_conn_id: Option<ConnectionId>,
+    /// Connections that were in flight when a Disconnect was issued (e.g. the dying
+    /// long-poll Receive). Their one straggler completion/error is ignored regardless of
+    /// the current pool state — including after a reconnect returns the pool to Opened —
+    /// so a late stale response cannot kill the session.
+    retired_conn_ids: std::collections::HashSet<ConnectionId>,
 }
 
 impl ActiveSession {
@@ -182,7 +187,16 @@ impl ActiveSession {
             connection_pool,
             disconnect_conn_id: None,
             reconnect_conn_id: None,
+            retired_conn_ids: std::collections::HashSet::new(),
         }
+    }
+
+    /// Mark connections as retired: their next completion or transport error is a doomed
+    /// straggler (e.g. the long-poll Receive that was in flight when a Disconnect was
+    /// issued) and must be ignored in any state. Called by the session loop with the
+    /// connections in flight at disconnect time.
+    pub fn retire_connections(&mut self, conns: impl IntoIterator<Item = ConnectionId>) {
+        self.retired_conn_ids.extend(conns);
     }
 
     /// Current runspace pool state (used by session loops to observe
@@ -378,6 +392,18 @@ impl ActiveSession {
 
         let conn_id = response.connection_id();
 
+        // 0) Drop the one doomed straggler from a connection retired at disconnect time
+        //    (e.g. the long-poll Receive that was in flight). This must run in ALL states,
+        //    including after a reconnect returns the pool to Opened, so a late stale fault
+        //    cannot reach the normal PSRP path and kill the session.
+        if self.retired_conn_ids.remove(&conn_id) {
+            warn!(
+                conn_id = conn_id.inner(),
+                "ignoring straggler response from a connection retired at disconnect"
+            );
+            return Ok(vec![ActiveSessionOutput::Ignore]);
+        }
+
         // 1) Decrypt & state-transition inside the pool, get plaintext SOAP
         let xml_body = match self.connection_pool.accept(response)? {
             ConnectionPoolAccept::Body(xml_body) => xml_body,
@@ -538,6 +564,17 @@ impl ActiveSession {
     /// operation so the pool does not stay stuck in a transitional state.
     pub fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition {
         use crate::runspace_pool::RunspacePoolState;
+
+        // A doomed straggler from a connection retired at disconnect time (e.g. the dying
+        // long-poll Receive) is tolerated in any state, including after a reconnect has
+        // returned the pool to Opened.
+        if self.retired_conn_ids.remove(&conn_id) {
+            warn!(
+                conn_id = conn_id.inner(),
+                "tolerating straggler transport error from a connection retired at disconnect"
+            );
+            return TransportErrorDisposition::Tolerated;
+        }
 
         match self.runspace_pool.state {
             RunspacePoolState::Disconnecting if self.disconnect_conn_id == Some(conn_id) => {
