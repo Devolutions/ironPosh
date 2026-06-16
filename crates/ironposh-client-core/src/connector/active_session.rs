@@ -223,14 +223,20 @@ impl ActiveSession {
                 // A pipeline can only run against an Opened pool. While the pool is
                 // disconnected or in a disconnect/reconnect transition, invoking would
                 // enqueue a command against an unusable shell whose response the routing
-                // then drops; reject it non-fatally instead.
+                // then drops. Reject it without sending anything, but emit a terminal
+                // PipelineFinished for this id so the caller's result stream closes
+                // instead of hanging forever (the consumer registered it on send).
                 if self.runspace_pool.state != crate::runspace_pool::RunspacePoolState::Opened {
                     warn!(
                         pipeline_uuid = %uuid,
                         state = ?self.runspace_pool.state,
-                        "ignoring pipeline invocation while the runspace pool is not Opened"
+                        "rejecting pipeline invocation while the runspace pool is not Opened"
                     );
-                    return Ok(ActiveSessionOutput::Ignore);
+                    return Ok(ActiveSessionOutput::UserEvent(
+                        UserEvent::PipelineFinished {
+                            pipeline: PipelineHandle::new(uuid),
+                        },
+                    ));
                 }
                 info!(pipeline_uuid = %uuid, "invoking pipeline with spec");
 

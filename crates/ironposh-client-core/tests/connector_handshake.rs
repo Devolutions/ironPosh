@@ -667,6 +667,60 @@ fn reconnect_ignores_stale_traffic_before_real_response() {
     );
 }
 
+/// Invoking a pipeline while the pool is not Opened (e.g. disconnected) must not enqueue
+/// against an unusable shell, and must emit a terminal PipelineFinished for the id so the
+/// caller's result stream closes instead of hanging.
+#[test]
+fn invoke_while_disconnected_emits_terminal_pipeline_finished() {
+    use ironposh_client_core::connector::active_session::UserEvent;
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::pipeline::{PipelineCommand, PipelineSpec};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    // Drive to Disconnected.
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, disconnect_conn_id) =
+        support::expect_just_send(reqs.into_iter().next().unwrap());
+    session
+        .accept_server_response(support::xml_response(
+            disconnect_conn_id,
+            shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+        ))
+        .expect("accept DisconnectResponse");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnected
+    );
+
+    // Invoking now must not SendBack; it must return a terminal PipelineFinished for the id.
+    let uuid = uuid::Uuid::new_v4();
+    let out = session
+        .accept_client_operation(UserOperation::InvokeWithSpec {
+            uuid,
+            spec: PipelineSpec {
+                commands: vec![PipelineCommand::new_script("Get-Date".to_owned())],
+            },
+        })
+        .expect("invoke while disconnected must be non-fatal");
+    match out {
+        ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished { pipeline }) => {
+            assert_eq!(
+                pipeline.id(),
+                uuid,
+                "PipelineFinished must target the invoked id"
+            );
+        }
+        other => panic!("expected PipelineFinished for the rejected invoke, got {other:?}"),
+    }
+}
+
 /// A fault answering the Reconnect request itself (on the reconnect connection) must
 /// revert the pool to Disconnected so the session surfaces ReconnectFailed, rather than
 /// becoming a fatal error or sticking in Connecting.
