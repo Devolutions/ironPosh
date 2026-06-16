@@ -241,39 +241,46 @@ pub fn validate_gateway_flags(args: &Args) -> anyhow::Result<()> {
         );
     }
 
-    // The client-to-Gateway WebSocket hop carries the WinRM/PSRP traffic. Sending it over
-    // a plaintext ws:// hop is only safe when SSPI message sealing actually protects the
-    // payload, which requires an SSPI auth method (NTLM/Kerberos/Negotiate) over plain HTTP
-    // (no --https, no --http-insecure). Otherwise — Basic auth (no sealing at all), --https
-    // (sealing disabled, TLS expected), or --http-insecure (sealing disabled) — the bytes
-    // are unsealed and the gateway hop itself must be TLS (wss://).
-    //
-    // The scheme is matched as a string (lowercased) rather than via `url::Url`: gateway
-    // URLs may be scheme-less (e.g. `host:7171`, normalized to `ws://` later), and
-    // `Url::parse` would misread the host as the scheme. A scheme-less URL has no explicit
-    // TLS scheme, so it is correctly rejected here when sealing is not active.
-    let sspi_sealing_active = !args.https
-        && !args.http_insecure
-        && matches!(
-            args.auth_method,
-            AuthMethod::Ntlm | AuthMethod::Kerberos | AuthMethod::Negotiate
+    // The client-to-Gateway hop must be TLS. The Gateway token handshake sends the webapp
+    // credentials with HTTP Basic auth over this hop *before* any WinRM/SSPI sealing, and
+    // (unless SSPI-sealed) the WinRM payload rides the same hop — so a plaintext ws://gateway
+    // leaks credentials and traffic regardless of the WinRM auth method. Require https/wss,
+    // with one exception: a loopback gateway, where plaintext never leaves the local machine
+    // (this keeps `--gateway http://localhost:7171` dev workflows working).
+    let scheme = gateway
+        .split_once("://")
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+        .unwrap_or_default();
+    let is_tls_scheme = scheme == "https" || scheme == "wss";
+    if !is_tls_scheme && !gateway_url_is_loopback(gateway) {
+        anyhow::bail!(
+            "--gateway requires an https:// or wss:// Gateway URL: the Gateway token \
+             handshake sends credentials over the client-to-Gateway hop. Plaintext is only \
+             allowed for a loopback gateway (localhost/127.0.0.1/::1)."
         );
-    if !sspi_sealing_active {
-        let scheme = gateway
-            .split_once("://")
-            .map(|(scheme, _)| scheme.to_ascii_lowercase())
-            .unwrap_or_default();
-        if scheme != "https" && scheme != "wss" {
-            anyhow::bail!(
-                "--gateway requires an https:// or wss:// Gateway URL unless SSPI message \
-                 sealing protects the traffic (an SSPI auth method over plain HTTP); with \
-                 Basic auth, --https, or --http-insecure the client-to-Gateway WinRM traffic \
-                 would otherwise be unsealed plaintext"
-            );
-        }
     }
 
     Ok(())
+}
+
+/// Whether the gateway URL points at a loopback host (where plaintext stays on the local
+/// machine). Handles scheme-less inputs (e.g. `localhost:7171`) by prepending a scheme
+/// before parsing, since `Url::parse` would otherwise misread the host as the scheme.
+fn gateway_url_is_loopback(gateway: &str) -> bool {
+    let with_scheme = if gateway.contains("://") {
+        gateway.to_string()
+    } else {
+        format!("ws://{gateway}")
+    };
+    let Ok(url) = url::Url::parse(&with_scheme) else {
+        return false;
+    };
+    match url.host() {
+        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
 }
 
 /// Create connector configuration from command line arguments.
@@ -769,53 +776,33 @@ mod tests {
     }
 
     #[test]
-    fn gateway_https_requires_tls_gateway_url() {
-        // --gateway --https with a plaintext (http://) gateway URL would send unsealed
-        // WinRM traffic over the client-to-Gateway leg; it must be rejected.
-        let mut args = https_args();
-        args.gateway = Some("http://localhost:7272".to_string());
+    fn gateway_nonloopback_plaintext_rejected() {
+        // A plaintext (http://) gateway to a non-loopback host leaks the webapp credentials
+        // (Basic auth on the token handshake) and, unless SSPI-sealed, the WinRM payload.
+        // Rejected regardless of auth method.
+        for auth in [AuthMethod::Basic, AuthMethod::Negotiate] {
+            let mut args = https_args();
+            args.https = false;
+            args.auth_method = auth;
+            args.gateway = Some("http://gw.example.com:7272".to_string());
 
-        let err = validate_gateway_flags(&args)
-            .expect_err("must reject --gateway --https with a non-TLS gateway URL");
-        assert!(
-            err.to_string().contains("https://") || err.to_string().contains("wss://"),
-            "error should require a TLS gateway URL: {err}"
-        );
+            let err = validate_gateway_flags(&args)
+                .expect_err("non-loopback plaintext gateway must be rejected");
+            assert!(
+                err.to_string().contains("https://") || err.to_string().contains("wss://"),
+                "error should require a TLS gateway URL: {err}"
+            );
+        }
     }
 
     #[test]
-    fn gateway_https_accepts_wss_gateway_url() {
-        let mut args = https_args();
-        args.gateway = Some("wss://localhost:7272".to_string());
-
-        validate_gateway_flags(&args)
-            .expect("--gateway --https with a wss:// gateway URL must be accepted");
-    }
-
-    #[test]
-    fn gateway_sspi_auth_over_http_accepts_plaintext_gateway_url() {
-        // An SSPI auth method over plain HTTP keeps message sealing on, so the payload is
-        // sealed and a plaintext ws:// gateway hop is acceptable.
+    fn gateway_nonloopback_scheme_less_rejected() {
         let mut args = https_args();
         args.https = false;
-        args.auth_method = AuthMethod::Negotiate;
-        args.gateway = Some("http://localhost:7272".to_string());
-
-        validate_gateway_flags(&args)
-            .expect("--gateway with SSPI auth over HTTP must accept a plaintext gateway URL");
-    }
-
-    #[test]
-    fn gateway_basic_auth_requires_tls_gateway_url() {
-        // Basic auth has no message sealing, so a plaintext gateway hop would expose the
-        // credentials and SOAP/PSRP in cleartext; require a TLS gateway URL.
-        let mut args = https_args();
-        args.https = false;
-        args.auth_method = AuthMethod::Basic;
-        args.gateway = Some("http://localhost:7272".to_string());
+        args.gateway = Some("gw.example.com:7272".to_string());
 
         let err = validate_gateway_flags(&args)
-            .expect_err("Basic auth over a plaintext gateway URL must be rejected");
+            .expect_err("non-loopback scheme-less gateway must be rejected");
         assert!(
             err.to_string().contains("https://") || err.to_string().contains("wss://"),
             "error should require a TLS gateway URL: {err}"
@@ -823,18 +810,31 @@ mod tests {
     }
 
     #[test]
-    fn gateway_https_rejects_scheme_less_gateway_url() {
-        // A scheme-less gateway URL has no explicit TLS scheme; under --https it must be
-        // rejected rather than silently defaulting to a plaintext ws:// hop.
-        let mut args = https_args();
-        args.gateway = Some("localhost:7272".to_string());
+    fn gateway_tls_url_accepted() {
+        for url in ["wss://gw.example.com:7272", "https://gw.example.com:7272"] {
+            let mut args = https_args();
+            args.gateway = Some(url.to_string());
+            validate_gateway_flags(&args)
+                .unwrap_or_else(|e| panic!("TLS gateway URL {url} must be accepted: {e}"));
+        }
+    }
 
-        let err = validate_gateway_flags(&args)
-            .expect_err("must reject --gateway --https with a scheme-less gateway URL");
-        assert!(
-            err.to_string().contains("https://") || err.to_string().contains("wss://"),
-            "error should require a TLS gateway URL: {err}"
-        );
+    #[test]
+    fn gateway_loopback_plaintext_allowed() {
+        // Plaintext to a loopback gateway never leaves the machine, so it's allowed (dev).
+        for url in [
+            "http://localhost:7171",
+            "localhost:7171",
+            "http://127.0.0.1:7171",
+            "ws://[::1]:7171",
+        ] {
+            let mut args = https_args();
+            args.https = false;
+            args.auth_method = AuthMethod::Basic;
+            args.gateway = Some(url.to_string());
+            validate_gateway_flags(&args)
+                .unwrap_or_else(|e| panic!("loopback gateway {url} must be allowed: {e}"));
+        }
     }
 
     #[test]

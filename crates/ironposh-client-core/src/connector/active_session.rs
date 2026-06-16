@@ -382,6 +382,36 @@ impl ActiveSession {
         let xml_body = match self.connection_pool.accept(response)? {
             ConnectionPoolAccept::Body(xml_body) => xml_body,
             ConnectionPoolAccept::SendBack(reqs) => {
+                use crate::runspace_pool::RunspacePoolState;
+                // A reauth retry (e.g. 401) moves the operation to a fresh connection.
+                // During a disconnect/reconnect, follow the tracked conn id to the retry's
+                // connection so the eventual response is still recognized; drop retries for
+                // non-tracked transitional traffic (the dying in-flight Receive), which the
+                // fail-closed routing would otherwise ignore anyway.
+                match self.runspace_pool.state {
+                    RunspacePoolState::Disconnecting
+                        if self.disconnect_conn_id == Some(conn_id) =>
+                    {
+                        if let Some(retry) = reqs.first() {
+                            self.disconnect_conn_id = Some(retry.get_connection_id());
+                        }
+                    }
+                    RunspacePoolState::Connecting if self.reconnect_conn_id == Some(conn_id) => {
+                        if let Some(retry) = reqs.first() {
+                            self.reconnect_conn_id = Some(retry.get_connection_id());
+                        }
+                    }
+                    RunspacePoolState::Disconnecting
+                    | RunspacePoolState::Disconnected
+                    | RunspacePoolState::Connecting => {
+                        warn!(
+                            conn_id = conn_id.inner(),
+                            "dropping reauth retry for non-tracked traffic during disconnect/reconnect"
+                        );
+                        return Ok(vec![ActiveSessionOutput::Ignore]);
+                    }
+                    _ => {}
+                }
                 return Ok(vec![ActiveSessionOutput::SendBack(reqs)]);
             }
         };
