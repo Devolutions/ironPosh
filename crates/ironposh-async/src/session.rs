@@ -121,21 +121,11 @@ pub async fn start_active_session_loop(
 
     // pending HTTP requests
     let mut inflight: FuturesUnordered<_> = FuturesUnordered::new();
-    // Count of in-flight requests per connection, so a Disconnect can retire the
-    // connections that were in flight at the time (their stragglers must be ignored).
-    let mut inflight_conns: std::collections::HashMap<ConnectionId, usize> =
-        std::collections::HashMap::new();
 
-    macro_rules! launch_tracked {
-        ($req:expr) => {{
-            let req = $req;
-            *inflight_conns.entry(req.get_connection_id()).or_insert(0) += 1;
-            inflight.push(launch(&client, req));
-        }};
-    }
-
-    // kick off the initial polling request
-    launch_tracked!(runspace_polling_request);
+    // The initial poll is a Receive; record its connection so a later Disconnect retires
+    // exactly the long-poll Receive (ActiveSession tracks subsequent Receives itself).
+    active_session.note_receive_sent(runspace_polling_request.get_connection_id());
+    inflight.push(launch(&client, runspace_polling_request));
 
     // Track the pool state to surface disconnect/reconnect transitions.
     let mut pool_state = active_session.runspace_pool_state();
@@ -170,13 +160,6 @@ pub async fn start_active_session_loop(
             // 1) any HTTP finishes
             LoopEvent::Http(ready) => {
                 let (conn_id, result) = *ready;
-                // This request completed; drop it from the in-flight connection set.
-                if let Some(n) = inflight_conns.get_mut(&conn_id) {
-                    *n -= 1;
-                    if *n == 0 {
-                        inflight_conns.remove(&conn_id);
-                    }
-                }
                 match result {
                     Ok(http_response) => {
                         trace!(
@@ -208,7 +191,7 @@ pub async fn start_active_session_loop(
                                 ActiveSessionOutput::SendBack(reqs) => {
                                     trace!(target: "network", request_count = reqs.len(), "launching HTTP requests in parallel");
                                     for r in reqs {
-                                        launch_tracked!(r);
+                                        inflight.push(launch(&client, r));
                                     }
                                 }
                                 ActiveSessionOutput::SendBackError(e) => {
@@ -254,7 +237,7 @@ pub async fn start_active_session_loop(
                                     match step_result {
                                         ActiveSessionOutput::SendBack(reqs) => {
                                             for r in reqs {
-                                                launch_tracked!(r);
+                                                inflight.push(launch(&client, r));
                                             }
                                         }
                                         other => {
@@ -315,9 +298,10 @@ pub async fn start_active_session_loop(
                                 );
                                 // The pool is back to Opened but the pre-disconnect Receive
                                 // was retired; re-arm polling so the session stays live.
-                                launch_tracked!(active_session.fire_active_receive().context(
-                                    "Failed to resume receive after aborted disconnect"
-                                )?);
+                                let resume = active_session
+                                    .fire_active_receive()
+                                    .context("Failed to resume receive after aborted disconnect")?;
+                                inflight.push(launch(&client, resume));
                             }
                             TransportErrorDisposition::ReconnectAborted => {
                                 warn!(
@@ -344,20 +328,9 @@ pub async fn start_active_session_loop(
                 if let Some(user_operation) = *user_op {
                     debug!(target: "user", operation = ?user_operation, "processing user operation");
 
-                    // On a real Disconnect (only valid from Opened), retire the connections
-                    // currently in flight (e.g. the long-poll Receive). Snapshot before
-                    // building the Disconnect request so the fresh Disconnect connection is
-                    // naturally excluded; their stragglers are then ignored in any state,
-                    // even after a later reconnect. Gate on Opened so a mistimed Disconnect
-                    // (already Disconnecting/Connecting) cannot retire the in-flight
-                    // Disconnect/Reconnect connection itself.
-                    if matches!(user_operation, UserOperation::Disconnect)
-                        && active_session.runspace_pool_state()
-                            == ironposh_client_core::runspace_pool::RunspacePoolState::Opened
-                    {
-                        let doomed: Vec<ConnectionId> = inflight_conns.keys().copied().collect();
-                        active_session.retire_connections(doomed);
-                    }
+                    // Note: a Disconnect retires the long-poll Receive connection(s)
+                    // internally (ActiveSession tracks them), so a concurrent Command/Send
+                    // response is preserved while the dying Receive's straggler is ignored.
 
                     let step_result = resolve_deferred_sends(
                         active_session
@@ -374,7 +347,7 @@ pub async fn start_active_session_loop(
                         ActiveSessionOutput::SendBack(reqs) => {
                             trace!(target: "network", request_count = reqs.len(), "launching HTTP requests from user operation");
                             for r in reqs {
-                                launch_tracked!(r);
+                                inflight.push(launch(&client, r));
                             }
                         }
                         ActiveSessionOutput::UserEvent(event) => {
@@ -413,7 +386,7 @@ pub async fn start_active_session_loop(
                             match step_result {
                                 ActiveSessionOutput::SendBack(reqs) => {
                                     for r in reqs {
-                                        launch_tracked!(r);
+                                        inflight.push(launch(&client, r));
                                     }
                                 }
                                 other => {

@@ -172,10 +172,14 @@ pub struct ActiveSession {
     /// Connection carrying an in-flight Reconnect request, so late responses from
     /// pre-disconnect traffic are not mistaken for the ReconnectResponse.
     reconnect_conn_id: Option<ConnectionId>,
-    /// Connections that were in flight when a Disconnect was issued (e.g. the dying
-    /// long-poll Receive). Their one straggler completion/error is ignored regardless of
-    /// the current pool state — including after a reconnect returns the pool to Opened —
-    /// so a late stale response cannot kill the session.
+    /// Connections carrying an in-flight Receive. Only these are retired on Disconnect
+    /// (the long-poll Receive is the doomed straggler); in-flight Command/Send/Signal
+    /// responses must NOT be discarded.
+    outstanding_receive_conns: std::collections::HashSet<ConnectionId>,
+    /// Connections retired at Disconnect time (the dying Receive). Their one straggler
+    /// completion/error is ignored regardless of the current pool state — including after a
+    /// reconnect returns the pool to Opened — so a late stale response cannot kill the
+    /// session.
     retired_conn_ids: std::collections::HashSet<ConnectionId>,
 }
 
@@ -187,14 +191,22 @@ impl ActiveSession {
             connection_pool,
             disconnect_conn_id: None,
             reconnect_conn_id: None,
+            outstanding_receive_conns: std::collections::HashSet::new(),
             retired_conn_ids: std::collections::HashSet::new(),
         }
     }
 
+    /// Record that a Receive was dispatched on `conn`. Used to track which connections
+    /// carry the long-poll Receive so that, on Disconnect, only those are retired (a
+    /// concurrent Command/Send/Signal response must not be discarded). The session loop
+    /// calls this for the initial poll; [`Self::fire_receive`] records the rest.
+    pub fn note_receive_sent(&mut self, conn: ConnectionId) {
+        self.outstanding_receive_conns.insert(conn);
+    }
+
     /// Mark connections as retired: their next completion or transport error is a doomed
-    /// straggler (e.g. the long-poll Receive that was in flight when a Disconnect was
-    /// issued) and must be ignored in any state. Called by the session loop with the
-    /// connections in flight at disconnect time.
+    /// straggler and must be ignored in any state. Retained as a direct entry point for
+    /// tests; normal operation retires Receive connections via the Disconnect handler.
     pub fn retire_connections(&mut self, conns: impl IntoIterator<Item = ConnectionId>) {
         self.retired_conn_ids.extend(conns);
     }
@@ -222,7 +234,10 @@ impl ActiveSession {
         desired_streams: Vec<DesiredStream>,
     ) -> Result<TrySend, PwshCoreError> {
         let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
-        self.connection_pool.send(&recv_xml)
+        let ts_send = self.connection_pool.send(&recv_xml)?;
+        self.outstanding_receive_conns
+            .insert(ts_send.get_connection_id());
+        Ok(ts_send)
     }
 
     /// Fire a Receive covering the currently-active streams (the pool stream when no
@@ -364,6 +379,12 @@ impl ActiveSession {
                 };
                 let ts_send = self.connection_pool.send(&disconnect_xml)?;
                 self.disconnect_conn_id = Some(ts_send.get_connection_id());
+                // fire_disconnect() only succeeds from Opened, so we were Opened: retire the
+                // connections carrying the in-flight long-poll Receive(s). Their stragglers
+                // are then ignored in any state (even after a later reconnect). Only Receive
+                // connections are retired, so a concurrent Command/Send response is kept.
+                let doomed: Vec<ConnectionId> = self.outstanding_receive_conns.drain().collect();
+                self.retire_connections(doomed);
                 Ok(ActiveSessionOutput::SendBack(vec![ts_send]))
             }
 
@@ -399,6 +420,8 @@ impl ActiveSession {
         info!("ActiveSession: processing server response");
 
         let conn_id = response.connection_id();
+        // This connection's in-flight request (if it was a Receive) has completed.
+        self.outstanding_receive_conns.remove(&conn_id);
 
         // 0) Drop the one doomed straggler from a connection retired at disconnect time
         //    (e.g. the long-poll Receive that was in flight). This must run in ALL states,
@@ -581,6 +604,9 @@ impl ActiveSession {
     pub fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition {
         use crate::runspace_pool::RunspacePoolState;
 
+        // The failed request completed; if it was a Receive, drop it from the tracked set.
+        self.outstanding_receive_conns.remove(&conn_id);
+
         // A doomed straggler from a connection retired at disconnect time (e.g. the dying
         // long-poll Receive) is tolerated in any state, including after a reconnect has
         // returned the pool to Opened.
@@ -593,7 +619,7 @@ impl ActiveSession {
             return TransportErrorDisposition::Tolerated;
         }
 
-        match self.runspace_pool.state {
+        let disposition = match self.runspace_pool.state {
             RunspacePoolState::Disconnecting if self.disconnect_conn_id == Some(conn_id) => {
                 self.disconnect_conn_id = None;
                 self.runspace_pool.abort_disconnect();
@@ -639,7 +665,14 @@ impl ActiveSession {
                 );
                 TransportErrorDisposition::Fatal
             }
+        };
+
+        // The failed connection won't be processed by ConnectionPool::accept; drop its pool
+        // entry so its Pending/SSPI state doesn't leak. (A Fatal error ends the session.)
+        if disposition != TransportErrorDisposition::Fatal {
+            self.connection_pool.discard(conn_id);
         }
+        disposition
     }
 
     /// Handle a server response that arrives while a Disconnect is in flight.
