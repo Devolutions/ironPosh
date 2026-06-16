@@ -461,6 +461,22 @@ impl ConnectionPool {
         id
     }
 
+    /// Drop a connection's state from the pool without processing a response.
+    ///
+    /// Used to clean up a connection retired at disconnect time (e.g. the dying long-poll
+    /// Receive, or a dropped reauth retry): its straggler is ignored rather than fed through
+    /// [`Self::accept`], so without this its pool entry would stay `Pending` forever and leak
+    /// across repeated disconnect/reconnect cycles.
+    pub(crate) fn discard(&mut self, conn_id: ConnectionId) {
+        if self.connections.remove(&conn_id).is_some() {
+            debug!(
+                conn_id = conn_id.inner(),
+                remaining_connections = self.connections.len(),
+                "discarded retired connection from pool"
+            );
+        }
+    }
+
     /// Remove one Idle connection from the pool, returning its provider.
     fn take_idle(&mut self) -> Option<(ConnectionId, EncryptionOptions)> {
         let key = self

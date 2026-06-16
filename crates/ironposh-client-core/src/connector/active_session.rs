@@ -409,6 +409,9 @@ impl ActiveSession {
                 conn_id = conn_id.inner(),
                 "ignoring straggler response from a connection retired at disconnect"
             );
+            // The straggler bypasses ConnectionPool::accept, so drop the pool entry
+            // explicitly to avoid leaking its Pending/SSPI state across reconnect cycles.
+            self.connection_pool.discard(conn_id);
             return Ok(vec![ActiveSessionOutput::Ignore]);
         }
 
@@ -442,6 +445,11 @@ impl ActiveSession {
                             conn_id = conn_id.inner(),
                             "dropping reauth retry for non-tracked traffic during disconnect/reconnect"
                         );
+                        // The dropped retry connection(s) won't be sent or accepted; drop
+                        // their pool entries so they don't leak as Pending.
+                        for retry in &reqs {
+                            self.connection_pool.discard(retry.get_connection_id());
+                        }
                         return Ok(vec![ActiveSessionOutput::Ignore]);
                     }
                     _ => {}
@@ -581,6 +589,7 @@ impl ActiveSession {
                 conn_id = conn_id.inner(),
                 "tolerating straggler transport error from a connection retired at disconnect"
             );
+            self.connection_pool.discard(conn_id);
             return TransportErrorDisposition::Tolerated;
         }
 
