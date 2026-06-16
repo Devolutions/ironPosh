@@ -301,14 +301,32 @@ pub async fn start_active_session_loop(
                                     "tolerating transport error on dying connection during disconnect"
                                 );
                             }
-                            TransportErrorDisposition::DisconnectAborted
-                            | TransportErrorDisposition::ReconnectAborted => {
+                            TransportErrorDisposition::DisconnectAborted => {
                                 warn!(
                                     target: "network",
                                     conn_id = conn_id.inner(),
                                     error = %e,
-                                    "transport error aborted the in-flight disconnect/reconnect"
+                                    "transport error aborted the in-flight disconnect; resuming receives"
                                 );
+                                emit_pool_lifecycle_transition(
+                                    &mut pool_state,
+                                    &active_session,
+                                    &lifecycle_tx,
+                                );
+                                // The pool is back to Opened but the pre-disconnect Receive
+                                // was retired; re-arm polling so the session stays live.
+                                launch_tracked!(active_session.fire_active_receive().context(
+                                    "Failed to resume receive after aborted disconnect"
+                                )?);
+                            }
+                            TransportErrorDisposition::ReconnectAborted => {
+                                warn!(
+                                    target: "network",
+                                    conn_id = conn_id.inner(),
+                                    error = %e,
+                                    "transport error aborted the in-flight reconnect"
+                                );
+                                // Pool reverts to Disconnected (no polling needed).
                                 emit_pool_lifecycle_transition(
                                     &mut pool_state,
                                     &active_session,
@@ -326,11 +344,17 @@ pub async fn start_active_session_loop(
                 if let Some(user_operation) = *user_op {
                     debug!(target: "user", operation = ?user_operation, "processing user operation");
 
-                    // On Disconnect, retire the connections currently in flight (e.g. the
-                    // long-poll Receive). Snapshot before building the Disconnect request,
-                    // so the fresh Disconnect connection is naturally excluded; their
-                    // stragglers are then ignored in any state, even after a later reconnect.
-                    if matches!(user_operation, UserOperation::Disconnect) {
+                    // On a real Disconnect (only valid from Opened), retire the connections
+                    // currently in flight (e.g. the long-poll Receive). Snapshot before
+                    // building the Disconnect request so the fresh Disconnect connection is
+                    // naturally excluded; their stragglers are then ignored in any state,
+                    // even after a later reconnect. Gate on Opened so a mistimed Disconnect
+                    // (already Disconnecting/Connecting) cannot retire the in-flight
+                    // Disconnect/Reconnect connection itself.
+                    if matches!(user_operation, UserOperation::Disconnect)
+                        && active_session.runspace_pool_state()
+                            == ironposh_client_core::runspace_pool::RunspacePoolState::Opened
+                    {
                         let doomed: Vec<ConnectionId> = inflight_conns.keys().copied().collect();
                         active_session.retire_connections(doomed);
                     }
@@ -776,6 +800,11 @@ mod tests {
             matches!(event, crate::PoolLifecycleEvent::DisconnectFailed { .. }),
             "expected DisconnectFailed lifecycle event, got {event:?}"
         );
+
+        // The aborted disconnect reverts to Opened and re-arms polling with a fresh Receive
+        // (the pre-disconnect Receive was retired).
+        let resumed = recv_request(&sent_rx);
+        assert_eq!(resumed.kind, RequestKind::Receive);
 
         // The pool reverted to Opened: a subsequent user operation still works.
         user_input_tx

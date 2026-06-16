@@ -225,6 +225,14 @@ impl ActiveSession {
         self.connection_pool.send(&recv_xml)
     }
 
+    /// Fire a Receive covering the currently-active streams (the pool stream when no
+    /// pipelines are running). Used to resume polling after a failed Disconnect reverts
+    /// the pool to Opened, since the pre-disconnect Receive was retired.
+    pub fn fire_active_receive(&mut self) -> Result<TrySend, PwshCoreError> {
+        let desired = self.runspace_pool.compute_active_desired_streams();
+        self.fire_receive(desired)
+    }
+
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
     #[instrument(skip_all, fields(operation_type = operation.operation_type()))]
     pub fn accept_client_operation(
@@ -669,7 +677,10 @@ impl ActiveSession {
                     conn_id = conn_id.inner(),
                     "Disconnect request returned an invalid response; reverting runspace pool to Opened"
                 );
-                Ok(vec![ActiveSessionOutput::Ignore])
+                // Pool is Opened again but the pre-disconnect Receive was retired; re-arm.
+                Ok(vec![ActiveSessionOutput::PendingReceive {
+                    desired_streams: self.runspace_pool.compute_active_desired_streams(),
+                }])
             }
             Err(PwshCoreError::SoapFault { code, reason }) => {
                 // The Disconnect request faulted: revert the pool to Opened. The session
@@ -683,7 +694,10 @@ impl ActiveSession {
                     conn_id = conn_id.inner(),
                     "Disconnect request faulted; reverting runspace pool to Opened"
                 );
-                Ok(vec![ActiveSessionOutput::Ignore])
+                // Pool is Opened again but the pre-disconnect Receive was retired; re-arm.
+                Ok(vec![ActiveSessionOutput::PendingReceive {
+                    desired_streams: self.runspace_pool.compute_active_desired_streams(),
+                }])
             }
             Err(e) => Err(e),
         }

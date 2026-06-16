@@ -498,11 +498,19 @@ fn invalid_disconnect_response_on_disconnect_connection_reverts_pool_to_opened()
         RunspacePoolState::Opened,
         "invalid response on the Disconnect connection must abort the disconnect"
     );
+    // The aborted disconnect reverts to Opened and must re-arm polling (the pre-disconnect
+    // Receive was retired), so the recovery output is a PendingReceive, never OperationSuccess.
     assert!(
         outputs
             .iter()
-            .all(|o| matches!(o, ActiveSessionOutput::Ignore)),
-        "invalid Disconnect response must be ignored after aborting, got: {outputs:?}"
+            .any(|o| matches!(o, ActiveSessionOutput::PendingReceive { .. })),
+        "aborted Disconnect must re-arm a Receive, got: {outputs:?}"
+    );
+    assert!(
+        !outputs
+            .iter()
+            .any(|o| matches!(o, ActiveSessionOutput::OperationSuccess)),
+        "aborted Disconnect must not report success, got: {outputs:?}"
     );
 }
 
