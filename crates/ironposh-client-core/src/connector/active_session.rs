@@ -420,8 +420,9 @@ impl ActiveSession {
         info!("ActiveSession: processing server response");
 
         let conn_id = response.connection_id();
-        // This connection's in-flight request (if it was a Receive) has completed.
-        self.outstanding_receive_conns.remove(&conn_id);
+        // This connection's in-flight request has completed; note whether it was a Receive
+        // so a reauth retry can keep the Receive tracking on its new connection.
+        let was_receive = self.outstanding_receive_conns.remove(&conn_id);
 
         // 0) Drop the one doomed straggler from a connection retired at disconnect time
         //    (e.g. the long-poll Receive that was in flight). This must run in ALL states,
@@ -476,6 +477,15 @@ impl ActiveSession {
                         return Ok(vec![ActiveSessionOutput::Ignore]);
                     }
                     _ => {}
+                }
+                // If the original request was a Receive, its reauth retry carries the same
+                // long-poll on a new connection — keep tracking it so a later Disconnect
+                // retires it (and its stale response can't reach normal processing).
+                if was_receive {
+                    for retry in &reqs {
+                        self.outstanding_receive_conns
+                            .insert(retry.get_connection_id());
+                    }
                 }
                 return Ok(vec![ActiveSessionOutput::SendBack(reqs)]);
             }
