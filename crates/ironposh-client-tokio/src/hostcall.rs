@@ -867,8 +867,7 @@ async fn process_host_call(
                     }
                     let y = y.clamp(0, u16::MAX as i32) as u16;
 
-                    let mut col = destination.x;
-                    for cell in row {
+                    for (col, cell) in (destination.x..).zip(row.iter()) {
                         if col >= 0 {
                             let x = col.clamp(0, u16::MAX as i32) as u16;
                             bytes.extend_from_slice(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
@@ -879,7 +878,6 @@ async fn process_host_call(
                             let s = cell.character.encode_utf8(&mut buf);
                             bytes.extend_from_slice(s.as_bytes());
                         }
-                        col += 1;
                     }
                 }
 

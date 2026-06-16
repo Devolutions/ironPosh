@@ -69,7 +69,7 @@ impl UreqHttpClient {
         Self {
             agents: Arc::new(Mutex::new(HashMap::new())),
             connect_timeout: std::time::Duration::from_secs(30),
-            read_timeout: std::time::Duration::from_secs(60),
+            read_timeout: std::time::Duration::from_mins(1),
         }
     }
 

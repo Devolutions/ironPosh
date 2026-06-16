@@ -34,7 +34,7 @@ pub fn build_reqwest_client(tls: &TlsOptions) -> anyhow::Result<reqwest::Client>
         // reduce the chance of SSPI contexts being mixed across TCP connections.
         .pool_max_idle_per_host(1)
         .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_mins(1))
         .danger_accept_invalid_certs(tls.accept_invalid_certs)
         .danger_accept_invalid_hostnames(tls.accept_invalid_hostnames);
 

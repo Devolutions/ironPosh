@@ -13,7 +13,7 @@ fn serial_tokio_client_large_output_not_truncated() {
     h.send_line("1..10000 | ForEach-Object { $_ }; Write-Output '__LARGE_DONE__'");
 
     assert!(
-        h.wait_for_output_contains("__LARGE_DONE__", Duration::from_secs(60)),
+        h.wait_for_output_contains("__LARGE_DONE__", Duration::from_mins(1)),
         "large output done marker (__LARGE_DONE__) not observed. tail={}",
         h.tail_string(16 * 1024)
     );

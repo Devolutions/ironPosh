@@ -43,7 +43,7 @@ fn serial_tokio_client_large_output_last_line_arrives() {
     h.send_line("1..10000 | ForEach-Object { $_ }; Write-Output '__LARGE_DONE__'");
 
     assert!(
-        h.wait_for_output_contains("__LARGE_DONE__", Duration::from_secs(120)),
+        h.wait_for_output_contains("__LARGE_DONE__", Duration::from_mins(2)),
         "large output marker not observed. tail={}",
         h.tail_string(32 * 1024)
     );
@@ -127,7 +127,7 @@ fn serial_tokio_client_delayed_output_burst_recovers_after_silence() {
         "Start-Sleep -Seconds 3; 1..500 | ForEach-Object { $_ }; Write-Output '__SILENCE_DONE__'",
     );
     assert!(
-        h.wait_for_output_contains("__SILENCE_DONE__", Duration::from_secs(60)),
+        h.wait_for_output_contains("__SILENCE_DONE__", Duration::from_mins(1)),
         "marker not observed after silence+burst. tail={}",
         h.tail_string(32 * 1024)
     );

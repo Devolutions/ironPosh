@@ -89,7 +89,7 @@ fn parallel_tokio_client_reattaches_disconnected_shell_from_new_process() {
     );
 
     assert!(
-        b.wait_for_output_contains(&format!("REATTACHED={marker}"), Duration::from_secs(60)),
+        b.wait_for_output_contains(&format!("REATTACHED={marker}"), Duration::from_mins(1)),
         "runspace state was not preserved across processes. tail={}",
         b.tail_string(16 * 1024)
     );

@@ -30,7 +30,7 @@ impl FragmentBuffer {
     /// Reassemble all fragments into complete message data
     fn reassemble(&self) -> Vec<u8> {
         let mut frags = self.fragments.clone();
-        frags.sort_by(|a, b| a.fragment_id.cmp(&b.fragment_id));
+        frags.sort_by_key(|f| f.fragment_id);
         let total_len: usize = frags.iter().map(|f| f.data.len()).sum();
         let mut out = Vec::with_capacity(total_len);
 
