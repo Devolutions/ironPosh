@@ -2,7 +2,7 @@ use base64::Engine;
 use ironposh_psrp::{MessageType, PsValue, RunspacePoolInitData, fragmentation};
 use ironposh_winrm::soap::SoapEnvelope;
 use ironposh_xml::parser::XmlDeserialize;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use super::enums::RunspacePoolState;
 use super::pool::RunspacePool;
@@ -91,8 +91,9 @@ impl ExpectShellConnected {
                 }
                 MessageType::RunspacepoolState => {
                     // Protocol drift: a connect response carries INIT_DATA, not a
-                    // pool state transition. Surface loudly but keep the reattach.
-                    error!(
+                    // pool state transition. Surface it, but keep the reattach (the
+                    // transition is tolerated, not fatal).
+                    warn!(
                         message_type = ?MessageType::RunspacepoolState,
                         data_len = message.data.len(),
                         "unexpected RunspacepoolState in ConnectResponse; ignoring"

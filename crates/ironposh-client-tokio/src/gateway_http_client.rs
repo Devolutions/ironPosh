@@ -376,44 +376,41 @@ fn kerberos_realm(username: &str, domain: &str) -> Result<String> {
     Ok(username.domain_name().unwrap_or_default().to_string())
 }
 
+/// Split `scheme://rest` into a lowercased scheme and the remainder. URL schemes are
+/// case-insensitive (RFC 3986), so this must not be matched case-sensitively — otherwise
+/// `HTTPS://` would be treated as scheme-less and silently downgraded to a plaintext hop.
+/// Returns `None` for scheme-less input (e.g. `host:7171`).
+fn split_scheme(url: &str) -> Option<(String, &str)> {
+    url.split_once("://")
+        .map(|(scheme, rest)| (scheme.to_ascii_lowercase(), rest))
+}
+
 fn to_http_base_url(raw_url: &str) -> Result<Url> {
     let trimmed = raw_url.trim().trim_end_matches('/');
-    let normalized = trimmed
-        .strip_prefix("ws://")
-        .map(|rest| format!("http://{rest}"))
-        .or_else(|| {
-            trimmed
-                .strip_prefix("wss://")
-                .map(|rest| format!("https://{rest}"))
-        })
-        .unwrap_or_else(|| {
-            if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-                trimmed.to_string()
-            } else {
-                format!("http://{trimmed}")
-            }
-        });
+    let normalized = match split_scheme(trimmed) {
+        Some((scheme, rest)) => match scheme.as_str() {
+            "ws" => format!("http://{rest}"),
+            "wss" => format!("https://{rest}"),
+            "http" | "https" => format!("{scheme}://{rest}"),
+            other => anyhow::bail!("unsupported Gateway URL scheme: {other}"),
+        },
+        None => format!("http://{trimmed}"),
+    };
 
     normalized.parse().context("invalid Gateway HTTP base URL")
 }
 
 fn to_ws_base_url(raw_url: &str) -> Result<Url> {
     let trimmed = raw_url.trim().trim_end_matches('/');
-    let normalized = trimmed
-        .strip_prefix("http://")
-        .map(|rest| format!("ws://{rest}"))
-        .or_else(|| {
-            trimmed
-                .strip_prefix("https://")
-                .map(|rest| format!("wss://{rest}"))
-        })
-        .unwrap_or_else(|| {
-            if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
-                trimmed.to_string()
-            } else {
-                format!("ws://{trimmed}")
-            }
-        });
+    let normalized = match split_scheme(trimmed) {
+        Some((scheme, rest)) => match scheme.as_str() {
+            "http" => format!("ws://{rest}"),
+            "https" => format!("wss://{rest}"),
+            "ws" | "wss" => format!("{scheme}://{rest}"),
+            other => anyhow::bail!("unsupported Gateway URL scheme: {other}"),
+        },
+        None => format!("ws://{trimmed}"),
+    };
 
     normalized
         .parse()

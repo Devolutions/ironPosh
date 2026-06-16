@@ -150,6 +150,17 @@ impl ReqwestHttpClient {
             .await
             .context("failed to read response length from KDC")?;
 
+        // The length prefix is attacker-controlled (a spoofed/malicious KDC, or in gateway
+        // mode anything terminating the KDC TCP connection). Bound it before allocating so
+        // a bogus length can't trigger a multi-gigabyte allocation. 2 MiB is generous for a
+        // Kerberos reply, even with a large PAC.
+        const MAX_KDC_TCP_RESPONSE: u32 = 2 * 1024 * 1024;
+        if response_len > MAX_KDC_TCP_RESPONSE {
+            anyhow::bail!(
+                "KDC TCP response length {response_len} exceeds maximum {MAX_KDC_TCP_RESPONSE}"
+            );
+        }
+
         let mut response_data = vec![0_u8; response_len as usize + 4];
         response_data[..4].copy_from_slice(&response_len.to_be_bytes());
 

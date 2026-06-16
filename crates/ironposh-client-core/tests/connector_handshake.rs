@@ -667,6 +667,64 @@ fn reconnect_ignores_stale_traffic_before_real_response() {
     );
 }
 
+/// A fault answering the Reconnect request itself (on the reconnect connection) must
+/// revert the pool to Disconnected so the session surfaces ReconnectFailed, rather than
+/// becoming a fatal error or sticking in Connecting.
+#[test]
+fn faulted_reconnect_reverts_pool_to_disconnected() {
+    use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation};
+    use ironposh_client_core::runspace_pool::RunspacePoolState;
+
+    let mut session = establish_active_session();
+
+    let out = session
+        .accept_client_operation(UserOperation::Disconnect)
+        .expect("accept Disconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Disconnect, got {out:?}");
+    };
+    let (_request, disconnect_conn_id) =
+        support::expect_just_send(reqs.into_iter().next().unwrap());
+    session
+        .accept_server_response(support::xml_response(
+            disconnect_conn_id,
+            shell_op_response_xml("DisconnectResponse", "<rsp:DisconnectResponse/>"),
+        ))
+        .expect("accept DisconnectResponse");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnected
+    );
+
+    let out = session
+        .accept_client_operation(UserOperation::Reconnect)
+        .expect("accept Reconnect operation");
+    let ActiveSessionOutput::SendBack(reqs) = out else {
+        panic!("expected SendBack for Reconnect, got {out:?}");
+    };
+    let (_request, reconnect_conn_id) = support::expect_just_send(reqs.into_iter().next().unwrap());
+    assert_eq!(session.runspace_pool_state(), RunspacePoolState::Connecting);
+
+    // The server faults the Reconnect request on its own connection.
+    let outputs = session
+        .accept_server_response(support::xml_response(
+            reconnect_conn_id,
+            FAULT_ENVELOPE.to_owned(),
+        ))
+        .expect("a faulted Reconnect must not kill the session");
+    assert_eq!(
+        session.runspace_pool_state(),
+        RunspacePoolState::Disconnected,
+        "a faulted Reconnect must revert the pool to Disconnected"
+    );
+    assert!(
+        !outputs
+            .iter()
+            .any(|o| matches!(o, ActiveSessionOutput::OperationSuccess)),
+        "a faulted Reconnect must not report success, got: {outputs:?}"
+    );
+}
+
 /// Connect mode (`new_connect`) must emit a WSMan Connect addressed at the
 /// given shell whose `connectXml` payload defragments back to
 /// [SessionCapability, ConnectRunspacePool].

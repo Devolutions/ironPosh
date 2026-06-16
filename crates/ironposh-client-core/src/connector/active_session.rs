@@ -608,7 +608,11 @@ impl ActiveSession {
         xml_body: &str,
         conn_id: ConnectionId,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
-        if self.reconnect_conn_id.is_some() && self.reconnect_conn_id != Some(conn_id) {
+        // Fail closed: only the tracked reconnect connection may complete the reconnect.
+        // Anything else — including the case where no reconnect connection is tracked — is
+        // late pre-disconnect traffic and must never be allowed to flip the pool to Opened
+        // against a dead shell.
+        if self.reconnect_conn_id != Some(conn_id) {
             warn!(
                 conn_id = conn_id.inner(),
                 reconnect_conn_id = self.reconnect_conn_id.map(|id| id.inner()),
@@ -618,17 +622,49 @@ impl ActiveSession {
             return Ok(vec![ActiveSessionOutput::Ignore]);
         }
 
-        self.runspace_pool.accept_reconnect_response(xml_body)?;
-        self.reconnect_conn_id = None;
-        // The pre-disconnect Receive is gone; schedule a fresh Receive
-        // covering surviving pipelines (plus the pool stream when none)
-        // so the session loop resumes the receive loop.
-        Ok(vec![
-            ActiveSessionOutput::OperationSuccess,
-            ActiveSessionOutput::PendingReceive {
-                desired_streams: self.runspace_pool.compute_active_desired_streams(),
-            },
-        ])
+        match self.runspace_pool.accept_reconnect_response(xml_body) {
+            Ok(()) => {
+                self.reconnect_conn_id = None;
+                // The pre-disconnect Receive is gone; schedule a fresh Receive covering
+                // surviving pipelines (plus the pool stream when none) so the session loop
+                // resumes the receive loop.
+                Ok(vec![
+                    ActiveSessionOutput::OperationSuccess,
+                    ActiveSessionOutput::PendingReceive {
+                        desired_streams: self.runspace_pool.compute_active_desired_streams(),
+                    },
+                ])
+            }
+            Err(PwshCoreError::InvalidResponse(reason)) => {
+                // The Reconnect request itself received the wrong shape of response: revert
+                // to Disconnected so the session loop surfaces ReconnectFailed instead of
+                // remaining stuck in Connecting.
+                self.reconnect_conn_id = None;
+                self.runspace_pool.abort_reconnect();
+                error!(
+                    reason = %reason,
+                    body = %xml_body,
+                    conn_id = conn_id.inner(),
+                    "Reconnect request returned an invalid response; reverting runspace pool to Disconnected"
+                );
+                Ok(vec![ActiveSessionOutput::Ignore])
+            }
+            Err(PwshCoreError::SoapFault { code, reason }) => {
+                // The Reconnect request faulted (e.g. the shell is gone): revert to
+                // Disconnected. The session loop observes Connecting → Disconnected and
+                // surfaces ReconnectFailed to the user.
+                self.reconnect_conn_id = None;
+                self.runspace_pool.abort_reconnect();
+                error!(
+                    %code,
+                    %reason,
+                    conn_id = conn_id.inner(),
+                    "Reconnect request faulted; reverting runspace pool to Disconnected"
+                );
+                Ok(vec![ActiveSessionOutput::Ignore])
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Build + send a pipeline host response, then queue a receive for that pipeline.
