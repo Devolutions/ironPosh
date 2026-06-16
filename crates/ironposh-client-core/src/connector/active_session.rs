@@ -220,6 +220,18 @@ impl ActiveSession {
         info!("ActiveSession: processing client operation");
         match operation {
             UserOperation::InvokeWithSpec { uuid, spec } => {
+                // A pipeline can only run against an Opened pool. While the pool is
+                // disconnected or in a disconnect/reconnect transition, invoking would
+                // enqueue a command against an unusable shell whose response the routing
+                // then drops; reject it non-fatally instead.
+                if self.runspace_pool.state != crate::runspace_pool::RunspacePoolState::Opened {
+                    warn!(
+                        pipeline_uuid = %uuid,
+                        state = ?self.runspace_pool.state,
+                        "ignoring pipeline invocation while the runspace pool is not Opened"
+                    );
+                    return Ok(ActiveSessionOutput::Ignore);
+                }
                 info!(pipeline_uuid = %uuid, "invoking pipeline with spec");
 
                 // Single operation: create, populate, and invoke pipeline

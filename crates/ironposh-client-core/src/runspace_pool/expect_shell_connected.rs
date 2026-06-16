@@ -64,11 +64,14 @@ impl ExpectShellConnected {
             fragmentation::DefragmentResult::Complete(messages) => messages,
         };
 
+        let mut saw_session_capability = false;
+        let mut saw_init_data = false;
         for message in messages {
             let ps_value = message.parse_ps_message()?;
             match message.message_type {
                 MessageType::SessionCapability => {
                     runspace_pool.handle_session_capability(ps_value)?;
+                    saw_session_capability = true;
                 }
                 MessageType::ApplicationPrivateData => {
                     runspace_pool.handle_application_private_data(ps_value)?;
@@ -103,6 +106,7 @@ impl ExpectShellConnected {
                     }
                     runspace_pool.min_runspaces = min;
                     runspace_pool.max_runspaces = max;
+                    saw_init_data = true;
                 }
                 MessageType::RunspacepoolState => {
                     // Protocol drift: a connect response carries INIT_DATA, not a
@@ -124,6 +128,20 @@ impl ExpectShellConnected {
                     );
                 }
             }
+        }
+
+        // A valid ConnectResponse must carry the negotiation (SessionCapability) and the
+        // pool sizing (RunspacePoolInitData); without them the pool is not safely usable.
+        // ApplicationPrivateData remains optional.
+        if !saw_session_capability {
+            return Err(crate::PwshCoreError::InvalidResponse(
+                "ConnectResponse missing SessionCapability".into(),
+            ));
+        }
+        if !saw_init_data {
+            return Err(crate::PwshCoreError::InvalidResponse(
+                "ConnectResponse missing RunspacePoolInitData".into(),
+            ));
         }
 
         // The shell is attached and the pool is usable; the caller fires the
