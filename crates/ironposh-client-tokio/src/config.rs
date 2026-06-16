@@ -241,25 +241,34 @@ pub fn validate_gateway_flags(args: &Args) -> anyhow::Result<()> {
         );
     }
 
-    // Under --https, SSPI message sealing is disabled (TLS is expected to protect the
-    // transport). With the gateway, the encrypted hop is the client-to-Gateway WebSocket,
-    // so it must itself be TLS (wss://). Reject plaintext gateway URLs to avoid sending
-    // unsealed WinRM/PSRP traffic over the client-to-Gateway leg.
+    // The client-to-Gateway WebSocket hop carries the WinRM/PSRP traffic. Sending it over
+    // a plaintext ws:// hop is only safe when SSPI message sealing actually protects the
+    // payload, which requires an SSPI auth method (NTLM/Kerberos/Negotiate) over plain HTTP
+    // (no --https, no --http-insecure). Otherwise — Basic auth (no sealing at all), --https
+    // (sealing disabled, TLS expected), or --http-insecure (sealing disabled) — the bytes
+    // are unsealed and the gateway hop itself must be TLS (wss://).
     //
-    // We match the scheme as a string rather than via `url::Url`: gateway URLs may be
-    // scheme-less (e.g. `host:7171`, normalized to `ws://` later), and `Url::parse` would
-    // misread the host as the scheme in that case. A scheme-less URL has no explicit TLS
-    // scheme, so it is correctly rejected here under --https.
-    if args.https {
+    // The scheme is matched as a string (lowercased) rather than via `url::Url`: gateway
+    // URLs may be scheme-less (e.g. `host:7171`, normalized to `ws://` later), and
+    // `Url::parse` would misread the host as the scheme. A scheme-less URL has no explicit
+    // TLS scheme, so it is correctly rejected here when sealing is not active.
+    let sspi_sealing_active = !args.https
+        && !args.http_insecure
+        && matches!(
+            args.auth_method,
+            AuthMethod::Ntlm | AuthMethod::Kerberos | AuthMethod::Negotiate
+        );
+    if !sspi_sealing_active {
         let scheme = gateway
             .split_once("://")
             .map(|(scheme, _)| scheme.to_ascii_lowercase())
             .unwrap_or_default();
         if scheme != "https" && scheme != "wss" {
             anyhow::bail!(
-                "--gateway --https requires an https:// or wss:// Gateway URL so the \
-                 client-to-Gateway WinRM traffic is encrypted (SSPI message sealing is \
-                 disabled under HTTPS)"
+                "--gateway requires an https:// or wss:// Gateway URL unless SSPI message \
+                 sealing protects the traffic (an SSPI auth method over plain HTTP); with \
+                 Basic auth, --https, or --http-insecure the client-to-Gateway WinRM traffic \
+                 would otherwise be unsealed plaintext"
             );
         }
     }
@@ -784,14 +793,33 @@ mod tests {
     }
 
     #[test]
-    fn gateway_without_https_accepts_plaintext_gateway_url() {
-        // The default (HTTP target via gateway) keeps SSPI sealing on, so a plaintext
-        // gateway URL is fine.
+    fn gateway_sspi_auth_over_http_accepts_plaintext_gateway_url() {
+        // An SSPI auth method over plain HTTP keeps message sealing on, so the payload is
+        // sealed and a plaintext ws:// gateway hop is acceptable.
         let mut args = https_args();
         args.https = false;
+        args.auth_method = AuthMethod::Negotiate;
         args.gateway = Some("http://localhost:7272".to_string());
 
-        validate_gateway_flags(&args).expect("--gateway without --https must accept http:// URL");
+        validate_gateway_flags(&args)
+            .expect("--gateway with SSPI auth over HTTP must accept a plaintext gateway URL");
+    }
+
+    #[test]
+    fn gateway_basic_auth_requires_tls_gateway_url() {
+        // Basic auth has no message sealing, so a plaintext gateway hop would expose the
+        // credentials and SOAP/PSRP in cleartext; require a TLS gateway URL.
+        let mut args = https_args();
+        args.https = false;
+        args.auth_method = AuthMethod::Basic;
+        args.gateway = Some("http://localhost:7272".to_string());
+
+        let err = validate_gateway_flags(&args)
+            .expect_err("Basic auth over a plaintext gateway URL must be rejected");
+        assert!(
+            err.to_string().contains("https://") || err.to_string().contains("wss://"),
+            "error should require a TLS gateway URL: {err}"
+        );
     }
 
     #[test]

@@ -84,10 +84,25 @@ impl ExpectShellConnected {
                         ?init_data,
                         "received RunspacePoolInitData in ConnectResponse"
                     );
-                    runspace_pool.min_runspaces =
-                        usize::try_from(init_data.min_runspaces).unwrap_or(1);
-                    runspace_pool.max_runspaces =
-                        usize::try_from(init_data.max_runspaces).unwrap_or(1);
+                    // Reject implausible server values rather than silently coercing them
+                    // (a negative or min>max count indicates protocol corruption).
+                    let min = usize::try_from(init_data.min_runspaces).map_err(|_| {
+                        crate::PwshCoreError::InvalidResponse(
+                            "RunspacePoolInitData MinRunspaces is negative".into(),
+                        )
+                    })?;
+                    let max = usize::try_from(init_data.max_runspaces).map_err(|_| {
+                        crate::PwshCoreError::InvalidResponse(
+                            "RunspacePoolInitData MaxRunspaces is negative".into(),
+                        )
+                    })?;
+                    if min > max {
+                        return Err(crate::PwshCoreError::InvalidResponse(
+                            "RunspacePoolInitData MinRunspaces exceeds MaxRunspaces".into(),
+                        ));
+                    }
+                    runspace_pool.min_runspaces = min;
+                    runspace_pool.max_runspaces = max;
                 }
                 MessageType::RunspacepoolState => {
                     // Protocol drift: a connect response carries INIT_DATA, not a

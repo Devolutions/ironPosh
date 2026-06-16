@@ -20,6 +20,12 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument};
 
+/// Upper bound on a single KDC reply (TCP length-prefixed or HTTP proxy body). The length
+/// is attacker-controlled (a spoofed/malicious KDC, or anything terminating the connection
+/// in gateway mode), so it must be bounded before allocating. 2 MiB is generous for a
+/// Kerberos reply even with a large PAC.
+const MAX_KDC_RESPONSE: u32 = 2 * 1024 * 1024;
+
 /// Build a reqwest client honoring the given [`TlsOptions`] (native-tls backend).
 pub fn build_reqwest_client(tls: &TlsOptions) -> anyhow::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
@@ -71,18 +77,28 @@ impl ReqwestHttpClient {
         }
     }
 
-    fn client_for_conn(&self, conn_id: ConnectionId) -> Client {
+    fn client_for_conn(&self, conn_id: ConnectionId) -> anyhow::Result<Client> {
+        // Fast path: return an existing client, releasing the lock before the (slower)
+        // client build so the mutex is never held across `build_reqwest_client`.
+        {
+            let clients = self
+                .clients_by_conn
+                .lock()
+                .expect("ReqwestHttpClient.clients_by_conn mutex poisoned");
+            if let Some(client) = clients.get(&conn_id.inner()) {
+                return Ok(client.clone());
+            }
+        }
+
+        let client = build_reqwest_client(&self.tls)
+            .context("failed to build reqwest client for connection")?;
+
         let mut clients = self
             .clients_by_conn
             .lock()
             .expect("ReqwestHttpClient.clients_by_conn mutex poisoned");
-
-        clients
-            .entry(conn_id.inner())
-            .or_insert_with(|| {
-                build_reqwest_client(&self.tls).expect("Failed to build reqwest client")
-            })
-            .clone()
+        // Another thread may have built one concurrently; keep whichever landed first.
+        Ok(clients.entry(conn_id.inner()).or_insert(client).clone())
     }
 }
 
@@ -150,14 +166,11 @@ impl ReqwestHttpClient {
             .await
             .context("failed to read response length from KDC")?;
 
-        // The length prefix is attacker-controlled (a spoofed/malicious KDC, or in gateway
-        // mode anything terminating the KDC TCP connection). Bound it before allocating so
-        // a bogus length can't trigger a multi-gigabyte allocation. 2 MiB is generous for a
-        // Kerberos reply, even with a large PAC.
-        const MAX_KDC_TCP_RESPONSE: u32 = 2 * 1024 * 1024;
-        if response_len > MAX_KDC_TCP_RESPONSE {
+        // The length prefix is attacker-controlled; bound it before allocating so a bogus
+        // length can't trigger a multi-gigabyte allocation (see MAX_KDC_RESPONSE).
+        if response_len > MAX_KDC_RESPONSE {
             anyhow::bail!(
-                "KDC TCP response length {response_len} exceeds maximum {MAX_KDC_TCP_RESPONSE}"
+                "KDC TCP response length {response_len} exceeds maximum {MAX_KDC_RESPONSE}"
             );
         }
 
@@ -261,12 +274,15 @@ impl ReqwestHttpClient {
         tls: &TlsOptions,
     ) -> anyhow::Result<Vec<u8>> {
         tracing::Span::current().record("url", redact_network_url(&packet.url).as_str());
-        let response = build_reqwest_client(tls)?
+        // Strip the URL from reqwest errors: it carries the KDC proxy token
+        // (`/jet/KdcProxy/{token}`) which must not leak into error messages/logs.
+        let mut response = build_reqwest_client(tls)?
             .post(packet.url.clone())
             .header("keep-alive", "true")
             .body(packet.data)
             .send()
             .await
+            .map_err(reqwest::Error::without_url)
             .context("failed to send KDC HTTP request")?;
 
         let status = response.status();
@@ -276,17 +292,25 @@ impl ReqwestHttpClient {
             ));
         }
 
-        let bytes = response
-            .bytes()
+        // Bound the body: a malicious KDC proxy could otherwise stream an unbounded
+        // (or chunked, Content-Length-less) response and force unlimited allocation.
+        let max = MAX_KDC_RESPONSE as usize;
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .context("failed to read KDC HTTP response body")?;
+            .map_err(reqwest::Error::without_url)
+            .context("failed to read KDC HTTP response body")?
+        {
+            if body.len() + chunk.len() > max {
+                anyhow::bail!("KDC HTTP response exceeds maximum {MAX_KDC_RESPONSE} bytes");
+            }
+            body.extend_from_slice(&chunk);
+        }
 
-        info!(
-            response_len = bytes.len(),
-            "received HTTP response from KDC"
-        );
+        info!(response_len = body.len(), "received HTTP response from KDC");
 
-        Ok(bytes.to_vec())
+        Ok(body)
     }
 
     async fn send_with_client(
@@ -405,7 +429,7 @@ impl HttpClient for ReqwestHttpClient {
             // === Simple path: already have an idle, encrypted channel ===
             TrySend::JustSend { request, conn_id } => {
                 info!(conn_id = conn_id.inner(), "sending on existing connection");
-                let client = self.client_for_conn(conn_id);
+                let client = self.client_for_conn(conn_id)?;
                 let resp = Self::send_with_client(client, request).await?;
                 // No provider attached on steady-state sends
                 Ok(HttpResponseTargeted::new(resp, conn_id, None))
@@ -456,7 +480,7 @@ impl HttpClient for ReqwestHttpClient {
                                 connection_id,
                                 request,
                             } = request;
-                            let client = self.client_for_conn(connection_id);
+                            let client = self.client_for_conn(connection_id)?;
                             let resp = Self::send_with_client(client, request).await?;
                             auth_response = Some(resp);
                             auth_sequence = sequence;
@@ -475,7 +499,7 @@ impl HttpClient for ReqwestHttpClient {
                             } = request;
 
                             // Send the final (sealed) request
-                            let client = self.client_for_conn(connection_id);
+                            let client = self.client_for_conn(connection_id)?;
                             let resp = Self::send_with_client(client, request).await?;
 
                             // Return targeted response WITH the provider attached

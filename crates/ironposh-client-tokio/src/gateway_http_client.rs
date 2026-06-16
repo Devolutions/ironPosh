@@ -545,6 +545,16 @@ impl HttpResponseDecoder {
             }
         }
 
+        // A response carrying both Content-Length and Transfer-Encoding is ambiguous
+        // (RFC 7230 §3.3.3) and a classic desync/smuggling vector. Since the same
+        // WebSocket is reused for subsequent requests, refuse rather than guess which
+        // framing to honor.
+        if content_length.is_some() && transfer_encoding.is_some() {
+            return Err(anyhow::anyhow!(
+                "Gateway HTTP response carried both Content-Length and Transfer-Encoding"
+            ));
+        }
+
         let body_start = header_end + 4;
         let body_len = self.buffer.len() - body_start;
         let body_bytes: std::borrow::Cow<'_, [u8]> = if let Some(expected_len) = content_length {

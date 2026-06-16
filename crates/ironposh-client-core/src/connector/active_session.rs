@@ -542,55 +542,51 @@ impl ActiveSession {
         xml_body: &str,
         conn_id: ConnectionId,
     ) -> Result<Vec<ActiveSessionOutput>, crate::PwshCoreError> {
+        // Fail closed: only the tracked disconnect connection may complete or abort the
+        // disconnect. Traffic on any other connection (the dying in-flight Receive) is
+        // tolerated and ignored — it must never be able to flip the pool to Disconnected
+        // (premature completion) nor abort it.
+        if self.disconnect_conn_id != Some(conn_id) {
+            warn!(
+                conn_id = conn_id.inner(),
+                disconnect_conn_id = self.disconnect_conn_id.map(|id| id.inner()),
+                body_length = xml_body.len(),
+                "ignoring non-disconnect traffic while disconnecting (expected in-flight Receive teardown)"
+            );
+            return Ok(vec![ActiveSessionOutput::Ignore]);
+        }
+
         match self.runspace_pool.accept_disconnect_response(xml_body) {
             Ok(()) => {
                 self.disconnect_conn_id = None;
                 Ok(vec![ActiveSessionOutput::OperationSuccess])
             }
             Err(PwshCoreError::InvalidResponse(reason)) => {
-                if self.disconnect_conn_id == Some(conn_id) {
-                    // The Disconnect request itself received the wrong shape of
-                    // response: revert to Opened so the session loop can surface
-                    // the failed disconnect instead of remaining stuck.
-                    self.disconnect_conn_id = None;
-                    self.runspace_pool.abort_disconnect();
-                    error!(
-                        reason = %reason,
-                        body = %xml_body,
-                        conn_id = conn_id.inner(),
-                        "Disconnect request returned an invalid response; reverting runspace pool to Opened"
-                    );
-                } else {
-                    warn!(
-                        reason = %reason,
-                        body = %xml_body,
-                        conn_id = conn_id.inner(),
-                        "ignoring non-disconnect traffic while disconnecting"
-                    );
-                }
+                // The Disconnect request itself received the wrong shape of response:
+                // revert to Opened so the session loop surfaces the failed disconnect
+                // instead of remaining stuck in Disconnecting.
+                self.disconnect_conn_id = None;
+                self.runspace_pool.abort_disconnect();
+                error!(
+                    reason = %reason,
+                    body = %xml_body,
+                    conn_id = conn_id.inner(),
+                    "Disconnect request returned an invalid response; reverting runspace pool to Opened"
+                );
                 Ok(vec![ActiveSessionOutput::Ignore])
             }
             Err(PwshCoreError::SoapFault { code, reason }) => {
-                if self.disconnect_conn_id == Some(conn_id) {
-                    // The Disconnect request itself faulted: revert the pool to
-                    // Opened. The session loop observes the Disconnecting → Opened
-                    // transition and surfaces the failure to the user.
-                    self.disconnect_conn_id = None;
-                    self.runspace_pool.abort_disconnect();
-                    error!(
-                        %code,
-                        %reason,
-                        conn_id = conn_id.inner(),
-                        "Disconnect request faulted; reverting runspace pool to Opened"
-                    );
-                } else {
-                    warn!(
-                        %code,
-                        %reason,
-                        conn_id = conn_id.inner(),
-                        "ignoring fault while disconnecting (expected in-flight Receive teardown)"
-                    );
-                }
+                // The Disconnect request faulted: revert the pool to Opened. The session
+                // loop observes the Disconnecting → Opened transition and surfaces the
+                // failure to the user.
+                self.disconnect_conn_id = None;
+                self.runspace_pool.abort_disconnect();
+                error!(
+                    %code,
+                    %reason,
+                    conn_id = conn_id.inner(),
+                    "Disconnect request faulted; reverting runspace pool to Opened"
+                );
                 Ok(vec![ActiveSessionOutput::Ignore])
             }
             Err(e) => Err(e),
