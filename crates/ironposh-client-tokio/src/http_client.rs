@@ -1,60 +1,318 @@
 use anyhow::Context;
 use ironposh_async::HttpClient;
 use ironposh_client_core::connector::{
+    auth_sequence::SspiAuthSequence,
     authenticator::SecContextMaybeInit,
-    conntion_pool::TrySend,
-    conntion_pool::{ConnectionId, SecContextInited},
+    config::TlsOptions,
+    connection_pool::TrySend,
+    connection_pool::{ConnectionId, SecContextInited},
     http::HttpRequestAction,
     http::{HttpBody, HttpRequest, HttpResponse, HttpResponseTargeted, Method},
+    NetworkProtocol, NetworkRequest,
 };
 use reqwest::Client;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::Mutex,
+    time::Duration,
+};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument};
 
+/// Upper bound on a single KDC reply (TCP length-prefixed or HTTP proxy body). The length
+/// is attacker-controlled (a spoofed/malicious KDC, or anything terminating the connection
+/// in gateway mode), so it must be bounded before allocating. 2 MiB is generous for a
+/// Kerberos reply even with a large PAC.
+const MAX_KDC_RESPONSE: u32 = 2 * 1024 * 1024;
+
+/// Build a reqwest client honoring the given [`TlsOptions`] (native-tls backend).
+pub fn build_reqwest_client(tls: &TlsOptions) -> anyhow::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .use_native_tls()
+        // IMPORTANT: keep each logical `ConnectionId` on its own reqwest client to
+        // reduce the chance of SSPI contexts being mixed across TCP connections.
+        .pool_max_idle_per_host(1)
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_mins(1))
+        .danger_accept_invalid_certs(tls.accept_invalid_certs)
+        .danger_accept_invalid_hostnames(tls.accept_invalid_hostnames);
+
+    if let Some(pem) = &tls.extra_ca_pem {
+        let cert = reqwest::Certificate::from_pem(pem).context("invalid extra CA PEM")?;
+        builder = builder.add_root_certificate(cert);
+    }
+
+    builder.build().context("failed to build reqwest client")
+}
+
 pub struct ReqwestHttpClient {
+    tls: TlsOptions,
     clients_by_conn: Mutex<HashMap<u32, reqwest::Client>>,
+}
+
+impl Default for ReqwestHttpClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReqwestHttpClient {
     pub fn new() -> Self {
+        Self::with_tls_options(TlsOptions::default())
+    }
+
+    pub fn with_tls_options(tls: TlsOptions) -> Self {
         info!(
             connect_timeout_secs = 30,
             read_timeout_secs = 60,
+            accept_invalid_certs = tls.accept_invalid_certs,
+            accept_invalid_hostnames = tls.accept_invalid_hostnames,
+            has_extra_ca_pem = tls.extra_ca_pem.is_some(),
             "initializing ReqwestHttpClient with native-tls"
         );
         Self {
+            tls,
             clients_by_conn: Mutex::new(HashMap::new()),
         }
     }
 
-    fn build_client() -> Client {
-        reqwest::Client::builder()
-            .use_native_tls()
-            // IMPORTANT: keep each logical `ConnectionId` on its own reqwest client to
-            // reduce the chance of SSPI contexts being mixed across TCP connections.
-            .pool_max_idle_per_host(1)
-            .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build reqwest client")
-    }
+    fn client_for_conn(&self, conn_id: ConnectionId) -> anyhow::Result<Client> {
+        // Fast path: return an existing client, releasing the lock before the (slower)
+        // client build so the mutex is never held across `build_reqwest_client`.
+        {
+            let clients = self
+                .clients_by_conn
+                .lock()
+                .expect("ReqwestHttpClient.clients_by_conn mutex poisoned");
+            if let Some(client) = clients.get(&conn_id.inner()) {
+                return Ok(client.clone());
+            }
+        }
 
-    fn client_for_conn(&self, conn_id: ConnectionId) -> Client {
+        let client = build_reqwest_client(&self.tls)
+            .context("failed to build reqwest client for connection")?;
+
         let mut clients = self
             .clients_by_conn
             .lock()
             .expect("ReqwestHttpClient.clients_by_conn mutex poisoned");
-
-        clients
-            .entry(conn_id.inner())
-            .or_insert_with(Self::build_client)
-            .clone()
+        // Another thread may have built one concurrently; keep whichever landed first.
+        Ok(clients.entry(conn_id.inner()).or_insert(client).clone())
     }
 }
 
 impl ReqwestHttpClient {
+    #[instrument(
+        name = "kdc_request",
+        level = "debug",
+        skip(packet),
+        fields(protocol = ?packet.protocol, url = tracing::field::Empty, data_len = packet.data.len())
+    )]
+    pub(crate) async fn send_kdc_network_request(
+        packet: NetworkRequest,
+        tls: &TlsOptions,
+    ) -> anyhow::Result<Vec<u8>> {
+        let redacted_url = redact_network_url(&packet.url);
+        tracing::Span::current().record("url", redacted_url.as_str());
+        info!(
+            protocol = ?packet.protocol,
+            url = %redacted_url,
+            data_len = packet.data.len(),
+            "sending KDC network request"
+        );
+
+        match packet.protocol {
+            NetworkProtocol::Tcp => Self::send_kdc_tcp_packet(packet).await,
+            NetworkProtocol::Http | NetworkProtocol::Https => {
+                Self::send_kdc_http_packet(packet, tls).await
+            }
+            NetworkProtocol::Udp => Self::send_kdc_udp_packet(packet).await,
+        }
+    }
+
+    #[instrument(
+        name = "kdc_tcp",
+        level = "debug",
+        skip(packet),
+        fields(host = packet.url.host_str(), port = packet.url.port())
+    )]
+    async fn send_kdc_tcp_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+        let host = packet
+            .url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing host in KDC URL"))?;
+        let port = packet
+            .url
+            .port()
+            .ok_or_else(|| anyhow::anyhow!("Missing port in KDC URL"))?;
+
+        info!(host = %host, port, "opening TCP connection to KDC");
+        let mut stream = tokio::net::TcpStream::connect((host, port))
+            .await
+            .context("failed to establish TCP connection to KDC")?;
+
+        stream
+            .write_all(&packet.data)
+            .await
+            .context("failed to write packet data to KDC")?;
+        stream
+            .flush()
+            .await
+            .context("failed to flush TCP stream to KDC")?;
+
+        let response_len = stream
+            .read_u32()
+            .await
+            .context("failed to read response length from KDC")?;
+
+        // The length prefix is attacker-controlled; bound it before allocating so a bogus
+        // length can't trigger a multi-gigabyte allocation (see MAX_KDC_RESPONSE).
+        if response_len > MAX_KDC_RESPONSE {
+            anyhow::bail!(
+                "KDC TCP response length {response_len} exceeds maximum {MAX_KDC_RESPONSE}"
+            );
+        }
+
+        let mut response_data = vec![0_u8; response_len as usize + 4];
+        response_data[..4].copy_from_slice(&response_len.to_be_bytes());
+
+        stream
+            .read_exact(&mut response_data[4..])
+            .await
+            .context("failed to read response data from KDC")?;
+
+        info!(
+            response_len = response_data.len(),
+            "received TCP response from KDC"
+        );
+
+        Ok(response_data)
+    }
+
+    #[instrument(
+        name = "kdc_udp",
+        level = "debug",
+        skip(packet),
+        fields(host = packet.url.host_str(), port = packet.url.port())
+    )]
+    async fn send_kdc_udp_packet(packet: NetworkRequest) -> anyhow::Result<Vec<u8>> {
+        // Matches sspi-rs' default maximum token length for UDP KDC replies.
+        const MAX_UDP_RESPONSE: usize = 0xbb80;
+
+        let host = packet
+            .url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing host in KDC URL"))?;
+        let port = packet
+            .url
+            .port()
+            .ok_or_else(|| anyhow::anyhow!("Missing port in KDC URL"))?;
+
+        let remote_addr = tokio::net::lookup_host((host, port))
+            .await
+            .context("failed to resolve KDC UDP address")?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("KDC UDP address resolved to no endpoints"))?;
+        let local_addr = match remote_addr.ip() {
+            IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+            IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+        };
+
+        info!(
+            host = %host,
+            port,
+            remote_addr = %remote_addr,
+            "opening UDP connection to KDC"
+        );
+        let socket = tokio::net::UdpSocket::bind(local_addr)
+            .await
+            .context("failed to bind UDP socket for KDC request")?;
+        socket
+            .connect(remote_addr)
+            .await
+            .context("failed to connect UDP socket to KDC")?;
+
+        let bytes_sent = socket
+            .send(&packet.data)
+            .await
+            .context("failed to send UDP packet to KDC")?;
+        if bytes_sent != packet.data.len() {
+            return Err(anyhow::anyhow!(
+                "failed to send full KDC UDP packet: sent {bytes_sent} of {} bytes",
+                packet.data.len()
+            ));
+        }
+        info!(bytes_sent, "sent UDP packet to KDC");
+
+        let mut response_data = vec![0_u8; MAX_UDP_RESPONSE];
+        let datagram_len =
+            tokio::time::timeout(Duration::from_secs(30), socket.recv(&mut response_data))
+                .await
+                .context("timed out waiting for KDC UDP response")?
+                .context("failed to read UDP response from KDC")?;
+
+        info!(datagram_len, "received UDP response from KDC");
+
+        let datagram_len_u32 =
+            u32::try_from(datagram_len).context("KDC UDP response length does not fit in u32")?;
+        let mut framed_response = Vec::with_capacity(datagram_len + 4);
+        framed_response.extend_from_slice(&datagram_len_u32.to_be_bytes());
+        framed_response.extend_from_slice(&response_data[..datagram_len]);
+
+        Ok(framed_response)
+    }
+
+    #[instrument(
+        name = "kdc_http",
+        level = "debug",
+        skip(packet),
+        fields(protocol = ?packet.protocol, url = tracing::field::Empty)
+    )]
+    async fn send_kdc_http_packet(
+        packet: NetworkRequest,
+        tls: &TlsOptions,
+    ) -> anyhow::Result<Vec<u8>> {
+        tracing::Span::current().record("url", redact_network_url(&packet.url).as_str());
+        // Strip the URL from reqwest errors: it carries the KDC proxy token
+        // (`/jet/KdcProxy/{token}`) which must not leak into error messages/logs.
+        let mut response = build_reqwest_client(tls)?
+            .post(packet.url.clone())
+            .header("keep-alive", "true")
+            .body(packet.data)
+            .send()
+            .await
+            .map_err(reqwest::Error::without_url)
+            .context("failed to send KDC HTTP request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "KDC HTTP request failed with status {status}"
+            ));
+        }
+
+        // Bound the body: a malicious KDC proxy could otherwise stream an unbounded
+        // (or chunked, Content-Length-less) response and force unlimited allocation.
+        let max = MAX_KDC_RESPONSE as usize;
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(reqwest::Error::without_url)
+            .context("failed to read KDC HTTP response body")?
+        {
+            if body.len() + chunk.len() > max {
+                anyhow::bail!("KDC HTTP response exceeds maximum {MAX_KDC_RESPONSE} bytes");
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        info!(response_len = body.len(), "received HTTP response from KDC");
+
+        Ok(body)
+    }
+
     async fn send_with_client(
         client: Client,
         request: HttpRequest,
@@ -151,6 +409,19 @@ impl ReqwestHttpClient {
     }
 }
 
+fn redact_network_url(url: &url::Url) -> String {
+    let mut redacted = url.clone();
+    if redacted.path_segments().is_some_and(|mut segments| {
+        segments.any(|segment| segment.eq_ignore_ascii_case("KdcProxy"))
+    }) {
+        redacted.set_path("/jet/KdcProxy/<redacted>");
+    }
+    if redacted.query().is_some() {
+        redacted.set_query(Some("<redacted>"));
+    }
+    redacted.to_string()
+}
+
 impl HttpClient for ReqwestHttpClient {
     #[instrument(name = "http_request", level = "debug", skip(self, try_send))]
     async fn send_request(&self, try_send: TrySend) -> anyhow::Result<HttpResponseTargeted> {
@@ -158,7 +429,7 @@ impl HttpClient for ReqwestHttpClient {
             // === Simple path: already have an idle, encrypted channel ===
             TrySend::JustSend { request, conn_id } => {
                 info!(conn_id = conn_id.inner(), "sending on existing connection");
-                let client = self.client_for_conn(conn_id);
+                let client = self.client_for_conn(conn_id)?;
                 let resp = Self::send_with_client(client, request).await?;
                 // No provider attached on steady-state sends
                 Ok(HttpResponseTargeted::new(resp, conn_id, None))
@@ -172,16 +443,34 @@ impl HttpClient for ReqwestHttpClient {
                 loop {
                     // 1) Initialize security context
                     let (seq, mut holder) = auth_sequence.prepare();
-                    let init =
-                        match seq.try_init_sec_context(auth_response.as_ref(), &mut holder)? {
-                            SecContextMaybeInit::Initialized(sec) => sec,
-                            SecContextMaybeInit::RunGenerator { .. } => {
-                                // For async client, we don't implement KDC communication yet
-                                return Err(anyhow::anyhow!(
-                                    "KDC generator not implemented in async client"
-                                ));
+                    let init = match seq
+                        .try_init_sec_context(auth_response.as_ref(), &mut holder)?
+                    {
+                        SecContextMaybeInit::Initialized(sec) => sec,
+                        SecContextMaybeInit::RunGenerator {
+                            mut packet,
+                            mut generator_holder,
+                        } => {
+                            info!("running generator for KDC communication");
+                            loop {
+                                let kdc_resp = Self::send_kdc_network_request(packet, &self.tls)
+                                    .await
+                                    .context(
+                                        "failed to send packet to KDC during authentication",
+                                    )?;
+                                match SspiAuthSequence::resume(generator_holder, kdc_resp)? {
+                                    SecContextMaybeInit::Initialized(sec) => break sec,
+                                    SecContextMaybeInit::RunGenerator {
+                                        packet: next_packet,
+                                        generator_holder: next_holder,
+                                    } => {
+                                        packet = next_packet;
+                                        generator_holder = next_holder;
+                                    }
+                                }
                             }
-                        };
+                        }
+                    };
 
                     // 2) Process initialized context → either Continue (send another token) or Done
                     match auth_sequence.process_sec_ctx_init(&init)? {
@@ -191,7 +480,7 @@ impl HttpClient for ReqwestHttpClient {
                                 connection_id,
                                 request,
                             } = request;
-                            let client = self.client_for_conn(connection_id);
+                            let client = self.client_for_conn(connection_id)?;
                             let resp = Self::send_with_client(client, request).await?;
                             auth_response = Some(resp);
                             auth_sequence = sequence;
@@ -210,7 +499,7 @@ impl HttpClient for ReqwestHttpClient {
                             } = request;
 
                             // Send the final (sealed) request
-                            let client = self.client_for_conn(connection_id);
+                            let client = self.client_for_conn(connection_id)?;
                             let resp = Self::send_with_client(client, request).await?;
 
                             // Return targeted response WITH the provider attached
@@ -225,5 +514,108 @@ impl HttpClient for ReqwestHttpClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::*;
+
+    #[test]
+    fn builds_with_default_options() {
+        build_reqwest_client(&TlsOptions::default()).expect("default TLS options must build");
+    }
+
+    #[test]
+    fn builds_with_insecure_options() {
+        let tls = TlsOptions {
+            accept_invalid_certs: true,
+            ..TlsOptions::default()
+        };
+        build_reqwest_client(&tls).expect("insecure TLS options must build");
+    }
+
+    #[test]
+    fn rejects_garbage_ca_pem() {
+        let tls = TlsOptions {
+            extra_ca_pem: Some(b"not a pem".to_vec()),
+            ..TlsOptions::default()
+        };
+        assert!(build_reqwest_client(&tls).is_err());
+    }
+}
+
+#[cfg(test)]
+mod kdc_tls_tests {
+    //! KDC HTTP requests must honor [`TlsOptions`] (mirrors tests/tls_options.rs,
+    //! which exercises the WSMan path with the same self-signed listener setup).
+
+    use super::*;
+    use ironposh_test_support::tls_listener::{self_signed_localhost, spawn_tls_server};
+    use std::net::SocketAddr;
+
+    /// Spawn a self-signed ("localhost") TLS listener on 127.0.0.1:0 answering
+    /// any request with 401.
+    async fn spawn_self_signed_tls_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let (chain, key) = self_signed_localhost();
+        spawn_tls_server(chain, key).await
+    }
+
+    fn kdc_http_request(addr: SocketAddr) -> NetworkRequest {
+        NetworkRequest {
+            protocol: NetworkProtocol::Https,
+            // Hostname must match the cert SAN ("localhost"), so don't use addr.ip().
+            url: url::Url::parse(&format!("https://localhost:{}/KdcProxy", addr.port()))
+                .expect("kdc url"),
+            data: vec![0x01, 0x02, 0x03],
+        }
+    }
+
+    fn chain_has_connect_error(err: &anyhow::Error) -> bool {
+        err.chain().any(|e| {
+            e.downcast_ref::<reqwest::Error>()
+                .is_some_and(reqwest::Error::is_connect)
+        })
+    }
+
+    #[tokio::test]
+    async fn kdc_http_default_tls_rejects_self_signed() {
+        let (addr, server) = spawn_self_signed_tls_server().await;
+
+        let err = ReqwestHttpClient::send_kdc_network_request(
+            kdc_http_request(addr),
+            &TlsOptions::default(),
+        )
+        .await
+        .expect_err("default TLS options must reject a self-signed certificate");
+        assert!(
+            chain_has_connect_error(&err),
+            "expected a TLS connect failure, got: {err:?}"
+        );
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn kdc_http_honors_accept_invalid_certs() {
+        let (addr, server) = spawn_self_signed_tls_server().await;
+
+        let tls = TlsOptions {
+            accept_invalid_certs: true,
+            ..TlsOptions::default()
+        };
+        let err = ReqwestHttpClient::send_kdc_network_request(kdc_http_request(addr), &tls)
+            .await
+            .expect_err("listener answers 401, so the KDC request still fails");
+        assert!(
+            !chain_has_connect_error(&err),
+            "TLS handshake must succeed with accept_invalid_certs, got connect failure: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("401"),
+            "expected the 401 status error past the TLS layer, got: {err:?}"
+        );
+
+        server.abort();
     }
 }

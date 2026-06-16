@@ -44,6 +44,10 @@ impl WsMan {
     pub fn max_envelope_size(&self) -> u32 {
         self.max_envelope_size
     }
+
+    pub fn resource_uri(&self) -> &str {
+        &self.resource_uri
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +62,11 @@ pub enum WsAction {
     ShellCreate,
     Send,
     Signal,
+    Disconnect,
+    DisconnectResponse,
+    Reconnect,
+    ReconnectResponse,
+    Connect,
 }
 
 impl WsAction {
@@ -75,6 +84,17 @@ impl WsAction {
             Self::ShellCreate => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/create",
             Self::Send => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send",
             Self::Signal => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal",
+            Self::Disconnect => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Disconnect"
+            }
+            Self::DisconnectResponse => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/DisconnectResponse"
+            }
+            Self::Reconnect => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Reconnect",
+            Self::ReconnectResponse => {
+                "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReconnectResponse"
+            }
+            Self::Connect => "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Connect",
         }
     }
 }

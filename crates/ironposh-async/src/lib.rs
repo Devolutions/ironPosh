@@ -1,5 +1,5 @@
 use futures::channel::mpsc;
-use ironposh_client_core::connector::{conntion_pool::TrySend, http::HttpResponseTargeted};
+use ironposh_client_core::connector::{connection_pool::TrySend, http::HttpResponseTargeted};
 use ironposh_client_core::host::{HostCall, HostCallScope, Submission};
 use std::future::Future;
 
@@ -30,6 +30,20 @@ pub enum SessionEvent {
     Error(String),
     /// Session has been closed
     Closed,
+}
+
+/// Runspace pool lifecycle notifications for disconnect/reconnect
+/// (parallel session loop only).
+#[derive(Debug, Clone)]
+pub enum PoolLifecycleEvent {
+    /// The runspace pool shell has been disconnected (MS-WSMV Disconnect)
+    Disconnected { shell_id: Option<String> },
+    /// The runspace pool shell has been reconnected (MS-WSMV Reconnect)
+    Reconnected { shell_id: Option<String> },
+    /// A Disconnect request faulted on the server; the runspace pool stays connected
+    DisconnectFailed { shell_id: Option<String> },
+    /// A Reconnect request failed at the transport level; the runspace pool stays disconnected
+    ReconnectFailed { shell_id: Option<String> },
 }
 
 /// Host I/O interface for handling PowerShell host calls

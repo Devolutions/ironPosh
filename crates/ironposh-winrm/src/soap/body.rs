@@ -4,6 +4,8 @@ use crate::{
     cores::*,
     rsp::{
         commandline::CommandLineValue,
+        connect::{ConnectResponseValue, ConnectValue},
+        disconnect::DisconnectValue,
         receive::{ReceiveResponseValue, ReceiveValue},
         send::SendValue,
         shell_value::ShellValue,
@@ -57,6 +59,18 @@ pub struct SoapBody<'a> {
     pub signal: Option<Tag<'a, Tag<'a, Text<'a>, SignalCode>, Signal>>,
     #[builder(default, setter(into, strip_option))]
     pub signal_response: Option<Tag<'a, Empty, SignalResponse>>,
+    #[builder(default, setter(into, strip_option))]
+    pub disconnect: Option<Tag<'a, DisconnectValue<'a>, Disconnect>>,
+    #[builder(default, setter(into, strip_option))]
+    pub disconnect_response: Option<Tag<'a, Empty, DisconnectResponse>>,
+    #[builder(default, setter(into, strip_option))]
+    pub reconnect: Option<Tag<'a, Empty, Reconnect>>,
+    #[builder(default, setter(into, strip_option))]
+    pub reconnect_response: Option<Tag<'a, Empty, ReconnectResponse>>,
+    #[builder(default, setter(into, strip_option))]
+    pub connect: Option<Tag<'a, ConnectValue<'a>, Connect>>,
+    #[builder(default, setter(into, strip_option))]
+    pub connect_response: Option<Tag<'a, ConnectResponseValue<'a>, ConnectResponse>>,
 
     /// SOAP fault handling
     #[builder(default, setter(into, strip_option))]

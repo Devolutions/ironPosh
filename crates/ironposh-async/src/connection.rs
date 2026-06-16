@@ -15,18 +15,27 @@ use crate::clock::Instant;
 use crate::{HostIo, HostSubmitter, HttpClient, session, session_serial};
 
 /// Run the connector handshake loop: step through authentication until Connected.
+/// When `connect_shell_id` is set, the connector attaches to that existing
+/// disconnected shell (WSMan Connect) instead of creating a new one.
 async fn run_handshake<C: HttpClient>(
     config: WinRmConfig,
+    connect_shell_id: Option<uuid::Uuid>,
     client: &C,
     session_event_tx: &mpsc::UnboundedSender<crate::SessionEvent>,
 ) -> anyhow::Result<(
     Box<ironposh_client_core::connector::active_session::ActiveSession>,
-    ironposh_client_core::connector::conntion_pool::TrySend,
+    ironposh_client_core::connector::connection_pool::TrySend,
 )> {
     let handshake_started_at = Instant::now();
     let mut step_idx: u64 = 0;
 
-    let mut connector = Connector::new(config);
+    let mut connector = match connect_shell_id {
+        Some(shell_id) => {
+            info!(shell_id = %shell_id, "Created connector in connect (reattach) mode");
+            Connector::new_connect(config, shell_id)
+        }
+        None => Connector::new(config),
+    };
     info!("Created connector, starting connection handshake...");
 
     let mut response = None;
@@ -185,6 +194,20 @@ fn build_pipeline_multiplexer(
                             .await
                             .context("Failed to forward KillPipeline operation")?;
                     }
+                    PipelineInput::Disconnect => {
+                        debug!("Received disconnect operation");
+                        user_input_tx
+                            .send(UserOperation::Disconnect)
+                            .await
+                            .context("Failed to forward Disconnect operation")?;
+                    }
+                    PipelineInput::Reconnect => {
+                        debug!("Received reconnect operation");
+                        user_input_tx
+                            .send(UserOperation::Reconnect)
+                            .await
+                            .context("Failed to forward Reconnect operation")?;
+                    }
                 }
             }
 
@@ -202,13 +225,17 @@ fn build_pipeline_multiplexer(
 }
 
 /// Establish connection and return client handle with background task (parallel mode).
+/// `connect_shell_id` switches the handshake into reattach mode (WSMan Connect
+/// to an existing disconnected shell).
 pub fn establish_connection<C>(
     config: WinRmConfig,
+    connect_shell_id: Option<uuid::Uuid>,
     client: C,
 ) -> (
     ConnectionHandle,
     HostIo,
     mpsc::UnboundedReceiver<crate::SessionEvent>,
+    mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
     impl std::future::Future<Output = anyhow::Result<()>>,
 )
 where
@@ -220,6 +247,7 @@ where
     let (host_resp_tx, host_resp_rx) = mpsc::unbounded();
     let (session_event_tx, session_event_rx) = mpsc::unbounded();
     let session_event_tx_2 = session_event_tx.clone();
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded();
 
     let host_io = HostIo {
         host_call_rx,
@@ -231,7 +259,7 @@ where
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionStarted);
 
         let (active_session, next_request) =
-            run_handshake(config, &client, &session_event_tx).await?;
+            run_handshake(config, connect_shell_id, &client, &session_event_tx).await?;
 
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionEstablished);
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionStarted);
@@ -246,6 +274,7 @@ where
             user_input_tx_clone,
             host_call_tx,
             host_resp_rx,
+            lifecycle_tx,
         )
         .instrument(info_span!("ActiveSession"))
         .await;
@@ -282,6 +311,7 @@ where
         ConnectionHandle { pipeline_input_tx },
         host_io,
         session_event_rx,
+        lifecycle_rx,
         joined_task,
     )
 }
@@ -319,7 +349,7 @@ where
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionStarted);
 
         let (active_session, next_request) =
-            run_handshake(config, &client, &session_event_tx).await?;
+            run_handshake(config, None, &client, &session_event_tx).await?;
 
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ConnectionEstablished);
         let _ = session_event_tx.unbounded_send(crate::SessionEvent::ActiveSessionStarted);
@@ -385,4 +415,8 @@ pub enum PipelineInput {
     Kill {
         pipeline_handle: PipelineHandle,
     },
+    /// Disconnect the runspace pool shell (parallel session loop only).
+    Disconnect,
+    /// Reconnect a previously disconnected runspace pool shell.
+    Reconnect,
 }

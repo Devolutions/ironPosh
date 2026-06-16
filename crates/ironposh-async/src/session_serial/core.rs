@@ -12,10 +12,12 @@ use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
 use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
-use ironposh_client_core::connector::{ActiveSessionOutput, UserOperation, conntion_pool::TrySend};
+use ironposh_client_core::connector::{
+    ActiveSessionOutput, UserOperation, connection_pool::TrySend,
+};
 use ironposh_client_core::host::HostCall;
 use ironposh_client_core::runspace_pool::DesiredStream;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use super::diag;
@@ -181,6 +183,27 @@ impl<S: SessionBackend> SessionCore<S> {
 
     // ── Buffered user ops ─────────────────────────────────────────────────
 
+    /// Drop operations that cannot work in single-connection mode.
+    ///
+    /// Disconnect/Reconnect require the parallel session loop: the serial loop
+    /// keeps exactly one request in flight (usually a long-poll Receive), so a
+    /// Disconnect could never be issued concurrently with it. The client API
+    /// rejects these up front ([`crate::RemoteAsyncPowershellClient::disconnect`]);
+    /// this is defense-in-depth — drop the op instead of terminating the session.
+    ///
+    /// Returns `true` when the operation was dropped.
+    fn drop_unsupported_op(op: &UserOperation) -> bool {
+        if matches!(op, UserOperation::Disconnect | UserOperation::Reconnect) {
+            warn!(
+                target: "serial",
+                operation = op.operation_type(),
+                "dropping disconnect/reconnect: not supported in serial (single-connection) mode"
+            );
+            return true;
+        }
+        false
+    }
+
     /// Process ONE buffered user operation, if the connection is idle
     /// (`work_queue` is empty). Only one per call because
     /// `accept_client_operation` may itself call `send()`, moving the
@@ -189,6 +212,9 @@ impl<S: SessionBackend> SessionCore<S> {
         if let Some(op) = self.queues.user_ops.pop_front() {
             diag!("DIAG process buffered: {}", op.operation_type());
             debug!(target: "serial", operation = op.operation_type(), "processing buffered user operation");
+            if Self::drop_unsupported_op(&op) {
+                return Ok(());
+            }
             let priority = SendPriority::for_user_op(&op);
             self.observe_user_op(&op);
             let output = self
@@ -398,6 +424,9 @@ impl<S: SessionBackend> SessionCore<S> {
             operation = op.operation_type(),
             "user operation received while idle"
         );
+        if Self::drop_unsupported_op(&op) {
+            return Ok(());
+        }
         let priority = SendPriority::for_user_op(&op);
         self.observe_user_op(&op);
         let output = self
@@ -507,6 +536,20 @@ impl<S: SessionBackend> SessionCore<S> {
     /// Whether a HostCall is currently active (event loop uses this for `select!` guard).
     pub(super) fn is_host_call_active(&self) -> bool {
         matches!(self.host_call_state, HostCallState::Waiting { .. })
+    }
+
+    /// Whether buffered user operations are still waiting to be processed.
+    ///
+    /// The main loop drains `user_ops` one op per iteration via
+    /// [`Self::process_one_buffered_op`]. When a buffered op produces no
+    /// promotable HTTP work (e.g. `SubmitHostResponse`), `promote_next_request`
+    /// returns `None` and the loop would otherwise block in its idle `select!`,
+    /// which only wakes on *external* events. Any remaining buffered op (e.g. a
+    /// queued pipeline invoke issued right after a Ctrl+C kill) would then stall
+    /// until an unrelated wake-up. The loop consults this to keep iterating
+    /// while internal work remains.
+    pub(super) fn has_pending_buffered_ops(&self) -> bool {
+        !self.queues.user_ops.is_empty()
     }
 
     // ── Internal routing ─────────────────────────────────────────────────
@@ -650,7 +693,7 @@ fn output_type_name(o: &ActiveSessionOutput) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ironposh_client_core::connector::conntion_pool::ConnectionId;
+    use ironposh_client_core::connector::connection_pool::ConnectionId;
     use ironposh_client_core::connector::http::{HttpRequest, Method};
     use ironposh_client_core::host::{HostCallScope, Transport};
     use ironposh_client_core::powershell::PipelineHandle;
@@ -1050,6 +1093,54 @@ mod tests {
         assert_eq!(core.queues.work[0].get_connection_id().inner(), 99);
     }
 
+    /// Regression: when a buffered op produces no promotable HTTP work but
+    /// another buffered op remains, the loop must keep iterating instead of
+    /// blocking in its idle `select!`. Reproduces the serial Ctrl+C wedge where
+    /// a `SubmitHostResponse` (no work) was processed ahead of the queued prompt
+    /// `InvokeWithSpec`, and the loop slept on external events while the invoke
+    /// sat unprocessed — hanging the REPL.
+    #[test]
+    fn pending_buffered_op_keeps_loop_from_idling() {
+        let mut mock = MockBackend::new();
+        // SubmitHostResponse yields no work; the InvokeWithSpec is never reached
+        // in this test (we only process one op, like the loop does per iteration).
+        mock.op_responses.push_back(ActiveSessionOutput::Ignore);
+
+        let mut core = core_idle(mock);
+        // Order mirrors the live wedge: a host response ahead of the queued invoke.
+        core.queues
+            .user_ops
+            .push_back(UserOperation::SubmitHostResponse {
+                call_id: 1,
+                scope: HostCallScope::RunspacePool,
+                submission: ironposh_client_core::host::Submission::NoSend,
+            });
+        core.queues
+            .user_ops
+            .push_back(UserOperation::InvokeWithSpec {
+                uuid: Uuid::new_v4(),
+                spec: ironposh_client_core::pipeline::PipelineSpec {
+                    commands: vec![ironposh_client_core::pipeline::PipelineCommand::new_script(
+                        "prompt".to_string(),
+                    )],
+                },
+            });
+
+        // Process one buffered op (the SubmitHostResponse), as the loop does.
+        core.process_one_buffered_op().unwrap();
+
+        // No HTTP work was produced...
+        assert!(
+            core.promote_next_request().unwrap().is_none(),
+            "SubmitHostResponse should not promote any HTTP request"
+        );
+        // ...but the queued invoke is still pending, so the loop must NOT idle.
+        assert!(
+            core.has_pending_buffered_ops(),
+            "buffered InvokeWithSpec must keep the loop iterating, not blocking on external events"
+        );
+    }
+
     #[test]
     fn drain_user_events_empties_buffer() {
         let mock = MockBackend::new();
@@ -1065,6 +1156,39 @@ mod tests {
 
         let events2 = core.drain_user_events();
         assert!(events2.is_empty());
+    }
+
+    // ── Unsupported ops in serial mode (2 tests) ────────────────────────
+
+    #[test]
+    fn disconnect_reconnect_dropped_when_idle() {
+        // MockBackend panics if the op reaches the backend (op_responses empty),
+        // so this also proves the ops never hit ActiveSession.
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        core.accept_user_op(UserOperation::Disconnect)
+            .expect("Disconnect must be dropped, not terminate the serial loop");
+        core.accept_user_op(UserOperation::Reconnect)
+            .expect("Reconnect must be dropped, not terminate the serial loop");
+
+        assert!(
+            core.queues.work.is_empty(),
+            "dropped ops must not enqueue work"
+        );
+    }
+
+    #[test]
+    fn disconnect_dropped_when_buffered() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        core.buffer_user_op(UserOperation::Disconnect);
+        core.process_one_buffered_op()
+            .expect("buffered Disconnect must be dropped, not terminate the serial loop");
+
+        assert!(core.queues.user_ops.is_empty());
+        assert!(core.queues.work.is_empty());
     }
 
     // ── Scheduler integration (2 tests) ─────────────────────────────────

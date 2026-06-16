@@ -1,6 +1,10 @@
 use clap::{Parser, ValueEnum};
 use ironposh_client_core::{
-    connector::{config::KerberosConfig, http::ServerAddress, WinRmConfig},
+    connector::{
+        config::{KerberosConfig, TlsOptions},
+        http::ServerAddress,
+        WinRmConfig,
+    },
     AuthenticatorConfig, SspiAuthConfig, TransportSecurity,
 };
 use ironposh_psrp::{HostDefaultData, Size};
@@ -269,5 +273,7 @@ pub fn create_connector_config(
         authentication: auth,
         host_info,
         operation_timeout_secs: None,
+        tls: TlsOptions::default(),
+        configuration_name: None,
     })
 }

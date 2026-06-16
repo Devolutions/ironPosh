@@ -1,0 +1,27 @@
+[package]
+name = "ironposh-test-support"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ironposh-client-core = { path = "../ironposh-client-core" }
+ironposh-psrp = { path = "../ironposh-psrp" }
+ironposh-winrm = { path = "../ironposh-winrm" }
+ironposh-xml = { path = "../ironposh-xml" }
+uuid = { version = "1.17.0", features = ["v4"] }
+base64 = "0.22.1"
+regex = "1"
+# TLS listener helpers: local self-signed listener shared by client-tokio's
+# WSMan and KDC TLS tests. Pinned to the rustls 0.23 line already present in
+# the workspace lockfile.
+rcgen = "0.13"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# PTY harnesses for the client-tokio e2e suites.
+portable-pty = "0.8"
+vt100 = "0.16"
+serde_json = "1.0"
+
+[lints]
+workspace = true

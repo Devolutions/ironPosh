@@ -11,7 +11,7 @@ use crate::{
             SspiContext, Token,
         },
         config::{AuthenticatorConfig, SspiAuthConfig},
-        conntion_pool::{ConnectionId, TrySend},
+        connection_pool::{ConnectionId, TrySend},
         encryption::EncryptionProvider,
         http::{HttpBody, HttpBuilder, HttpRequest, HttpResponse},
     },

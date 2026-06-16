@@ -15,27 +15,57 @@ use crate::{
 #[derive(Clone)]
 pub struct RemoteAsyncPowershellClient {
     handle: ConnectionHandle,
+    /// Whether the session loop supports disconnect/reconnect
+    /// (parallel loop only; the serial loop rejects these operations).
+    supports_disconnect: bool,
+}
+
+/// Everything produced by [`RemoteAsyncPowershellClient::open_task`].
+///
+/// Bundles the client handle, the host I/O and event channels, and the
+/// background connection task that must be polled (typically spawned) to
+/// drive the session.
+pub struct OpenedSession<T> {
+    /// Client handle for issuing pipelines and disconnect/reconnect requests.
+    pub client: RemoteAsyncPowershellClient,
+    /// Host call I/O (host calls from the runspace plus the response submitter).
+    pub host_io: crate::HostIo,
+    /// Session lifecycle events (connection established, errors, closed, ...).
+    pub session_events: futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
+    /// Runspace pool disconnect/reconnect notifications.
+    pub lifecycle_events: futures::channel::mpsc::UnboundedReceiver<crate::PoolLifecycleEvent>,
+    /// Background task driving the connection; resolves when the session ends.
+    ///
+    /// Generic rather than boxed because `HttpClient::send_request` futures
+    /// carry no `Send` bound (the wasm client's futures are thread-local), so
+    /// the task can only be boxed where the concrete client type is known.
+    pub connection_task: T,
 }
 
 impl RemoteAsyncPowershellClient {
-    /// Create a new client and background task for the given configuration
-    /// Returns (client, host_io, session_event_rx, connection_task)
+    /// Create a new client and background task for the given configuration.
+    ///
+    /// When `connect_shell_id` is set, the client attaches to that existing
+    /// disconnected runspace pool shell (WSMan Connect / browser-refresh
+    /// reattach) instead of creating a new one.
     pub fn open_task(
         config: WinRmConfig,
+        connect_shell_id: Option<uuid::Uuid>,
         client: impl HttpClient,
-    ) -> (
-        Self,
-        crate::HostIo,
-        futures::channel::mpsc::UnboundedReceiver<crate::SessionEvent>,
-        impl std::future::Future<Output = anyhow::Result<()>>,
-    )
-    where
-        Self: Sized,
-    {
-        let (handle, host_io, session_event_rx, task) =
-            connection::establish_connection(config, client);
+    ) -> OpenedSession<impl std::future::Future<Output = anyhow::Result<()>>> {
+        let (handle, host_io, session_event_rx, lifecycle_event_rx, task) =
+            connection::establish_connection(config, connect_shell_id, client);
 
-        (Self { handle }, host_io, session_event_rx, task)
+        OpenedSession {
+            client: Self {
+                handle,
+                supports_disconnect: true,
+            },
+            host_io,
+            session_events: session_event_rx,
+            lifecycle_events: lifecycle_event_rx,
+            connection_task: task,
+        }
     }
 
     /// Create a new client using the serial (single-connection) session loop.
@@ -58,7 +88,15 @@ impl RemoteAsyncPowershellClient {
         let (handle, host_io, session_event_rx, task) =
             connection::establish_connection_serial(config, client);
 
-        (Self { handle }, host_io, session_event_rx, task)
+        (
+            Self {
+                handle,
+                supports_disconnect: false,
+            },
+            host_io,
+            session_event_rx,
+            task,
+        )
     }
 
     /// Execute a PowerShell command and return its output
@@ -144,5 +182,88 @@ impl RemoteAsyncPowershellClient {
             .context("Failed to send KillPipeline operation")?;
 
         Ok(())
+    }
+
+    /// Disconnect the runspace pool shell (MS-WSMV Disconnect).
+    ///
+    /// Completion is reported through the `PoolLifecycleEvent` channel returned
+    /// by [`Self::open_task`]. Only supported by the parallel session loop;
+    /// returns an error immediately for serial-mode clients
+    /// ([`Self::open_task_serial`]).
+    #[instrument(skip(self))]
+    pub async fn disconnect(&mut self) -> anyhow::Result<()> {
+        if !self.supports_disconnect {
+            anyhow::bail!(
+                "disconnect is not supported in serial (single-connection) mode; \
+                 use the parallel session loop"
+            );
+        }
+
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Disconnect)
+            .await
+            .context("Failed to send Disconnect operation")?;
+
+        Ok(())
+    }
+
+    /// Reconnect a previously disconnected runspace pool shell (MS-WSMV Reconnect).
+    ///
+    /// Completion is reported through the `PoolLifecycleEvent` channel returned
+    /// by [`Self::open_task`]. Only supported by the parallel session loop;
+    /// returns an error immediately for serial-mode clients
+    /// ([`Self::open_task_serial`]).
+    #[instrument(skip(self))]
+    pub async fn reconnect(&mut self) -> anyhow::Result<()> {
+        if !self.supports_disconnect {
+            anyhow::bail!(
+                "reconnect is not supported in serial (single-connection) mode; \
+                 use the parallel session loop"
+            );
+        }
+
+        self.handle
+            .pipeline_input_tx
+            .send(connection::PipelineInput::Reconnect)
+            .await
+            .context("Failed to send Reconnect operation")?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+
+    #[test]
+    fn serial_client_rejects_disconnect_and_reconnect() {
+        let (pipeline_input_tx, mut pipeline_input_rx) = futures::channel::mpsc::channel(1);
+        let mut client = RemoteAsyncPowershellClient {
+            handle: ConnectionHandle { pipeline_input_tx },
+            supports_disconnect: false,
+        };
+
+        let err = client
+            .disconnect()
+            .now_or_never()
+            .expect("serial disconnect must resolve immediately")
+            .expect_err("disconnect must fail in serial mode");
+        assert!(err.to_string().contains("serial"), "got: {err}");
+
+        let err = client
+            .reconnect()
+            .now_or_never()
+            .expect("serial reconnect must resolve immediately")
+            .expect_err("reconnect must fail in serial mode");
+        assert!(err.to_string().contains("serial"), "got: {err}");
+
+        // Nothing must have been sent into the session loop.
+        assert!(
+            pipeline_input_rx.try_next().is_err(),
+            "no operation may reach the session loop"
+        );
     }
 }

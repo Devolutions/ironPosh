@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use ironposh_async::PoolLifecycleEvent;
 use ironposh_async::RemoteAsyncPowershellClient;
 use ironposh_async::SessionEvent;
 use ironposh_client_core::connector::active_session::UserEvent;
@@ -124,6 +125,12 @@ struct TabCompletionRequest {
     line: String,
     cursor_utf16: usize,
     respond_to: oneshot::Sender<Option<String>>,
+}
+
+pub struct ReplSessionOptions {
+    pub disconnect_supported: bool,
+    pub reattach_command_prefix: String,
+    pub reattach_credentials_hint: String,
 }
 
 fn escape_ps_single_quoted(input: &str) -> String {
@@ -474,6 +481,18 @@ async fn fetch_remote_prompt(client: &mut RemoteAsyncPowershellClient) -> Option
     prompt
 }
 
+/// Local prompt shown while the runspace pool is disconnected (no remote
+/// pipeline can run, so the remote `prompt` function must not be used).
+const DISCONNECTED_PROMPT: &str = "(disconnected)> ";
+
+async fn request_disconnected_prompt(terminal_op_tx: &Sender<TerminalOperation>) {
+    let _ = terminal_op_tx
+        .send(TerminalOperation::RequestInput {
+            prompt: DISCONNECTED_PROMPT.to_string(),
+        })
+        .await;
+}
+
 async fn request_prompt(
     client: &mut RemoteAsyncPowershellClient,
     terminal_op_tx: &Sender<TerminalOperation>,
@@ -778,27 +797,14 @@ fn run_ui_thread(
                         }
                         continue;
                     }
-                    if let Some(read_line) = io.try_read_line_queued(&mut event_queue)? {
-                        match read_line {
-                            ReadOutcome::Line(s) => {
-                                info!(command = %s.trim(), "user entered command");
-                                if user_input_tx.blocking_send(UserInput::Cmd(s)).is_err() {
-                                    warn!("failed to send command to REPL - channel closed");
-                                    return Ok(());
-                                }
-                            }
-                            ReadOutcome::Interrupt => {
-                                info!("user pressed Ctrl+C");
-                                if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
-                                    warn!("failed to send interrupt to REPL - channel closed");
-                                    return Ok(());
-                                }
-                            }
-                            ReadOutcome::Eof => {
-                                info!("received EOF from user input");
-                                let _ = user_input_tx.blocking_send(UserInput::Eof);
-                                return Ok(());
-                            }
+                    // Only consume a Ctrl+C here; any other pending events are
+                    // buffered in `event_queue` so the next line read still
+                    // sees keystrokes typed while a pipeline was running.
+                    if io.check_interrupt_queued(&mut event_queue)? {
+                        info!("user pressed Ctrl+C");
+                        if user_input_tx.blocking_send(UserInput::Interrupt).is_err() {
+                            warn!("failed to send interrupt to REPL - channel closed");
+                            return Ok(());
                         }
                     }
                 }
@@ -1262,6 +1268,8 @@ async fn run_repl_loop(
     mut user_input_rx: Receiver<UserInput>,
     mut repl_control_rx: Receiver<ReplControl>,
     mut tab_complete_rx: Receiver<TabCompletionRequest>,
+    mut lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
+    options: ReplSessionOptions,
 ) -> anyhow::Result<()> {
     info!("Starting unified REPL loop");
 
@@ -1271,11 +1279,20 @@ async fn run_repl_loop(
     // Async REPL loop
     let mut current_pipeline = None;
     let mut current_stream = None::<futures::stream::BoxStream<'_, UserEvent>>;
+    // Tracked from PoolLifecycleEvents; while true, remote pipelines (commands,
+    // remote prompt, tab completion) must not be attempted.
+    let mut disconnected = false;
+    let mut interrupt_poll = tokio::time::interval(std::time::Duration::from_millis(50));
+    interrupt_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
+        let pipeline_active = current_stream.is_some();
         tokio::select! {
+            _ = interrupt_poll.tick(), if pipeline_active => {
+                let _ = terminal_op_tx.send(TerminalOperation::CheckInterrupt).await;
+            }
             Some(req) = tab_complete_rx.recv() => {
-                if current_stream.is_some() {
+                if current_stream.is_some() || disconnected {
                     let _ = req.respond_to.send(None);
                     continue;
                 }
@@ -1327,7 +1344,11 @@ async fn run_repl_loop(
                             client.kill_pipeline(h).await?;
                             current_stream = None;
                         }
-                        request_prompt(client, &terminal_op_tx).await;
+                        if disconnected {
+                            request_disconnected_prompt(&terminal_op_tx).await;
+                        } else {
+                            request_prompt(client, &terminal_op_tx).await;
+                        }
                     }
                     UserInput::Cmd(cmd) => {
                         let cmd = cmd.trim().to_string();
@@ -1336,6 +1357,79 @@ async fn run_repl_loop(
                         if cmd.eq_ignore_ascii_case("exit") {
                             info!("Exit command received, terminating REPL");
                             break;
+                        }
+
+                        if cmd.eq_ignore_ascii_case(":disconnect") || cmd.eq_ignore_ascii_case(":reconnect") {
+                            let reconnect = cmd.eq_ignore_ascii_case(":reconnect");
+                            if !options.disconnect_supported {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(
+                                        ":disconnect/:reconnect require the parallel session loop (run with --parallel)"
+                                            .to_string(),
+                                    ))
+                                    .await;
+                                request_prompt(client, &terminal_op_tx).await;
+                            } else if reconnect && !disconnected {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(
+                                        "session is not disconnected; :reconnect is only valid while disconnected"
+                                            .to_string(),
+                                    ))
+                                    .await;
+                                request_prompt(client, &terminal_op_tx).await;
+                            } else if !reconnect && disconnected {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(
+                                        "session is already disconnected; type :reconnect to resume"
+                                            .to_string(),
+                                    ))
+                                    .await;
+                                request_disconnected_prompt(&terminal_op_tx).await;
+                            } else {
+                                let result = if reconnect {
+                                    client.reconnect().await
+                                } else {
+                                    client.disconnect().await
+                                };
+                                if let Err(e) = result {
+                                    error!(error = %e, reconnect, "failed to queue disconnect/reconnect");
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(format!("Error: {e}")))
+                                        .await;
+                                    if disconnected {
+                                        request_disconnected_prompt(&terminal_op_tx).await;
+                                    } else {
+                                        request_prompt(client, &terminal_op_tx).await;
+                                    }
+                                } else if reconnect {
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(
+                                            "Reconnecting to runspace pool...".to_string(),
+                                        ))
+                                        .await;
+                                } else {
+                                    let _ = terminal_op_tx
+                                        .send(TerminalOperation::Print(
+                                            "Disconnecting from runspace pool...".to_string(),
+                                        ))
+                                        .await;
+                                }
+                            }
+                            continue;
+                        }
+
+                        if disconnected {
+                            // No remote pipeline can run while disconnected.
+                            if !cmd.is_empty() {
+                                let _ = terminal_op_tx
+                                    .send(TerminalOperation::Print(
+                                        "session is disconnected; type :reconnect to resume or exit to quit"
+                                            .to_string(),
+                                    ))
+                                    .await;
+                            }
+                            request_disconnected_prompt(&terminal_op_tx).await;
+                            continue;
                         }
 
                         if cmd.is_empty() {
@@ -1358,6 +1452,75 @@ async fn run_repl_loop(
                                 request_prompt(client, &terminal_op_tx).await;
                             }
                         }
+                    }
+                }
+            }
+
+            // Runspace pool disconnect/reconnect notifications
+            Some(ev) = lifecycle_event_rx.next() => {
+                match ev {
+                    PoolLifecycleEvent::Disconnected { shell_id } => {
+                        let display_id = shell_id.as_deref().unwrap_or("<unknown>");
+                        info!(shell_id = %display_id, "runspace pool disconnected");
+                        disconnected = true;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(format!(
+                                "Disconnected from runspace pool (ShellId: {display_id}). Type :reconnect to resume."
+                            )))
+                            .await;
+                        if let Some(shell_id) = shell_id {
+                            let reattach_command = format!(
+                                "reattach with: {} {shell_id}",
+                                options.reattach_command_prefix
+                            );
+                            let _ = terminal_op_tx
+                                .send(TerminalOperation::Print(reattach_command))
+                                .await;
+                            let _ = terminal_op_tx
+                                .send(TerminalOperation::Print(
+                                    options.reattach_credentials_hint.clone(),
+                                ))
+                                .await;
+                        }
+                        // Input is pull-based: without a local input request the user
+                        // could never type :reconnect. Do NOT fetch the remote prompt
+                        // here — that would run a remote pipeline while disconnected.
+                        request_disconnected_prompt(&terminal_op_tx).await;
+                    }
+                    PoolLifecycleEvent::Reconnected { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        info!(shell_id = %shell_id, "runspace pool reconnected");
+                        disconnected = false;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(format!(
+                                "Reconnected to runspace pool (ShellId: {shell_id})."
+                            )))
+                            .await;
+                        request_prompt(client, &terminal_op_tx).await;
+                    }
+                    PoolLifecycleEvent::DisconnectFailed { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        warn!(shell_id = %shell_id, "disconnect failed; session is still connected");
+                        disconnected = false;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(
+                                "Disconnect failed (server fault); session is still connected."
+                                    .to_string(),
+                            ))
+                            .await;
+                        request_prompt(client, &terminal_op_tx).await;
+                    }
+                    PoolLifecycleEvent::ReconnectFailed { shell_id } => {
+                        let shell_id = shell_id.unwrap_or_else(|| "<unknown>".to_string());
+                        warn!(shell_id = %shell_id, "reconnect failed; session is still disconnected");
+                        disconnected = true;
+                        let _ = terminal_op_tx
+                            .send(TerminalOperation::Print(
+                                "Reconnect failed (connection error); still disconnected. Type :reconnect to retry."
+                                    .to_string(),
+                            ))
+                            .await;
+                        request_disconnected_prompt(&terminal_op_tx).await;
                     }
                 }
             }
@@ -1495,6 +1658,8 @@ pub async fn run_simple_repl(
     mut hostcall_ui_rx: tokio::sync::mpsc::Receiver<TerminalOperation>,
     mut session_event_rx: futures::channel::mpsc::UnboundedReceiver<SessionEvent>,
     repl_control_rx: Receiver<ReplControl>,
+    lifecycle_event_rx: futures::channel::mpsc::UnboundedReceiver<PoolLifecycleEvent>,
+    options: ReplSessionOptions,
 ) -> anyhow::Result<()> {
     info!("Starting async REPL with unified UI queue");
 
@@ -1530,6 +1695,8 @@ pub async fn run_simple_repl(
         terminal_request_rx,
         repl_control_rx,
         tab_complete_rx,
+        lifecycle_event_rx,
+        options,
     )
     .await;
 

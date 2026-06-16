@@ -398,6 +398,11 @@ pub struct WasmWinRmConfig {
     /// Only valid when transport is Tcp.
     #[serde(default)]
     pub force_insecure: Option<bool>,
+
+    /// PowerShell session configuration (JEA endpoint) name.
+    /// Defaults to `Microsoft.PowerShell` when omitted.
+    #[serde(default)]
+    pub configuration_name: Option<String>,
 }
 
 fn default_cols() -> u16 {

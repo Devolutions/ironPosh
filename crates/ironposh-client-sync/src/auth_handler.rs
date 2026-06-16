@@ -2,7 +2,7 @@
 // use ironposh_client_core::connector::{
 //     auth_sequence::AuthSequence,
 //     authenticator::SecContextMaybeInit,
-//     conntion_pool::{AuthenticatedHttpChannel, PostConAuthSequence, SecContextInited},
+//     connection_pool::{AuthenticatedHttpChannel, PostConAuthSequence, SecContextInited},
 //     http::{HttpRequestAction, HttpResponse},
 // };
 // use tracing::{info, info_span, instrument};

@@ -5,13 +5,13 @@ use std::{
 
 use base64::Engine;
 use ironposh_psrp::{
-    ApartmentState, ApplicationArguments, ApplicationPrivateData, CreatePipeline, Defragmenter,
-    ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions, PipelineOutput, PsValue,
-    RunspacePoolStateMessage, SessionCapability, fragmentation,
+    ApartmentState, ApplicationArguments, ApplicationPrivateData, ConnectRunspacePool,
+    CreatePipeline, Defragmenter, ErrorRecord, HostInfo, InitRunspacePool, PSThreadOptions,
+    PipelineOutput, PsValue, RunspacePoolStateMessage, SessionCapability, fragmentation,
 };
 use ironposh_winrm::{
     soap::SoapEnvelope,
-    ws_management::{OptionSetValue, WsMan},
+    ws_management::{OptionSetValue, WsAction, WsMan},
 };
 use ironposh_xml::parser::XmlDeserialize;
 use rsa::traits::PublicKeyParts;
@@ -263,17 +263,14 @@ impl RunspacePool {
         encrypt_secure_strings_in_value_rec(value, session_key)
     }
 
-    #[instrument(skip(self), name = "RunspacePool::open")]
-    pub fn open(
-        mut self,
-    ) -> Result<(String, super::expect_shell_created::ExpectShellCreated), crate::PwshCoreError>
-    {
-        if self.state != RunspacePoolState::BeforeOpen {
-            return Err(crate::PwshCoreError::InvalidState(
-                "RunspacePool must be in BeforeOpen state to open",
-            ));
-        }
-
+    /// Build the negotiation payload shared by [`Self::open`] and
+    /// [`Self::connect`]: SESSION_CAPABILITY plus the path-specific second
+    /// message, fragmented into a single base64-encoded request group, with
+    /// the matching `protocolversion` OptionSet.
+    fn negotiation_payload(
+        &mut self,
+        second_message: &dyn ironposh_psrp::PsObjectWithType,
+    ) -> Result<(String, OptionSetValue), crate::PwshCoreError> {
         let session_capability = SessionCapability {
             protocol_version: PROTOCOL_VERSION.to_string(),
             ps_version: PS_VERSION.to_string(),
@@ -281,25 +278,13 @@ impl RunspacePool {
             time_zone: None,
         };
 
-        let init_runspace_pool = InitRunspacePool {
-            min_runspaces: self.min_runspaces as i32,
-            max_runspaces: self.max_runspaces as i32,
-            thread_options: self.thread_options,
-            apartment_state: self.apartment_state,
-            host_info: self.host_info.clone(),
-            application_arguments: self.application_arguments.clone(),
-        };
-
         debug!(
             session_capability = ?session_capability,
-            min_runspaces = self.min_runspaces,
-            max_runspaces = self.max_runspaces,
-            "starting runspace pool open"
+            "building negotiation payload"
         );
-        debug!(init_runspace_pool = ?init_runspace_pool);
 
         let request_groups = self.fragmenter.fragment_multiple(
-            &[&session_capability, &init_runspace_pool],
+            &[&session_capability, second_message],
             self.id,
             None,
         )?;
@@ -311,11 +296,9 @@ impl RunspacePool {
             "fragmented negotiation requests"
         );
 
-        self.state = RunspacePoolState::NegotiationSent;
-
         debug_assert!(
             request_groups.len() == 1,
-            "We should have only one request group for the opening negotiation"
+            "We should have only one request group for the negotiation"
         );
 
         let request = request_groups
@@ -328,6 +311,40 @@ impl RunspacePool {
 
         let option_set = OptionSetValue::new().add_option("protocolversion", PROTOCOL_VERSION);
 
+        Ok((request, option_set))
+    }
+
+    #[instrument(skip(self), name = "RunspacePool::open")]
+    pub fn open(
+        mut self,
+    ) -> Result<(String, super::expect_shell_created::ExpectShellCreated), crate::PwshCoreError>
+    {
+        if self.state != RunspacePoolState::BeforeOpen {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in BeforeOpen state to open",
+            ));
+        }
+
+        let init_runspace_pool = InitRunspacePool {
+            min_runspaces: i32::try_from(self.min_runspaces).unwrap_or(i32::MAX),
+            max_runspaces: i32::try_from(self.max_runspaces).unwrap_or(i32::MAX),
+            thread_options: self.thread_options,
+            apartment_state: self.apartment_state,
+            host_info: self.host_info.clone(),
+            application_arguments: self.application_arguments.clone(),
+        };
+
+        debug!(
+            min_runspaces = self.min_runspaces,
+            max_runspaces = self.max_runspaces,
+            "starting runspace pool open"
+        );
+        debug!(init_runspace_pool = ?init_runspace_pool);
+
+        let (request, option_set) = self.negotiation_payload(&init_runspace_pool)?;
+
+        self.state = RunspacePoolState::NegotiationSent;
+
         let result = self
             .shell
             .open(&self.connection, Some(option_set), &request);
@@ -335,6 +352,50 @@ impl RunspacePool {
         Ok((
             result.into().to_xml_string()?,
             super::expect_shell_created::ExpectShellCreated {
+                runspace_pool: self,
+            },
+        ))
+    }
+
+    /// Open this pool by attaching to an EXISTING disconnected shell
+    /// (MS-WSMV 3.1.4.15 Connect / MS-PSRP 3.1.5.4).
+    ///
+    /// Embeds SESSION_CAPABILITY + CONNECT_RUNSPACEPOOL in the `connectXml`
+    /// payload of a WSMan Connect request addressed at the shell whose id
+    /// equals this pool's RPID (shell id == pool RPID in this codebase).
+    #[instrument(skip(self), name = "RunspacePool::connect")]
+    pub fn connect(
+        mut self,
+    ) -> Result<(String, super::expect_shell_connected::ExpectShellConnected), crate::PwshCoreError>
+    {
+        if self.state != RunspacePoolState::BeforeOpen {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in BeforeOpen state to connect",
+            ));
+        }
+
+        let connect_runspace_pool = ConnectRunspacePool {
+            min_runspaces: i32::try_from(self.min_runspaces).unwrap_or(i32::MAX),
+            max_runspaces: i32::try_from(self.max_runspaces).unwrap_or(i32::MAX),
+        };
+
+        debug!(
+            connect_runspace_pool = ?connect_runspace_pool,
+            runspace_pool_id = %self.id,
+            "starting runspace pool connect to existing shell"
+        );
+
+        let (request, option_set) = self.negotiation_payload(&connect_runspace_pool)?;
+
+        self.state = RunspacePoolState::Connecting;
+
+        let result = self
+            .shell
+            .connect(&self.connection, Some(option_set), &request);
+
+        Ok((
+            result.into().to_xml_string()?,
+            super::expect_shell_connected::ExpectShellConnected {
                 runspace_pool: self,
             },
         ))
@@ -351,6 +412,190 @@ impl RunspacePool {
             .fire_receive(&self.connection, desired_streams)
             .into()
             .to_xml_string()?)
+    }
+
+    /// Server-assigned shell id (available after the shell has been created).
+    pub fn shell_id(&self) -> Option<&str> {
+        self.shell.shell_id()
+    }
+
+    /// Server-supplied ApplicationPrivateData, if delivered during open/connect.
+    pub fn application_private_data(&self) -> Option<&ApplicationPrivateData> {
+        self.application_private_data.as_ref()
+    }
+
+    /// Build a Disconnect request for this pool's shell (MS-WSMV 3.1.4.13).
+    /// Valid only in `Opened` state; transitions the pool to `Disconnecting`.
+    #[instrument(skip(self))]
+    pub fn fire_disconnect(&mut self) -> Result<String, crate::PwshCoreError> {
+        if self.state != RunspacePoolState::Opened {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in Opened state to disconnect",
+            ));
+        }
+
+        let xml = self
+            .shell
+            .fire_disconnect(&self.connection)
+            .into()
+            .to_xml_string()?;
+
+        self.state = RunspacePoolState::Disconnecting;
+        info!(runspace_pool_id = %self.id, "runspace pool disconnect requested");
+        Ok(xml)
+    }
+
+    /// Accept the server's DisconnectResponse.
+    /// Valid only in `Disconnecting` state; transitions the pool to `Disconnected`.
+    #[instrument(skip(self, soap_envelope), fields(envelope_length = soap_envelope.len()))]
+    pub fn accept_disconnect_response(
+        &mut self,
+        soap_envelope: &str,
+    ) -> Result<(), crate::PwshCoreError> {
+        if self.state != RunspacePoolState::Disconnecting {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in Disconnecting state to accept a disconnect response",
+            ));
+        }
+
+        let parsed = ironposh_xml::parser::parse(soap_envelope)?;
+        let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
+            .map_err(crate::PwshCoreError::XmlParsingError)?;
+
+        Self::fault_to_error(&soap_envelope)?;
+
+        // Real Windows servers answer shell Disconnect with an empty Body and
+        // identify the operation via the `a:Action` header only; the
+        // documented `rsp:DisconnectResponse` body element is accepted too.
+        if soap_envelope.body.as_ref().disconnect_response.is_none()
+            && !Self::header_action_is(&soap_envelope, &WsAction::DisconnectResponse)
+        {
+            return Err(crate::PwshCoreError::InvalidResponse(
+                "No DisconnectResponse found in response".into(),
+            ));
+        }
+
+        self.state = RunspacePoolState::Disconnected;
+        info!(runspace_pool_id = %self.id, "runspace pool disconnected");
+        Ok(())
+    }
+
+    /// Abort an in-flight Disconnect after the server faulted the request.
+    /// Valid only in `Disconnecting` state; reverts the pool to `Opened`.
+    pub(crate) fn abort_disconnect(&mut self) {
+        if self.state == RunspacePoolState::Disconnecting {
+            self.state = RunspacePoolState::Opened;
+            warn!(runspace_pool_id = %self.id, "disconnect aborted, runspace pool reverted to Opened");
+        } else {
+            warn!(
+                runspace_pool_id = %self.id,
+                state = ?self.state,
+                "abort_disconnect called outside Disconnecting state; ignoring"
+            );
+        }
+    }
+
+    /// Abort an in-flight Reconnect after a transport-level failure.
+    /// Valid only in `Connecting` state; reverts the pool to `Disconnected`.
+    pub(crate) fn abort_reconnect(&mut self) {
+        if self.state == RunspacePoolState::Connecting {
+            self.state = RunspacePoolState::Disconnected;
+            warn!(runspace_pool_id = %self.id, "reconnect aborted, runspace pool reverted to Disconnected");
+        } else {
+            warn!(
+                runspace_pool_id = %self.id,
+                state = ?self.state,
+                "abort_reconnect called outside Connecting state; ignoring"
+            );
+        }
+    }
+
+    /// Build a Reconnect request for this pool's shell (MS-WSMV 3.1.4.14).
+    /// Valid only in `Disconnected` state; transitions the pool to `Connecting`.
+    #[instrument(skip(self))]
+    pub fn fire_reconnect(&mut self) -> Result<String, crate::PwshCoreError> {
+        if self.state != RunspacePoolState::Disconnected {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in Disconnected state to reconnect",
+            ));
+        }
+
+        let xml = self
+            .shell
+            .fire_reconnect(&self.connection)
+            .into()
+            .to_xml_string()?;
+
+        self.state = RunspacePoolState::Connecting;
+        info!(runspace_pool_id = %self.id, "runspace pool reconnect requested");
+        Ok(xml)
+    }
+
+    /// Accept the server's ReconnectResponse.
+    /// Valid only in `Connecting` state; transitions the pool back to `Opened`.
+    /// The caller is responsible for resuming the receive loop afterwards.
+    #[instrument(skip(self, soap_envelope), fields(envelope_length = soap_envelope.len()))]
+    pub fn accept_reconnect_response(
+        &mut self,
+        soap_envelope: &str,
+    ) -> Result<(), crate::PwshCoreError> {
+        if self.state != RunspacePoolState::Connecting {
+            return Err(crate::PwshCoreError::InvalidState(
+                "RunspacePool must be in Connecting state to accept a reconnect response",
+            ));
+        }
+
+        let parsed = ironposh_xml::parser::parse(soap_envelope)?;
+        let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
+            .map_err(crate::PwshCoreError::XmlParsingError)?;
+
+        Self::fault_to_error(&soap_envelope)?;
+
+        // Real Windows servers answer shell Reconnect with an empty Body and
+        // identify the operation via the `a:Action` header only; the
+        // documented `rsp:ReconnectResponse` body element is accepted too.
+        if soap_envelope.body.as_ref().reconnect_response.is_none()
+            && !Self::header_action_is(&soap_envelope, &WsAction::ReconnectResponse)
+        {
+            return Err(crate::PwshCoreError::InvalidResponse(
+                "No ReconnectResponse found in response".into(),
+            ));
+        }
+
+        self.state = RunspacePoolState::Opened;
+        // The Receive that was in flight before the disconnect is gone; the caller
+        // must fire a fresh pool-stream Receive to resume the receive loop.
+        self.desired_stream_is_pooling = false;
+        info!(runspace_pool_id = %self.id, "runspace pool reconnected");
+        Ok(())
+    }
+
+    /// Whether the envelope's `a:Action` header equals the given WSMan action.
+    fn header_action_is(soap_envelope: &SoapEnvelope<'_>, action: &WsAction) -> bool {
+        soap_envelope
+            .header
+            .as_ref()
+            .and_then(|header| header.as_ref().action.as_ref())
+            .is_some_and(|tag| tag.as_ref().as_ref() == action.as_str())
+    }
+
+    /// Surface a WSMan SOAP fault as a `SoapFault` error.
+    pub(super) fn fault_to_error(
+        soap_envelope: &SoapEnvelope<'_>,
+    ) -> Result<(), crate::PwshCoreError> {
+        if let Some(fault_tag) = soap_envelope.body.as_ref().fault.as_ref() {
+            let fault = fault_tag.as_ref();
+            let code = fault
+                .code
+                .as_ref()
+                .and_then(|c| c.as_ref().value.as_ref())
+                .map_or("unknown", |v| <&str>::from(v.as_ref()))
+                .to_string();
+            let reason = fault.reason_text().unwrap_or("unknown").to_string();
+            error!(target: "accept_response", %code, %reason, "received SOAP fault");
+            return Err(PwshCoreError::SoapFault { code, reason });
+        }
+        Ok(())
     }
 
     #[expect(clippy::too_many_lines)]
@@ -1106,7 +1351,7 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self, session_capability), fields(protocol_version = tracing::field::Empty, ps_version = tracing::field::Empty))]
-    fn handle_session_capability(
+    pub(super) fn handle_session_capability(
         &mut self,
         session_capability: PsValue,
     ) -> Result<(), crate::PwshCoreError> {
@@ -1128,7 +1373,7 @@ impl RunspacePool {
     }
 
     #[instrument(skip(self, app_data))]
-    fn handle_application_private_data(
+    pub(super) fn handle_application_private_data(
         &mut self,
         app_data: PsValue,
     ) -> Result<(), crate::PwshCoreError> {
@@ -1686,5 +1931,258 @@ impl RunspacePool {
 
         // 3) Invoke the pipeline using existing logic
         self.invoke_pipeline_request(&handle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runspace_pool::RunspacePoolCreator;
+    use ironposh_psrp::{HostDefaultData, Size};
+    use ironposh_winrm::ws_management::SelectorSetValue;
+
+    const SHELL_ID: &str = "2D6534D0-6B12-40E3-B773-CBA26459CFA8";
+
+    fn test_pool(state: RunspacePoolState) -> RunspacePool {
+        let size = Size {
+            width: 80,
+            height: 25,
+        };
+        let host_data = HostDefaultData::builder()
+            .buffer_size(size.clone())
+            .window_size(size.clone())
+            .max_window_size(size.clone())
+            .max_physical_window_size(size)
+            .build();
+        let host_info = HostInfo::builder()
+            .host_default_data(host_data)
+            .use_runspace_host(true)
+            .build();
+
+        let connection = Arc::new(
+            WsMan::builder()
+                .to("http://127.0.0.1:5985/wsman".to_string())
+                .build(),
+        );
+
+        let mut pool = RunspacePoolCreator::builder()
+            .host_info(host_info)
+            .build()
+            .into_runspace_pool(connection);
+
+        pool.shell = WinRunspace::builder()
+            .id(pool.id)
+            .selector_set(SelectorSetValue::new().add_selector("ShellId", SHELL_ID))
+            .build();
+        pool.state = state;
+        pool
+    }
+
+    fn response_envelope(action: &str, body_element: &str) -> String {
+        format!(
+            r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/{action}</a:Action>
+        <a:MessageID>uuid:6C334787-EF2C-40E4-992F-DE4599ED2505</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+        <a:RelatesTo>uuid:87d0a667-c08e-4311-8d2d-069367f452d8</a:RelatesTo>
+    </s:Header>
+    <s:Body>
+        {body_element}
+    </s:Body>
+</s:Envelope>"#
+        )
+    }
+
+    /// Envelope shape real Windows WinRM servers send for shell
+    /// Disconnect/Reconnect responses: the operation is identified by the
+    /// `a:Action` header and the `s:Body` is empty (no `rsp:*Response`
+    /// element). Captured live from a Windows Server WinRM endpoint.
+    fn empty_body_response_envelope(action: &str) -> String {
+        format!(
+            r#"<s:Envelope xml:lang="en-US" xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd"><s:Header><a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/{action}</a:Action><a:MessageID>uuid:D853D945-103C-47C0-933B-227915A3B45E</a:MessageID><p:OperationID s:mustUnderstand="false">uuid:9f0f3ab8-15d4-4421-a687-adac10be157f</p:OperationID><p:SequenceId>1</p:SequenceId><a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To><a:RelatesTo>uuid:e5ec8121-80b1-408f-825c-f6e2c4cccad1</a:RelatesTo></s:Header><s:Body></s:Body></s:Envelope>"#
+        )
+    }
+
+    const FAULT_ENVELOPE: &str = r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd"
+    xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
+        <a:MessageID>uuid:BB7AF8AE-D64A-422D-B36E-15A04FA17C5C</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+        <a:RelatesTo>uuid:bead0162-a67d-424d-9e22-4a18b6aefea8</a:RelatesTo>
+    </s:Header>
+    <s:Body>
+        <s:Fault>
+            <s:Code>
+                <s:Value>s:Sender</s:Value>
+                <s:Subcode>
+                    <s:Value>w:SchemaValidationError</s:Value>
+                </s:Subcode>
+            </s:Code>
+            <s:Reason>
+                <s:Text xml:lang="en-US">The SOAP XML in the message does not match the corresponding XML schema definition.</s:Text>
+            </s:Reason>
+        </s:Fault>
+    </s:Body>
+</s:Envelope>"#;
+
+    #[test]
+    fn fire_disconnect_requires_opened_state() {
+        let mut pool = test_pool(RunspacePoolState::BeforeOpen);
+        let result = pool.fire_disconnect();
+        assert!(
+            matches!(result, Err(PwshCoreError::InvalidState(_))),
+            "fire_disconnect must fail outside Opened state, got: {result:?}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::BeforeOpen);
+    }
+
+    #[test]
+    fn fire_reconnect_requires_disconnected_state() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        let result = pool.fire_reconnect();
+        assert!(
+            matches!(result, Err(PwshCoreError::InvalidState(_))),
+            "fire_reconnect must fail outside Disconnected state, got: {result:?}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::Opened);
+    }
+
+    #[test]
+    fn accept_disconnect_response_requires_disconnecting_state() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        let xml = response_envelope("DisconnectResponse", "<rsp:DisconnectResponse/>");
+        let result = pool.accept_disconnect_response(&xml);
+        assert!(
+            matches!(result, Err(PwshCoreError::InvalidState(_))),
+            "accept_disconnect_response must fail outside Disconnecting state, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn disconnect_envelope_targets_shell() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        let xml = pool.fire_disconnect().expect("fire_disconnect");
+
+        assert!(
+            xml.contains("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Disconnect"),
+            "disconnect envelope must carry the Disconnect action, got: {xml}"
+        );
+        assert!(
+            xml.contains(SHELL_ID),
+            "disconnect envelope must carry the ShellId selector, got: {xml}"
+        );
+        assert!(
+            xml.contains("<rsp:Disconnect"),
+            "disconnect envelope must carry the rsp:Disconnect body, got: {xml}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::Disconnecting);
+    }
+
+    #[test]
+    fn disconnect_then_reconnect_roundtrip() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+
+        pool.fire_disconnect().expect("fire_disconnect");
+        assert_eq!(pool.state, RunspacePoolState::Disconnecting);
+
+        let disconnect_response =
+            response_envelope("DisconnectResponse", "<rsp:DisconnectResponse/>");
+        pool.accept_disconnect_response(&disconnect_response)
+            .expect("accept_disconnect_response");
+        assert_eq!(pool.state, RunspacePoolState::Disconnected);
+
+        let reconnect_xml = pool.fire_reconnect().expect("fire_reconnect");
+        assert!(
+            reconnect_xml
+                .contains("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Reconnect"),
+            "reconnect envelope must carry the Reconnect action, got: {reconnect_xml}"
+        );
+        assert!(
+            reconnect_xml.contains(SHELL_ID),
+            "reconnect envelope must carry the ShellId selector, got: {reconnect_xml}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::Connecting);
+
+        let reconnect_response = response_envelope("ReconnectResponse", "<rsp:ReconnectResponse/>");
+        pool.accept_reconnect_response(&reconnect_response)
+            .expect("accept_reconnect_response");
+        assert_eq!(pool.state, RunspacePoolState::Opened);
+    }
+
+    #[test]
+    fn accept_disconnect_response_accepts_empty_body_with_action_header() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.fire_disconnect().expect("fire_disconnect");
+
+        pool.accept_disconnect_response(&empty_body_response_envelope("DisconnectResponse"))
+            .expect("real-server DisconnectResponse (empty body + action header) must be accepted");
+        assert_eq!(pool.state, RunspacePoolState::Disconnected);
+    }
+
+    #[test]
+    fn accept_reconnect_response_accepts_empty_body_with_action_header() {
+        let mut pool = test_pool(RunspacePoolState::Disconnected);
+        pool.fire_reconnect().expect("fire_reconnect");
+
+        pool.accept_reconnect_response(&empty_body_response_envelope("ReconnectResponse"))
+            .expect("real-server ReconnectResponse (empty body + action header) must be accepted");
+        assert_eq!(pool.state, RunspacePoolState::Opened);
+    }
+
+    #[test]
+    fn accept_disconnect_response_rejects_unrelated_action_with_empty_body() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.fire_disconnect().expect("fire_disconnect");
+
+        let result =
+            pool.accept_disconnect_response(&empty_body_response_envelope("ReceiveResponse"));
+        assert!(
+            matches!(result, Err(PwshCoreError::InvalidResponse(_))),
+            "unrelated traffic must stay rejected so the tolerance logic can ignore it, got: {result:?}"
+        );
+        assert_eq!(pool.state, RunspacePoolState::Disconnecting);
+    }
+
+    #[test]
+    fn abort_reconnect_reverts_connecting_to_disconnected() {
+        let mut pool = test_pool(RunspacePoolState::Disconnected);
+        pool.fire_reconnect().expect("fire_reconnect");
+        assert_eq!(pool.state, RunspacePoolState::Connecting);
+
+        pool.abort_reconnect();
+        assert_eq!(pool.state, RunspacePoolState::Disconnected);
+    }
+
+    #[test]
+    fn abort_reconnect_outside_connecting_is_ignored() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.abort_reconnect();
+        assert_eq!(
+            pool.state,
+            RunspacePoolState::Opened,
+            "abort_reconnect must not touch the state outside Connecting"
+        );
+    }
+
+    #[test]
+    fn accept_disconnect_response_surfaces_fault() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        pool.fire_disconnect().expect("fire_disconnect");
+
+        let result = pool.accept_disconnect_response(FAULT_ENVELOPE);
+        assert!(
+            matches!(result, Err(PwshCoreError::SoapFault { .. })),
+            "a WSMan fault must surface as SoapFault, got: {result:?}"
+        );
     }
 }

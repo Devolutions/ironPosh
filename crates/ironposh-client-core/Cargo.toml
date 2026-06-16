@@ -27,6 +27,7 @@ sspi = { version = "0.18", features = ["ring"] }
 test-helpers = []
 
 [dev-dependencies]
+ironposh-test-support = { path = "../ironposh-test-support" }
 ureq = "2"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }

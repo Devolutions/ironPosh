@@ -8,7 +8,7 @@ mod ui_handler;
 
 use anyhow::Context;
 use clap::Parser;
-use ironposh_client_core::connector::conntion_pool::TrySend;
+use ironposh_client_core::connector::connection_pool::TrySend;
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::ActiveSessionOutput;
 use ironposh_client_core::host::HostCall;

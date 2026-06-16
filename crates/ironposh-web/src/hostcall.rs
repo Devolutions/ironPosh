@@ -671,8 +671,7 @@ pub async fn handle_host_calls(
                                     let mut out_row = Vec::with_capacity(row.len());
                                     for cell in row {
                                         let ch = JsChar::try_from(cell.character.as_str())
-                                            .map(|v| v.0)
-                                            .unwrap_or(' ');
+                                            .map_or(' ', |v| v.0);
                                         out_row.push(host::BufferCell {
                                             character: ch,
                                             foreground: cell.foreground,

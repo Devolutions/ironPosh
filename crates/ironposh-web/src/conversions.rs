@@ -81,6 +81,7 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             rows,
             raw_ui_enabled,
             force_insecure,
+            configuration_name,
         } = config;
 
         let size = Size {
@@ -188,6 +189,9 @@ impl From<WasmWinRmConfig> for WinRmConfig {
             // Short timeout for serial/single-connection mode so Receives
             // don't block outbound sends for too long.
             operation_timeout_secs: Some(0.25),
+            // The browser owns TLS for the WASM client; options are ignored there.
+            tls: ironposh_client_core::connector::config::TlsOptions::default(),
+            configuration_name,
         }
     }
 }
@@ -375,9 +379,39 @@ mod tests {
             rows: 30,
             raw_ui_enabled: Some(true),
             force_insecure: None,
+            configuration_name: None,
         };
 
         let winrm: WinRmConfig = cfg.into();
         assert_eq!(winrm.operation_timeout_secs, Some(0.25));
+        assert_eq!(winrm.configuration_name, None);
+    }
+
+    #[test]
+    fn wasm_config_passes_configuration_name_through() {
+        let cfg = WasmWinRmConfig {
+            auth: WasmAuthMethod::Basic,
+            destination: WinRmDestination {
+                host: "127.0.0.1".to_string(),
+                port: 5985,
+                transport: GatewayTransport::Tcp,
+            },
+            gateway_url: "ws://localhost:7171".to_string(),
+            gateway_token: "token".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            domain: None,
+            locale: None,
+            kdc_proxy_url: None,
+            client_computer_name: None,
+            cols: 120,
+            rows: 30,
+            raw_ui_enabled: Some(true),
+            force_insecure: None,
+            configuration_name: Some("MyJEAEndpoint".to_string()),
+        };
+
+        let winrm: WinRmConfig = cfg.into();
+        assert_eq!(winrm.configuration_name.as_deref(), Some("MyJEAEndpoint"));
     }
 }
