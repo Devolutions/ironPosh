@@ -1,59 +1,31 @@
-use crate::MessageType;
-use crate::ps_value::{ComplexObject, PsObjectWithType, PsValue};
+use ironposh_macros::{PsDeserialize, PsSerialize};
 
 /// Client → Server CONNECT_RUNSPACEPOOL message (MS-PSRP 2.2.2.14).
 ///
 /// Sent inside the WSMan Connect `connectXml` payload when attaching a new
 /// client to a disconnected runspace pool shell.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// ```xml
+/// <Obj RefId="0">
+///   <MS>
+///     <I32 N="MinRunspaces">1</I32>
+///     <I32 N="MaxRunspaces">1</I32>
+///   </MS>
+/// </Obj>
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PsSerialize, PsDeserialize)]
+#[ps(message_type = ConnectRunspacepool)]
 pub struct ConnectRunspacePool {
+    #[ps(name = "MinRunspaces")]
     pub min_runspaces: i32,
+    #[ps(name = "MaxRunspaces")]
     pub max_runspaces: i32,
-}
-
-// <Obj RefId="0">
-//   <MS>
-//     <I32 N="MinRunspaces">1</I32>
-//     <I32 N="MaxRunspaces">1</I32>
-//   </MS>
-// </Obj>
-impl PsObjectWithType for ConnectRunspacePool {
-    fn message_type(&self) -> MessageType {
-        MessageType::ConnectRunspacepool
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        ComplexObject::standard()
-            .extended("MinRunspaces", self.min_runspaces)
-            .extended("MaxRunspaces", self.max_runspaces)
-            .build_value()
-    }
-}
-
-impl From<ConnectRunspacePool> for ComplexObject {
-    fn from(value: ConnectRunspacePool) -> Self {
-        match value.to_ps_object() {
-            PsValue::Object(obj) => obj,
-            PsValue::Primitive(_) => unreachable!("ConnectRunspacePool serializes to an object"),
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for ConnectRunspacePool {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        Ok(Self {
-            min_runspaces: value.req("MinRunspaces")?,
-            max_runspaces: value.req("MaxRunspaces")?,
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ps_value::{DeserializationContext, PsXmlDeserialize};
+    use crate::ps_value::{DeserializationContext, PsObjectWithType, PsValue, PsXmlDeserialize};
 
     #[test]
     fn test_message_type() {

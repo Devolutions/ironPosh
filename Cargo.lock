@@ -1633,6 +1633,7 @@ dependencies = [
  "base64",
  "byteorder",
  "crossterm 0.28.1",
+ "ironposh-macros",
  "ironposh-xml",
  "quick-xml",
  "regex",

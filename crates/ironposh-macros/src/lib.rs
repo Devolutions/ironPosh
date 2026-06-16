@@ -1,7 +1,206 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Generics, Type, TypePath};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Generics, LitStr, Type, TypePath};
+
+/// Derives the CLIXML serialize side of a PSRP message struct (RFC #12, L3).
+///
+/// Emits `PsObjectWithType` + `From<T> for ComplexObject`. The struct maps to a
+/// standard property-bag `<Obj>`; each field becomes an `<MS>` (extended)
+/// property whose name defaults to the field name and whose value is produced
+/// via `ToPsValue`. `Option<T>` fields are omitted when `None`.
+///
+/// # Attributes
+/// - `#[ps(message_type = Variant)]` (struct, required): the
+///   `MessageType::Variant` this message serializes as.
+/// - `#[ps(name = "PropName")]` (field): override the CLIXML property name.
+/// - `#[ps(adapted)]` (field): place the property in the adapted (`<Props>`)
+///   bag instead of extended.
+#[proc_macro_derive(PsSerialize, attributes(ps))]
+pub fn derive_ps_serialize(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_ps_serialize(&input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// Derives `TryFrom<ComplexObject> for T` for a PSRP message struct (RFC #12, L3).
+///
+/// Required fields are read with `ComplexObject::req`, `Option<T>` fields with
+/// `ComplexObject::opt`. Honors the same `#[ps(name = ..)]` field attribute as
+/// [`macro@PsSerialize`].
+#[proc_macro_derive(PsDeserialize, attributes(ps))]
+pub fn derive_ps_deserialize(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_ps_deserialize(&input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// Per-field options parsed from `#[ps(..)]`.
+struct PsFieldOpts {
+    ident: Ident,
+    /// CLIXML property name (defaults to the field name).
+    name: String,
+    /// Whether the field type is `Option<..>`.
+    is_option: bool,
+    /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
+    adapted: bool,
+}
+
+fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => &fields.named,
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "Ps(De)Serialize requires a struct with named fields",
+                ));
+            }
+        },
+        _ => {
+            return Err(syn::Error::new_spanned(
+                input,
+                "Ps(De)Serialize can only be derived for structs",
+            ));
+        }
+    };
+
+    fields
+        .iter()
+        .map(|field| {
+            let ident = field.ident.clone().expect("named field");
+            let mut name = ident.to_string();
+            let mut adapted = false;
+
+            for attr in &field.attrs {
+                if !attr.path().is_ident("ps") {
+                    continue;
+                }
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("name") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        name = lit.value();
+                    } else if meta.path.is_ident("adapted") {
+                        adapted = true;
+                    } else {
+                        return Err(meta.error("unknown #[ps(..)] field attribute"));
+                    }
+                    Ok(())
+                })?;
+            }
+
+            Ok(PsFieldOpts {
+                is_option: is_option_type(&field.ty),
+                ident,
+                name,
+                adapted,
+            })
+        })
+        .collect()
+}
+
+fn ps_message_type(input: &DeriveInput) -> syn::Result<Ident> {
+    let mut message_type = None;
+    for attr in &input.attrs {
+        if !attr.path().is_ident("ps") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("message_type") {
+                message_type = Some(meta.value()?.parse::<Ident>()?);
+                Ok(())
+            } else {
+                Err(meta.error("unknown #[ps(..)] struct attribute"))
+            }
+        })?;
+    }
+    message_type.ok_or_else(|| {
+        syn::Error::new_spanned(
+            input,
+            "PsSerialize requires #[ps(message_type = Variant)] on the struct",
+        )
+    })
+}
+
+fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let name = &input.ident;
+    let message_type = ps_message_type(input)?;
+    let fields = ps_named_fields(input)?;
+
+    let inserts: Vec<TokenStream2> = fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let prop = &f.name;
+            if f.adapted {
+                quote! { obj = obj.adapted(#prop, &self.#ident); }
+            } else if f.is_option {
+                quote! { obj = obj.extended_opt(#prop, self.#ident.as_ref()); }
+            } else {
+                quote! { obj = obj.extended(#prop, &self.#ident); }
+            }
+        })
+        .collect();
+
+    Ok(quote! {
+        impl crate::ps_value::PsObjectWithType for #name {
+            fn message_type(&self) -> crate::MessageType {
+                crate::MessageType::#message_type
+            }
+
+            fn to_ps_object(&self) -> crate::ps_value::PsValue {
+                let mut obj = crate::ps_value::ComplexObject::standard();
+                #(#inserts)*
+                obj.build_value()
+            }
+        }
+
+        impl ::core::convert::From<#name> for crate::ps_value::ComplexObject {
+            fn from(value: #name) -> Self {
+                match crate::ps_value::PsObjectWithType::to_ps_object(&value) {
+                    crate::ps_value::PsValue::Object(obj) => obj,
+                    crate::ps_value::PsValue::Primitive(_) => {
+                        unreachable!("PsSerialize always builds a ComplexObject")
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let name = &input.ident;
+    let fields = ps_named_fields(input)?;
+
+    let assignments: Vec<TokenStream2> = fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let prop = &f.name;
+            if f.is_option {
+                quote! { #ident: value.opt(#prop)? }
+            } else {
+                quote! { #ident: value.req(#prop)? }
+            }
+        })
+        .collect();
+
+    Ok(quote! {
+        impl ::core::convert::TryFrom<crate::ps_value::ComplexObject> for #name {
+            type Error = crate::PowerShellRemotingError;
+
+            fn try_from(value: crate::ps_value::ComplexObject) -> ::core::result::Result<Self, Self::Error> {
+                Ok(Self {
+                    #(#assignments),*
+                })
+            }
+        }
+    })
+}
 
 /// Derives TagValue implementation for structs where all fields are `Option<Tag<'a, ValueType, TagName>>`
 ///

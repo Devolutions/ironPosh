@@ -136,9 +136,12 @@ impl ToPsValue for str {
     }
 }
 
-impl ToPsValue for &str {
+/// Blanket borrow impl so the derive macro can serialize fields by reference
+/// (`&self.field`) without cloning the whole message. Also covers `&str` via
+/// the `str` impl above.
+impl<T: ToPsValue + ?Sized> ToPsValue for &T {
     fn to_ps_value(&self) -> PsValue {
-        PsValue::Primitive(PsPrimitiveValue::Str((*self).to_string()))
+        (**self).to_ps_value()
     }
 }
 

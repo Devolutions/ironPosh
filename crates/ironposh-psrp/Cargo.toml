@@ -22,6 +22,7 @@ tracing = "0.1.41"
 typed-builder = "0.21.0"
 uuid = { version = "1.17.0", features = ["v4"] }
 ironposh-xml = { version = "0.1.0", path = "../ironposh-xml" }
+ironposh-macros = { version = "0.1.0", path = "../ironposh-macros" }
 
 # Optional crossterm integration
 crossterm = { version = "0.28.1", optional = true }
