@@ -518,6 +518,17 @@ impl ActiveSession {
                 );
                 TransportErrorDisposition::ReconnectAborted
             }
+            state @ RunspacePoolState::Connecting => {
+                // A non-reconnect connection failing while reconnecting is the dying
+                // pre-disconnect Receive (the response path ignores its traffic too);
+                // tolerate it and keep waiting for the tracked ReconnectResponse.
+                warn!(
+                    conn_id = conn_id.inner(),
+                    ?state,
+                    "tolerating transport error on dying connection during reconnect"
+                );
+                TransportErrorDisposition::Tolerated
+            }
             state => {
                 error!(
                     conn_id = conn_id.inner(),

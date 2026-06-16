@@ -529,6 +529,13 @@ impl HttpResponseDecoder {
                 let name = name.trim().to_string();
                 let value = value.trim().to_string();
                 if name.eq_ignore_ascii_case("content-length") {
+                    // Duplicate framing headers are ambiguous (a desync/smuggling vector)
+                    // on the reused WebSocket; refuse rather than last-wins.
+                    if content_length.is_some() {
+                        return Err(anyhow::anyhow!(
+                            "Gateway HTTP response carried multiple Content-Length headers"
+                        ));
+                    }
                     content_length = Some(
                         value
                             .parse::<usize>()
@@ -539,6 +546,11 @@ impl HttpResponseDecoder {
                     content_type = Some(value.clone());
                 }
                 if name.eq_ignore_ascii_case("transfer-encoding") {
+                    if transfer_encoding.is_some() {
+                        return Err(anyhow::anyhow!(
+                            "Gateway HTTP response carried multiple Transfer-Encoding headers"
+                        ));
+                    }
                     transfer_encoding = Some(value.clone());
                 }
                 headers.push((name, value));
