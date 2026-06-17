@@ -35,7 +35,9 @@ fn test_parse_real_pipeline_host_call() {
 
     // Verify the parsed values
     assert_eq!(pipeline_host_call.call_id, -100);
-    assert_eq!(pipeline_host_call.method_id, 20);
-    assert_eq!(pipeline_host_call.method_name, "WriteProgress");
+    assert_eq!(
+        pipeline_host_call.method,
+        ironposh_psrp::RemoteHostMethodId::WriteProgress
+    );
     assert_eq!(pipeline_host_call.parameters.len(), 2); // I64(3) and the progress record object
 }

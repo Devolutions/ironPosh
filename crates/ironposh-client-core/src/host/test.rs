@@ -1,13 +1,12 @@
 use super::{HostCall, HostCallScope};
-use ironposh_psrp::PipelineHostCall;
+use ironposh_psrp::{PipelineHostCall, RemoteHostMethodId};
 use uuid::Uuid;
 
 #[test]
 pub fn test_from_pipeline_host_call() {
     let pipeline_hostcall = PipelineHostCall {
         call_id: 1,
-        method_id: 11,
-        method_name: "ReadLine".to_string(),
+        method: RemoteHostMethodId::ReadLine,
         parameters: vec![],
     };
 
@@ -43,8 +42,7 @@ pub fn test_from_pipeline_host_call_with_parameters() {
     // Test WriteLine2 which takes a String parameter
     let pipeline_hostcall = PipelineHostCall {
         call_id: 42,
-        method_id: 16, // WriteLine2
-        method_name: "WriteLine2".to_string(),
+        method: RemoteHostMethodId::WriteLine2,
         parameters: vec![PsValue::from("Hello, World!")],
     };
 
@@ -69,20 +67,26 @@ pub fn test_from_pipeline_host_call_with_parameters() {
 }
 
 #[test]
-pub fn test_from_pipeline_host_call_invalid_method_id() {
-    let pipeline_hostcall = PipelineHostCall {
-        call_id: 1,
-        method_id: 999, // Invalid method ID
-        method_name: "InvalidMethod".to_string(),
-        parameters: vec![],
+pub fn test_invalid_method_id_rejected_on_parse() {
+    // An unknown method id is now rejected when the wire `mi` enum is parsed
+    // (the typed RemoteHostMethodId can't represent it), rather than at dispatch.
+    use ironposh_psrp::ps_value::{
+        ComplexObject, ComplexObjectContent, Properties, PsEnums, PsValue,
     };
 
-    let scope = HostCallScope::Pipeline {
-        command_id: Uuid::new_v4(),
+    let mi = ComplexObject {
+        type_def: None,
+        to_string: None,
+        content: ComplexObjectContent::PsEnums(PsEnums { value: 999 }),
+        properties: Properties::new(),
     };
+    let obj = ComplexObject::standard()
+        .extended("ci", 1i64)
+        .extended("mi", PsValue::Object(mi))
+        .extended("mp", PsValue::from_array(vec![]))
+        .build();
 
-    let result = HostCall::try_from_pipeline(scope, pipeline_hostcall);
-    assert!(result.is_err());
+    assert!(PipelineHostCall::try_from(obj).is_err());
 }
 
 #[test]
@@ -92,8 +96,7 @@ pub fn test_from_pipeline_host_call_invalid_parameters() {
     // Test ReadLine with incorrect parameters (should be empty)
     let pipeline_hostcall = PipelineHostCall {
         call_id: 1,
-        method_id: 11, // ReadLine
-        method_name: "ReadLine".to_string(),
+        method: RemoteHostMethodId::ReadLine,
         parameters: vec![PsValue::from("unexpected_param")], // ReadLine expects no params
     };
 
@@ -112,8 +115,7 @@ pub fn test_from_pipeline_host_call_set_should_exit() {
     // Test SetShouldExit which takes an i32 parameter
     let pipeline_hostcall = PipelineHostCall {
         call_id: 123,
-        method_id: 6, // SetShouldExit
-        method_name: "SetShouldExit".to_string(),
+        method: RemoteHostMethodId::SetShouldExit,
         parameters: vec![PsValue::from(42i32)],
     };
 

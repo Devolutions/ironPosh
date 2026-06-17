@@ -38,16 +38,15 @@ macro_rules! define_host_methods {
         impl HostCall {
             /// Convert from pipeline host call to typesafe host call
             pub fn try_from_pipeline(scope: HostCallScope, phc: PipelineHostCall) -> Result<Self, HostError> {
-                match phc.method_id {
+                match phc.method {
                     $(
-                        $method_id => {
+                        ironposh_psrp::RemoteHostMethodId::$method_name => {
                             let params: <$method_name as Method>::Params = FromParams::from_params(&phc.parameters)?;
                             Ok(HostCall::$method_name {
                                 transport: Transport::new(scope, phc.call_id, params)
                             })
                         }
                     )*
-                    _ => Err(HostError::NotImplemented),
                 }
             }
 
