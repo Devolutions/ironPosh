@@ -44,14 +44,12 @@ async fn call_js_handler(
 
 fn exception_submission(
     call_id: i64,
-    method_id: i32,
-    method_name: &str,
+    method: ironposh_psrp::RemoteHostMethodId,
     message: String,
 ) -> Submission {
     Submission::Send(PipelineHostResponse {
         call_id,
-        method_id,
-        method_name: method_name.to_string(),
+        method,
         method_result: None,
         method_exception: Some(PsValue::from(message)),
     })
@@ -204,7 +202,7 @@ pub async fn handle_host_calls(
         let scope = host_call.scope();
         let call_id = host_call.call_id();
         let method_name = host_call.method_name();
-        let method_id = host_call.method_id();
+        let method = host_call.method();
         debug!(method = %method_name, call_id, "hostcall handler: received host call");
 
         let js_host_call: JsHostCall = (&host_call).into();
@@ -280,12 +278,11 @@ pub async fn handle_host_calls(
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
                     Ok(res) => match JsI32::try_from(&res) {
                         Ok(v) => rt.accept_result(v.0),
-                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        Err(e) => exception_submission(call_id, method, e),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "PromptForChoice handler failed".to_string(),
                     ),
                 }
@@ -315,12 +312,11 @@ pub async fn handle_host_calls(
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
                     Ok(res) => match JsI32::try_from(&res) {
                         Ok(v) => rt.accept_result(v.0),
-                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        Err(e) => exception_submission(call_id, method, e),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetCursorSize handler failed".to_string(),
                     ),
                 }
@@ -340,8 +336,7 @@ pub async fn handle_host_calls(
                     Ok(res) => rt.accept_result(res.as_bool().unwrap_or(false)),
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetIsRunspacePushed handler failed".to_string(),
                     ),
                 }
@@ -372,12 +367,11 @@ pub async fn handle_host_calls(
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
                     Ok(res) => match SecureBytes::try_from(res) {
                         Ok(bytes) => rt.accept_result(bytes.0),
-                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        Err(e) => exception_submission(call_id, method, e),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "ReadLineAsSecureString handler failed".to_string(),
                     ),
                 }
@@ -440,15 +434,12 @@ pub async fn handle_host_calls(
 
                         match parsed {
                             Ok(out) => rt.accept_result(out),
-                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                            Err(e) => exception_submission(call_id, method, e),
                         }
                     }
-                    Err(()) => exception_submission(
-                        call_id,
-                        method_id,
-                        method_name,
-                        "Prompt handler failed".to_string(),
-                    ),
+                    Err(()) => {
+                        exception_submission(call_id, method, "Prompt handler failed".to_string())
+                    }
                 }
             }
             HostCall::PromptForCredential1 { transport } => {
@@ -468,13 +459,12 @@ pub async fn handle_host_calls(
                                     password: password_bytes,
                                 })
                             }
-                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                            Err(e) => exception_submission(call_id, method, e),
                         }
                     }
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "PromptForCredential1 handler failed".to_string(),
                     ),
                 }
@@ -496,13 +486,12 @@ pub async fn handle_host_calls(
                                     password: password_bytes,
                                 })
                             }
-                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                            Err(e) => exception_submission(call_id, method, e),
                         }
                     }
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "PromptForCredential2 handler failed".to_string(),
                     ),
                 }
@@ -514,15 +503,13 @@ pub async fn handle_host_calls(
                         Ok(coords) => rt.accept_result(host::Coordinates::from(coords)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Coordinates from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetCursorPosition handler failed".to_string(),
                     ),
                 }
@@ -534,15 +521,13 @@ pub async fn handle_host_calls(
                         Ok(coords) => rt.accept_result(host::Coordinates::from(coords)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Coordinates from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetWindowPosition handler failed".to_string(),
                     ),
                 }
@@ -554,15 +539,13 @@ pub async fn handle_host_calls(
                         Ok(size) => rt.accept_result(host::Size::from(size)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Size from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetBufferSize handler failed".to_string(),
                     ),
                 }
@@ -574,15 +557,13 @@ pub async fn handle_host_calls(
                         Ok(size) => rt.accept_result(host::Size::from(size)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Size from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetWindowSize handler failed".to_string(),
                     ),
                 }
@@ -594,15 +575,13 @@ pub async fn handle_host_calls(
                         Ok(size) => rt.accept_result(host::Size::from(size)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Size from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetMaxWindowSize handler failed".to_string(),
                     ),
                 }
@@ -614,15 +593,13 @@ pub async fn handle_host_calls(
                         Ok(size) => rt.accept_result(host::Size::from(size)),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid Size from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetMaxPhysicalWindowSize handler failed".to_string(),
                     ),
                 }
@@ -638,21 +615,17 @@ pub async fn handle_host_calls(
                                 control_key_state: k.control_key_state,
                                 key_down: k.key_down,
                             }),
-                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                            Err(e) => exception_submission(call_id, method, e),
                         },
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid KeyInfo from handler: {e}"),
                         ),
                     },
-                    Err(()) => exception_submission(
-                        call_id,
-                        method_id,
-                        method_name,
-                        "ReadKey handler failed".to_string(),
-                    ),
+                    Err(()) => {
+                        exception_submission(call_id, method, "ReadKey handler failed".to_string())
+                    }
                 }
             }
             HostCall::GetBufferContents { transport } => {
@@ -683,13 +656,12 @@ pub async fn handle_host_calls(
                                 }
                                 rt.accept_result(out)
                             }
-                            Err(e) => exception_submission(call_id, method_id, method_name, e),
+                            Err(e) => exception_submission(call_id, method, e),
                         }
                     }
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetBufferContents handler failed".to_string(),
                     ),
                 }
@@ -699,12 +671,11 @@ pub async fn handle_host_calls(
                 match call_js_handler(&host_call_handler, &this, &js_params, method_name).await {
                     Ok(res) => match ps_value_from_js(res) {
                         Ok(v) => rt.accept_result(v),
-                        Err(e) => exception_submission(call_id, method_id, method_name, e),
+                        Err(e) => exception_submission(call_id, method, e),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "GetRunspace handler failed".to_string(),
                     ),
                 }
@@ -716,15 +687,13 @@ pub async fn handle_host_calls(
                         Ok(v) => rt.accept_result(v),
                         Err(e) => exception_submission(
                             call_id,
-                            method_id,
-                            method_name,
+                            method,
                             format!("invalid i32[] from handler: {e}"),
                         ),
                     },
                     Err(()) => exception_submission(
                         call_id,
-                        method_id,
-                        method_name,
+                        method,
                         "PromptForChoiceMultipleSelection handler failed".to_string(),
                     ),
                 }

@@ -78,4 +78,9 @@ impl RemoteHostMethodId {
     pub fn id(self) -> i32 {
         self as i32
     }
+
+    /// Map a numeric method id to its variant (per MS-PSRP §2.2.3.17).
+    pub fn from_id(id: i32) -> Option<Self> {
+        Self::__ps_from_discriminant(id)
+    }
 }

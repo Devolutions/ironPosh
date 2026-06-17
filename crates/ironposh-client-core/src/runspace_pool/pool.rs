@@ -1681,8 +1681,7 @@ impl RunspacePool {
         fields(
             command_id = %command_id,
             call_id = host_response.call_id,
-            method_id = host_response.method_id,
-            method_name = %host_response.method_name
+            method = ?host_response.method
         )
     )]
     pub fn send_pipeline_host_response(
@@ -1733,8 +1732,7 @@ impl RunspacePool {
         skip_all,
         fields(
             call_id = host_response.call_id,
-            method_id = host_response.method_id,
-            method_name = %host_response.method_name
+            method = ?host_response.method
         )
     )]
     pub fn send_runspace_pool_host_response(

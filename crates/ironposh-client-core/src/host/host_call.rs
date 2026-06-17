@@ -86,6 +86,15 @@ macro_rules! define_host_methods {
                 }
             }
 
+            /// Get the typed host method identifier for this host call.
+            pub fn method(&self) -> ironposh_psrp::RemoteHostMethodId {
+                match self {
+                    $(
+                        HostCall::$method_name { .. } => ironposh_psrp::RemoteHostMethodId::$method_name,
+                    )*
+                }
+            }
+
             /// Check if this method should send a response
             pub fn should_send_response(&self) -> bool {
                 match self {
