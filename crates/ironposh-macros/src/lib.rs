@@ -44,10 +44,16 @@ struct PsFieldOpts {
     ident: Ident,
     /// CLIXML property name (defaults to the field name).
     name: String,
+    /// Additional names to try (in order) when deserializing. Lets one Rust
+    /// field accept several wire spellings, e.g. PascalCase + camelCase.
+    aliases: Vec<String>,
     /// Whether the field type is `Option<..>`.
     is_option: bool,
     /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
     adapted: bool,
+    /// On deserialize, fall back to `Default::default()` when the property is
+    /// absent (instead of erroring). Ignored for `Option<..>` fields.
+    default: bool,
     /// Optional custom converter module. When set, the field is (de)serialized
     /// via `<path>::to_ps_value(&T) -> PsValue` and
     /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
@@ -79,7 +85,9 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
         .map(|field| {
             let ident = field.ident.clone().expect("named field");
             let mut name = ident.to_string();
+            let mut aliases = Vec::new();
             let mut adapted = false;
+            let mut default = false;
             let mut with = None;
 
             for attr in &field.attrs {
@@ -90,8 +98,13 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                     if meta.path.is_ident("name") {
                         let lit: LitStr = meta.value()?.parse()?;
                         name = lit.value();
+                    } else if meta.path.is_ident("alias") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        aliases.push(lit.value());
                     } else if meta.path.is_ident("adapted") {
                         adapted = true;
+                    } else if meta.path.is_ident("default") {
+                        default = true;
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -106,39 +119,55 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 is_option: is_option_type(&field.ty),
                 ident,
                 name,
+                aliases,
                 adapted,
+                default,
                 with,
             })
         })
         .collect()
 }
 
-fn ps_message_type(input: &DeriveInput) -> syn::Result<Ident> {
-    let mut message_type = None;
+/// Struct-level `#[ps(..)]` options.
+#[derive(Default)]
+struct PsStructOpts {
+    /// `MessageType` variant; present only for top-level PSRP messages.
+    message_type: Option<Ident>,
+    /// `<TN>` type-name chain, most specific first.
+    type_names: Vec<String>,
+}
+
+fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
+    let mut opts = PsStructOpts::default();
     for attr in &input.attrs {
         if !attr.path().is_ident("ps") {
             continue;
         }
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("message_type") {
-                message_type = Some(meta.value()?.parse::<Ident>()?);
+                opts.message_type = Some(meta.value()?.parse::<Ident>()?);
+                Ok(())
+            } else if meta.path.is_ident("type_names") {
+                // #[ps(type_names("A", "B", ...))]
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let names = content
+                    .parse_terminated(<LitStr as syn::parse::Parse>::parse, syn::Token![,])?;
+                for lit in names {
+                    opts.type_names.push(lit.value());
+                }
                 Ok(())
             } else {
                 Err(meta.error("unknown #[ps(..)] struct attribute"))
             }
         })?;
     }
-    message_type.ok_or_else(|| {
-        syn::Error::new_spanned(
-            input,
-            "PsSerialize requires #[ps(message_type = Variant)] on the struct",
-        )
-    })
+    Ok(opts)
 }
 
 fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
-    let message_type = ps_message_type(input)?;
+    let opts = ps_struct_opts(input)?;
     let fields = ps_named_fields(input)?;
 
     let inserts: Vec<TokenStream2> = fields
@@ -154,45 +183,75 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             match (&f.with, f.is_option) {
                 // Custom converter on an optional field: skip when None.
                 (Some(with), true) => quote! {
-                    if let ::core::option::Option::Some(inner) = &self.#ident {
+                    if let ::core::option::Option::Some(inner) = &value.#ident {
                         obj = obj.#bag(#prop, #with::to_ps_value(inner));
                     }
                 },
                 // Custom converter on a required field.
                 (Some(with), false) => quote! {
-                    obj = obj.#bag(#prop, #with::to_ps_value(&self.#ident));
+                    obj = obj.#bag(#prop, #with::to_ps_value(&value.#ident));
                 },
                 // Trait-based optional field (extended only): skip when None.
                 (None, true) if !f.adapted => {
-                    quote! { obj = obj.extended_opt(#prop, self.#ident.as_ref()); }
+                    quote! { obj = obj.extended_opt(#prop, value.#ident.as_ref()); }
                 }
                 // Trait-based field.
-                (None, _) => quote! { obj = obj.#bag(#prop, &self.#ident); },
+                (None, _) => quote! { obj = obj.#bag(#prop, &value.#ident); },
             }
         })
         .collect();
 
-    Ok(quote! {
-        impl crate::ps_value::PsObjectWithType for #name {
-            fn message_type(&self) -> crate::MessageType {
-                crate::MessageType::#message_type
-            }
+    // Optional <TN> type-name chain.
+    let type_names_setup = if opts.type_names.is_empty() {
+        quote! {}
+    } else {
+        let names = &opts.type_names;
+        quote! {
+            obj = obj.type_names([
+                #( ::std::borrow::Cow::Borrowed(#names) ),*
+            ]);
+        }
+    };
 
-            fn to_ps_object(&self) -> crate::ps_value::PsValue {
+    // `PsObjectWithType` is only generated for top-level messages (those with a
+    // message_type); sub-objects skip it but still get the conversions below.
+    let message_impl = opts.message_type.as_ref().map(|mt| {
+        quote! {
+            impl crate::ps_value::PsObjectWithType for #name {
+                fn message_type(&self) -> crate::MessageType {
+                    crate::MessageType::#mt
+                }
+
+                fn to_ps_object(&self) -> crate::ps_value::PsValue {
+                    crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
+                }
+            }
+        }
+    });
+
+    Ok(quote! {
+        #message_impl
+
+        impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
+            fn from(value: &#name) -> Self {
                 let mut obj = crate::ps_value::ComplexObject::standard();
+                #type_names_setup
                 #(#inserts)*
-                obj.build_value()
+                obj.build()
             }
         }
 
         impl ::core::convert::From<#name> for crate::ps_value::ComplexObject {
             fn from(value: #name) -> Self {
-                match crate::ps_value::PsObjectWithType::to_ps_object(&value) {
-                    crate::ps_value::PsValue::Object(obj) => obj,
-                    crate::ps_value::PsValue::Primitive(_) => {
-                        unreachable!("PsSerialize always builds a ComplexObject")
-                    }
-                }
+                Self::from(&value)
+            }
+        }
+
+        // Nesting bridge: lets a field of this type be (de)serialized as a
+        // nested `<Obj>` inside another derived struct.
+        impl crate::ps_value::ToPsValue for #name {
+            fn to_ps_value(&self) -> crate::ps_value::PsValue {
+                crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
             }
         }
     })
@@ -207,24 +266,56 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .map(|f| {
             let ident = &f.ident;
             let prop = &f.name;
-            match (&f.with, f.is_option) {
-                (Some(with), true) => quote! {
-                    #ident: match value.get_property(#prop) {
-                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#with::from_ps_value(v)?),
+
+            // Fast path: a single name, no alias/default, no custom converter —
+            // use the L1 accessors for their precise error messages.
+            if f.aliases.is_empty() && !f.default && f.with.is_none() {
+                return if f.is_option {
+                    quote! { #ident: value.opt(#prop)? }
+                } else {
+                    quote! { #ident: value.req(#prop)? }
+                };
+            }
+
+            // General path: build a lookup chain over name + aliases, then
+            // convert via the custom `with` module or the `FromPsValue` trait.
+            let aliases = &f.aliases;
+            let lookup = quote! {
+                value.get_property(#prop) #( .or_else(|| value.get_property(#aliases)) )*
+            };
+            let convert = |v: TokenStream2| {
+                f.with.as_ref().map_or_else(
+                    || quote! { crate::ps_value::FromPsValue::from_ps_value(#v)? },
+                    |with| quote! { #with::from_ps_value(#v)? },
+                )
+            };
+
+            if f.is_option {
+                let conv = convert(quote! { v });
+                quote! {
+                    #ident: match #lookup {
+                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#conv),
                         ::core::option::Option::None => ::core::option::Option::None,
                     }
-                },
-                (Some(with), false) => quote! {
-                    #ident: #with::from_ps_value(
-                        value.get_property(#prop).ok_or_else(|| {
-                            crate::PowerShellRemotingError::InvalidMessage(
-                                ::std::format!("Missing property: {}", #prop)
-                            )
-                        })?
-                    )?
-                },
-                (None, true) => quote! { #ident: value.opt(#prop)? },
-                (None, false) => quote! { #ident: value.req(#prop)? },
+                }
+            } else if f.default {
+                let conv = convert(quote! { v });
+                quote! {
+                    #ident: match #lookup {
+                        ::core::option::Option::Some(v) => #conv,
+                        ::core::option::Option::None => ::core::default::Default::default(),
+                    }
+                }
+            } else {
+                let got = quote! {
+                    #lookup.ok_or_else(|| {
+                        crate::PowerShellRemotingError::InvalidMessage(
+                            ::std::format!("Missing property: {}", #prop)
+                        )
+                    })?
+                };
+                let conv = convert(got);
+                quote! { #ident: #conv }
             }
         })
         .collect();
@@ -237,6 +328,27 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 Ok(Self {
                     #(#assignments),*
                 })
+            }
+        }
+
+        // Nesting bridge: lets a field of this type be deserialized from a
+        // nested `<Obj>` inside another derived struct.
+        impl crate::ps_value::FromPsValue for #name {
+            const TYPE_LABEL: &'static str = ::core::stringify!(#name);
+
+            fn from_ps_value(
+                value: &crate::ps_value::PsValue,
+            ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                match value {
+                    crate::ps_value::PsValue::Object(obj) => {
+                        <Self as ::core::convert::TryFrom<crate::ps_value::ComplexObject>>::try_from(obj.clone())
+                    }
+                    crate::ps_value::PsValue::Primitive(_) => {
+                        ::core::result::Result::Err(crate::PowerShellRemotingError::InvalidMessage(
+                            ::std::format!("expected {} object", ::core::stringify!(#name))
+                        ))
+                    }
+                }
             }
         }
     })

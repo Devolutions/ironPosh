@@ -1,5 +1,6 @@
 use crate::PowerShellRemotingError;
 use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsPrimitiveValue, PsValue};
+use ironposh_macros::{PsDeserialize, PsSerialize};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use typed_builder::TypedBuilder;
@@ -92,7 +93,12 @@ impl TryFrom<&ComplexObject> for ValueWrapper {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder)]
+/// A nested host coordinate pair.
+///
+/// Derived as a sub-object (no message type): the `#[derive]` generates the
+/// `ComplexObject` conversions *and* the `ToPsValue`/`FromPsValue` bridge, so
+/// it composes inside `ValueWrapper`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, TypedBuilder, PsSerialize, PsDeserialize)]
 pub struct Coordinates {
     #[builder(default = 0)]
     pub x: i32,
@@ -100,94 +106,12 @@ pub struct Coordinates {
     pub y: i32,
 }
 
-impl From<Coordinates> for ComplexObject {
-    fn from(coords: Coordinates) -> Self {
-        let mut properties = Properties::new();
-        properties.insert_extended("x", PsValue::Primitive(PsPrimitiveValue::I32(coords.x)));
-        properties.insert_extended("y", PsValue::Primitive(PsPrimitiveValue::I32(coords.y)));
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            properties,
-        }
-    }
-}
-
-impl TryFrom<&ComplexObject> for Coordinates {
-    type Error = PowerShellRemotingError;
-
-    fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
-        let get_i32 = |name: &str| {
-            obj.properties
-                .get(name)
-                .and_then(|v| match v {
-                    PsValue::Primitive(PsPrimitiveValue::I32(val)) => Some(*val),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    PowerShellRemotingError::InvalidMessage(format!(
-                        "Missing or invalid property '{name}' in Coordinates"
-                    ))
-                })
-        };
-
-        Ok(Self {
-            x: get_i32("x")?,
-            y: get_i32("y")?,
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// A nested host size (width/height), derived as a sub-object like
+/// [`Coordinates`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, PsSerialize, PsDeserialize)]
 pub struct Size {
     pub width: i32,
     pub height: i32,
-}
-
-impl From<Size> for ComplexObject {
-    fn from(size: Size) -> Self {
-        let mut properties = Properties::new();
-        properties.insert_extended(
-            "width",
-            PsValue::Primitive(PsPrimitiveValue::I32(size.width)),
-        );
-        properties.insert_extended(
-            "height",
-            PsValue::Primitive(PsPrimitiveValue::I32(size.height)),
-        );
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            properties,
-        }
-    }
-}
-
-impl TryFrom<&ComplexObject> for Size {
-    type Error = PowerShellRemotingError;
-
-    fn try_from(obj: &ComplexObject) -> Result<Self, Self::Error> {
-        let get_i32 = |name: &str| {
-            obj.properties
-                .get(name)
-                .and_then(|v| match v {
-                    PsValue::Primitive(PsPrimitiveValue::I32(val)) => Some(*val),
-                    _ => None,
-                })
-                .ok_or_else(|| {
-                    PowerShellRemotingError::InvalidMessage(format!(
-                        "Missing or invalid property '{name}' in Size"
-                    ))
-                })
-        };
-
-        Ok(Self {
-            width: get_i32("width")?,
-            height: get_i32("height")?,
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, TypedBuilder)]
@@ -390,7 +314,7 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
         let get_coords_from_wrapper = |key: i32| -> Result<Coordinates, Self::Error> {
             let wrapper = get_value_wrapper(key)?;
             match wrapper.value {
-                PsValue::Object(obj) => Coordinates::try_from(&obj),
+                PsValue::Object(obj) => Coordinates::try_from(obj),
                 PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(format!(
                     "Expected Coordinates object for key {key}"
                 ))),
@@ -400,7 +324,7 @@ impl TryFrom<BTreeMap<PsValue, PsValue>> for HostDefaultData {
         let get_size_from_wrapper = |key: i32| -> Result<Size, Self::Error> {
             let wrapper = get_value_wrapper(key)?;
             match wrapper.value {
-                PsValue::Object(obj) => Size::try_from(&obj),
+                PsValue::Object(obj) => Size::try_from(obj),
                 PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(format!(
                     "Expected Size object for key {key}"
                 ))),
