@@ -9,6 +9,7 @@ thiserror = "2.0.12"
 uuid = { version = "1.17.0", features = ["v4"] }
 ironposh-winrm = { path = "../ironposh-winrm" }
 ironposh-psrp = { path = "../ironposh-psrp" }
+ironposh-macros = { path = "../ironposh-macros" }
 ironposh-xml = { path = "../ironposh-xml" }
 typed-builder = "0.21.0"
 base64 = "0.22.1"

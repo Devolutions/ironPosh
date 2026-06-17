@@ -19,3 +19,5 @@ pub use types::*;
 
 // Re-export for backwards compatibility
 pub use methods::*;
+#[cfg(test)]
+mod snapshot_test;

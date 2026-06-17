@@ -52,6 +52,9 @@ struct PsFieldOpts {
     is_option: bool,
     /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
     adapted: bool,
+    /// On deserialize, fall back to `Default::default()` when absent (instead of
+    /// erroring). For tolerant host params. Ignored for `Option<..>`.
+    default: bool,
     /// Extra property names to ALSO emit on serialize (and accept on
     /// deserialize) — e.g. a PascalCase alias alongside the camelCase name, for
     /// .NET host objects that are read under either casing.
@@ -88,6 +91,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let ident = field.ident.clone().expect("named field");
             let mut name = ident.to_string();
             let mut adapted = false;
+            let mut default = false;
             let mut also = Vec::new();
             let mut with = None;
 
@@ -104,6 +108,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                         also.push(lit.value());
                     } else if meta.path.is_ident("adapted") {
                         adapted = true;
+                    } else if meta.path.is_ident("default") {
+                        default = true;
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -119,6 +125,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 ident,
                 name,
                 adapted,
+                default,
                 also,
                 with,
             })
@@ -260,9 +267,9 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             let ident = &f.ident;
             let prop = &f.name;
 
-            // Fast path: single name, no custom converter — use L1 accessors
-            // (precise error messages).
-            if f.also.is_empty() && f.with.is_none() {
+            // Fast path: single name, no custom converter, no default — use L1
+            // accessors (precise error messages).
+            if f.also.is_empty() && f.with.is_none() && !f.default {
                 return if f.is_option {
                     quote! { #ident: value.opt(#prop)? }
                 } else {
@@ -287,6 +294,14 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     #ident: match #lookup {
                         ::core::option::Option::Some(v) => ::core::option::Option::Some(#conv),
                         ::core::option::Option::None => ::core::option::Option::None,
+                    }
+                }
+            } else if f.default {
+                let conv = convert(quote! { v });
+                quote! {
+                    #ident: match #lookup {
+                        ::core::option::Option::Some(v) => #conv,
+                        ::core::option::Option::None => ::core::default::Default::default(),
                     }
                 }
             } else {
