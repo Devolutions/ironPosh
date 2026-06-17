@@ -59,6 +59,9 @@ struct PsFieldOpts {
     /// For an `Option<..>` field: always emit the property (as `Nil` when
     /// `None`) instead of omitting it. Some objects require the slot present.
     nil_when_none: bool,
+    /// Also set the object's `<ToString>` from this (String) field's value, in
+    /// addition to emitting it as a normal property.
+    set_to_string: bool,
     /// Extra property names to ALSO emit on serialize (and accept on
     /// deserialize) — e.g. a PascalCase alias alongside the camelCase name, for
     /// .NET host objects that are read under either casing.
@@ -97,6 +100,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let mut adapted = false;
             let mut default = false;
             let mut nil_when_none = false;
+            let mut set_to_string = false;
             let mut also = Vec::new();
             let mut with = None;
 
@@ -117,6 +121,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                         default = true;
                     } else if meta.path.is_ident("nil_when_none") {
                         nil_when_none = true;
+                    } else if meta.path.is_ident("to_string") {
+                        set_to_string = true;
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -134,6 +140,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 adapted,
                 default,
                 nil_when_none,
+                set_to_string,
                 also,
                 with,
             })
@@ -216,7 +223,12 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     (None, _) => quote! { obj = obj.#bag(#prop, &value.#ident); },
                 })
                 .collect();
-            quote! { #(#stmts)* }
+            let to_string_stmt = if f.set_to_string {
+                quote! { obj = obj.to_string_repr(value.#ident.clone()); }
+            } else {
+                quote! {}
+            };
+            quote! { #(#stmts)* #to_string_stmt }
         })
         .collect();
 
