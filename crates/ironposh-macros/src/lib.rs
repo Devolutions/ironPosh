@@ -44,6 +44,7 @@ pub fn derive_ps_deserialize(input: TokenStream) -> TokenStream {
 }
 
 /// Per-field options parsed from `#[ps(..)]`.
+#[allow(clippy::struct_excessive_bools)] // independent attribute flags
 struct PsFieldOpts {
     ident: Ident,
     /// CLIXML property name (defaults to the field name).
@@ -55,6 +56,9 @@ struct PsFieldOpts {
     /// On deserialize, fall back to `Default::default()` when absent (instead of
     /// erroring). For tolerant host params. Ignored for `Option<..>`.
     default: bool,
+    /// For an `Option<..>` field: always emit the property (as `Nil` when
+    /// `None`) instead of omitting it. Some objects require the slot present.
+    nil_when_none: bool,
     /// Extra property names to ALSO emit on serialize (and accept on
     /// deserialize) — e.g. a PascalCase alias alongside the camelCase name, for
     /// .NET host objects that are read under either casing.
@@ -92,6 +96,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let mut name = ident.to_string();
             let mut adapted = false;
             let mut default = false;
+            let mut nil_when_none = false;
             let mut also = Vec::new();
             let mut with = None;
 
@@ -110,6 +115,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                         adapted = true;
                     } else if meta.path.is_ident("default") {
                         default = true;
+                    } else if meta.path.is_ident("nil_when_none") {
+                        nil_when_none = true;
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -126,6 +133,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 name,
                 adapted,
                 default,
+                nil_when_none,
                 also,
                 with,
             })
@@ -187,6 +195,9 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             let names = std::iter::once(f.name.clone()).chain(f.also.iter().cloned());
             let stmts: Vec<TokenStream2> = names
                 .map(|prop| match (&f.with, f.is_option) {
+                    (Some(with), true) if f.nil_when_none => quote! {
+                        obj = obj.#bag(#prop, value.#ident.as_ref().map(#with::to_ps_value));
+                    },
                     (Some(with), true) => quote! {
                         if let ::core::option::Option::Some(inner) = &value.#ident {
                             obj = obj.#bag(#prop, #with::to_ps_value(inner));
@@ -195,6 +206,10 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     (Some(with), false) => quote! {
                         obj = obj.#bag(#prop, #with::to_ps_value(&value.#ident));
                     },
+                    // Option emitted always as Nil-or-value (slot must be present).
+                    (None, true) if f.nil_when_none => {
+                        quote! { obj = obj.#bag(#prop, &value.#ident); }
+                    }
                     (None, true) if !f.adapted => {
                         quote! { obj = obj.extended_opt(#prop, value.#ident.as_ref()); }
                     }
