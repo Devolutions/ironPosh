@@ -400,12 +400,26 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let vnames: Vec<&String> = variants.iter().map(|v| &v.name).collect();
     let discs: Vec<&syn::Expr> = variants.iter().map(|v| &v.disc).collect();
 
-    // Shared: map an i32 to a variant (used on the deserialize side).
+    // i32 -> variant, in an inherent method. PsEnum deliberately does NOT
+    // implement `TryFrom` (whose `Error` associated item would collide with an
+    // `Error` *variant* — rust#57644); with no such associated item in scope,
+    // `Self::Variant` paths are unambiguous.
+    let from_disc_impl = quote! {
+        impl #name {
+            #[doc(hidden)]
+            fn __ps_from_discriminant(v: i32) -> ::core::option::Option<Self> {
+                #( if v == #discs { return ::core::option::Option::Some(Self::#idents); } )*
+                ::core::option::Option::None
+            }
+        }
+    };
+    // Expression: map `v: i32` to `Result<Self, _>` via the inherent method.
     let from_i32 = quote! {
-        #( if v == #discs { return ::core::result::Result::Ok(#name::#idents); } )*
-        ::core::result::Result::Err(crate::PowerShellRemotingError::InvalidMessage(
-            ::std::format!("invalid {} enum value: {}", ::core::stringify!(#name), v)
-        ))
+        #name::__ps_from_discriminant(v).ok_or_else(|| {
+            crate::PowerShellRemotingError::InvalidMessage(
+                ::std::format!("invalid {} enum value: {}", ::core::stringify!(#name), v)
+            )
+        })
     };
 
     match repr {
@@ -417,6 +431,8 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 ));
             }
             Ok(quote! {
+                #from_disc_impl
+
                 impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
                     fn from(value: &#name) -> Self {
                         let (val, name): (i32, &'static str) = match value {
@@ -445,9 +461,11 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     }
                 }
 
-                impl ::core::convert::TryFrom<crate::ps_value::ComplexObject> for #name {
-                    type Error = crate::PowerShellRemotingError;
-                    fn try_from(obj: crate::ps_value::ComplexObject) -> ::core::result::Result<Self, Self::Error> {
+                impl #name {
+                    /// Parse this enum from its CLIXML enum-`<Obj>` form.
+                    pub fn from_ps_object(
+                        obj: crate::ps_value::ComplexObject,
+                    ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
                         let v: i32 = match &obj.content {
                             crate::ps_value::ComplexObjectContent::PsEnums(e) => e.value,
                             crate::ps_value::ComplexObjectContent::ExtendedPrimitive(
@@ -469,9 +487,7 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
                         value: &crate::ps_value::PsValue,
                     ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
                         match value {
-                            crate::ps_value::PsValue::Object(o) => {
-                                <Self as ::core::convert::TryFrom<crate::ps_value::ComplexObject>>::try_from(o.clone())
-                            }
+                            crate::ps_value::PsValue::Object(o) => Self::from_ps_object(o.clone()),
                             crate::ps_value::PsValue::Primitive(
                                 crate::ps_value::PsPrimitiveValue::I32(i)
                             ) => { let v = *i; #from_i32 }
@@ -486,6 +502,8 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
             })
         }
         EnumRepr::I32 => Ok(quote! {
+            #from_disc_impl
+
             impl crate::ps_value::ToPsValue for #name {
                 fn to_ps_value(&self) -> crate::ps_value::PsValue {
                     let val: i32 = match self { #( #name::#idents => #discs ),* };

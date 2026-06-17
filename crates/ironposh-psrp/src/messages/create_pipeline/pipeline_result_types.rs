@@ -1,6 +1,16 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
+use ironposh_macros::PsEnum;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// MS-PSRP PipelineResultTypes enum, serialized as a full enum `<Obj>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Management.Automation.Runspaces.PipelineResultTypes",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum PipelineResultTypes {
     #[default]
     None = 0x00,
@@ -11,62 +21,4 @@ pub enum PipelineResultTypes {
     Debug = 0x10,
     All = 0x20,
     Null = 0x40,
-}
-
-impl PipelineResultTypes {
-    pub fn value(self) -> i32 {
-        self as i32
-    }
-}
-
-impl From<i32> for PipelineResultTypes {
-    fn from(value: i32) -> Self {
-        match value {
-            0x01 => Self::Output,
-            0x02 => Self::Error,
-            0x04 => Self::Warning,
-            0x08 => Self::Verbose,
-            0x10 => Self::Debug,
-            0x20 => Self::All,
-            0x40 => Self::Null,
-            _ => Self::None, // 0x00 is also None
-        }
-    }
-}
-
-impl From<PipelineResultTypes> for ComplexObject {
-    fn from(result_type: PipelineResultTypes) -> Self {
-        let to_string_value = match result_type {
-            PipelineResultTypes::None => Some("None".to_string()),
-            PipelineResultTypes::Output => Some("Output".to_string()),
-            PipelineResultTypes::Error => Some("Error".to_string()),
-            PipelineResultTypes::Warning => Some("Warning".to_string()),
-            PipelineResultTypes::Verbose => Some("Verbose".to_string()),
-            PipelineResultTypes::Debug => Some("Debug".to_string()),
-            PipelineResultTypes::All => Some("All".to_string()),
-            PipelineResultTypes::Null => Some("Null".to_string()),
-        };
-
-        Self {
-            type_def: Some(PsType::pipeline_result_types()),
-            to_string: to_string_value,
-            content: ComplexObjectContent::PsEnums(PsEnums {
-                value: result_type.value(),
-            }),
-            properties: Properties::new(),
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for PipelineResultTypes {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, crate::PowerShellRemotingError> {
-        match value.content {
-            ComplexObjectContent::PsEnums(PsEnums { value: val }) => Ok(Self::from(val)),
-            _ => Err(crate::PowerShellRemotingError::InvalidMessage(
-                "PipelineResultTypes must be an enum".to_string(),
-            )),
-        }
-    }
 }

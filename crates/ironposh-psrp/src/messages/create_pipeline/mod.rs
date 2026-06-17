@@ -126,7 +126,7 @@ impl TryFrom<ComplexObject> for CreatePipeline {
         };
 
         let remote_stream_options = match get_property("RemoteStreamOptions")? {
-            PsValue::Object(obj) => RemoteStreamOptions::try_from(obj.clone())?,
+            PsValue::Object(obj) => RemoteStreamOptions::from_ps_object(obj.clone())?,
             PsValue::Primitive(_) => RemoteStreamOptions::None,
         };
 

@@ -1,54 +1,18 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
-use std::borrow::Cow;
+use ironposh_macros::PsEnum;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// MS-PSRP RemoteStreamOptions enum, serialized as a full enum `<Obj>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Management.Automation.RemoteStreamOptions",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum RemoteStreamOptions {
+    #[default]
     None = 0,
     AddInvocationInfo = 1,
-}
-
-impl From<RemoteStreamOptions> for ComplexObject {
-    fn from(options: RemoteStreamOptions) -> Self {
-        let type_def = PsType {
-            type_names: vec![
-                Cow::Borrowed("System.Management.Automation.RemoteStreamOptions"),
-                Cow::Borrowed("System.Enum"),
-                Cow::Borrowed("System.ValueType"),
-                Cow::Borrowed("System.Object"),
-            ],
-        };
-
-        let to_string = match options {
-            RemoteStreamOptions::None => "None".to_string(),
-            RemoteStreamOptions::AddInvocationInfo => "AddInvocationInfo".to_string(),
-        };
-
-        Self {
-            type_def: Some(type_def),
-            to_string: Some(to_string),
-            content: ComplexObjectContent::PsEnums(PsEnums {
-                value: options as i32,
-            }),
-            properties: Properties::new(),
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for RemoteStreamOptions {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        match value.content {
-            ComplexObjectContent::PsEnums(PsEnums { value }) => match value {
-                0 => Ok(Self::None),
-                1 => Ok(Self::AddInvocationInfo),
-                _ => Err(Self::Error::InvalidMessage(format!(
-                    "Invalid RemoteStreamOptions value: {value}"
-                ))),
-            },
-            _ => Err(Self::Error::InvalidMessage(
-                "RemoteStreamOptions must be an enum".to_string(),
-            )),
-        }
-    }
 }

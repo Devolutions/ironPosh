@@ -174,7 +174,7 @@ impl TryFrom<ComplexObject> for Command {
                 PipelineResultTypes::default,
                 |value| match value {
                     PsValue::Object(obj) => {
-                        PipelineResultTypes::try_from(obj.clone()).unwrap_or_default()
+                        PipelineResultTypes::from_ps_object(obj.clone()).unwrap_or_default()
                     }
                     PsValue::Primitive(_) => PipelineResultTypes::default(),
                 },
