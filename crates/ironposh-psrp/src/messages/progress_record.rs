@@ -1,252 +1,53 @@
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsType,
-    PsValue,
-};
-use std::borrow::Cow;
+use ironposh_macros::{PsDeserialize, PsEnum, PsSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// ProgressRecordType (MS-PSRP §2.2.3.21), serialized as an enum `<Obj>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Management.Automation.ProgressRecordType",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum ProgressRecordType {
     Processing = 0,
     Completed = 1,
 }
 
-impl ProgressRecordType {
-    pub fn as_i32(&self) -> i32 {
-        match self {
-            Self::Processing => 0,
-            Self::Completed => 1,
-        }
-    }
-
-    pub fn as_string(&self) -> &'static str {
-        match self {
-            Self::Processing => "Processing",
-            Self::Completed => "Completed",
-        }
-    }
-}
-
-impl TryFrom<i32> for ProgressRecordType {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Processing),
-            1 => Ok(Self::Completed),
-            _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "Invalid ProgressRecordType value: {value}"
-            ))),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+/// PROGRESS_RECORD message (MS-PSRP §2.2.2.25).
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(message_type = ProgressRecord)]
 pub struct ProgressRecord {
+    #[ps(name = "Activity")]
     pub activity: String,
+    #[ps(name = "ActivityId")]
     pub activity_id: i32,
     #[builder(default)]
+    #[ps(name = "StatusDescription")]
     pub status_description: Option<String>,
     #[builder(default)]
+    #[ps(name = "CurrentOperation")]
     pub current_operation: Option<String>,
     #[builder(default, setter(transform = |x: Option<i32>| x.filter(|&v| v >= 0)))]
+    #[ps(name = "ParentActivityId")]
     pub parent_activity_id: Option<i32>,
     #[builder(default, setter(transform = |x: i32| if (-1..=100).contains(&x) { x } else { -1 }))]
+    #[ps(name = "PercentComplete")]
     pub percent_complete: i32,
     #[builder(default = ProgressRecordType::Processing)]
+    #[ps(name = "Type")]
     pub progress_type: ProgressRecordType,
     #[builder(default)]
+    #[ps(name = "SecondsRemaining")]
     pub seconds_remaining: Option<i32>,
-}
-
-impl PsObjectWithType for ProgressRecord {
-    fn message_type(&self) -> MessageType {
-        MessageType::ProgressRecord
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-impl From<ProgressRecord> for ComplexObject {
-    fn from(record: ProgressRecord) -> Self {
-        let mut properties = Properties::new();
-
-        properties.insert_extended(
-            "Activity",
-            PsValue::Primitive(PsPrimitiveValue::Str(record.activity)),
-        );
-
-        properties.insert_extended(
-            "ActivityId",
-            PsValue::Primitive(PsPrimitiveValue::I32(record.activity_id)),
-        );
-
-        if let Some(status) = record.status_description {
-            properties.insert_extended(
-                "StatusDescription",
-                PsValue::Primitive(PsPrimitiveValue::Str(status)),
-            );
-        }
-
-        if let Some(current_op) = record.current_operation {
-            properties.insert_extended(
-                "CurrentOperation",
-                PsValue::Primitive(PsPrimitiveValue::Str(current_op)),
-            );
-        }
-
-        if let Some(parent_id) = record.parent_activity_id {
-            properties.insert_extended(
-                "ParentActivityId",
-                PsValue::Primitive(PsPrimitiveValue::I32(parent_id)),
-            );
-        }
-
-        properties.insert_extended(
-            "PercentComplete",
-            PsValue::Primitive(PsPrimitiveValue::I32(record.percent_complete)),
-        );
-
-        let progress_type_obj = Self {
-            type_def: Some(PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Management.Automation.ProgressRecordType"),
-                    Cow::Borrowed("System.Enum"),
-                    Cow::Borrowed("System.ValueType"),
-                    Cow::Borrowed("System.Object"),
-                ],
-            }),
-            to_string: Some(record.progress_type.as_string().to_string()),
-            content: ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(
-                record.progress_type.as_i32(),
-            )),
-            properties: Properties::new(),
-        };
-
-        properties.insert_extended("Type", PsValue::Object(progress_type_obj));
-
-        if let Some(seconds) = record.seconds_remaining {
-            properties.insert_extended(
-                "SecondsRemaining",
-                PsValue::Primitive(PsPrimitiveValue::I32(seconds)),
-            );
-        }
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for ProgressRecord {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let activity = value
-            .properties
-            .get("Activity")
-            .ok_or_else(|| Self::Error::InvalidMessage("Missing Activity property".to_string()))?;
-        let activity = match activity {
-            PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "Activity property is not a string".to_string(),
-                ));
-            }
-        };
-
-        let activity_id = value.properties.get("ActivityId").ok_or_else(|| {
-            Self::Error::InvalidMessage("Missing ActivityId property".to_string())
-        })?;
-        let activity_id = match activity_id {
-            PsValue::Primitive(PsPrimitiveValue::I32(id)) => *id,
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "ActivityId property is not an I32".to_string(),
-                ));
-            }
-        };
-
-        let status_description =
-            value
-                .properties
-                .get("StatusDescription")
-                .and_then(|value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                    _ => None,
-                });
-
-        let current_operation =
-            value
-                .properties
-                .get("CurrentOperation")
-                .and_then(|value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                    _ => None,
-                });
-
-        let parent_activity_id =
-            value
-                .properties
-                .get("ParentActivityId")
-                .and_then(|value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::I32(id)) if *id >= 0 => Some(*id),
-                    _ => None,
-                });
-
-        let percent_complete =
-            value
-                .properties
-                .get("PercentComplete")
-                .map_or(-1, |value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::I32(percent)) => *percent,
-                    _ => -1,
-                });
-
-        let progress_type = value
-            .properties
-            .get("Type")
-            .and_then(|value| match value {
-                PsValue::Object(obj) => match &obj.content {
-                    ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(val)) => {
-                        ProgressRecordType::try_from(*val).ok()
-                    }
-                    _ => None,
-                },
-                PsValue::Primitive(_) => None,
-            })
-            .unwrap_or(ProgressRecordType::Processing);
-
-        let seconds_remaining =
-            value
-                .properties
-                .get("SecondsRemaining")
-                .and_then(|value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::I32(seconds)) => Some(*seconds),
-                    _ => None,
-                });
-
-        Ok(Self::builder()
-            .activity(activity)
-            .activity_id(activity_id)
-            .status_description(status_description)
-            .current_operation(current_operation)
-            .parent_activity_id(parent_activity_id)
-            .percent_complete(percent_complete)
-            .progress_type(progress_type)
-            .seconds_remaining(seconds_remaining)
-            .build())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ps_value::{ComplexObject, PsObjectWithType};
 
     #[test]
     fn test_progress_record_basic() {
@@ -264,7 +65,6 @@ mod tests {
         let complex_obj = ComplexObject::from(record);
         let roundtrip = ProgressRecord::try_from(complex_obj).unwrap();
 
-        // Parent activity ID should be None due to builder transform filtering negative values
         let expected = ProgressRecord::builder()
             .activity("Activity Name".to_string())
             .activity_id(4)
@@ -306,7 +106,6 @@ mod tests {
 
     #[test]
     fn test_percent_complete_bounds() {
-        // Test valid range
         let record = ProgressRecord::builder()
             .activity("Test".to_string())
             .activity_id(0)
@@ -314,7 +113,6 @@ mod tests {
             .build();
         assert_eq!(record.percent_complete, 50);
 
-        // Test out of range gets clamped to -1 by builder
         let record = ProgressRecord::builder()
             .activity("Test".to_string())
             .activity_id(0)
