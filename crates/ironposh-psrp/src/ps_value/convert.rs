@@ -9,10 +9,58 @@
 //! [`ComplexObject::opt`]: super::ComplexObject::opt
 //! [`ComplexObjectBuilder`]: super::ComplexObjectBuilder
 
-use super::{ComplexObjectContent, Container, PsPrimitiveValue, PsValue};
+use std::collections::BTreeMap;
+
+use super::{
+    ComplexObject, ComplexObjectContent, Container, Properties, PsPrimitiveValue, PsType, PsValue,
+};
 use crate::PowerShellRemotingError;
 
 type Result<T> = std::result::Result<T, PowerShellRemotingError>;
+
+/// A string-keyed `PSPrimitiveDictionary` (`<DCT>` of `<S>` keys → values).
+impl ToPsValue for BTreeMap<String, PsValue> {
+    fn to_ps_value(&self) -> PsValue {
+        let entries: BTreeMap<PsValue, PsValue> = self
+            .iter()
+            .map(|(k, v)| {
+                (
+                    PsValue::Primitive(PsPrimitiveValue::Str(k.clone())),
+                    v.clone(),
+                )
+            })
+            .collect();
+        PsValue::Object(ComplexObject {
+            type_def: Some(PsType::ps_primitive_dictionary()),
+            to_string: None,
+            content: ComplexObjectContent::Container(Container::Dictionary(entries)),
+            properties: Properties::new(),
+        })
+    }
+}
+
+impl FromPsValue for BTreeMap<String, PsValue> {
+    const TYPE_LABEL: &'static str = "PSPrimitiveDictionary";
+
+    fn from_ps_value(value: &PsValue) -> Result<Self> {
+        let PsValue::Object(obj) = value else {
+            return Err(type_mismatch::<Self>(value));
+        };
+        let ComplexObjectContent::Container(Container::Dictionary(dict)) = &obj.content else {
+            return Err(type_mismatch::<Self>(value));
+        };
+        let mut out = Self::new();
+        for (k, v) in dict {
+            let PsValue::Primitive(PsPrimitiveValue::Str(key)) = k else {
+                return Err(PowerShellRemotingError::InvalidMessage(
+                    "PSPrimitiveDictionary key is not a string".to_string(),
+                ));
+            };
+            out.insert(key.clone(), v.clone());
+        }
+        Ok(out)
+    }
+}
 
 /// A type that can be extracted from a [`PsValue`] read off the wire.
 ///
