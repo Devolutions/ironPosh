@@ -12,73 +12,39 @@ pub use host_default_data::{Coordinates, HostDefaultData, Size};
 pub use host_info::HostInfo;
 pub use ps_thread_options::PSThreadOptions;
 
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsValue,
-};
+use ironposh_macros::PsSerialize;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// INIT_RUNSPACEPOOL (MS-PSRP §2.2.2.3): client → server. Fully macro-derived;
+/// `application_arguments` collapses to `Nil` when empty via `app_args_conv`.
+#[derive(Debug, Clone, PartialEq, Eq, PsSerialize)]
+#[ps(message_type = InitRunspacepool)]
 pub struct InitRunspacePool {
+    #[ps(name = "MinRunspaces")]
     pub min_runspaces: i32,
+    #[ps(name = "MaxRunspaces")]
     pub max_runspaces: i32,
+    #[ps(name = "PSThreadOptions")]
     pub thread_options: PSThreadOptions,
+    #[ps(name = "ApartmentState")]
     pub apartment_state: ApartmentState,
+    #[ps(name = "HostInfo")]
     pub host_info: HostInfo,
+    #[ps(name = "ApplicationArguments", with = "app_args_conv")]
     pub application_arguments: ApplicationArguments,
 }
 
-impl From<InitRunspacePool> for ComplexObject {
-    fn from(init: InitRunspacePool) -> Self {
-        let mut properties = Properties::new();
+/// `#[ps(with)]`: emit `ApplicationArguments` as `Nil` when empty, else the
+/// derived PSPrimitiveDictionary object. INIT_RUNSPACEPOOL is client → server
+/// only, so just the serialize half is needed.
+mod app_args_conv {
+    use super::ApplicationArguments;
+    use crate::ps_value::{PsPrimitiveValue, PsValue, ToPsValue};
 
-        properties.insert_extended(
-            "MinRunspaces",
-            PsValue::Primitive(PsPrimitiveValue::I32(init.min_runspaces)),
-        );
-
-        properties.insert_extended(
-            "MaxRunspaces",
-            PsValue::Primitive(PsPrimitiveValue::I32(init.max_runspaces)),
-        );
-
-        properties.insert_extended(
-            "PSThreadOptions",
-            PsValue::Object(init.thread_options.into()),
-        );
-
-        properties.insert_extended(
-            "ApartmentState",
-            PsValue::Object(init.apartment_state.into()),
-        );
-
-        properties.insert_extended("HostInfo", PsValue::Object(init.host_info.clone().into()));
-
-        if init.application_arguments.is_empty() {
-            properties.insert_extended(
-                "ApplicationArguments",
-                PsValue::Primitive(PsPrimitiveValue::Nil),
-            );
+    pub fn to_ps_value(args: &ApplicationArguments) -> PsValue {
+        if args.is_empty() {
+            PsValue::Primitive(PsPrimitiveValue::Nil)
         } else {
-            properties.insert_extended(
-                "ApplicationArguments",
-                PsValue::Object(init.application_arguments.into()),
-            );
+            args.to_ps_value()
         }
-
-        Self {
-            content: ComplexObjectContent::Standard,
-            properties,
-            ..Default::default()
-        }
-    }
-}
-
-impl PsObjectWithType for InitRunspacePool {
-    fn message_type(&self) -> MessageType {
-        MessageType::InitRunspacepool
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
     }
 }
