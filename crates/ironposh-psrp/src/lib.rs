@@ -1,3 +1,8 @@
+// Lets the `Ps*` derive macros refer to this crate as `ironposh_psrp::…` both
+// here (via this self-alias) and from downstream crates, so one code path works
+// everywhere.
+extern crate self as ironposh_psrp;
+
 pub mod completion;
 pub mod cores;
 pub mod fragmentation;

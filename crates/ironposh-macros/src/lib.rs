@@ -52,6 +52,10 @@ struct PsFieldOpts {
     is_option: bool,
     /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
     adapted: bool,
+    /// Extra property names to ALSO emit on serialize (and accept on
+    /// deserialize) — e.g. a PascalCase alias alongside the camelCase name, for
+    /// .NET host objects that are read under either casing.
+    also: Vec<String>,
     /// Optional custom converter module. When set, the field is (de)serialized
     /// via `<path>::to_ps_value(&T) -> PsValue` and
     /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
@@ -84,6 +88,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let ident = field.ident.clone().expect("named field");
             let mut name = ident.to_string();
             let mut adapted = false;
+            let mut also = Vec::new();
             let mut with = None;
 
             for attr in &field.attrs {
@@ -94,6 +99,9 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                     if meta.path.is_ident("name") {
                         let lit: LitStr = meta.value()?.parse()?;
                         name = lit.value();
+                    } else if meta.path.is_ident("also") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        also.push(lit.value());
                     } else if meta.path.is_ident("adapted") {
                         adapted = true;
                     } else if meta.path.is_ident("with") {
@@ -111,6 +119,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 ident,
                 name,
                 adapted,
+                also,
                 with,
             })
         })
@@ -122,6 +131,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
 struct PsStructOpts {
     /// `MessageType` variant; present only for top-level PSRP messages.
     message_type: Option<Ident>,
+    /// `<TN>` type-name chain, most specific first (for typed .NET objects).
+    type_names: Vec<String>,
 }
 
 fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
@@ -133,6 +144,15 @@ fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("message_type") {
                 opts.message_type = Some(meta.value()?.parse::<Ident>()?);
+                Ok(())
+            } else if meta.path.is_ident("type_names") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let names = content
+                    .parse_terminated(<LitStr as syn::parse::Parse>::parse, syn::Token![,])?;
+                for l in names {
+                    opts.type_names.push(l.value());
+                }
                 Ok(())
             } else {
                 Err(meta.error("unknown #[ps(..)] struct attribute"))
@@ -151,44 +171,52 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .iter()
         .map(|f| {
             let ident = &f.ident;
-            let prop = &f.name;
             let bag = if f.adapted {
                 quote! { adapted }
             } else {
                 quote! { extended }
             };
-            match (&f.with, f.is_option) {
-                // Custom converter on an optional field: skip when None.
-                (Some(with), true) => quote! {
-                    if let ::core::option::Option::Some(inner) = &value.#ident {
-                        obj = obj.#bag(#prop, #with::to_ps_value(inner));
+            // Emit under the primary name plus any `also` aliases.
+            let names = std::iter::once(f.name.clone()).chain(f.also.iter().cloned());
+            let stmts: Vec<TokenStream2> = names
+                .map(|prop| match (&f.with, f.is_option) {
+                    (Some(with), true) => quote! {
+                        if let ::core::option::Option::Some(inner) = &value.#ident {
+                            obj = obj.#bag(#prop, #with::to_ps_value(inner));
+                        }
+                    },
+                    (Some(with), false) => quote! {
+                        obj = obj.#bag(#prop, #with::to_ps_value(&value.#ident));
+                    },
+                    (None, true) if !f.adapted => {
+                        quote! { obj = obj.extended_opt(#prop, value.#ident.as_ref()); }
                     }
-                },
-                // Custom converter on a required field.
-                (Some(with), false) => quote! {
-                    obj = obj.#bag(#prop, #with::to_ps_value(&value.#ident));
-                },
-                // Trait-based optional field (extended only): skip when None.
-                (None, true) if !f.adapted => {
-                    quote! { obj = obj.extended_opt(#prop, value.#ident.as_ref()); }
-                }
-                // Trait-based field.
-                (None, _) => quote! { obj = obj.#bag(#prop, &value.#ident); },
-            }
+                    (None, _) => quote! { obj = obj.#bag(#prop, &value.#ident); },
+                })
+                .collect();
+            quote! { #(#stmts)* }
         })
         .collect();
+
+    // Optional <TN> type-name chain for typed .NET objects.
+    let type_names_setup = if opts.type_names.is_empty() {
+        quote! {}
+    } else {
+        let tns = &opts.type_names;
+        quote! { obj = obj.type_names([ #( ::std::borrow::Cow::Borrowed(#tns) ),* ]); }
+    };
 
     // `PsObjectWithType` is only generated for top-level messages (those with a
     // message_type); sub-objects skip it but still get the conversions below.
     let message_impl = opts.message_type.as_ref().map(|mt| {
         quote! {
-            impl crate::ps_value::PsObjectWithType for #name {
-                fn message_type(&self) -> crate::MessageType {
-                    crate::MessageType::#mt
+            impl ironposh_psrp::ps_value::PsObjectWithType for #name {
+                fn message_type(&self) -> ironposh_psrp::MessageType {
+                    ironposh_psrp::MessageType::#mt
                 }
 
-                fn to_ps_object(&self) -> crate::ps_value::PsValue {
-                    crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
+                fn to_ps_object(&self) -> ironposh_psrp::ps_value::PsValue {
+                    ironposh_psrp::ps_value::PsValue::Object(ironposh_psrp::ps_value::ComplexObject::from(self))
                 }
             }
         }
@@ -197,15 +225,16 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     Ok(quote! {
         #message_impl
 
-        impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
+        impl ::core::convert::From<&#name> for ironposh_psrp::ps_value::ComplexObject {
             fn from(value: &#name) -> Self {
-                let mut obj = crate::ps_value::ComplexObject::standard();
+                let mut obj = ironposh_psrp::ps_value::ComplexObject::standard();
+                #type_names_setup
                 #(#inserts)*
                 obj.build()
             }
         }
 
-        impl ::core::convert::From<#name> for crate::ps_value::ComplexObject {
+        impl ::core::convert::From<#name> for ironposh_psrp::ps_value::ComplexObject {
             fn from(value: #name) -> Self {
                 Self::from(&value)
             }
@@ -213,9 +242,9 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
         // Nesting bridge: lets a field of this type be (de)serialized as a
         // nested `<Obj>` inside another derived struct.
-        impl crate::ps_value::ToPsValue for #name {
-            fn to_ps_value(&self) -> crate::ps_value::PsValue {
-                crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
+        impl ironposh_psrp::ps_value::ToPsValue for #name {
+            fn to_ps_value(&self) -> ironposh_psrp::ps_value::PsValue {
+                ironposh_psrp::ps_value::PsValue::Object(ironposh_psrp::ps_value::ComplexObject::from(self))
             }
         }
     })
@@ -230,36 +259,55 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .map(|f| {
             let ident = &f.ident;
             let prop = &f.name;
-            match (&f.with, f.is_option) {
-                // Custom converter, optional: absent -> None.
-                (Some(with), true) => quote! {
-                    #ident: match value.get_property(#prop) {
-                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#with::from_ps_value(v)?),
+
+            // Fast path: single name, no custom converter — use L1 accessors
+            // (precise error messages).
+            if f.also.is_empty() && f.with.is_none() {
+                return if f.is_option {
+                    quote! { #ident: value.opt(#prop)? }
+                } else {
+                    quote! { #ident: value.req(#prop)? }
+                };
+            }
+
+            // General path: look up the primary name, then any `also` aliases.
+            let also = &f.also;
+            let lookup = quote! {
+                value.get_property(#prop) #( .or_else(|| value.get_property(#also)) )*
+            };
+            let convert = |v: TokenStream2| {
+                f.with.as_ref().map_or_else(
+                    || quote! { ironposh_psrp::ps_value::FromPsValue::from_ps_value(#v)? },
+                    |with| quote! { #with::from_ps_value(#v)? },
+                )
+            };
+            if f.is_option {
+                let conv = convert(quote! { v });
+                quote! {
+                    #ident: match #lookup {
+                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#conv),
                         ::core::option::Option::None => ::core::option::Option::None,
                     }
-                },
-                // Custom converter, required.
-                (Some(with), false) => quote! {
-                    #ident: #with::from_ps_value(
-                        value.get_property(#prop).ok_or_else(|| {
-                            crate::PowerShellRemotingError::InvalidMessage(
-                                ::std::format!("Missing property: {}", #prop)
-                            )
-                        })?
-                    )?
-                },
-                // Trait-based, via the L1 accessors (precise error messages).
-                (None, true) => quote! { #ident: value.opt(#prop)? },
-                (None, false) => quote! { #ident: value.req(#prop)? },
+                }
+            } else {
+                let got = quote! {
+                    #lookup.ok_or_else(|| {
+                        ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                            ::std::format!("Missing property: {}", #prop)
+                        )
+                    })?
+                };
+                let conv = convert(got);
+                quote! { #ident: #conv }
             }
         })
         .collect();
 
     Ok(quote! {
-        impl ::core::convert::TryFrom<crate::ps_value::ComplexObject> for #name {
-            type Error = crate::PowerShellRemotingError;
+        impl ::core::convert::TryFrom<ironposh_psrp::ps_value::ComplexObject> for #name {
+            type Error = ironposh_psrp::PowerShellRemotingError;
 
-            fn try_from(value: crate::ps_value::ComplexObject) -> ::core::result::Result<Self, Self::Error> {
+            fn try_from(value: ironposh_psrp::ps_value::ComplexObject) -> ::core::result::Result<Self, Self::Error> {
                 Ok(Self {
                     #(#assignments),*
                 })
@@ -268,18 +316,18 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
         // Nesting bridge: lets a field of this type be deserialized from a
         // nested `<Obj>` inside another derived struct.
-        impl crate::ps_value::FromPsValue for #name {
+        impl ironposh_psrp::ps_value::FromPsValue for #name {
             const TYPE_LABEL: &'static str = ::core::stringify!(#name);
 
             fn from_ps_value(
-                value: &crate::ps_value::PsValue,
-            ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                value: &ironposh_psrp::ps_value::PsValue,
+            ) -> ::core::result::Result<Self, ironposh_psrp::PowerShellRemotingError> {
                 match value {
-                    crate::ps_value::PsValue::Object(obj) => {
-                        <Self as ::core::convert::TryFrom<crate::ps_value::ComplexObject>>::try_from(obj.clone())
+                    ironposh_psrp::ps_value::PsValue::Object(obj) => {
+                        <Self as ::core::convert::TryFrom<ironposh_psrp::ps_value::ComplexObject>>::try_from(obj.clone())
                     }
-                    crate::ps_value::PsValue::Primitive(_) => {
-                        ::core::result::Result::Err(crate::PowerShellRemotingError::InvalidMessage(
+                    ironposh_psrp::ps_value::PsValue::Primitive(_) => {
+                        ::core::result::Result::Err(ironposh_psrp::PowerShellRemotingError::InvalidMessage(
                             ::std::format!("expected {} object", ::core::stringify!(#name))
                         ))
                     }
@@ -416,7 +464,7 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
     // Expression: map `v: i32` to `Result<Self, _>` via the inherent method.
     let from_i32 = quote! {
         #name::__ps_from_discriminant(v).ok_or_else(|| {
-            crate::PowerShellRemotingError::InvalidMessage(
+            ironposh_psrp::PowerShellRemotingError::InvalidMessage(
                 ::std::format!("invalid {} enum value: {}", ::core::stringify!(#name), v)
             )
         })
@@ -433,46 +481,46 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
             Ok(quote! {
                 #from_disc_impl
 
-                impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
+                impl ::core::convert::From<&#name> for ironposh_psrp::ps_value::ComplexObject {
                     fn from(value: &#name) -> Self {
                         let (val, name): (i32, &'static str) = match value {
                             #( #name::#idents => (#discs, #vnames) ),*
                         };
-                        crate::ps_value::ComplexObject {
-                            type_def: ::core::option::Option::Some(crate::ps_value::PsType {
+                        ironposh_psrp::ps_value::ComplexObject {
+                            type_def: ::core::option::Option::Some(ironposh_psrp::ps_value::PsType {
                                 type_names: ::std::vec![ #( ::std::borrow::Cow::Borrowed(#type_names) ),* ],
                             }),
                             to_string: ::core::option::Option::Some(::std::string::ToString::to_string(name)),
-                            content: crate::ps_value::ComplexObjectContent::PsEnums(
-                                crate::ps_value::PsEnums { value: val }
+                            content: ironposh_psrp::ps_value::ComplexObjectContent::PsEnums(
+                                ironposh_psrp::ps_value::PsEnums { value: val }
                             ),
-                            properties: crate::ps_value::Properties::new(),
+                            properties: ironposh_psrp::ps_value::Properties::new(),
                         }
                     }
                 }
 
-                impl ::core::convert::From<#name> for crate::ps_value::ComplexObject {
+                impl ::core::convert::From<#name> for ironposh_psrp::ps_value::ComplexObject {
                     fn from(value: #name) -> Self { Self::from(&value) }
                 }
 
-                impl crate::ps_value::ToPsValue for #name {
-                    fn to_ps_value(&self) -> crate::ps_value::PsValue {
-                        crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
+                impl ironposh_psrp::ps_value::ToPsValue for #name {
+                    fn to_ps_value(&self) -> ironposh_psrp::ps_value::PsValue {
+                        ironposh_psrp::ps_value::PsValue::Object(ironposh_psrp::ps_value::ComplexObject::from(self))
                     }
                 }
 
                 impl #name {
                     /// Parse this enum from its CLIXML enum-`<Obj>` form.
                     pub fn from_ps_object(
-                        obj: crate::ps_value::ComplexObject,
-                    ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                        obj: ironposh_psrp::ps_value::ComplexObject,
+                    ) -> ::core::result::Result<Self, ironposh_psrp::PowerShellRemotingError> {
                         let v: i32 = match &obj.content {
-                            crate::ps_value::ComplexObjectContent::PsEnums(e) => e.value,
-                            crate::ps_value::ComplexObjectContent::ExtendedPrimitive(
-                                crate::ps_value::PsPrimitiveValue::I32(i)
+                            ironposh_psrp::ps_value::ComplexObjectContent::PsEnums(e) => e.value,
+                            ironposh_psrp::ps_value::ComplexObjectContent::ExtendedPrimitive(
+                                ironposh_psrp::ps_value::PsPrimitiveValue::I32(i)
                             ) => *i,
                             _ => return ::core::result::Result::Err(
-                                crate::PowerShellRemotingError::InvalidMessage(
+                                ironposh_psrp::PowerShellRemotingError::InvalidMessage(
                                     ::std::format!("{} must be an enum object", ::core::stringify!(#name))
                                 )
                             ),
@@ -481,18 +529,18 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     }
                 }
 
-                impl crate::ps_value::FromPsValue for #name {
+                impl ironposh_psrp::ps_value::FromPsValue for #name {
                     const TYPE_LABEL: &'static str = ::core::stringify!(#name);
                     fn from_ps_value(
-                        value: &crate::ps_value::PsValue,
-                    ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                        value: &ironposh_psrp::ps_value::PsValue,
+                    ) -> ::core::result::Result<Self, ironposh_psrp::PowerShellRemotingError> {
                         match value {
-                            crate::ps_value::PsValue::Object(o) => Self::from_ps_object(o.clone()),
-                            crate::ps_value::PsValue::Primitive(
-                                crate::ps_value::PsPrimitiveValue::I32(i)
+                            ironposh_psrp::ps_value::PsValue::Object(o) => Self::from_ps_object(o.clone()),
+                            ironposh_psrp::ps_value::PsValue::Primitive(
+                                ironposh_psrp::ps_value::PsPrimitiveValue::I32(i)
                             ) => { let v = *i; #from_i32 }
                             _ => ::core::result::Result::Err(
-                                crate::PowerShellRemotingError::InvalidMessage(
+                                ironposh_psrp::PowerShellRemotingError::InvalidMessage(
                                     ::std::format!("expected {} enum", ::core::stringify!(#name))
                                 )
                             ),
@@ -504,24 +552,24 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
         EnumRepr::I32 => Ok(quote! {
             #from_disc_impl
 
-            impl crate::ps_value::ToPsValue for #name {
-                fn to_ps_value(&self) -> crate::ps_value::PsValue {
+            impl ironposh_psrp::ps_value::ToPsValue for #name {
+                fn to_ps_value(&self) -> ironposh_psrp::ps_value::PsValue {
                     let val: i32 = match self { #( #name::#idents => #discs ),* };
-                    crate::ps_value::PsValue::Primitive(crate::ps_value::PsPrimitiveValue::I32(val))
+                    ironposh_psrp::ps_value::PsValue::Primitive(ironposh_psrp::ps_value::PsPrimitiveValue::I32(val))
                 }
             }
 
-            impl crate::ps_value::FromPsValue for #name {
+            impl ironposh_psrp::ps_value::FromPsValue for #name {
                 const TYPE_LABEL: &'static str = ::core::stringify!(#name);
                 fn from_ps_value(
-                    value: &crate::ps_value::PsValue,
-                ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                    value: &ironposh_psrp::ps_value::PsValue,
+                ) -> ::core::result::Result<Self, ironposh_psrp::PowerShellRemotingError> {
                     match value {
-                        crate::ps_value::PsValue::Primitive(
-                            crate::ps_value::PsPrimitiveValue::I32(i)
+                        ironposh_psrp::ps_value::PsValue::Primitive(
+                            ironposh_psrp::ps_value::PsPrimitiveValue::I32(i)
                         ) => { let v = *i; #from_i32 }
                         _ => ::core::result::Result::Err(
-                            crate::PowerShellRemotingError::InvalidMessage(
+                            ironposh_psrp::PowerShellRemotingError::InvalidMessage(
                                 ::std::format!("expected I32 for {}", ::core::stringify!(#name))
                             )
                         ),
