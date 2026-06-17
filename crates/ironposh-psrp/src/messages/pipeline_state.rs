@@ -1,7 +1,8 @@
-use crate::ps_value::{FromPsValue, PsPrimitiveValue, PsValue, ToPsValue};
-use ironposh_macros::{PsDeserialize, PsSerialize};
+use crate::ps_value::PsValue;
+use ironposh_macros::{PsDeserialize, PsEnum, PsSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PsEnum)]
+#[ps(repr = "i32")]
 pub enum PSInvocationState {
     NotStarted = 0,
     Running = 1,
@@ -44,25 +45,6 @@ impl TryFrom<i32> for PSInvocationState {
             6 => Ok(Self::Disconnected),
             _ => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
                 "Invalid PSInvocationState value: {value}"
-            ))),
-        }
-    }
-}
-
-impl ToPsValue for PSInvocationState {
-    fn to_ps_value(&self) -> PsValue {
-        PsValue::from(self.as_i32())
-    }
-}
-
-impl FromPsValue for PSInvocationState {
-    const TYPE_LABEL: &'static str = "PSInvocationState (I32)";
-
-    fn from_ps_value(value: &PsValue) -> Result<Self, crate::PowerShellRemotingError> {
-        match value {
-            PsValue::Primitive(PsPrimitiveValue::I32(state)) => Self::try_from(*state),
-            other => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
-                "expected I32 PSInvocationState, got {other:?}"
             ))),
         }
     }
@@ -113,7 +95,7 @@ impl PipelineStateMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ps_value::{ComplexObject, PsObjectWithType};
+    use crate::ps_value::{ComplexObject, PsObjectWithType, PsPrimitiveValue};
 
     #[test]
     fn test_pipeline_state_completed() {

@@ -1,39 +1,17 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
-use std::borrow::Cow;
+use ironposh_macros::PsEnum;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Threading.ApartmentState",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum ApartmentState {
     STA = 0,
     MTA = 1,
     Unknown = 2,
 }
-
-impl From<ApartmentState> for ComplexObject {
-    fn from(state: ApartmentState) -> Self {
-        let type_def = PsType {
-            type_names: vec![
-                Cow::Borrowed("System.Threading.ApartmentState"),
-                Cow::Borrowed("System.Enum"),
-                Cow::Borrowed("System.ValueType"),
-                Cow::Borrowed("System.Object"),
-            ],
-        };
-
-        let to_string = match state {
-            ApartmentState::STA => "STA".to_string(),
-            ApartmentState::MTA => "MTA".to_string(),
-            ApartmentState::Unknown => "Unknown".to_string(),
-        };
-
-        Self {
-            type_def: Some(type_def),
-            to_string: Some(to_string),
-            content: ComplexObjectContent::PsEnums(PsEnums {
-                value: state as i32,
-            }),
-            properties: Properties::new(),
-        }
-    }
-}
-
-// TODO: Add tests for new ComplexObject representation

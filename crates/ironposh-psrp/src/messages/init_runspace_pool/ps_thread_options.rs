@@ -1,41 +1,18 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, Properties, PsEnums, PsType};
-use std::borrow::Cow;
+use ironposh_macros::PsEnum;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Management.Automation.Runspaces.PSThreadOptions",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum PSThreadOptions {
     Default = 0,
     UseNewThread = 1,
     ReuseThread = 2,
     UseCurrentThread = 3,
 }
-
-impl From<PSThreadOptions> for ComplexObject {
-    fn from(option: PSThreadOptions) -> Self {
-        let type_def = PsType {
-            type_names: vec![
-                Cow::Borrowed("System.Management.Automation.Runspaces.PSThreadOptions"),
-                Cow::Borrowed("System.Enum"),
-                Cow::Borrowed("System.ValueType"),
-                Cow::Borrowed("System.Object"),
-            ],
-        };
-
-        let to_string = match option {
-            PSThreadOptions::Default => "Default".to_string(),
-            PSThreadOptions::UseNewThread => "UseNewThread".to_string(),
-            PSThreadOptions::ReuseThread => "ReuseThread".to_string(),
-            PSThreadOptions::UseCurrentThread => "UseCurrentThread".to_string(),
-        };
-
-        Self {
-            type_def: Some(type_def),
-            to_string: Some(to_string),
-            content: ComplexObjectContent::PsEnums(PsEnums {
-                value: option as i32,
-            }),
-            properties: Properties::new(),
-        }
-    }
-}
-
-// TODO: Add tests for new ComplexObject representation

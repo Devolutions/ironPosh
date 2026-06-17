@@ -289,10 +289,231 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     })
 }
 
-/// Derives TagValue implementation for structs where all fields are `Option<Tag<'a, ValueType, TagName>>`
+/// Derives the CLIXML representation of a fieldless Rust enum (RFC #12, L3).
 ///
-/// This macro assumes that all fields in the struct are optional Tag fields and generates
-/// a TagValue implementation that converts each Some(tag) to an element and adds it to the
+/// Two wire encodings, chosen by `#[ps(repr = ..)]`:
+/// - `"object"` (default): a full enum `<Obj>` — a `<TN>` type-name chain, a
+///   `<ToString>` of the variant name, and the discriminant as `<I32>` content.
+///   Requires `#[ps(type_names("A","B",..))]`.
+/// - `"i32"`: a bare `<I32>` primitive (the variant's discriminant).
+///
+/// Each variant must be unit and carry an explicit discriminant (`= N`).
+/// `#[ps(rename = "..")]` overrides the `<ToString>` name for a variant.
+/// Generates `ToPsValue`/`FromPsValue` (+ `From`/`TryFrom<ComplexObject>` for
+/// the object repr), so the enum composes inside derived structs.
+#[proc_macro_derive(PsEnum, attributes(ps))]
+pub fn derive_ps_enum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_ps_enum(&input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+enum EnumRepr {
+    Object,
+    I32,
+}
+
+struct PsEnumVariant {
+    ident: Ident,
+    name: String,
+    disc: syn::Expr,
+}
+
+fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let name = &input.ident;
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            input,
+            "PsEnum can only be derived for enums",
+        ));
+    };
+
+    let mut repr = EnumRepr::Object;
+    let mut type_names: Vec<String> = Vec::new();
+    for attr in &input.attrs {
+        if !attr.path().is_ident("ps") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("repr") {
+                let lit: LitStr = meta.value()?.parse()?;
+                repr = match lit.value().as_str() {
+                    "object" => EnumRepr::Object,
+                    "i32" => EnumRepr::I32,
+                    other => return Err(meta.error(format!("unknown #[ps(repr = ..)]: {other}"))),
+                };
+            } else if meta.path.is_ident("type_names") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let names = content
+                    .parse_terminated(<LitStr as syn::parse::Parse>::parse, syn::Token![,])?;
+                for l in names {
+                    type_names.push(l.value());
+                }
+            } else {
+                return Err(meta.error("unknown #[ps(..)] enum attribute"));
+            }
+            Ok(())
+        })?;
+    }
+
+    let mut variants = Vec::new();
+    for v in &data.variants {
+        if !matches!(v.fields, Fields::Unit) {
+            return Err(syn::Error::new_spanned(
+                v,
+                "PsEnum variants must be unit (fieldless)",
+            ));
+        }
+        let disc = v
+            .discriminant
+            .as_ref()
+            .map(|(_, e)| e.clone())
+            .ok_or_else(|| {
+                syn::Error::new_spanned(v, "PsEnum variants need an explicit discriminant (= N)")
+            })?;
+        let mut vname = v.ident.to_string();
+        for attr in &v.attrs {
+            if !attr.path().is_ident("ps") {
+                continue;
+            }
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("rename") {
+                    let lit: LitStr = meta.value()?.parse()?;
+                    vname = lit.value();
+                } else {
+                    return Err(meta.error("unknown #[ps(..)] variant attribute"));
+                }
+                Ok(())
+            })?;
+        }
+        variants.push(PsEnumVariant {
+            ident: v.ident.clone(),
+            name: vname,
+            disc,
+        });
+    }
+
+    let idents: Vec<&Ident> = variants.iter().map(|v| &v.ident).collect();
+    let vnames: Vec<&String> = variants.iter().map(|v| &v.name).collect();
+    let discs: Vec<&syn::Expr> = variants.iter().map(|v| &v.disc).collect();
+
+    // Shared: map an i32 to a variant (used on the deserialize side).
+    let from_i32 = quote! {
+        #( if v == #discs { return ::core::result::Result::Ok(#name::#idents); } )*
+        ::core::result::Result::Err(crate::PowerShellRemotingError::InvalidMessage(
+            ::std::format!("invalid {} enum value: {}", ::core::stringify!(#name), v)
+        ))
+    };
+
+    match repr {
+        EnumRepr::Object => {
+            if type_names.is_empty() {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "PsEnum with repr = \"object\" requires #[ps(type_names(..))]",
+                ));
+            }
+            Ok(quote! {
+                impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
+                    fn from(value: &#name) -> Self {
+                        let (val, name): (i32, &'static str) = match value {
+                            #( #name::#idents => (#discs, #vnames) ),*
+                        };
+                        crate::ps_value::ComplexObject {
+                            type_def: ::core::option::Option::Some(crate::ps_value::PsType {
+                                type_names: ::std::vec![ #( ::std::borrow::Cow::Borrowed(#type_names) ),* ],
+                            }),
+                            to_string: ::core::option::Option::Some(::std::string::ToString::to_string(name)),
+                            content: crate::ps_value::ComplexObjectContent::PsEnums(
+                                crate::ps_value::PsEnums { value: val }
+                            ),
+                            properties: crate::ps_value::Properties::new(),
+                        }
+                    }
+                }
+
+                impl ::core::convert::From<#name> for crate::ps_value::ComplexObject {
+                    fn from(value: #name) -> Self { Self::from(&value) }
+                }
+
+                impl crate::ps_value::ToPsValue for #name {
+                    fn to_ps_value(&self) -> crate::ps_value::PsValue {
+                        crate::ps_value::PsValue::Object(crate::ps_value::ComplexObject::from(self))
+                    }
+                }
+
+                impl ::core::convert::TryFrom<crate::ps_value::ComplexObject> for #name {
+                    type Error = crate::PowerShellRemotingError;
+                    fn try_from(obj: crate::ps_value::ComplexObject) -> ::core::result::Result<Self, Self::Error> {
+                        let v: i32 = match &obj.content {
+                            crate::ps_value::ComplexObjectContent::PsEnums(e) => e.value,
+                            crate::ps_value::ComplexObjectContent::ExtendedPrimitive(
+                                crate::ps_value::PsPrimitiveValue::I32(i)
+                            ) => *i,
+                            _ => return ::core::result::Result::Err(
+                                crate::PowerShellRemotingError::InvalidMessage(
+                                    ::std::format!("{} must be an enum object", ::core::stringify!(#name))
+                                )
+                            ),
+                        };
+                        #from_i32
+                    }
+                }
+
+                impl crate::ps_value::FromPsValue for #name {
+                    const TYPE_LABEL: &'static str = ::core::stringify!(#name);
+                    fn from_ps_value(
+                        value: &crate::ps_value::PsValue,
+                    ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                        match value {
+                            crate::ps_value::PsValue::Object(o) => {
+                                <Self as ::core::convert::TryFrom<crate::ps_value::ComplexObject>>::try_from(o.clone())
+                            }
+                            crate::ps_value::PsValue::Primitive(
+                                crate::ps_value::PsPrimitiveValue::I32(i)
+                            ) => { let v = *i; #from_i32 }
+                            _ => ::core::result::Result::Err(
+                                crate::PowerShellRemotingError::InvalidMessage(
+                                    ::std::format!("expected {} enum", ::core::stringify!(#name))
+                                )
+                            ),
+                        }
+                    }
+                }
+            })
+        }
+        EnumRepr::I32 => Ok(quote! {
+            impl crate::ps_value::ToPsValue for #name {
+                fn to_ps_value(&self) -> crate::ps_value::PsValue {
+                    let val: i32 = match self { #( #name::#idents => #discs ),* };
+                    crate::ps_value::PsValue::Primitive(crate::ps_value::PsPrimitiveValue::I32(val))
+                }
+            }
+
+            impl crate::ps_value::FromPsValue for #name {
+                const TYPE_LABEL: &'static str = ::core::stringify!(#name);
+                fn from_ps_value(
+                    value: &crate::ps_value::PsValue,
+                ) -> ::core::result::Result<Self, crate::PowerShellRemotingError> {
+                    match value {
+                        crate::ps_value::PsValue::Primitive(
+                            crate::ps_value::PsPrimitiveValue::I32(i)
+                        ) => { let v = *i; #from_i32 }
+                        _ => ::core::result::Result::Err(
+                            crate::PowerShellRemotingError::InvalidMessage(
+                                ::std::format!("expected I32 for {}", ::core::stringify!(#name))
+                            )
+                        ),
+                    }
+                }
+            }
+        }),
+    }
+}
+
 /// XML element's children.
 #[proc_macro_derive(SimpleTagValue)]
 pub fn derive_simple_tag_value(input: TokenStream) -> TokenStream {
