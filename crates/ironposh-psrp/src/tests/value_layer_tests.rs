@@ -125,8 +125,9 @@ fn builder_container_content_and_types() {
 }
 
 // ---------------------------------------------------------------------------
-// RFC #12 L3 derive: nesting, type_names, alias, default (sub-object derives
-// with no message_type).
+// RFC #12 L3 derive: nesting of sub-objects (a derive with no message_type
+// still generates the ComplexObject conversions and the ToPsValue/FromPsValue
+// bridge, so it composes inside another derived struct).
 // ---------------------------------------------------------------------------
 mod derive_features {
     use crate::ps_value::{ComplexObject, FromPsValue, PsValue, ToPsValue};
@@ -139,30 +140,19 @@ mod derive_features {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, PsSerialize, PsDeserialize)]
-    #[ps(type_names("Demo.Outer", "System.Object"))]
     struct Outer {
         point: Pt,
         label: String,
-        #[ps(name = "Count", alias = "count")]
-        count: i32,
-        #[ps(default)]
-        optional_num: i32,
     }
 
     #[test]
-    fn nested_object_roundtrips_and_sets_type_names() {
+    fn nested_object_roundtrips() {
         let outer = Outer {
             point: Pt { x: 3, y: 7 },
             label: "hi".into(),
-            count: 5,
-            optional_num: 9,
         };
 
         let obj = ComplexObject::from(&outer);
-
-        // type_names struct attr applied.
-        let tn = obj.type_def.as_ref().expect("type_def set");
-        assert_eq!(tn.type_names[0].as_ref(), "Demo.Outer");
 
         // The nested field is itself an <Obj> (ToPsValue/FromPsValue bridge).
         let point_val = obj.properties.get("point").expect("point present");
@@ -170,33 +160,6 @@ mod derive_features {
 
         let back = Outer::try_from(obj).expect("roundtrip");
         assert_eq!(back, outer);
-    }
-
-    #[test]
-    fn alias_is_used_when_primary_name_absent() {
-        // Build with the lowercase alias "count" instead of the primary "Count".
-        let obj = ComplexObject::standard()
-            .extended("point", Pt { x: 1, y: 2 })
-            .extended("label", "x")
-            .extended("count", 42i32)
-            .extended("optional_num", 0i32)
-            .build();
-
-        let outer = Outer::try_from(obj).expect("alias lookup");
-        assert_eq!(outer.count, 42);
-    }
-
-    #[test]
-    fn default_fills_missing_field() {
-        // Omit optional_num entirely -> Default::default().
-        let obj = ComplexObject::standard()
-            .extended("point", Pt { x: 1, y: 2 })
-            .extended("label", "x")
-            .extended("Count", 1i32)
-            .build();
-
-        let outer = Outer::try_from(obj).expect("default fill");
-        assert_eq!(outer.optional_num, 0);
     }
 
     #[test]

@@ -3,19 +3,23 @@ use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Generics, LitStr, Type, TypePath};
 
-/// Derives the CLIXML serialize side of a PSRP message struct (RFC #12, L3).
+/// Derives the CLIXML serialize side of a PSRP object struct (RFC #12, L3).
 ///
-/// Emits `PsObjectWithType` + `From<T> for ComplexObject`. The struct maps to a
-/// standard property-bag `<Obj>`; each field becomes an `<MS>` (extended)
-/// property whose name defaults to the field name and whose value is produced
-/// via `ToPsValue`. `Option<T>` fields are omitted when `None`.
+/// Emits `From<T> for ComplexObject` and a `ToPsValue` bridge (so the type can
+/// nest inside another derived struct). With `#[ps(message_type = ..)]` it also
+/// emits `PsObjectWithType`, marking it a top-level message. Each field becomes
+/// an `<MS>` (extended) property whose name defaults to the field name and
+/// whose value is produced via `ToPsValue`; `Option<T>` fields are omitted when
+/// `None`.
 ///
 /// # Attributes
-/// - `#[ps(message_type = Variant)]` (struct, required): the
-///   `MessageType::Variant` this message serializes as.
+/// - `#[ps(message_type = Variant)]` (struct, optional): the
+///   `MessageType::Variant` for a top-level message. Omit for sub-objects.
 /// - `#[ps(name = "PropName")]` (field): override the CLIXML property name.
-/// - `#[ps(adapted)]` (field): place the property in the adapted (`<Props>`)
-///   bag instead of extended.
+/// - `#[ps(adapted)]` (field): place the property in the adapted (`<Props>`) bag.
+/// - `#[ps(with = "module")]` (field): use `module::to_ps_value`/`from_ps_value`
+///   instead of the `ToPsValue`/`FromPsValue` traits (for primitives like
+///   `Version`, or byte-backed blobs).
 #[proc_macro_derive(PsSerialize, attributes(ps))]
 pub fn derive_ps_serialize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -44,16 +48,10 @@ struct PsFieldOpts {
     ident: Ident,
     /// CLIXML property name (defaults to the field name).
     name: String,
-    /// Additional names to try (in order) when deserializing. Lets one Rust
-    /// field accept several wire spellings, e.g. PascalCase + camelCase.
-    aliases: Vec<String>,
     /// Whether the field type is `Option<..>`.
     is_option: bool,
     /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
     adapted: bool,
-    /// On deserialize, fall back to `Default::default()` when the property is
-    /// absent (instead of erroring). Ignored for `Option<..>` fields.
-    default: bool,
     /// Optional custom converter module. When set, the field is (de)serialized
     /// via `<path>::to_ps_value(&T) -> PsValue` and
     /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
@@ -85,9 +83,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
         .map(|field| {
             let ident = field.ident.clone().expect("named field");
             let mut name = ident.to_string();
-            let mut aliases = Vec::new();
             let mut adapted = false;
-            let mut default = false;
             let mut with = None;
 
             for attr in &field.attrs {
@@ -98,13 +94,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                     if meta.path.is_ident("name") {
                         let lit: LitStr = meta.value()?.parse()?;
                         name = lit.value();
-                    } else if meta.path.is_ident("alias") {
-                        let lit: LitStr = meta.value()?.parse()?;
-                        aliases.push(lit.value());
                     } else if meta.path.is_ident("adapted") {
                         adapted = true;
-                    } else if meta.path.is_ident("default") {
-                        default = true;
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -119,9 +110,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 is_option: is_option_type(&field.ty),
                 ident,
                 name,
-                aliases,
                 adapted,
-                default,
                 with,
             })
         })
@@ -133,8 +122,6 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
 struct PsStructOpts {
     /// `MessageType` variant; present only for top-level PSRP messages.
     message_type: Option<Ident>,
-    /// `<TN>` type-name chain, most specific first.
-    type_names: Vec<String>,
 }
 
 fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
@@ -146,16 +133,6 @@ fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("message_type") {
                 opts.message_type = Some(meta.value()?.parse::<Ident>()?);
-                Ok(())
-            } else if meta.path.is_ident("type_names") {
-                // #[ps(type_names("A", "B", ...))]
-                let content;
-                syn::parenthesized!(content in meta.input);
-                let names = content
-                    .parse_terminated(<LitStr as syn::parse::Parse>::parse, syn::Token![,])?;
-                for lit in names {
-                    opts.type_names.push(lit.value());
-                }
                 Ok(())
             } else {
                 Err(meta.error("unknown #[ps(..)] struct attribute"))
@@ -201,18 +178,6 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         })
         .collect();
 
-    // Optional <TN> type-name chain.
-    let type_names_setup = if opts.type_names.is_empty() {
-        quote! {}
-    } else {
-        let names = &opts.type_names;
-        quote! {
-            obj = obj.type_names([
-                #( ::std::borrow::Cow::Borrowed(#names) ),*
-            ]);
-        }
-    };
-
     // `PsObjectWithType` is only generated for top-level messages (those with a
     // message_type); sub-objects skip it but still get the conversions below.
     let message_impl = opts.message_type.as_ref().map(|mt| {
@@ -235,7 +200,6 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         impl ::core::convert::From<&#name> for crate::ps_value::ComplexObject {
             fn from(value: &#name) -> Self {
                 let mut obj = crate::ps_value::ComplexObject::standard();
-                #type_names_setup
                 #(#inserts)*
                 obj.build()
             }
@@ -266,56 +230,27 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .map(|f| {
             let ident = &f.ident;
             let prop = &f.name;
-
-            // Fast path: a single name, no alias/default, no custom converter —
-            // use the L1 accessors for their precise error messages.
-            if f.aliases.is_empty() && !f.default && f.with.is_none() {
-                return if f.is_option {
-                    quote! { #ident: value.opt(#prop)? }
-                } else {
-                    quote! { #ident: value.req(#prop)? }
-                };
-            }
-
-            // General path: build a lookup chain over name + aliases, then
-            // convert via the custom `with` module or the `FromPsValue` trait.
-            let aliases = &f.aliases;
-            let lookup = quote! {
-                value.get_property(#prop) #( .or_else(|| value.get_property(#aliases)) )*
-            };
-            let convert = |v: TokenStream2| {
-                f.with.as_ref().map_or_else(
-                    || quote! { crate::ps_value::FromPsValue::from_ps_value(#v)? },
-                    |with| quote! { #with::from_ps_value(#v)? },
-                )
-            };
-
-            if f.is_option {
-                let conv = convert(quote! { v });
-                quote! {
-                    #ident: match #lookup {
-                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#conv),
+            match (&f.with, f.is_option) {
+                // Custom converter, optional: absent -> None.
+                (Some(with), true) => quote! {
+                    #ident: match value.get_property(#prop) {
+                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#with::from_ps_value(v)?),
                         ::core::option::Option::None => ::core::option::Option::None,
                     }
-                }
-            } else if f.default {
-                let conv = convert(quote! { v });
-                quote! {
-                    #ident: match #lookup {
-                        ::core::option::Option::Some(v) => #conv,
-                        ::core::option::Option::None => ::core::default::Default::default(),
-                    }
-                }
-            } else {
-                let got = quote! {
-                    #lookup.ok_or_else(|| {
-                        crate::PowerShellRemotingError::InvalidMessage(
-                            ::std::format!("Missing property: {}", #prop)
-                        )
-                    })?
-                };
-                let conv = convert(got);
-                quote! { #ident: #conv }
+                },
+                // Custom converter, required.
+                (Some(with), false) => quote! {
+                    #ident: #with::from_ps_value(
+                        value.get_property(#prop).ok_or_else(|| {
+                            crate::PowerShellRemotingError::InvalidMessage(
+                                ::std::format!("Missing property: {}", #prop)
+                            )
+                        })?
+                    )?
+                },
+                // Trait-based, via the L1 accessors (precise error messages).
+                (None, true) => quote! { #ident: value.opt(#prop)? },
+                (None, false) => quote! { #ident: value.req(#prop)? },
             }
         })
         .collect();
