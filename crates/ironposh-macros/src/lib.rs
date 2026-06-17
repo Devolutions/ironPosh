@@ -70,6 +70,15 @@ struct PsFieldOpts {
     /// merged directly into the parent `<DCT>` (and, on deserialize, collect all
     /// keys not claimed by a named field).
     flatten: bool,
+    /// `value_dictionary` mode only: the integer key this field occupies in the
+    /// `<DCT>`.
+    key: Option<i32>,
+    /// `value_dictionary` mode only: the .NET type name stamped on the field's
+    /// `{T, V}` value-wrapper (`T`).
+    type_tag: Option<String>,
+    /// Property-bag mode only: nest this field's object one extra level, under a
+    /// single property of the given name (e.g. `_hostDefaultData` → `{ data: .. }`).
+    wrap: Option<String>,
     /// Optional custom converter module. When set, the field is (de)serialized
     /// via `<path>::to_ps_value(&T) -> PsValue` and
     /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
@@ -108,6 +117,9 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let mut flatten = false;
             let mut also = Vec::new();
             let mut with = None;
+            let mut key = None;
+            let mut type_tag = None;
+            let mut wrap = None;
 
             for attr in &field.attrs {
                 if !attr.path().is_ident("ps") {
@@ -130,6 +142,15 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                         set_to_string = true;
                     } else if meta.path.is_ident("flatten") {
                         flatten = true;
+                    } else if meta.path.is_ident("key") {
+                        let lit: syn::LitInt = meta.value()?.parse()?;
+                        key = Some(lit.base10_parse::<i32>()?);
+                    } else if meta.path.is_ident("type_tag") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        type_tag = Some(lit.value());
+                    } else if meta.path.is_ident("wrap") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        wrap = Some(lit.value());
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -150,6 +171,9 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 set_to_string,
                 also,
                 flatten,
+                key,
+                type_tag,
+                wrap,
                 with,
             })
         })
@@ -167,6 +191,11 @@ struct PsStructOpts {
     /// instead of an `<MS>` property bag — for PSPrimitiveDictionary-shaped
     /// objects. `Option<..>` fields are omitted when `None`.
     dictionary: bool,
+    /// Serialize as a `<DCT>` keyed by each field's integer `#[ps(key = N)]`,
+    /// where every value is wrapped in a `{T, V}` object (`T` = the field's
+    /// `#[ps(type_tag = "..")]`, `V` = the field value). This is the shape the
+    /// PowerShell host uses for its RawUI default data.
+    value_dictionary: bool,
 }
 
 fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
@@ -191,6 +220,9 @@ fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
             } else if meta.path.is_ident("dictionary") {
                 opts.dictionary = true;
                 Ok(())
+            } else if meta.path.is_ident("value_dictionary") {
+                opts.value_dictionary = true;
+                Ok(())
             } else {
                 Err(meta.error("unknown #[ps(..)] struct attribute"))
             }
@@ -213,6 +245,20 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             } else {
                 quote! { extended }
             };
+            // `wrap`: nest the field's object one level under a single property.
+            if let Some(wrapname) = &f.wrap {
+                let prop = &f.name;
+                return quote! {
+                    obj = obj.#bag(#prop,
+                        ironposh_psrp::ps_value::ComplexObject::standard()
+                            .extended(
+                                #wrapname,
+                                ironposh_psrp::ps_value::ToPsValue::to_ps_value(&value.#ident),
+                            )
+                            .build_value()
+                    );
+                };
+            }
             // Emit under the primary name plus any `also` aliases.
             let names = std::iter::once(f.name.clone()).chain(f.also.iter().cloned());
             let stmts: Vec<TokenStream2> = names
@@ -313,8 +359,66 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         })
         .collect();
+    // value_dictionary mode: each field → integer key, value wrapped in `{T, V}`.
+    let vdict_inserts: Vec<TokenStream2> = if opts.value_dictionary {
+        fields
+            .iter()
+            .map(|f| {
+                let ident = &f.ident;
+                let key = f.key.unwrap_or_else(|| {
+                    panic!(
+                        "#[ps(value_dictionary)] field `{}` needs #[ps(key = N)]",
+                        f.name
+                    )
+                });
+                let tag = f.type_tag.clone().unwrap_or_else(|| {
+                    panic!(
+                        "#[ps(value_dictionary)] field `{}` needs #[ps(type_tag = \"..\")]",
+                        f.name
+                    )
+                });
+                quote! {
+                    {
+                        let __w = ironposh_psrp::ps_value::ComplexObject::standard()
+                            .extended("T", #tag)
+                            .extended(
+                                "V",
+                                ironposh_psrp::ps_value::ToPsValue::to_ps_value(&value.#ident),
+                            )
+                            .build();
+                        __entries.insert(
+                            ironposh_psrp::ps_value::PsValue::Primitive(
+                                ironposh_psrp::ps_value::PsPrimitiveValue::I32(#key)
+                            ),
+                            ironposh_psrp::ps_value::PsValue::Object(__w),
+                        );
+                    }
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let dict_tns = &opts.type_names;
-    let from_body = if opts.dictionary {
+    let from_body = if opts.value_dictionary {
+        quote! {
+            let mut __entries: ::std::collections::BTreeMap<
+                ironposh_psrp::ps_value::PsValue,
+                ironposh_psrp::ps_value::PsValue,
+            > = ::core::default::Default::default();
+            #(#vdict_inserts)*
+            ironposh_psrp::ps_value::ComplexObject {
+                type_def: ::core::option::Option::Some(ironposh_psrp::ps_value::PsType {
+                    type_names: ::std::vec![ #( ::std::borrow::Cow::Borrowed(#dict_tns) ),* ],
+                }),
+                to_string: ::core::option::Option::None,
+                content: ironposh_psrp::ps_value::ComplexObjectContent::Container(
+                    ironposh_psrp::ps_value::Container::Dictionary(__entries)
+                ),
+                properties: ironposh_psrp::ps_value::Properties::new(),
+            }
+        }
+    } else if opts.dictionary {
         quote! {
             let mut __entries: ::std::collections::BTreeMap<
                 ironposh_psrp::ps_value::PsValue,
@@ -436,6 +540,33 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             let ident = &f.ident;
             let prop = &f.name;
 
+            // `wrap`: descend one level into the named sub-property before converting.
+            if let Some(wrapname) = &f.wrap {
+                let missing = if f.default {
+                    quote! { ::core::default::Default::default() }
+                } else {
+                    quote! {
+                        return ::core::result::Result::Err(
+                            ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                                ::std::format!("Missing property: {}", #prop)
+                            )
+                        )
+                    }
+                };
+                return quote! {
+                    #ident: match value.get_property(#prop) {
+                        ::core::option::Option::Some(
+                            ironposh_psrp::ps_value::PsValue::Object(__o)
+                        ) => match __o.get_property(#wrapname) {
+                            ::core::option::Option::Some(__inner) =>
+                                ironposh_psrp::ps_value::FromPsValue::from_ps_value(__inner)?,
+                            ::core::option::Option::None => #missing,
+                        },
+                        _ => #missing,
+                    }
+                };
+            }
+
             // Fast path: single name, no custom converter, no default — use L1
             // accessors (precise error messages).
             if f.also.is_empty() && f.with.is_none() && !f.default {
@@ -487,13 +618,68 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         })
         .collect();
 
+    // value_dictionary mode: read each field from its integer key, unwrapping `V`.
+    let vdict_assignments: Vec<TokenStream2> =
+        if opts.value_dictionary {
+            fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            let key = f.key.unwrap_or_else(|| {
+                panic!("#[ps(value_dictionary)] field `{}` needs #[ps(key = N)]", f.name)
+            });
+            quote! {
+                #ident: {
+                    let __wv = __dict
+                        .get(&ironposh_psrp::ps_value::PsValue::Primitive(
+                            ironposh_psrp::ps_value::PsPrimitiveValue::I32(#key)
+                        ))
+                        .ok_or_else(|| ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                            ::std::format!("Missing host data key {}", #key)
+                        ))?;
+                    let __wobj = match __wv {
+                        ironposh_psrp::ps_value::PsValue::Object(o) => o,
+                        _ => return ::core::result::Result::Err(
+                            ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                                ::std::format!("host data key {} is not an object", #key)
+                            )
+                        ),
+                    };
+                    let __v = __wobj.get_property("V").ok_or_else(|| {
+                        ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                            ::std::format!("host data key {} missing V", #key)
+                        )
+                    })?;
+                    ironposh_psrp::ps_value::FromPsValue::from_ps_value(__v)?
+                }
+            }
+        })
+        .collect()
+        } else {
+            Vec::new()
+        };
+
     // Names claimed by non-flatten fields (so a `flatten` field can collect the rest).
     let claimed_names: Vec<&String> = fields
         .iter()
         .filter(|f| !f.flatten)
         .map(|f| &f.name)
         .collect();
-    let try_from_body = if opts.dictionary {
+    let try_from_body = if opts.value_dictionary {
+        quote! {
+            let __dict = match &value.content {
+                ironposh_psrp::ps_value::ComplexObjectContent::Container(
+                    ironposh_psrp::ps_value::Container::Dictionary(d)
+                ) => d,
+                _ => return ::core::result::Result::Err(
+                    ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                        ::std::format!("expected a dictionary for {}", ::core::stringify!(#name))
+                    )
+                ),
+            };
+            ::core::result::Result::Ok(Self { #(#vdict_assignments),* })
+        }
+    } else if opts.dictionary {
         quote! {
             let __dict = match &value.content {
                 ironposh_psrp::ps_value::ComplexObjectContent::Container(
