@@ -65,6 +65,15 @@ impl FromPsValue for Vec<u8> {
     }
 }
 
+/// Identity: the dynamic escape hatch for fields kept as raw `PsValue`.
+impl FromPsValue for PsValue {
+    const TYPE_LABEL: &'static str = "PsValue";
+
+    fn from_ps_value(value: &PsValue) -> Result<Self> {
+        Ok(value.clone())
+    }
+}
+
 impl FromPsValue for uuid::Uuid {
     const TYPE_LABEL: &'static str = "Guid";
 

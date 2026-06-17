@@ -48,6 +48,11 @@ struct PsFieldOpts {
     is_option: bool,
     /// Place in the adapted (`<Props>`) bag instead of extended (`<MS>`).
     adapted: bool,
+    /// Optional custom converter module. When set, the field is (de)serialized
+    /// via `<path>::to_ps_value(&T) -> PsValue` and
+    /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
+    /// instead of the `ToPsValue`/`FromPsValue` traits.
+    with: Option<syn::Path>,
 }
 
 fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
@@ -75,6 +80,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let ident = field.ident.clone().expect("named field");
             let mut name = ident.to_string();
             let mut adapted = false;
+            let mut with = None;
 
             for attr in &field.attrs {
                 if !attr.path().is_ident("ps") {
@@ -86,6 +92,9 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                         name = lit.value();
                     } else if meta.path.is_ident("adapted") {
                         adapted = true;
+                    } else if meta.path.is_ident("with") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        with = Some(lit.parse()?);
                     } else {
                         return Err(meta.error("unknown #[ps(..)] field attribute"));
                     }
@@ -98,6 +107,7 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 ident,
                 name,
                 adapted,
+                with,
             })
         })
         .collect()
@@ -136,12 +146,28 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .map(|f| {
             let ident = &f.ident;
             let prop = &f.name;
-            if f.adapted {
-                quote! { obj = obj.adapted(#prop, &self.#ident); }
-            } else if f.is_option {
-                quote! { obj = obj.extended_opt(#prop, self.#ident.as_ref()); }
+            let bag = if f.adapted {
+                quote! { adapted }
             } else {
-                quote! { obj = obj.extended(#prop, &self.#ident); }
+                quote! { extended }
+            };
+            match (&f.with, f.is_option) {
+                // Custom converter on an optional field: skip when None.
+                (Some(with), true) => quote! {
+                    if let ::core::option::Option::Some(inner) = &self.#ident {
+                        obj = obj.#bag(#prop, #with::to_ps_value(inner));
+                    }
+                },
+                // Custom converter on a required field.
+                (Some(with), false) => quote! {
+                    obj = obj.#bag(#prop, #with::to_ps_value(&self.#ident));
+                },
+                // Trait-based optional field (extended only): skip when None.
+                (None, true) if !f.adapted => {
+                    quote! { obj = obj.extended_opt(#prop, self.#ident.as_ref()); }
+                }
+                // Trait-based field.
+                (None, _) => quote! { obj = obj.#bag(#prop, &self.#ident); },
             }
         })
         .collect();
@@ -181,10 +207,24 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .map(|f| {
             let ident = &f.ident;
             let prop = &f.name;
-            if f.is_option {
-                quote! { #ident: value.opt(#prop)? }
-            } else {
-                quote! { #ident: value.req(#prop)? }
+            match (&f.with, f.is_option) {
+                (Some(with), true) => quote! {
+                    #ident: match value.get_property(#prop) {
+                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#with::from_ps_value(v)?),
+                        ::core::option::Option::None => ::core::option::Option::None,
+                    }
+                },
+                (Some(with), false) => quote! {
+                    #ident: #with::from_ps_value(
+                        value.get_property(#prop).ok_or_else(|| {
+                            crate::PowerShellRemotingError::InvalidMessage(
+                                ::std::format!("Missing property: {}", #prop)
+                            )
+                        })?
+                    )?
+                },
+                (None, true) => quote! { #ident: value.opt(#prop)? },
+                (None, false) => quote! { #ident: value.req(#prop)? },
             }
         })
         .collect();

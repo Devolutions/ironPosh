@@ -1,7 +1,5 @@
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsValue,
-};
+use crate::ps_value::{FromPsValue, PsPrimitiveValue, PsValue, ToPsValue};
+use ironposh_macros::{PsDeserialize, PsSerialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunspacePoolStateValue {
@@ -56,76 +54,39 @@ impl TryFrom<i32> for RunspacePoolStateValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+impl ToPsValue for RunspacePoolStateValue {
+    fn to_ps_value(&self) -> PsValue {
+        PsValue::from(self.as_i32())
+    }
+}
+
+impl FromPsValue for RunspacePoolStateValue {
+    const TYPE_LABEL: &'static str = "RunspacePoolState (I32)";
+
+    fn from_ps_value(value: &PsValue) -> Result<Self, crate::PowerShellRemotingError> {
+        match value {
+            PsValue::Primitive(PsPrimitiveValue::I32(state)) => Self::try_from(*state),
+            other => Err(crate::PowerShellRemotingError::InvalidMessage(format!(
+                "expected I32 RunspacePoolState, got {other:?}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(message_type = RunspacepoolState)]
 pub struct RunspacePoolStateMessage {
+    #[ps(name = "RunspaceState")]
     pub runspace_state: RunspacePoolStateValue,
     #[builder(default)]
+    #[ps(name = "ExceptionAsErrorRecord")]
     pub exception_as_error_record: Option<PsValue>,
-}
-
-impl PsObjectWithType for RunspacePoolStateMessage {
-    fn message_type(&self) -> MessageType {
-        MessageType::RunspacepoolState
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-impl From<RunspacePoolStateMessage> for ComplexObject {
-    fn from(state: RunspacePoolStateMessage) -> Self {
-        let mut properties = Properties::new();
-
-        properties.insert_extended(
-            "RunspaceState",
-            PsValue::Primitive(PsPrimitiveValue::I32(state.runspace_state.as_i32())),
-        );
-
-        if let Some(exception) = state.exception_as_error_record {
-            properties.insert_extended("ExceptionAsErrorRecord", exception);
-        }
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for RunspacePoolStateMessage {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let runspace_state_value = value.properties.get("RunspaceState").ok_or_else(|| {
-            Self::Error::InvalidMessage("Missing RunspaceState property".to_string())
-        })?;
-
-        let runspace_state = match runspace_state_value {
-            PsValue::Primitive(PsPrimitiveValue::I32(state)) => {
-                RunspacePoolStateValue::try_from(*state)?
-            }
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "RunspaceState property is not an I32".to_string(),
-                ));
-            }
-        };
-
-        let exception_as_error_record = value.properties.get("ExceptionAsErrorRecord").cloned();
-
-        Ok(Self {
-            runspace_state,
-            exception_as_error_record,
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ps_value::{ComplexObject, PsObjectWithType};
 
     #[test]
     fn test_runspace_pool_state_opened() {
