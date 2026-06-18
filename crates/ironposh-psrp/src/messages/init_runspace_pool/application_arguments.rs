@@ -87,8 +87,7 @@ mod version_conv {
 mod version_array_conv {
     use crate::PowerShellRemotingError;
     use crate::ps_value::{
-        ComplexObject, ComplexObjectContent, Container, Properties, PsPrimitiveValue, PsType,
-        PsValue,
+        ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsValue,
     };
     use std::borrow::Cow;
 
@@ -97,18 +96,13 @@ mod version_array_conv {
             .iter()
             .map(|v| PsValue::Primitive(PsPrimitiveValue::Version(v.clone())))
             .collect();
-        PsValue::Object(ComplexObject {
-            type_def: Some(PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Version[]"),
-                    Cow::Borrowed("System.Array"),
-                    Cow::Borrowed("System.Object"),
-                ],
-            }),
-            to_string: None,
-            content: ComplexObjectContent::Container(Container::List(items)),
-            properties: Properties::new(),
-        })
+        ComplexObject::builder(ComplexObjectContent::Container(Container::List(items)))
+            .type_names([
+                Cow::Borrowed("System.Version[]"),
+                Cow::Borrowed("System.Array"),
+                Cow::Borrowed("System.Object"),
+            ])
+            .build_value()
     }
 
     #[allow(clippy::unnecessary_wraps)] // signature fixed by #[ps(with)]

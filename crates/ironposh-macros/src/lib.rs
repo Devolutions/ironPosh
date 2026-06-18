@@ -79,6 +79,16 @@ struct PsFieldOpts {
     /// Property-bag mode only: nest this field's object one extra level, under a
     /// single property of the given name (e.g. `_hostDefaultData` → `{ data: .. }`).
     wrap: Option<String>,
+    /// Property-bag mode only: flatten an `Option<NestedStruct>` field into the
+    /// parent, prepending this prefix to each of the nested object's property
+    /// names (e.g. `ErrorCategory_` → `ErrorCategory_Reason`). On deserialize the
+    /// nested struct is reconstructed from the prefixed properties, or `None`
+    /// when none are present.
+    flatten_prefix: Option<String>,
+    /// Deserialize only: if the field's name(s) are not found at the top level,
+    /// also search inside this sibling object property for the same name(s). For
+    /// .NET records that nest their real payload inside an `Exception` object.
+    fallback_object: Option<String>,
     /// Optional custom converter module. When set, the field is (de)serialized
     /// via `<path>::to_ps_value(&T) -> PsValue` and
     /// `<path>::from_ps_value(&PsValue) -> Result<T, PowerShellRemotingError>`
@@ -120,6 +130,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
             let mut key = None;
             let mut type_tag = None;
             let mut wrap = None;
+            let mut flatten_prefix = None;
+            let mut fallback_object = None;
 
             for attr in &field.attrs {
                 if !attr.path().is_ident("ps") {
@@ -151,6 +163,12 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                     } else if meta.path.is_ident("wrap") {
                         let lit: LitStr = meta.value()?.parse()?;
                         wrap = Some(lit.value());
+                    } else if meta.path.is_ident("flatten_prefix") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        flatten_prefix = Some(lit.value());
+                    } else if meta.path.is_ident("fallback_object") {
+                        let lit: LitStr = meta.value()?.parse()?;
+                        fallback_object = Some(lit.value());
                     } else if meta.path.is_ident("with") {
                         let lit: LitStr = meta.value()?.parse()?;
                         with = Some(lit.parse()?);
@@ -174,6 +192,8 @@ fn ps_named_fields(input: &DeriveInput) -> syn::Result<Vec<PsFieldOpts>> {
                 key,
                 type_tag,
                 wrap,
+                flatten_prefix,
+                fallback_object,
                 with,
             })
         })
@@ -259,6 +279,24 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     );
                 };
             }
+            // `flatten_prefix`: merge a nested `Option<Struct>`'s properties into
+            // the parent, each name prefixed.
+            if let Some(prefix) = &f.flatten_prefix {
+                return quote! {
+                    if let ::core::option::Option::Some(__nested) = &value.#ident {
+                        let __sub = ironposh_psrp::ps_value::ComplexObject::from(__nested);
+                        for (__n, __p) in __sub.properties.iter() {
+                            let __name = ::std::format!("{}{}", #prefix, __n);
+                            match __p.kind {
+                                ironposh_psrp::ps_value::PropertyKind::Adapted =>
+                                    obj = obj.adapted(__name, __p.value.clone()),
+                                ironposh_psrp::ps_value::PropertyKind::Extended =>
+                                    obj = obj.extended(__name, __p.value.clone()),
+                            }
+                        }
+                    }
+                };
+            }
             // Emit under the primary name plus any `also` aliases.
             let names = std::iter::once(f.name.clone()).chain(f.also.iter().cloned());
             let stmts: Vec<TokenStream2> = names
@@ -285,7 +323,9 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 })
                 .collect();
             let to_string_stmt = if f.set_to_string {
-                quote! { obj = obj.to_string_repr(value.#ident.clone()); }
+                // Works for `String` and any `Display` field (e.g. a polymorphic
+                // union whose `<ToString>` is computed from its active variant).
+                quote! { obj = obj.to_string_repr(::std::string::ToString::to_string(&value.#ident)); }
             } else {
                 quote! {}
             };
@@ -567,9 +607,42 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 };
             }
 
+            // `flatten_prefix`: gather the parent's prefixed properties back into a
+            // sub-object and convert it; `None` when no prefixed property exists.
+            if let Some(prefix) = &f.flatten_prefix {
+                return quote! {
+                    #ident: {
+                        let mut __sub = ironposh_psrp::ps_value::ComplexObject::standard();
+                        let mut __found = false;
+                        for (__n, __p) in value.properties.iter() {
+                            if let ::core::option::Option::Some(__stripped) =
+                                __n.strip_prefix(#prefix)
+                            {
+                                __sub = match __p.kind {
+                                    ironposh_psrp::ps_value::PropertyKind::Adapted =>
+                                        __sub.adapted(__stripped.to_string(), __p.value.clone()),
+                                    ironposh_psrp::ps_value::PropertyKind::Extended =>
+                                        __sub.extended(__stripped.to_string(), __p.value.clone()),
+                                };
+                                __found = true;
+                            }
+                        }
+                        if __found {
+                            ::core::option::Option::Some(
+                                ironposh_psrp::ps_value::FromPsValue::from_ps_value(
+                                    &ironposh_psrp::ps_value::PsValue::Object(__sub.build())
+                                )?
+                            )
+                        } else {
+                            ::core::option::Option::None
+                        }
+                    }
+                };
+            }
+
             // Fast path: single name, no custom converter, no default — use L1
             // accessors (precise error messages).
-            if f.also.is_empty() && f.with.is_none() && !f.default {
+            if f.also.is_empty() && f.with.is_none() && !f.default && f.fallback_object.is_none() {
                 return if f.is_option {
                     quote! { #ident: value.opt(#prop)? }
                 } else {
@@ -577,10 +650,25 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 };
             }
 
-            // General path: look up the primary name, then any `also` aliases.
+            // General path: look up the primary name, then any `also` aliases,
+            // then (if `fallback_object` is set) the same names inside that
+            // sibling object.
             let also = &f.also;
+            let nested_lookup = f.fallback_object.as_ref().map(|obj_name| {
+                quote! {
+                    .or_else(|| value.get_property(#obj_name).and_then(|__fo| match __fo {
+                        ironposh_psrp::ps_value::PsValue::Object(__fobj) =>
+                            __fobj.get_property(#prop)
+                                #( .or_else(|| __fobj.get_property(#also)) )*,
+                        ironposh_psrp::ps_value::PsValue::Primitive(_) =>
+                            ::core::option::Option::None,
+                    }))
+                }
+            });
             let lookup = quote! {
-                value.get_property(#prop) #( .or_else(|| value.get_property(#also)) )*
+                value.get_property(#prop)
+                    #( .or_else(|| value.get_property(#also)) )*
+                    #nested_lookup
             };
             let convert = |v: TokenStream2| {
                 f.with.as_ref().map_or_else(
@@ -971,6 +1059,158 @@ fn impl_ps_enum(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         }),
     }
+}
+
+/// Derives `ToPsValue`/`FromPsValue` for an *untagged* polymorphic enum (RFC #12).
+///
+/// Each variant must be a single-field newtype `Variant(T)` whose inner type
+/// already (de)serializes. Serialize delegates to the active variant's inner
+/// `ToPsValue`. Deserialize dispatches by wire shape, in declaration order:
+/// - `#[ps(primitive)]`: matches any `PsValue::Primitive`.
+/// - `#[ps(type_match = "Substr")]`: matches a `PsValue::Object` whose `<TN>`
+///   chain contains `Substr`.
+/// - `#[ps(fallback)]`: matches anything not yet claimed (inner is usually
+///   `PsValue`, the dynamic escape hatch for arbitrary remote objects).
+#[proc_macro_derive(PsUnion, attributes(ps))]
+pub fn derive_ps_union(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_ps_union(&input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+struct PsUnionVariant {
+    ident: Ident,
+    primitive: bool,
+    type_match: Option<String>,
+    fallback: bool,
+}
+
+fn impl_ps_union(input: &DeriveInput) -> syn::Result<TokenStream2> {
+    let name = &input.ident;
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            input,
+            "PsUnion can only be derived for enums",
+        ));
+    };
+
+    let mut variants = Vec::new();
+    for v in &data.variants {
+        if !matches!(&v.fields, Fields::Unnamed(f) if f.unnamed.len() == 1) {
+            return Err(syn::Error::new_spanned(
+                v,
+                "PsUnion variants must be single-field newtypes: Variant(T)",
+            ));
+        }
+        let mut primitive = false;
+        let mut type_match = None;
+        let mut fallback = false;
+        for attr in &v.attrs {
+            if !attr.path().is_ident("ps") {
+                continue;
+            }
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("primitive") {
+                    primitive = true;
+                } else if meta.path.is_ident("fallback") {
+                    fallback = true;
+                } else if meta.path.is_ident("type_match") {
+                    let lit: LitStr = meta.value()?.parse()?;
+                    type_match = Some(lit.value());
+                } else {
+                    return Err(meta.error("unknown #[ps(..)] PsUnion variant attribute"));
+                }
+                Ok(())
+            })?;
+        }
+        variants.push(PsUnionVariant {
+            ident: v.ident.clone(),
+            primitive,
+            type_match,
+            fallback,
+        });
+    }
+
+    let to_arms: Vec<TokenStream2> = variants
+        .iter()
+        .map(|v| {
+            let id = &v.ident;
+            quote! {
+                #name::#id(__inner) => ironposh_psrp::ps_value::ToPsValue::to_ps_value(__inner),
+            }
+        })
+        .collect();
+
+    // Deserialize dispatch, in declaration order.
+    let primitive_arm = variants.iter().find(|v| v.primitive).map(|v| {
+        let id = &v.ident;
+        quote! {
+            if let ironposh_psrp::ps_value::PsValue::Primitive(_) = value {
+                return ::core::result::Result::Ok(
+                    #name::#id(ironposh_psrp::ps_value::FromPsValue::from_ps_value(value)?)
+                );
+            }
+        }
+    });
+    let type_match_arms: Vec<TokenStream2> = variants
+        .iter()
+        .filter_map(|v| {
+            v.type_match.as_ref().map(|needle| {
+                let id = &v.ident;
+                quote! {
+                    if let ironposh_psrp::ps_value::PsValue::Object(__o) = value {
+                        if __o.type_def.as_ref().is_some_and(|__t| {
+                            __t.type_names.iter().any(|__n| __n.contains(#needle))
+                        }) {
+                            return ::core::result::Result::Ok(
+                                #name::#id(ironposh_psrp::ps_value::FromPsValue::from_ps_value(value)?)
+                            );
+                        }
+                    }
+                }
+            })
+        })
+        .collect();
+    let fallback_expr = variants.iter().find(|v| v.fallback).map_or_else(
+        || {
+            quote! {
+                ::core::result::Result::Err(
+                    ironposh_psrp::PowerShellRemotingError::InvalidMessage(
+                        ::std::format!("no PsUnion variant of {} matched", ::core::stringify!(#name))
+                    )
+                )
+            }
+        },
+        |v| {
+            let id = &v.ident;
+            quote! {
+                ::core::result::Result::Ok(
+                    #name::#id(ironposh_psrp::ps_value::FromPsValue::from_ps_value(value)?)
+                )
+            }
+        },
+    );
+
+    Ok(quote! {
+        impl ironposh_psrp::ps_value::ToPsValue for #name {
+            fn to_ps_value(&self) -> ironposh_psrp::ps_value::PsValue {
+                match self { #(#to_arms)* }
+            }
+        }
+
+        impl ironposh_psrp::ps_value::FromPsValue for #name {
+            const TYPE_LABEL: &'static str = ::core::stringify!(#name);
+            fn from_ps_value(
+                value: &ironposh_psrp::ps_value::PsValue,
+            ) -> ::core::result::Result<Self, ironposh_psrp::PowerShellRemotingError> {
+                #primitive_arm
+                #(#type_match_arms)*
+                #fallback_expr
+            }
+        }
+    })
 }
 
 /// XML element's children.

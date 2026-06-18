@@ -1,40 +1,60 @@
-use std::{borrow::Cow, fmt::Write};
+use std::fmt::Write;
 
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Properties, PsObjectWithType, PsPrimitiveValue, PsType,
-    PsValue,
-};
+use crate::ps_value::{Properties, PsPrimitiveValue, PsValue};
+use ironposh_macros::{PsDeserialize, PsSerialize};
 
-use tracing::{debug, error};
-
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+/// ERROR_RECORD (MS-PSRP §2.2.2.16). Fully macro-derived.
+///
+/// The message is emitted under both `ErrorRecord` and `Message` (and as
+/// `<ToString>`); the category is a prefix-flattened sub-object
+/// (`ErrorCategory_*`); `exception`/`invocation_info` stay as raw `PsValue`
+/// (genuinely-arbitrary remote objects).
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(
+    message_type = ErrorRecord,
+    type_names("System.Management.Automation.ErrorRecord", "System.Object")
+)]
 pub struct ErrorRecord {
-    /// The error message
+    /// The error message (emitted as `ErrorRecord`, `Message`, and `<ToString>`).
+    /// Real records often carry it only inside the nested `Exception` object.
+    #[ps(
+        name = "ErrorRecord",
+        also = "Message",
+        fallback_object = "Exception",
+        to_string
+    )]
     pub message: String,
     /// The command name that caused the error
     #[builder(default)]
+    #[ps(name = "CommandName", fallback_object = "Exception")]
     pub command_name: Option<String>,
     /// Whether this was thrown from a throw statement
     #[builder(default = false)]
+    #[ps(name = "WasThrownFromThrowStatement", default)]
     pub was_thrown_from_throw_statement: bool,
     /// The fully qualified error ID
     #[builder(default)]
+    #[ps(name = "FullyQualifiedErrorId")]
     pub fully_qualified_error_id: Option<String>,
     /// The target object that caused the error
     #[builder(default)]
+    #[ps(name = "TargetObject")]
     pub target_object: Option<String>,
     /// The exception that caused this error
     #[builder(default)]
+    #[ps(name = "Exception")]
     pub exception: Option<PsValue>,
-    /// Error category information
+    /// Error category information (flattened as `ErrorCategory_*`)
     #[builder(default)]
+    #[ps(flatten_prefix = "ErrorCategory_")]
     pub error_category: Option<ErrorCategory>,
     /// Whether to serialize extended information
     #[builder(default = false)]
+    #[ps(name = "SerializeExtendedInfo", default)]
     pub serialize_extended_info: bool,
     /// Invocation information (if available)
     #[builder(default)]
+    #[ps(name = "InvocationInfo")]
     pub invocation_info: Option<PsValue>,
 }
 
@@ -48,24 +68,32 @@ pub struct RenderOptions {
     pub trim: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+/// Error category information. Macro-derived; flattened into [`ErrorRecord`] with
+/// an `ErrorCategory_` prefix.
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
 pub struct ErrorCategory {
     /// The error category number
+    #[ps(name = "Category")]
     pub category: i32,
     /// The activity that caused the error
     #[builder(default)]
+    #[ps(name = "Activity")]
     pub activity: Option<String>,
     /// The reason for the error
     #[builder(default)]
+    #[ps(name = "Reason")]
     pub reason: Option<String>,
     /// The target name
     #[builder(default)]
+    #[ps(name = "TargetName")]
     pub target_name: Option<String>,
     /// The target type
     #[builder(default)]
+    #[ps(name = "TargetType")]
     pub target_type: Option<String>,
     /// The error category message
     #[builder(default)]
+    #[ps(name = "Message")]
     pub message: Option<String>,
 }
 
@@ -111,339 +139,6 @@ impl ErrorRecord {
         }
 
         out
-    }
-}
-
-impl PsObjectWithType for ErrorRecord {
-    fn message_type(&self) -> MessageType {
-        MessageType::ErrorRecord
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-impl From<ErrorRecord> for ComplexObject {
-    fn from(record: ErrorRecord) -> Self {
-        let mut properties = Properties::new();
-
-        // Core error record properties
-        properties.insert_extended(
-            "ErrorRecord",
-            PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
-        );
-
-        if let Some(command_name) = record.command_name {
-            properties.insert_extended(
-                "CommandName",
-                PsValue::Primitive(PsPrimitiveValue::Str(command_name)),
-            );
-        }
-
-        properties.insert_extended(
-            "WasThrownFromThrowStatement",
-            PsValue::Primitive(PsPrimitiveValue::Bool(
-                record.was_thrown_from_throw_statement,
-            )),
-        );
-
-        properties.insert_extended(
-            "Message",
-            PsValue::Primitive(PsPrimitiveValue::Str(record.message.clone())),
-        );
-
-        if let Some(exception) = record.exception {
-            properties.insert_extended("Exception", exception);
-        }
-
-        if let Some(target_object) = record.target_object {
-            properties.insert_extended(
-                "TargetObject",
-                PsValue::Primitive(PsPrimitiveValue::Str(target_object)),
-            );
-        }
-
-        if let Some(fully_qualified_error_id) = record.fully_qualified_error_id {
-            properties.insert_extended(
-                "FullyQualifiedErrorId",
-                PsValue::Primitive(PsPrimitiveValue::Str(fully_qualified_error_id)),
-            );
-        }
-
-        if let Some(invocation_info) = record.invocation_info {
-            properties.insert_extended("InvocationInfo", invocation_info);
-        }
-
-        // Error category properties
-        if let Some(error_category) = record.error_category {
-            properties.insert_extended(
-                "ErrorCategory_Category",
-                PsValue::Primitive(PsPrimitiveValue::I32(error_category.category)),
-            );
-
-            if let Some(activity) = error_category.activity {
-                properties.insert_extended(
-                    "ErrorCategory_Activity",
-                    PsValue::Primitive(PsPrimitiveValue::Str(activity)),
-                );
-            }
-
-            if let Some(reason) = error_category.reason {
-                properties.insert_extended(
-                    "ErrorCategory_Reason",
-                    PsValue::Primitive(PsPrimitiveValue::Str(reason)),
-                );
-            }
-
-            if let Some(target_name) = error_category.target_name {
-                properties.insert_extended(
-                    "ErrorCategory_TargetName",
-                    PsValue::Primitive(PsPrimitiveValue::Str(target_name)),
-                );
-            }
-
-            if let Some(target_type) = error_category.target_type {
-                properties.insert_extended(
-                    "ErrorCategory_TargetType",
-                    PsValue::Primitive(PsPrimitiveValue::Str(target_type)),
-                );
-            }
-
-            if let Some(message) = error_category.message {
-                properties.insert_extended(
-                    "ErrorCategory_Message",
-                    PsValue::Primitive(PsPrimitiveValue::Str(message)),
-                );
-            }
-        }
-
-        properties.insert_extended(
-            "SerializeExtendedInfo",
-            PsValue::Primitive(PsPrimitiveValue::Bool(record.serialize_extended_info)),
-        );
-
-        Self {
-            type_def: Some(PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Management.Automation.ErrorRecord"),
-                    Cow::Borrowed("System.Object"),
-                ],
-            }),
-            to_string: Some(record.message),
-            content: ComplexObjectContent::Standard,
-            properties,
-        }
-    }
-}
-
-impl TryFrom<PsValue> for ErrorRecord {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: PsValue) -> Result<Self, Self::Error> {
-        match value {
-            PsValue::Object(obj) => Self::try_from(obj),
-            PsValue::Primitive(_) => Err(Self::Error::InvalidMessage(
-                "Expected ComplexObject for ErrorRecord".to_string(),
-            )),
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for ErrorRecord {
-    type Error = crate::PowerShellRemotingError;
-
-    #[expect(clippy::too_many_lines)]
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        // Debug logging to understand what properties are actually available
-        debug!(?value.properties, "ErrorRecord properties");
-
-        // Try multiple locations for the message:
-        // 1. Top-level "Message" property
-        // 2. Top-level "ErrorRecord" property
-        // 3. Extract from nested Exception object
-        // 4. Use the ToString value as fallback
-        let message = value
-            .properties
-            .get("Message")
-            .or_else(|| value.properties.get("ErrorRecord"))
-            .and_then(|value| match value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            })
-            .or_else(|| {
-                // Try to extract message from Exception object's properties
-                value.properties
-                    .get("Exception")
-                    .and_then(|exception_value| match exception_value {
-                        PsValue::Object(exception_obj) => {
-                            exception_obj.properties
-                                .get("Message")
-                                .or_else(|| exception_obj.properties.get("ErrorRecord"))
-                                .and_then(|value| match value {
-                                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                                    _ => None,
-                                })
-                        }
-                        PsValue::Primitive(_) => None,
-                    })
-            })
-            .or_else(|| {
-                // Fallback to the ComplexObject's toString value
-                value.to_string.clone()
-            })
-            .ok_or_else(|| {
-                // Enhanced error message with available property names for debugging
-                let available_properties: Vec<&String> = value.properties.iter().map(|(name, _)| name).collect();
-                error!(?available_properties, "ErrorRecord TryFrom failed - available properties");
-                Self::Error::InvalidMessage(
-                    format!("Missing Message or ErrorRecord property in all expected locations. Available properties: {available_properties:?}")
-                )
-            })?;
-
-        debug!(?message, "ErrorRecord message found");
-
-        let command_name = value
-            .properties
-            .get("CommandName")
-            .and_then(|value| match value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            })
-            .or_else(|| {
-                // Try to extract CommandName from Exception object's properties
-                value.properties.get("Exception").and_then(
-                    |exception_value| match exception_value {
-                        PsValue::Object(exception_obj) => exception_obj
-                            .properties
-                            .get("CommandName")
-                            .and_then(|value| match value {
-                                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                                _ => None,
-                            }),
-                        PsValue::Primitive(_) => None,
-                    },
-                )
-            });
-
-        let was_thrown_from_throw_statement = value
-            .properties
-            .get("WasThrownFromThrowStatement")
-            .is_some_and(|value| {
-                if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = value {
-                    *b
-                } else {
-                    false
-                }
-            });
-
-        let fully_qualified_error_id =
-            value
-                .properties
-                .get("FullyQualifiedErrorId")
-                .and_then(|value| match value {
-                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                    _ => None,
-                });
-
-        let target_object = value
-            .properties
-            .get("TargetObject")
-            .and_then(|value| match value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
-
-        let exception = value.properties.get("Exception").cloned();
-
-        let invocation_info = value
-            .properties
-            .get("InvocationInfo")
-            .cloned()
-            .filter(|v| !matches!(v, PsValue::Primitive(PsPrimitiveValue::Nil)));
-
-        let serialize_extended_info =
-            value
-                .properties
-                .get("SerializeExtendedInfo")
-                .is_some_and(|value| {
-                    if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = value {
-                        *b
-                    } else {
-                        false
-                    }
-                });
-
-        // Parse error category
-        let error_category = if let Some(PsValue::Primitive(PsPrimitiveValue::I32(category))) =
-            value.properties.get("ErrorCategory_Category")
-        {
-            {
-                let activity = value
-                    .properties
-                    .get("ErrorCategory_Activity")
-                    .and_then(|value| match value {
-                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                        _ => None,
-                    });
-
-                let reason = value
-                    .properties
-                    .get("ErrorCategory_Reason")
-                    .and_then(|value| match value {
-                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                        _ => None,
-                    });
-
-                let target_name = value.properties.get("ErrorCategory_TargetName").and_then(
-                    |value| match value {
-                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                        _ => None,
-                    },
-                );
-
-                let target_type = value.properties.get("ErrorCategory_TargetType").and_then(
-                    |value| match value {
-                        PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                        _ => None,
-                    },
-                );
-
-                let category_message =
-                    value
-                        .properties
-                        .get("ErrorCategory_Message")
-                        .and_then(|value| match value {
-                            PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                            _ => None,
-                        });
-
-                Some(
-                    ErrorCategory::builder()
-                        .category(*category)
-                        .activity(activity)
-                        .reason(reason)
-                        .target_name(target_name)
-                        .target_type(target_type)
-                        .message(category_message)
-                        .build(),
-                )
-            }
-        } else {
-            None
-        };
-
-        Ok(Self::builder()
-            .message(message)
-            .command_name(command_name)
-            .was_thrown_from_throw_statement(was_thrown_from_throw_statement)
-            .fully_qualified_error_id(fully_qualified_error_id)
-            .target_object(target_object)
-            .exception(exception)
-            .error_category(error_category)
-            .serialize_extended_info(serialize_extended_info)
-            .invocation_info(invocation_info)
-            .build())
     }
 }
 
@@ -584,6 +279,7 @@ fn get_i32(properties: &Properties, key: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ps_value::{ComplexObject, PsObjectWithType};
 
     #[test]
     fn test_error_record_basic() {
