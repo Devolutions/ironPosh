@@ -417,14 +417,17 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                         f.name
                     )
                 });
+                // Honor a custom `with` converter for the wrapped value, falling
+                // back to the `ToPsValue` trait.
+                let v = f.with.as_ref().map_or_else(
+                    || quote! { ironposh_psrp::ps_value::ToPsValue::to_ps_value(&value.#ident) },
+                    |w| quote! { #w::to_ps_value(&value.#ident) },
+                );
                 quote! {
                     {
                         let __w = ironposh_psrp::ps_value::ComplexObject::standard()
                             .extended("T", #tag)
-                            .extended(
-                                "V",
-                                ironposh_psrp::ps_value::ToPsValue::to_ps_value(&value.#ident),
-                            )
+                            .extended("V", #v)
                             .build();
                         __entries.insert(
                             ironposh_psrp::ps_value::PsValue::Primitive(
@@ -716,6 +719,11 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             let key = f.key.unwrap_or_else(|| {
                 panic!("#[ps(value_dictionary)] field `{}` needs #[ps(key = N)]", f.name)
             });
+            // Honor a custom `with` converter for the wrapped value.
+            let conv = f.with.as_ref().map_or_else(
+                || quote! { ironposh_psrp::ps_value::FromPsValue::from_ps_value(__v)? },
+                |w| quote! { #w::from_ps_value(__v)? },
+            );
             quote! {
                 #ident: {
                     let __wv = __dict
@@ -738,7 +746,7 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                             ::std::format!("host data key {} missing V", #key)
                         )
                     })?;
-                    ironposh_psrp::ps_value::FromPsValue::from_ps_value(__v)?
+                    #conv
                 }
             }
         })
@@ -1124,6 +1132,15 @@ fn impl_ps_union(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 }
                 Ok(())
             })?;
+        }
+        // Each variant needs exactly one dispatch mode, or deserialize would
+        // silently never select it (serialize-only round-trip asymmetry).
+        if usize::from(primitive) + usize::from(fallback) + usize::from(type_match.is_some()) != 1 {
+            return Err(syn::Error::new_spanned(
+                v,
+                "PsUnion variant needs exactly one of #[ps(primitive)], \
+                 #[ps(type_match = \"..\")], or #[ps(fallback)]",
+            ));
         }
         variants.push(PsUnionVariant {
             ident: v.ident.clone(),
