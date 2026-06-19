@@ -251,10 +251,95 @@ fn ps_struct_opts(input: &DeriveInput) -> syn::Result<PsStructOpts> {
     Ok(opts)
 }
 
+/// Reject illegal `#[ps(..)]` attribute combinations at compile time, with the
+/// error spanned at the offending field/struct. This turns what used to be
+/// silent no-ops or cryptic generated-code errors into clear diagnostics, and
+/// guarantees the codegen below never hits a missing `key`/`type_tag`.
+fn validate_ps_opts(
+    input: &DeriveInput,
+    opts: &PsStructOpts,
+    fields: &[PsFieldOpts],
+) -> syn::Result<()> {
+    if opts.dictionary && opts.value_dictionary {
+        return Err(syn::Error::new_spanned(
+            input,
+            "#[ps(dictionary)] and #[ps(value_dictionary)] are mutually exclusive",
+        ));
+    }
+    let dict_mode = opts.dictionary || opts.value_dictionary;
+    for f in fields {
+        let at = &f.ident;
+        if f.key.is_some() && !opts.value_dictionary {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(key = ..)] is only valid in #[ps(value_dictionary)] mode",
+            ));
+        }
+        if f.type_tag.is_some() && !opts.value_dictionary {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(type_tag = ..)] is only valid in #[ps(value_dictionary)] mode",
+            ));
+        }
+        if opts.value_dictionary && f.key.is_none() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(value_dictionary)] field needs #[ps(key = N)]",
+            ));
+        }
+        if opts.value_dictionary && f.type_tag.is_none() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(value_dictionary)] field needs #[ps(type_tag = \"..\")]",
+            ));
+        }
+        if f.flatten && !opts.dictionary {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(flatten)] is only valid in #[ps(dictionary)] mode",
+            ));
+        }
+        if f.flatten_prefix.is_some() && !f.is_option {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(flatten_prefix = ..)] requires an Option<..> field",
+            ));
+        }
+        if f.wrap.is_some() && f.flatten_prefix.is_some() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(wrap)] and #[ps(flatten_prefix)] are mutually exclusive",
+            ));
+        }
+        // Property-bag-only field attributes silently do nothing in a dictionary
+        // body, so reject them rather than mislead.
+        if dict_mode && f.wrap.is_some() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(wrap)] is not supported in dictionary modes",
+            ));
+        }
+        if dict_mode && f.flatten_prefix.is_some() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(flatten_prefix)] is not supported in dictionary modes",
+            ));
+        }
+        if dict_mode && f.fallback_object.is_some() {
+            return Err(syn::Error::new_spanned(
+                at,
+                "#[ps(fallback_object)] is not supported in dictionary modes",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
     let opts = ps_struct_opts(input)?;
     let fields = ps_named_fields(input)?;
+    validate_ps_opts(input, &opts, &fields)?;
 
     let inserts: Vec<TokenStream2> = fields
         .iter()
@@ -405,18 +490,14 @@ fn impl_ps_serialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
             .iter()
             .map(|f| {
                 let ident = &f.ident;
-                let key = f.key.unwrap_or_else(|| {
-                    panic!(
-                        "#[ps(value_dictionary)] field `{}` needs #[ps(key = N)]",
-                        f.name
-                    )
-                });
-                let tag = f.type_tag.clone().unwrap_or_else(|| {
-                    panic!(
-                        "#[ps(value_dictionary)] field `{}` needs #[ps(type_tag = \"..\")]",
-                        f.name
-                    )
-                });
+                // `validate_ps_opts` already guaranteed key/type_tag are present.
+                let key = f
+                    .key
+                    .expect("value_dictionary key ensured by validate_ps_opts");
+                let tag = f
+                    .type_tag
+                    .clone()
+                    .expect("value_dictionary type_tag ensured by validate_ps_opts");
                 // Honor a custom `with` converter for the wrapped value, falling
                 // back to the `ToPsValue` trait.
                 let v = f.with.as_ref().map_or_else(
@@ -517,6 +598,7 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
     let opts = ps_struct_opts(input)?;
     let fields = ps_named_fields(input)?;
+    validate_ps_opts(input, &opts, &fields)?;
 
     // Dictionary-body mode: read fields from a `<DCT>` keyed by field name.
     let dict_assignments: Vec<TokenStream2> = fields
@@ -716,9 +798,8 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
         .iter()
         .map(|f| {
             let ident = &f.ident;
-            let key = f.key.unwrap_or_else(|| {
-                panic!("#[ps(value_dictionary)] field `{}` needs #[ps(key = N)]", f.name)
-            });
+            // `validate_ps_opts` already guaranteed key is present.
+            let key = f.key.expect("value_dictionary key ensured by validate_ps_opts");
             // Honor a custom `with` converter for the wrapped value.
             let conv = f.with.as_ref().map_or_else(
                 || quote! { ironposh_psrp::ps_value::FromPsValue::from_ps_value(__v)? },
