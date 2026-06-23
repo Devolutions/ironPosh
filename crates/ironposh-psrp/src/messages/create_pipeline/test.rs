@@ -1,4 +1,5 @@
 use super::*;
+use crate::ps_value::PsValue;
 use crate::ps_value::deserialize::{DeserializationContext, PsXmlDeserialize};
 
 const REAL_CREATE_PIPELINE: &str = r#"

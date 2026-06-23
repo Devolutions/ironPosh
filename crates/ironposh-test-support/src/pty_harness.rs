@@ -59,6 +59,13 @@ impl PtyHarness {
             cmd.arg(domain);
         }
 
+        // Default to a working auth method (the default DC refuses Basic over
+        // HTTP) unless the caller pinned one explicitly via extra_args.
+        if !extra_args.contains(&"--auth-method") {
+            cmd.arg("--auth-method");
+            cmd.arg(crate::e2e_pwsh_config::default_auth_method());
+        }
+
         for a in extra_args {
             cmd.arg(a);
         }

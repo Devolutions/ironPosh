@@ -100,7 +100,9 @@ impl PsrpMessage {
             MessageType::PipelineHostCall => {
                 Self::PipelineHostCall(Self::expect_object(value)?.try_into()?)
             }
-            MessageType::ErrorRecord => Self::ErrorRecord(Box::new(value.try_into()?)),
+            MessageType::ErrorRecord => {
+                Self::ErrorRecord(Box::new(Self::expect_object(value)?.try_into()?))
+            }
             MessageType::DebugRecord => Self::DebugRecord(value),
             MessageType::VerboseRecord => Self::VerboseRecord(value),
             MessageType::WarningRecord => Self::WarningRecord(value),

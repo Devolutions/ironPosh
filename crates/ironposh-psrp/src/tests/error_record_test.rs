@@ -164,11 +164,8 @@ mod error_record_integration_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Missing Message or ErrorRecord property")
-        );
+        // The derived reader reports the primary missing property name.
+        assert!(error.to_string().contains("Missing property: ErrorRecord"));
     }
 
     /// Test round-trip conversion: ErrorRecord -> ComplexObject -> ErrorRecord

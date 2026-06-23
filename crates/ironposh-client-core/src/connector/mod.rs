@@ -68,7 +68,16 @@ impl TransportSecurity {
         }
     }
 
-    /// Whether SSPI message sealing (wrap/unwrap) should be used
+    /// Whether SSPI message sealing (wrap/unwrap) should be used.
+    ///
+    /// Sealing is used only over plain HTTP, where the transport gives no
+    /// confidentiality so the WinRM payload must be wrapped in an
+    /// `application/HTTP-SPNEGO-session-encrypted` body. Over HTTPS, TLS already
+    /// encrypts the wire, so the spec-correct behavior is to send every operation
+    /// as plain `application/soap+xml` and rely on connection-oriented auth
+    /// (RFC 4559): the connection is authenticated once during the handshake and
+    /// every subsequent operation rides that authenticated, integrity-protected
+    /// connection. Sealing and HTTPS are mutually exclusive.
     pub fn requires_sspi_sealing(&self) -> bool {
         matches!(self, Self::Http)
     }

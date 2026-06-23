@@ -33,3 +33,4 @@ mod pty_terminal_hostcalls_matrix;
 mod pty_terminating_error;
 mod real_server_feature;
 mod reattach;
+mod transport_auth_matrix;

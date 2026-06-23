@@ -103,7 +103,12 @@ impl HttpClient for GatewayHttpViaWSClient {
                         res
                     };
 
-                    // 2) Process initialized context → either Continue (send another token) or Done
+                    // Capture conn id before the sequence is consumed (the
+                    // AlreadyComplete path below has no outgoing request).
+                    let conn_id_for_complete = auth_sequence.conn_id;
+
+                    // 2) Process initialized context → Continue (another token),
+                    //    SendRequest (final), or AlreadyComplete (HTTPS-unsealed).
                     match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             let HttpRequestAction {
@@ -145,6 +150,23 @@ impl HttpClient for GatewayHttpViaWSClient {
                             return Ok(HttpResponseTargeted::new(
                                 resp,
                                 connection_id,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+                        // HTTPS-unsealed: the operation already rode the auth legs, so the
+                        // last auth response IS the operation response. (In practice the
+                        // web transport tunnels over the gateway WebSocket, which always
+                        // seals, so this arm is normally unreached.)
+                        SecContextInited::AlreadyComplete {
+                            authenticated_http_channel_cert,
+                        } => {
+                            debug!("authentication complete; operation rode the auth legs (HTTPS)");
+                            let resp = auth_response.expect(
+                                "HTTPS auth completes via the legs, which always yield a response",
+                            );
+                            return Ok(HttpResponseTargeted::new(
+                                resp,
+                                conn_id_for_complete,
                                 Some(authenticated_http_channel_cert),
                             ));
                         }
