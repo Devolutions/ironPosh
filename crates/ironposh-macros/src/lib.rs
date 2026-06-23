@@ -518,6 +518,23 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let opts = ps_struct_opts(input)?;
     let fields = ps_named_fields(input)?;
 
+    // A present-but-`Nil` property is semantically the same as an absent one:
+    // PowerShell emits `<Nil/>` for null/empty members. `Option`/`default`
+    // fields must treat it like a missing property (→ `None`/`Default`), exactly
+    // as the L1 `ComplexObject::opt` accessor does. Without this, a `default`
+    // `String` field arriving as `Nil` (e.g. ProgressRecord's `CurrentOperation`)
+    // fails its `from_ps_value` and the whole host call is rejected.
+    let is_nil = |bind: &TokenStream2| {
+        quote! {
+            ::core::matches!(
+                #bind,
+                ironposh_psrp::ps_value::PsValue::Primitive(
+                    ironposh_psrp::ps_value::PsPrimitiveValue::Nil
+                )
+            )
+        }
+    };
+
     // Dictionary-body mode: read fields from a `<DCT>` keyed by field name.
     let dict_assignments: Vec<TokenStream2> = fields
         .iter()
@@ -547,20 +564,22 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     |w| quote! { #w::from_ps_value(#v)? },
                 )
             };
+            let v_is_nil = is_nil(&quote! { v });
             if f.is_option {
                 let c = conv(quote! { v });
                 quote! {
                     #ident: match __dict.get(#key) {
-                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#c),
-                        ::core::option::Option::None => ::core::option::Option::None,
+                        ::core::option::Option::Some(v) if !#v_is_nil =>
+                            ::core::option::Option::Some(#c),
+                        _ => ::core::option::Option::None,
                     }
                 }
             } else if f.default {
                 let c = conv(quote! { v });
                 quote! {
                     #ident: match __dict.get(#key) {
-                        ::core::option::Option::Some(v) => #c,
-                        ::core::option::Option::None => ::core::default::Default::default(),
+                        ::core::option::Option::Some(v) if !#v_is_nil => #c,
+                        _ => ::core::default::Default::default(),
                     }
                 }
             } else {
@@ -679,20 +698,22 @@ fn impl_ps_deserialize(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     |with| quote! { #with::from_ps_value(#v)? },
                 )
             };
+            let v_is_nil = is_nil(&quote! { v });
             if f.is_option {
                 let conv = convert(quote! { v });
                 quote! {
                     #ident: match #lookup {
-                        ::core::option::Option::Some(v) => ::core::option::Option::Some(#conv),
-                        ::core::option::Option::None => ::core::option::Option::None,
+                        ::core::option::Option::Some(v) if !#v_is_nil =>
+                            ::core::option::Option::Some(#conv),
+                        _ => ::core::option::Option::None,
                     }
                 }
             } else if f.default {
                 let conv = convert(quote! { v });
                 quote! {
                     #ident: match #lookup {
-                        ::core::option::Option::Some(v) => #conv,
-                        ::core::option::Option::None => ::core::default::Default::default(),
+                        ::core::option::Option::Some(v) if !#v_is_nil => #conv,
+                        _ => ::core::default::Default::default(),
                     }
                 }
             } else {

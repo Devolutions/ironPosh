@@ -194,6 +194,9 @@ impl UreqHttpClient {
             status_code,
             headers,
             body: response_body,
+            // The sync (ureq) transport does not surface the peer certificate;
+            // channel binding (EPA) is therefore unavailable on this client.
+            peer_cert_der: None,
         })
     }
 }
@@ -263,7 +266,14 @@ impl HttpClient for UreqHttpClient {
                             }
                         };
 
-                    // 2) Process initialized context → either Continue (send another token) or Done
+                    // Capture conn id before the sequence is consumed (the
+                    // AlreadyComplete path below has no outgoing request).
+                    let conn_id_for_complete = auth_sequence.conn_id;
+
+                    // 2) Process initialized context → Continue (another token),
+                    //    SendRequest (final), or AlreadyComplete (HTTPS-unsealed: the
+                    //    operation already rode the auth legs, so the last auth
+                    //    response IS the operation response).
                     match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
@@ -310,6 +320,27 @@ impl HttpClient for UreqHttpClient {
                             return Ok(HttpResponseTargeted::new(
                                 resp,
                                 connection_id,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+                        // HTTPS-unsealed: the operation SOAP already rode the auth
+                        // challenge legs and the server processed it, so there is no
+                        // separate request to send — the last auth response is the
+                        // operation response. (EPA channel binding is unavailable on the
+                        // ureq transport, so this only works against servers that do not
+                        // enforce Extended Protection.)
+                        SecContextInited::AlreadyComplete {
+                            authenticated_http_channel_cert,
+                        } => {
+                            info!(
+                                "authentication sequence complete; operation rode the auth legs (HTTPS)"
+                            );
+                            let resp = auth_response.expect(
+                                "HTTPS auth completes via the legs, which always yield a response",
+                            );
+                            return Ok(HttpResponseTargeted::new(
+                                resp,
+                                conn_id_for_complete,
                                 Some(authenticated_http_channel_cert),
                             ));
                         }

@@ -73,6 +73,7 @@ pub fn xml_response(conn_id: ConnectionId, xml: String) -> HttpResponseTargeted 
             status_code: 200,
             headers: vec![],
             body: HttpBody::Xml(xml),
+            peer_cert_der: None,
         },
         conn_id,
         None,

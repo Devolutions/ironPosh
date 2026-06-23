@@ -1277,6 +1277,7 @@ mod tests {
                 status_code: 200,
                 headers: vec![],
                 body: ironposh_client_core::connector::http::HttpBody::Xml(String::new()),
+                peer_cert_der: None,
             },
             ConnectionId::test_new(1),
             None,

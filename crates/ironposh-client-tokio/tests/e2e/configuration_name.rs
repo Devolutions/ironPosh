@@ -21,6 +21,8 @@ fn explicit_default_configuration_name_executes_command() {
     if let Some(domain) = cfg.domain {
         cmd.arg("--domain").arg(domain);
     }
+    cmd.arg("--auth-method")
+        .arg(e2e_pwsh_config::default_auth_method());
     cmd.arg("--configuration-name").arg("Microsoft.PowerShell");
     cmd.arg("-c").arg("whoami");
 
