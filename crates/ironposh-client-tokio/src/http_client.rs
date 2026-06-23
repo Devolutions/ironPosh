@@ -36,7 +36,10 @@ pub fn build_reqwest_client(tls: &TlsOptions) -> anyhow::Result<reqwest::Client>
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_mins(1))
         .danger_accept_invalid_certs(tls.accept_invalid_certs)
-        .danger_accept_invalid_hostnames(tls.accept_invalid_hostnames);
+        .danger_accept_invalid_hostnames(tls.accept_invalid_hostnames)
+        // Surface the peer TLS certificate on responses so we can compute the
+        // `tls-server-end-point` channel binding (EPA) for SSPI auth over HTTPS.
+        .tls_info(true);
 
     if let Some(pem) = &tls.extra_ca_pem {
         let cert = reqwest::Certificate::from_pem(pem).context("invalid extra CA PEM")?;
@@ -365,6 +368,14 @@ impl ReqwestHttpClient {
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
             .collect();
 
+        // Capture the peer TLS leaf certificate (for channel binding) BEFORE the
+        // body read consumes the response. Present only over HTTPS with tls_info.
+        let peer_cert_der = response
+            .extensions()
+            .get::<reqwest::tls::TlsInfo>()
+            .and_then(|info| info.peer_certificate())
+            .map(<[u8]>::to_vec);
+
         // Determine body type from Content-Type header
         let content_type = headers
             .iter()
@@ -405,6 +416,7 @@ impl ReqwestHttpClient {
             status_code,
             headers,
             body,
+            peer_cert_der,
         })
     }
 }
@@ -472,8 +484,30 @@ impl HttpClient for ReqwestHttpClient {
                         }
                     };
 
-                    // 2) Process initialized context → either Continue (send another token) or Done
+                    // Capture conn id before the sequence is consumed (needed for
+                    // the AlreadyComplete path, which has no outgoing request).
+                    let conn_id_for_complete = auth_sequence.conn_id;
+
+                    // 2) Process initialized context → Continue (send another token),
+                    //    SendRequest (sealed final), or AlreadyComplete (HTTPS: the
+                    //    operation already rode the auth legs).
                     match auth_sequence.process_sec_ctx_init(&init)? {
+                        SecContextInited::AlreadyComplete {
+                            authenticated_http_channel_cert,
+                        } => {
+                            info!(
+                                "authentication sequence complete; operation rode the auth legs (HTTPS)"
+                            );
+                            let resp = auth_response.expect(
+                                "HTTPS auth completes via the legs, which always yield a response",
+                            );
+                            return Ok(HttpResponseTargeted::new(
+                                resp,
+                                conn_id_for_complete,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+
                         SecContextInited::Continue { request, sequence } => {
                             info!("continuing authentication sequence");
                             let HttpRequestAction {

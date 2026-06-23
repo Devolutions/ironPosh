@@ -176,6 +176,11 @@ pub struct HttpResponse {
     pub status_code: u16,
     pub headers: Vec<(String, String)>,
     pub body: HttpBody,
+    /// DER-encoded leaf TLS certificate of the server, when the response came
+    /// over HTTPS and the transport could surface it. Used to compute the
+    /// `tls-server-end-point` channel binding (EPA) for SSPI auth. `None` for
+    /// plain HTTP or transports that do not expose the peer certificate.
+    pub peer_cert_der: Option<Vec<u8>>,
 }
 
 /// A targeted HTTP response that includes both the response data and the connection it came from.

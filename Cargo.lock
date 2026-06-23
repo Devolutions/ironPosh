@@ -1555,6 +1555,7 @@ dependencies = [
  "regex",
  "rsa 0.9.9",
  "serde",
+ "sha2",
  "sspi",
  "thiserror 2.0.17",
  "tokio",

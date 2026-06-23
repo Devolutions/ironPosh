@@ -124,6 +124,7 @@ impl HttpResponseDecoder {
                         status_code: status,
                         headers,
                         body: HttpBody::None,
+                        peer_cert_der: None,
                     }));
                 }
 
@@ -149,6 +150,7 @@ impl HttpResponseDecoder {
                     status_code: status,
                     headers,
                     body: HttpBody::None,
+                    peer_cert_der: None,
                 }))
             }
             BodyMode::Fixed(clen) => {
@@ -176,6 +178,7 @@ impl HttpResponseDecoder {
                     status_code: status,
                     headers,
                     body: http_body,
+                    peer_cert_der: None,
                 }))
             }
             BodyMode::Chunked => {
@@ -198,6 +201,7 @@ impl HttpResponseDecoder {
                                 status_code: status,
                                 headers,
                                 body: http_body,
+                                peer_cert_der: None,
                             }));
                         }
                         // need CRLFCRLF after trailers

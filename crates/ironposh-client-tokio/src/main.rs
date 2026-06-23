@@ -22,6 +22,16 @@ use gateway_http_client::{
 };
 use http_client::ReqwestHttpClient;
 
+/// Summarize how the background connection task ended, for surfacing to the user
+/// when it dies before the command completes (e.g. the server rejected auth).
+fn describe_connection_end(joined: Result<anyhow::Result<()>, tokio::task::JoinError>) -> String {
+    match joined {
+        Ok(Ok(())) => "connection closed unexpectedly".to_string(),
+        Ok(Err(e)) => e.to_string(),
+        Err(e) => format!("connection task panicked: {e}"),
+    }
+}
+
 #[tokio::main]
 #[instrument(name = "main", level = "info")]
 async fn main() -> anyhow::Result<()> {
@@ -171,12 +181,45 @@ async fn main() -> anyhow::Result<()> {
         info!(command = %command, "executing command in non-interactive mode");
 
         // Spawn connection task
-        let connection_handle = tokio::spawn(connection_task);
+        let mut connection_handle = tokio::spawn(connection_task);
+
+        // The handshake runs inside `connection_task`. If it fails (e.g. the server
+        // rejects authentication) the task ends with an error and the pipeline stream
+        // below would never yield another event. Race each await against the
+        // connection task so an auth/handshake failure exits cleanly instead of
+        // hanging forever waiting on a stream nobody will feed.
+        let mut connection_error: Option<String> = None;
+        // Set once the command's pipeline reaches PipelineFinished. Distinguishes a
+        // successful run (stream closes *after* the command completed) from a failure
+        // (stream closes because the connection task died first).
+        let mut command_completed = false;
 
         // Execute command (raw output to inspect PSValue representation)
-        let mut stream = client.send_script_raw(command).await?;
+        let stream_or_dead = tokio::select! {
+            res = client.send_script_raw(command) => Some(res?),
+            joined = &mut connection_handle => {
+                connection_error = Some(describe_connection_end(joined));
+                None
+            }
+        };
+        let Some(mut stream) = stream_or_dead else {
+            connection_handle.abort();
+            host_call_handle.abort();
+            anyhow::bail!(
+                "connection failed before the command could run: {}",
+                connection_error.unwrap_or_else(|| "connection closed".to_string())
+            );
+        };
 
-        while let Some(event) = stream.next().await {
+        loop {
+            let event = tokio::select! {
+                ev = stream.next() => ev,
+                joined = &mut connection_handle => {
+                    connection_error = Some(describe_connection_end(joined));
+                    None
+                }
+            };
+            let Some(event) = event else { break };
             match event {
                 ironposh_client_core::connector::active_session::UserEvent::PipelineCreated {
                     pipeline,
@@ -187,6 +230,7 @@ async fn main() -> anyhow::Result<()> {
                     pipeline,
                 } => {
                     info!(pipeline = ?pipeline, "pipeline finished");
+                    command_completed = true;
                 }
                 ironposh_client_core::connector::active_session::UserEvent::PipelineOutput {
                     output,
@@ -255,9 +299,48 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        // Clean up
+        // Clean up. If the command completed (we saw PipelineFinished), the session
+        // loop is still alive waiting for more input — just stop it; success pays no
+        // shutdown delay. If the stream ended WITHOUT the command completing, the
+        // connection task failed and is therefore terminating: await its authoritative
+        // result. This covers failures that emit no SessionEvent (e.g. the pipeline
+        // multiplexer erroring) and avoids racing the JoinHandle. Bounded so a
+        // pathological non-terminating task cannot hang process exit.
+        if connection_error.is_none() && !command_completed {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                &mut connection_handle,
+            )
+            .await
+            {
+                Ok(Ok(Ok(()))) => {
+                    connection_error = Some("connection closed before the command completed".into());
+                }
+                Ok(Ok(Err(e))) => connection_error = Some(e.to_string()),
+                // The handle is awaited before any abort(), so a JoinError here is a
+                // panic, never a cancellation.
+                Ok(Err(e)) => connection_error = Some(format!("connection task panicked: {e}")),
+                Err(_elapsed) => {
+                    connection_error = Some("connection task did not terminate".into());
+                }
+            }
+        }
         connection_handle.abort();
         host_call_handle.abort();
+
+        // `command_completed` is authoritative: if the pipeline finished, the command
+        // succeeded, and a connection error observed during teardown (e.g. the session
+        // loop ending immediately afterward, or a join branch winning the final select)
+        // is not a command failure. Only treat a connection error as fatal when the
+        // command did NOT complete.
+        if let Some(err) = connection_error {
+            if command_completed {
+                debug!(error = %err, "ignoring connection teardown error after command completion");
+            } else {
+                error!(error = %err, "connection task ended before the command completed");
+                anyhow::bail!("connection failed: {err}");
+            }
+        }
     } else {
         // Interactive mode: simple REPL
         info!("starting simple interactive mode");

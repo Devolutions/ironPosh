@@ -176,6 +176,7 @@ pub fn deserialize_http_response(bytes: &[u8]) -> Result<HttpResponse> {
         status_code,
         headers,
         body,
+        peer_cert_der: None,
     })
 }
 
