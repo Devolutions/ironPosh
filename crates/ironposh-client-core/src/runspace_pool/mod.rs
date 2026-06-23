@@ -4,6 +4,7 @@ pub mod enums;
 pub mod expect_shell_connected;
 pub mod expect_shell_created;
 mod host_call;
+mod incoming;
 pub mod pool;
 mod requests;
 pub mod types;
