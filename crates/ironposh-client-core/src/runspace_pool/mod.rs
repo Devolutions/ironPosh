@@ -1,4 +1,5 @@
 pub mod creator;
+mod crypto;
 pub mod enums;
 pub mod expect_shell_connected;
 pub mod expect_shell_created;
