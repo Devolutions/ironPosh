@@ -3,6 +3,7 @@ mod crypto;
 pub mod enums;
 pub mod expect_shell_connected;
 pub mod expect_shell_created;
+mod host_call;
 pub mod pool;
 pub mod types;
 

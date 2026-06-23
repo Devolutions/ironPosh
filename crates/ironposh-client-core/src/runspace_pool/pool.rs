@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     PwshCoreError,
-    host::{HostCall, HostCallScope},
+    host::HostCall,
     pipeline::{Pipeline, PipelineCommand, PipelineSpec},
     powershell::PipelineHandle,
     runspace::win_rs::WinRunspace,
@@ -1085,18 +1085,7 @@ impl RunspacePool {
                             })?;
                         debug!(target: "host_call", host_call = ?host_call, "successfully created host call");
 
-                        let needs_session_key = match &host_call {
-                            HostCall::ReadLineAsSecureString { .. }
-                            | HostCall::PromptForCredential1 { .. }
-                            | HostCall::PromptForCredential2 { .. } => true,
-                            HostCall::Prompt { transport } => {
-                                let (_, _, fields) = &transport.params;
-                                fields
-                                    .iter()
-                                    .any(|f| f.parameter_type.contains("SecureString"))
-                            }
-                            _ => false,
-                        };
+                        let needs_session_key = super::host_call::needs_session_key(&host_call);
 
                         let has_session_key = self
                             .key_exchange
@@ -1527,37 +1516,7 @@ impl RunspacePool {
         stream_name: &str,
         command_id: Option<&Uuid>,
     ) -> Result<HostCall, crate::PwshCoreError> {
-        let PsValue::Object(pipeline_host_call) = ps_value else {
-            return Err(PwshCoreError::InvalidResponse(
-                "Expected PipelineHostCall as PsValue::Object".into(),
-            ));
-        };
-
-        let pipeline_host_call = ironposh_psrp::PipelineHostCall::try_from(pipeline_host_call)?;
-
-        debug!(
-            ?pipeline_host_call,
-            stream_name = stream_name,
-            command_id = ?command_id,
-            method = ?pipeline_host_call.method,
-            parameters = ?pipeline_host_call.parameters,
-            "Received PipelineHostCall"
-        );
-
-        // Question: Can we have a Optional command id here?
-        let Some(command_id) = command_id else {
-            return Err(PwshCoreError::InvalidResponse(
-                "Expected command_id to be Some".into(),
-            ));
-        };
-
-        let scope = HostCallScope::Pipeline {
-            command_id: command_id.to_owned(),
-        };
-
-        HostCall::try_from_pipeline(scope, pipeline_host_call).map_err(|e| {
-            crate::PwshCoreError::InvalidResponse(format!("Failed to parse host call: {e}").into())
-        })
+        super::host_call::pipeline_host_call_from(ps_value, stream_name, command_id)
     }
 
     /// Send a pipeline host response to the server
