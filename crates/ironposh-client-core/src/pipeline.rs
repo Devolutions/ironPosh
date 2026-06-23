@@ -73,7 +73,7 @@ pub struct ExecutionResult {
 /// This is owned and managed by the `RunspacePool`.
 #[derive(Debug, Clone)]
 pub struct Pipeline {
-    pub(crate) state: PsInvocationState,
+    state: PsInvocationState,
     pub(crate) commands: Vec<PipelineCommand>,
     pub(crate) results: ExecutionResult,
 }
@@ -97,6 +97,25 @@ impl Pipeline {
 
     pub(crate) fn add_command(&mut self, command: PipelineCommand) {
         self.commands.push(command);
+    }
+
+    /// Returns the current invocation state of the pipeline.
+    pub(crate) fn state(&self) -> PsInvocationState {
+        self.state
+    }
+
+    /// Sets the invocation state of the pipeline.
+    pub(crate) fn set_state(&mut self, state: PsInvocationState) {
+        self.state = state;
+    }
+
+    /// Returns `true` when the pipeline has reached a terminal state
+    /// (`Completed`, `Failed`, or `Stopped`).
+    pub(crate) fn is_terminal(&self) -> bool {
+        matches!(
+            self.state,
+            PsInvocationState::Completed | PsInvocationState::Failed | PsInvocationState::Stopped
+        )
     }
 }
 

@@ -611,7 +611,7 @@ impl RunspacePool {
                         "Pipeline not found for command response".into(),
                     )
                 })?
-                .state = PsInvocationState::Running;
+                .set_state(PsInvocationState::Running);
 
             result.push(AcceptResponsResult::ReceiveResponse {
                 desired_streams: vec![DesiredStream::stdout_for_command(pipeline_id)],
@@ -1443,7 +1443,7 @@ impl RunspacePool {
             PwshCoreError::InvalidResponse("Pipeline not found for command_id".into())
         })?;
         // Update the pipeline state
-        pipeline.state = PsInvocationState::from(pipeline_state.pipeline_state);
+        pipeline.set_state(PsInvocationState::from(pipeline_state.pipeline_state));
 
         Ok(())
     }
@@ -1459,7 +1459,7 @@ impl RunspacePool {
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
         // Set pipeline state to Running
-        pipeline.state = PsInvocationState::Running;
+        pipeline.set_state(PsInvocationState::Running);
         info!(pipeline_id = %handle.id(), "Invoking pipeline");
 
         // Convert business pipeline to protocol pipeline and build CreatePipeline message
@@ -1503,17 +1503,14 @@ impl RunspacePool {
                 error!(pipeline_id = ?&handle.id(), "Pipeline handle not found ");
             })?;
 
-        if pipeline.state == PsInvocationState::Stopped
-            || pipeline.state == PsInvocationState::Completed
-            || pipeline.state == PsInvocationState::Failed
-        {
+        if pipeline.is_terminal() {
             return Err(PwshCoreError::InvalidState(
                 "Cannot kill a pipeline that is already stopped, completed, or failed",
             ));
         }
 
         // Set pipeline state to Stopping
-        pipeline.state = PsInvocationState::Stopping;
+        pipeline.set_state(PsInvocationState::Stopping);
         info!(pipeline_id = %handle.id(), "Killing pipeline");
 
         let request = self
@@ -1789,7 +1786,7 @@ impl RunspacePool {
             .get_mut(&powershell.id())
             .ok_or(PwshCoreError::InvalidState("Pipeline handle not found"))?;
 
-        if pipeline.state != PsInvocationState::NotStarted {
+        if pipeline.state() != PsInvocationState::NotStarted {
             return Err(PwshCoreError::InvalidState(
                 "Cannot add to a pipeline that has already been started",
             ));
