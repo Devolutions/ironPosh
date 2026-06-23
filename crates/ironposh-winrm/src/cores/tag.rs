@@ -166,17 +166,23 @@ where
 {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
         // Identity is the (namespace-URI, local-name) pair; the prefix is never
-        // consulted. A dispatcher (a derived struct, AnyTag, or a TagList) has
-        // usually already matched this, so the check is a cheap self-validation.
-        if !node.is_element_named(N::NAMESPACE, N::TAG_NAME) {
-            return Err(ironposh_xml::XmlError::XmlInvalidTag {
-                expected: N::TAG_NAME.to_string(),
-                found: node.tag_name().name().to_string(),
-            });
-        }
+        // consulted. Usually a dispatcher already matched this element, so `node`
+        // *is* this tag. When a parent tag carries another tag as its value
+        // (`Tag<Tag<..>, _>`), we're handed the parent instead — descend to the
+        // single N-named child.
+        let element = if node.is_element_named(N::NAMESPACE, N::TAG_NAME) {
+            node
+        } else {
+            node.children()
+                .find(|child| child.is_element_named(N::NAMESPACE, N::TAG_NAME))
+                .ok_or_else(|| ironposh_xml::XmlError::XmlInvalidTag {
+                    expected: N::TAG_NAME.to_string(),
+                    found: node.tag_name().name().to_string(),
+                })?
+        };
 
-        let value = V::from_xml(node)?;
-        let attributes = node
+        let value = V::from_xml(element)?;
+        let attributes = element
             .attributes()
             .filter_map(|attr| {
                 Attribute::from_name_and_value(attr.name(), attr.value())
@@ -184,7 +190,7 @@ where
                     .flatten()
             })
             .collect();
-        let namespaces_declaration = NamespaceDeclaration::from_xml(node)?;
+        let namespaces_declaration = NamespaceDeclaration::from_xml(element)?;
 
         Ok(Tag {
             value,
@@ -231,3 +237,28 @@ impl_tag_from!(&'a str => Tag<'a, Text<'a>, N>);
 impl_tag_from!(String => Tag<'a, Text<'a>, N>);
 impl_tag_from!(u32 => Tag<'a, U32, N>);
 impl_tag_from!(uuid::Uuid => Tag<'a, WsUuid, N>);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cores::{CommandId, CommandResponse};
+    use ironposh_xml::parser::parse;
+
+    const RSP: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
+
+    /// A `Tag` whose value is itself a `Tag` (`<CommandResponse>` wrapping a
+    /// `<CommandId>` child). `from_xml` must descend to the named child rather
+    /// than parse the wrapper as the inner tag. Regression for the SSPI e2e.
+    #[test]
+    fn nested_tag_value_descends_to_child() {
+        let uuid = "2D6534D0-6B12-40E3-B773-CBA26459CFA8";
+        let xml = format!(
+            r#"<rsp:CommandResponse xmlns:rsp="{RSP}"><rsp:CommandId>{uuid}</rsp:CommandId></rsp:CommandResponse>"#
+        );
+        let doc = parse(&xml).unwrap();
+        let tag: Tag<'_, Tag<'_, WsUuid, CommandId>, CommandResponse> =
+            Tag::from_xml(doc.root_element())
+                .expect("nested CommandResponse/CommandId should parse");
+        assert_eq!(tag.value.value.0.to_string().to_uppercase(), uuid);
+    }
+}
