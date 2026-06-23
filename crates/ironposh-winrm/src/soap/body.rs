@@ -1,4 +1,4 @@
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 use crate::{
     cores::*,

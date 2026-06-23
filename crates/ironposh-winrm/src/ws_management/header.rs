@@ -65,7 +65,7 @@ impl<'a> FromXml<'a> for SelectorSetValue {
                 selectors.insert(name, child.text().unwrap_or_default().to_string());
             }
         }
-        Ok(SelectorSetValue { selectors })
+        Ok(Self { selectors })
     }
 }
 
@@ -124,6 +124,6 @@ impl<'a> FromXml<'a> for OptionSetValue {
                 options.insert(name, child.text().unwrap_or_default().to_string());
             }
         }
-        Ok(OptionSetValue { options })
+        Ok(Self { options })
     }
 }

@@ -33,4 +33,3 @@ impl<'a> TagValue<'a> for SoapEnvelope<'a> {
         .add_child(self.body.into_element())
     }
 }
-

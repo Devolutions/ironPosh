@@ -1,6 +1,6 @@
 use crate::cores::tag_name::*;
 use crate::cores::{Tag, Text};
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 // Example struct with mixed required and optional fields using new derive macros
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]

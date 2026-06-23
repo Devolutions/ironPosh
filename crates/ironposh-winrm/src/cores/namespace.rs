@@ -99,6 +99,6 @@ impl<'a> ironposh_xml::mapping::FromXml<'a> for NamespaceDeclaration {
             .namespaces()
             .filter_map(|ns| Namespace::try_from(ns).ok())
             .collect();
-        Ok(NamespaceDeclaration(namespaces))
+        Ok(Self(namespaces))
     }
 }

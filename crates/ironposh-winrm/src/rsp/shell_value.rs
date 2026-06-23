@@ -6,7 +6,7 @@ use crate::cores::{
         ResourceUri, ShellId, ShellInactivity, ShellRunTime, State,
     },
 };
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 // The XmlTagContainer derive macro generates:
 // - TagValue implementation

@@ -1,7 +1,4 @@
-use crate::cores::{
-    Tag, Time,
-    tag_name::IdleTimeOut,
-};
+use crate::cores::{Tag, Time, tag_name::IdleTimeOut};
 use ironposh_macros::{FromXml, SimpleTagValue};
 
 /// Value for the Disconnect element (MS-WSMV 3.1.4.13).

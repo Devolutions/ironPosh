@@ -10,8 +10,8 @@
 //! arbitrary, document-local alias and is never compared. roxmltree resolves
 //! prefixes to URIs for us; [`NodeExt`] is the single matching primitive.
 
-use crate::XmlError;
 use crate::parser::Node;
+use crate::XmlError;
 
 /// Namespace-aware identity helpers for a parsed node.
 ///

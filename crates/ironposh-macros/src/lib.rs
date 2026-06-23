@@ -1315,7 +1315,6 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
                     <crate::cores::#n as crate::cores::TagName>::TAG_NAME,
                 ) {
                     #f = Some(ironposh_xml::mapping::FromXml::from_xml(child)?);
-                    continue;
                 }
             }
         })
@@ -1490,4 +1489,3 @@ fn extract_tag_name_from_tag_type(ty: &Type) -> Option<Ident> {
     }
     None
 }
-

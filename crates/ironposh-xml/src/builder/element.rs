@@ -342,11 +342,14 @@ impl crate::builder::NamespaceFmt for Element<'_> {
         };
 
         let name = match alias {
-            AliasStatus::ElementHasNoNamespace => self.name.to_string(),
+            // No namespace, or a default (no-alias) namespace declared as
+            // `xmlns="..."` — both emit the element unprefixed.
+            AliasStatus::ElementHasNoNamespace | AliasStatus::NamespaceFoundWithoutAlias => {
+                self.name.to_string()
+            }
             AliasStatus::NamespaceFoundWithAlias(alias) => {
                 format!("{}:{}", alias, self.name)
             }
-            AliasStatus::NamespaceFoundWithoutAlias => self.name.to_string(),
             AliasStatus::NamespaceNotFoundInDeclaration => {
                 error!(
                     target: "xml_namespace",

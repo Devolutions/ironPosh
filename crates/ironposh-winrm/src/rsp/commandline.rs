@@ -51,6 +51,6 @@ impl<'a> FromXml<'a> for CommandLineValue {
                 arguments.push(text.to_string());
             }
         }
-        Ok(CommandLineValue { command, arguments })
+        Ok(Self { command, arguments })
     }
 }

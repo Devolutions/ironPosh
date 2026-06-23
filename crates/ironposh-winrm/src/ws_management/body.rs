@@ -1,4 +1,4 @@
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 use ironposh_xml::builder::Element;
 
 use crate::{

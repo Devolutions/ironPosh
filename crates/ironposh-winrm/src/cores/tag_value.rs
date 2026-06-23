@@ -49,7 +49,7 @@ impl<'a> TagValue<'a> for Text<'a> {
 
 impl<'a> FromXml<'a> for Text<'a> {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        Ok(Text(node.text().unwrap_or("").trim().into()))
+        Ok(Self(node.text().unwrap_or("").trim().into()))
     }
 }
 
@@ -70,7 +70,7 @@ impl<'a> TagValue<'a> for Empty {
 
 impl<'a> FromXml<'a> for Empty {
     fn from_xml(_node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        Ok(Empty)
+        Ok(Self)
     }
 }
 
@@ -142,7 +142,7 @@ impl<'a> FromXml<'a> for Time {
             .ok_or_else(|| XmlError::InvalidXml(format!("Invalid time format: {text}")))?
             .parse::<f64>()
             .map_err(|_| XmlError::InvalidXml(format!("Invalid time value: {text}")))?;
-        Ok(Time(seconds))
+        Ok(Self(seconds))
     }
 }
 

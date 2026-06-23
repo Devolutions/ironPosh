@@ -1,5 +1,5 @@
 use crate::cores::*;
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 // SOAP Fault structures for handling SOAP error responses
 

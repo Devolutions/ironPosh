@@ -2,7 +2,7 @@ use crate::cores::{
     Tag, Text,
     tag_name::{ConnectResponseXml, ConnectXml},
 };
-use ironposh_macros::{SimpleTagValue, FromXml};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 /// Value for the Connect element (MS-WSMV 3.1.4.15).
 ///
