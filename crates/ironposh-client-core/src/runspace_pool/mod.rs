@@ -5,6 +5,7 @@ pub mod expect_shell_connected;
 pub mod expect_shell_created;
 mod host_call;
 pub mod pool;
+mod requests;
 pub mod types;
 
 // Re-export public types
