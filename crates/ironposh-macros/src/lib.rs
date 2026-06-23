@@ -1271,6 +1271,102 @@ pub fn derive_simple_xml_deserialize(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+/// Derives [`ironposh_xml::mapping::FromXml`] for a WinRM struct whose fields
+/// are `Tag<'a, V, N>` / `Option<Tag<'a, V, N>>`.
+///
+/// Generates a direct, namespace-correct `from_xml(node)` — no visitor struct,
+/// no `finish()`. Each child element is matched by its `(namespace-URI,
+/// local-name)` pair, sourced from the field's `N: TagName` (`NAMESPACE` +
+/// `TAG_NAME`); the prefix is never compared. `Option<_>` fields stay `None`
+/// when absent; required fields error. This is the deserialize-side replacement
+/// for the visitor that `SimpleXmlDeserialize` generates.
+#[proc_macro_derive(FromXml)]
+pub fn derive_from_xml(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    TokenStream::from(impl_from_xml(&input))
+}
+
+fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => &fields.named,
+            _ => panic!("FromXml can only be derived for structs with named fields"),
+        },
+        _ => panic!("FromXml can only be derived for structs"),
+    };
+
+    let entries: Vec<SimpleFieldEntry> = fields
+        .iter()
+        .map(|field| {
+            let field_name = field.ident.as_ref().unwrap().clone();
+            let field_type = field.ty.clone();
+            let is_optional = is_option_type(&field_type);
+            let tag_name_type = extract_tag_name_type(&field_type);
+            SimpleFieldEntry {
+                field_name,
+                field_type,
+                tag_name_type,
+                is_optional,
+            }
+        })
+        .collect();
+
+    let inits = entries.iter().map(|e| {
+        let f = &e.field_name;
+        quote! { let mut #f = None; }
+    });
+
+    // One namespace-correct match per field: identity is (URI, local-name).
+    let matchers = entries.iter().filter_map(|e| {
+        let f = &e.field_name;
+        e.tag_name_type.as_ref().map(|n| {
+            quote! {
+                if child.is_element_named(
+                    <crate::cores::#n as crate::cores::TagName>::NAMESPACE,
+                    <crate::cores::#n as crate::cores::TagName>::TAG_NAME,
+                ) {
+                    #f = Some(ironposh_xml::parser::XmlDeserialize::from_node(child)?);
+                    continue;
+                }
+            }
+        })
+    });
+
+    let construct = entries.iter().map(|e| {
+        let f = &e.field_name;
+        if e.is_optional {
+            quote! { #f }
+        } else {
+            quote! {
+                #f: #f.ok_or_else(|| ironposh_xml::XmlError::InvalidXml(
+                    format!("Missing {} in {}", stringify!(#f), stringify!(#name))
+                ))?
+            }
+        }
+    });
+
+    quote! {
+        impl #impl_generics ironposh_xml::mapping::FromXml<'a> for #name #ty_generics #where_clause {
+            fn from_xml(
+                node: ironposh_xml::parser::Node<'a, 'a>,
+            ) -> Result<Self, ironposh_xml::XmlError> {
+                use ironposh_xml::mapping::NodeExt;
+                #(#inits)*
+                for child in node.children() {
+                    if !child.is_element() {
+                        continue;
+                    }
+                    #(#matchers)*
+                }
+                Ok(#name { #(#construct),* })
+            }
+        }
+    }
+}
+
 fn impl_simple_tag_value(input: &DeriveInput) -> TokenStream2 {
     let name = &input.ident;
     let generics = &input.generics;
