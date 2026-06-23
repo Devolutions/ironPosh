@@ -1,5 +1,5 @@
 use ironposh_winrm::{cores::Attribute, soap::header::SoapHeaders};
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 
 const SOAP_HEADER_XML: &str = r#"
     <s:Envelope
@@ -127,7 +127,7 @@ mod tests {
             .find(|n| n.tag_name().name() == "Header")
             .expect("No Header found in SOAP envelope");
 
-        let headers = SoapHeaders::from_node(header).expect("Failed to parse SOAP headers");
+        let headers = SoapHeaders::from_xml(header).expect("Failed to parse SOAP headers");
 
         // Test that expected fields are present
         assert!(headers.to.is_some());
@@ -160,7 +160,7 @@ mod tests {
             .find(|n| n.tag_name().name() == "Header")
             .expect("No Header found in SOAP envelope");
 
-        let headers = SoapHeaders::from_node(header).expect("Failed to parse SOAP headers");
+        let headers = SoapHeaders::from_xml(header).expect("Failed to parse SOAP headers");
 
         // Check that operation_id has the mustUnderstand attribute
         let must_understand_count = headers
@@ -189,7 +189,7 @@ mod tests {
             .find(|n| n.tag_name().name() == "Header")
             .expect("No Header found in SOAP envelope");
 
-        let headers = SoapHeaders::from_node(header).expect("Failed to parse SOAP headers");
+        let headers = SoapHeaders::from_xml(header).expect("Failed to parse SOAP headers");
 
         // Test specific values in the headers
         if let Some(_action) = &headers.action {
@@ -260,7 +260,7 @@ mod tests {
             .find(|n| n.tag_name().name() == "Header")
             .expect("No Header found in minimal SOAP envelope");
 
-        let headers = SoapHeaders::from_node(header).expect("Failed to parse minimal SOAP headers");
+        let headers = SoapHeaders::from_xml(header).expect("Failed to parse minimal SOAP headers");
 
         // Only action and message_id should be present
         assert!(headers.action.is_some());

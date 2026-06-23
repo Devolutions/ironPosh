@@ -18,7 +18,7 @@ use ironposh_psrp::{
     SessionCapability, fragmentation,
 };
 use ironposh_winrm::{soap::SoapEnvelope, ws_management::WsAction};
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 use rsa::pkcs1v15::Pkcs1v15Encrypt;
 use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
@@ -46,7 +46,7 @@ impl RunspacePool {
         }
 
         let parsed = ironposh_xml::parser::parse(soap_envelope)?;
-        let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
+        let soap_envelope = SoapEnvelope::from_xml(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
         Self::fault_to_error(&soap_envelope)?;
@@ -82,7 +82,7 @@ impl RunspacePool {
         }
 
         let parsed = ironposh_xml::parser::parse(soap_envelope)?;
-        let soap_envelope = SoapEnvelope::from_node(parsed.root_element())
+        let soap_envelope = SoapEnvelope::from_xml(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
         Self::fault_to_error(&soap_envelope)?;
@@ -147,7 +147,7 @@ impl RunspacePool {
             e
         })?;
 
-        let soap_envelope = SoapEnvelope::from_node(parsed.root_element()).map_err(|e| {
+        let soap_envelope = SoapEnvelope::from_xml(parsed.root_element()).map_err(|e| {
             error!(target: "soap", error = %e, "failed to parse SOAP envelope");
             crate::PwshCoreError::XmlParsingError(e)
         })?;

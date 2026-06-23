@@ -3,7 +3,7 @@ use ironposh_winrm::{
     rsp::receive::ReceiveValue,
     soap::SoapEnvelope,
 };
-use ironposh_xml::{builder::Element, parser::XmlDeserialize};
+use ironposh_xml::{builder::Element, mapping::FromXml};
 use uuid::Uuid;
 
 #[test]
@@ -107,7 +107,7 @@ fn test_soap_fault_with_unknown_namespace() {
 
     // This should now parse successfully instead of failing on unknown namespace
     let parsed = ironposh_xml::parser::parse(soap_fault_xml).expect("Should parse XML");
-    let envelope = SoapEnvelope::from_node(parsed.root_element())
+    let envelope = SoapEnvelope::from_xml(parsed.root_element())
         .expect("Should parse SOAP envelope despite unknown namespace");
 
     // Verify we can access the fault information

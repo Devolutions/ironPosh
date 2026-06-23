@@ -1,8 +1,8 @@
-use ironposh_macros::{SimpleTagValue, SimpleXmlDeserialize};
+use ironposh_macros::{SimpleTagValue, FromXml};
 
 use crate::cores::{Tag, tag_name::*, tag_value::Text};
 
-#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct AddressValue<'a> {
     pub url: Tag<'a, Text<'a>, Address>,
 }

@@ -1,5 +1,5 @@
 use ironposh_winrm::soap::SoapEnvelope;
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 use std::fs;
 
 #[cfg(test)]
@@ -16,7 +16,7 @@ mod tests {
         let envelope_node = document.root_element();
 
         // ONLY TEST SoapEnvelope::from_node - this is what we want to validate
-        let soap_envelope = SoapEnvelope::from_node(envelope_node)
+        let soap_envelope = SoapEnvelope::from_xml(envelope_node)
             .expect("Failed to deserialize XML into SoapEnvelope");
 
         // Validate the deserialization worked correctly

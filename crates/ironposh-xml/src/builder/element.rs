@@ -235,12 +235,9 @@ impl<'a> crate::builder::NamespaceWrite<'a> for Element<'a> {
             }
             (Some(ns), Some(map)) => match map.get(ns) {
                 Some(Some(alias)) => format!("{alias}:{}", self.name),
-                Some(None) => {
-                    return Err(XmlBuilderError::NamespaceHasNoAlias {
-                        tag: self.name.to_string(),
-                        ns: ns.url.to_string(),
-                    })
-                }
+                // Default namespace (declared as `xmlns="..."`): emit the element
+                // unprefixed — the in-scope default declaration binds it.
+                Some(None) => self.name.to_string(),
                 None => {
                     return Err(XmlBuilderError::NamespaceNotDeclared {
                         tag: self.name.to_string(),
@@ -349,15 +346,7 @@ impl crate::builder::NamespaceFmt for Element<'_> {
             AliasStatus::NamespaceFoundWithAlias(alias) => {
                 format!("{}:{}", alias, self.name)
             }
-            AliasStatus::NamespaceFoundWithoutAlias => {
-                error!(
-                    target: "xml_namespace",
-                    alias_status = ?alias,
-                    tag_name = self.name,
-                    "element has no alias but namespace is present"
-                );
-                return Err(std::fmt::Error);
-            }
+            AliasStatus::NamespaceFoundWithoutAlias => self.name.to_string(),
             AliasStatus::NamespaceNotFoundInDeclaration => {
                 error!(
                     target: "xml_namespace",

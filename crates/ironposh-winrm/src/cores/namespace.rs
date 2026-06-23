@@ -46,40 +46,6 @@ macro_rules! define_namespaces {
             }
         }
 
-        // ---------- XmlDeserialize support -----------------------------------
-        pub struct NamespaceVisitor { namespace: Option<Namespace> }
-
-        impl<'a> ironposh_xml::parser::XmlVisitor<'a> for NamespaceVisitor {
-            type Value = Namespace;
-
-            fn visit_children(
-                &mut self,
-                _children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-            ) -> Result<(), ironposh_xml::XmlError> { Ok(()) }
-
-            fn visit_node(
-                &mut self,
-                node: ironposh_xml::parser::Node<'a, 'a>,
-            ) -> Result<(), ironposh_xml::XmlError> {
-                let Some(ns) = node.tag_name().namespace() else {
-                    return Err(ironposh_xml::XmlError::InvalidXml("No namespace found".into()));
-                };
-                self.namespace = Some(
-                    Namespace::try_from(ns)
-                        .map_err(|_| ironposh_xml::XmlError::InvalidXml(format!("Unknown namespace: {ns}")))?,
-                );
-                Ok(())
-            }
-
-            fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-                self.namespace.ok_or_else(|| ironposh_xml::XmlError::InvalidXml("No namespace found".into()))
-            }
-        }
-
-        impl<'a> ironposh_xml::parser::XmlDeserialize<'a> for Namespace {
-            type Visitor = NamespaceVisitor;
-            #[inline] fn visitor() -> Self::Visitor { NamespaceVisitor { namespace: None } }
-        }
     };
 }
 
@@ -125,46 +91,14 @@ impl IntoIterator for NamespaceDeclaration {
     }
 }
 
-pub struct NamespaceDeclarationVisitor {
-    namespaces: Vec<Namespace>,
-}
-
-impl<'a> ironposh_xml::parser::XmlVisitor<'a> for NamespaceDeclarationVisitor {
-    type Value = NamespaceDeclaration;
-
-    fn visit_children(
-        &mut self,
-        _c: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        Ok(())
-    }
-
-    fn visit_node(
-        &mut self,
-        node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for ns in node.namespaces() {
-            self.namespaces.push(Namespace::try_from(ns).map_err(|_| {
-                ironposh_xml::XmlError::InvalidXml(format!("Unknown namespace: {ns:?}"))
-            })?);
-        }
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        Ok(NamespaceDeclaration(self.namespaces))
-    }
-}
-
-impl<'a> ironposh_xml::parser::XmlDeserialize<'a> for NamespaceDeclaration {
-    type Visitor = NamespaceDeclarationVisitor;
-    #[inline]
-    fn visitor() -> Self::Visitor {
-        NamespaceDeclarationVisitor {
-            namespaces: Vec::new(),
-        }
-    }
-    fn from_node(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
-        ironposh_xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+impl<'a> ironposh_xml::mapping::FromXml<'a> for NamespaceDeclaration {
+    /// Captures the namespaces declared on this element. Declarations we don't
+    /// recognize are skipped — they don't affect matching, which compares URIs.
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        let namespaces = node
+            .namespaces()
+            .filter_map(|ns| Namespace::try_from(ns).ok())
+            .collect();
+        Ok(NamespaceDeclaration(namespaces))
     }
 }

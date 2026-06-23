@@ -4,7 +4,7 @@ use ironposh_winrm::{
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{SelectorSetValue, WsAction, WsMan},
 };
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 
 const SHELL_ID: &str = "2D6534D0-6B12-40E3-B773-CBA26459CFA8";
 const RESOURCE_URI: &str = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell";
@@ -162,7 +162,7 @@ fn test_parse_disconnect_response() {
 </s:Envelope>"#;
 
     let document = ironposh_xml::parser::parse(xml_content).expect("Failed to parse XML content");
-    let soap_envelope = SoapEnvelope::from_node(document.root_element())
+    let soap_envelope = SoapEnvelope::from_xml(document.root_element())
         .expect("Failed to deserialize XML into SoapEnvelope");
 
     assert!(
@@ -193,7 +193,7 @@ fn test_parse_reconnect_response() {
 </s:Envelope>"#;
 
     let document = ironposh_xml::parser::parse(xml_content).expect("Failed to parse XML content");
-    let soap_envelope = SoapEnvelope::from_node(document.root_element())
+    let soap_envelope = SoapEnvelope::from_xml(document.root_element())
         .expect("Failed to deserialize XML into SoapEnvelope");
 
     assert!(

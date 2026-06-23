@@ -1,4 +1,4 @@
-use ironposh_macros::{SimpleTagValue, SimpleXmlDeserialize};
+use ironposh_macros::{SimpleTagValue, FromXml};
 
 use crate::{
     cores::*,
@@ -14,7 +14,7 @@ use crate::{
     ws_management::body::ResourceCreatedValue,
 };
 
-#[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapBody<'a> {
     /// WS-Management operations
     #[builder(default, setter(into, strip_option))]

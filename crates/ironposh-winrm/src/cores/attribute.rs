@@ -19,7 +19,7 @@ macro_rules! define_attributes {
         impl<'a> Attribute<'a> {
             /// Convert an attribute name to the corresponding enum variant type
             /// This is automatically generated to match all enum variants
-            fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, ironposh_xml::XmlError> {
+            pub fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, ironposh_xml::XmlError> {
                 match name {
                     $(
                         $attr_name => {
@@ -127,56 +127,6 @@ define_attributes!(
         |v: u64| v.to_string(),
     // Add new attributes here and they automatically get handled everywhere!
 );
-
-pub struct AttributeVisitor<'a> {
-    attribute: Option<Attribute<'a>>,
-}
-
-impl<'a> ironposh_xml::parser::XmlVisitor<'a> for AttributeVisitor<'a> {
-    type Value = Attribute<'a>;
-
-    fn visit_attribute(
-        &mut self,
-        _attribute: ironposh_xml::parser::Attribute<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        Attribute::from_name_and_value(_attribute.name(), _attribute.value())
-            .map(|attr| {
-                if let Some(parsed_attr) = attr {
-                    self.attribute = Some(parsed_attr);
-                }
-            })
-            .map_err(|e| ironposh_xml::XmlError::InvalidXml(e.to_string()))
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.attribute
-            .ok_or_else(|| ironposh_xml::XmlError::InvalidXml("No attribute found".to_string()))
-    }
-}
-
-impl<'a> ironposh_xml::parser::XmlDeserialize<'a> for Attribute<'a> {
-    type Visitor = AttributeVisitor<'a>;
-
-    fn visitor() -> Self::Visitor {
-        AttributeVisitor { attribute: None }
-    }
-
-    fn from_node(
-        _node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<Self, ironposh_xml::XmlError> {
-        Err(ironposh_xml::XmlError::InvalidXml(
-            "Attributes should not be parsed from nodes directly".to_string(),
-        ))
-    }
-
-    fn from_children(
-        _children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<Self, ironposh_xml::XmlError> {
-        Err(ironposh_xml::XmlError::InvalidXml(
-            "Attributes should not be parsed from children directly".to_string(),
-        ))
-    }
-}
 
 #[cfg(test)]
 mod tests {
