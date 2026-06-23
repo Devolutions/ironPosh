@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use futures::{SinkExt, StreamExt, channel::mpsc, join};
+use futures::{SinkExt, StreamExt, channel::mpsc, join, try_join};
 use ironposh_client_core::{
     connector::{
         Connector, ConnectorStepResult, UserOperation, WinRmConfig, active_session::UserEvent,
@@ -302,9 +302,13 @@ where
     );
 
     let joined_task = async move {
-        let res = join!(active_session_task, multiplex_pipeline_task);
+        // try_join! short-circuits the moment either task errors (e.g. a failed
+        // handshake in the active session) instead of waiting for the multiplexer,
+        // which would otherwise block forever on its channels and hang the whole
+        // connection task — and with it any caller awaiting this future.
+        let res = try_join!(active_session_task, multiplex_pipeline_task);
         let _ = session_event_tx_2.unbounded_send(crate::SessionEvent::Closed);
-        res.0.and(res.1)
+        res.map(|_| ())
     };
 
     (
@@ -386,9 +390,13 @@ where
         build_pipeline_multiplexer(user_input_tx, server_output_rx, pipeline_input_rx, "Serial");
 
     let joined_task = async move {
-        let res = join!(active_session_task, multiplex_pipeline_task);
+        // try_join! short-circuits the moment either task errors (e.g. a failed
+        // handshake in the active session) instead of waiting for the multiplexer,
+        // which would otherwise block forever on its channels and hang the whole
+        // connection task — and with it any caller awaiting this future.
+        let res = try_join!(active_session_task, multiplex_pipeline_task);
         let _ = session_event_tx_2.unbounded_send(crate::SessionEvent::Closed);
-        res.0.and(res.1)
+        res.map(|_| ())
     };
 
     (

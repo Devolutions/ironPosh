@@ -352,6 +352,18 @@ pub fn create_connector_config_with_kdc_url(
         TransportSecurity::Http
     };
 
+    // Basic (and Certificate) auth carry credentials with no message-level
+    // encryption, so they are only safe over TLS. WinRM refuses them on a plain
+    // HTTP listener unless `AllowUnencrypted` is set; mirror that here. Refuse
+    // Basic over plain HTTP unless the user explicitly forces an unencrypted
+    // channel with `--http-insecure`.
+    if matches!(args.auth_method, AuthMethod::Basic) && !args.https && !args.http_insecure {
+        anyhow::bail!(
+            "Basic authentication over plain HTTP is refused: credentials would be sent \
+             unencrypted. Use --https, or force an unencrypted channel with --http-insecure."
+        );
+    }
+
     let domain = if args.domain.trim().is_empty() {
         None
     } else {

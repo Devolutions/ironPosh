@@ -64,13 +64,19 @@ impl<'ctx> SecurityContextBuilderHolder<'ctx> {
 }
 
 impl SspiAuthContext {
-    pub fn new(sspi_config: SspiAuthConfig) -> Result<Self, crate::PwshCoreError> {
+    pub fn new(
+        sspi_config: SspiAuthConfig,
+        channel_binding: Option<Vec<u8>>,
+    ) -> Result<Self, crate::PwshCoreError> {
         match sspi_config {
             SspiAuthConfig::NTLM {
                 identity,
                 target: target_name,
-            } => SspiContext::new_ntlm(identity, SspiConfig::new(target_name))
-                .map(SspiAuthContext::Ntlm),
+            } => SspiContext::new_ntlm(
+                identity,
+                SspiConfig::with_channel_binding(target_name, channel_binding),
+            )
+            .map(SspiAuthContext::Ntlm),
 
             SspiAuthConfig::Kerberos {
                 identity,
@@ -79,7 +85,7 @@ impl SspiAuthContext {
             } => SspiContext::new_kerberos(
                 identity,
                 kerberos_config.into(),
-                SspiConfig::new(target_name),
+                SspiConfig::with_channel_binding(target_name, channel_binding),
             )
             .map(SspiAuthContext::Kerberos),
 
@@ -88,7 +94,7 @@ impl SspiAuthContext {
                 kerberos_config,
                 target: target_name,
             } => {
-                let sspi_config = SspiConfig::new(target_name);
+                let sspi_config = SspiConfig::with_channel_binding(target_name, channel_binding);
 
                 let client_computer_name = whoami::fallible::hostname().map_err(|e| {
                     crate::PwshCoreError::InternalError(format!(
@@ -162,8 +168,9 @@ impl SspiAuthSequence {
         sspi_auth_config: SspiAuthConfig,
         require_encryption: bool,
         http_builder: HttpBuilder,
+        channel_binding: Option<Vec<u8>>,
     ) -> Result<Self, crate::PwshCoreError> {
-        let context = SspiAuthContext::new(sspi_auth_config)?;
+        let context = SspiAuthContext::new(sspi_auth_config, channel_binding)?;
         Ok(Self {
             context,
             http_builder,
@@ -209,9 +216,17 @@ impl SspiAuthSequence {
         SspiAuthenticator::resume(generator_holder, kdc_response)
     }
 
+    /// Drive the next SSPI leg. `operation_body` is `Some` only when sealing is
+    /// off (HTTPS): in that mode the auth token has no sealed body to ride in, and
+    /// the server (HTTP.SYS) re-challenges a token-less operation request and
+    /// closes the connection — so we attach the actual operation SOAP to each
+    /// challenge leg (RFC 4559 / requests-kerberos `force_preemptive` style). The
+    /// leg that finally authenticates therefore also carries (and the server
+    /// processes) the operation, and its 200 is the operation response.
     pub(crate) fn process_initialized_sec_context(
         &mut self,
         sec_context: &crate::connector::authenticator::SecContextInit,
+        operation_body: Option<&str>,
     ) -> Result<SecCtxInited, PwshCoreError> {
         let res = match &mut self.context {
             SspiAuthContext::Ntlm(auth_context) => {
@@ -228,12 +243,18 @@ impl SspiAuthSequence {
         match res {
             super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
                 self.http_builder.with_auth_header(token.0);
-                Ok(SecCtxInited::Continue(
-                    self.http_builder.post(HttpBody::empty()),
-                ))
+                let body =
+                    operation_body.map_or_else(HttpBody::empty, |xml| HttpBody::Xml(xml.to_owned()));
+                Ok(SecCtxInited::Continue(self.http_builder.post(body)))
             }
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),
         }
+    }
+
+    /// Whether SSPI message sealing is in effect (HTTP). When false (HTTPS),
+    /// operation auth must ride the challenge legs instead of a sealed body.
+    pub(crate) fn require_encryption(&self) -> bool {
+        self.require_encryption
     }
 
     pub fn when_finish(self) -> Authenticated {
@@ -312,11 +333,19 @@ impl BasicAuthSequence {
 }
 
 impl AuthSequence {
-    pub fn new(cfg: &AuthSequenceConfig, http: HttpBuilder) -> Result<Self, PwshCoreError> {
+    pub fn new(
+        cfg: &AuthSequenceConfig,
+        http: HttpBuilder,
+        channel_binding: Option<Vec<u8>>,
+    ) -> Result<Self, PwshCoreError> {
         match &cfg.authenticator_config {
             AuthenticatorConfig::Sspi(sspi) => {
-                let sspi_auth =
-                    SspiAuthSequence::new(sspi.clone(), cfg.require_sspi_sealing, http)?;
+                let sspi_auth = SspiAuthSequence::new(
+                    sspi.clone(),
+                    cfg.require_sspi_sealing,
+                    http,
+                    channel_binding,
+                )?;
                 Ok(Self::Sspi(sspi_auth))
             }
             AuthenticatorConfig::Basic { username, password } => {

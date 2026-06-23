@@ -194,6 +194,10 @@ impl HttpClient for GatewayHttpViaWsClient {
                         }
                     };
 
+                    // Capture conn id before the sequence is consumed (the
+                    // AlreadyComplete path below has no outgoing request).
+                    let conn_id_for_complete = auth_sequence.conn_id;
+
                     match auth_sequence.process_sec_ctx_init(&init)? {
                         SecContextInited::Continue { request, sequence } => {
                             let HttpRequestAction {
@@ -216,6 +220,21 @@ impl HttpClient for GatewayHttpViaWsClient {
                             return Ok(HttpResponseTargeted::new(
                                 response,
                                 connection_id,
+                                Some(authenticated_http_channel_cert),
+                            ));
+                        }
+                        // HTTPS-unsealed (`--gateway --https`): SSPI sealing is off, so
+                        // the operation rode the auth challenge legs and the last auth
+                        // response IS the operation response — nothing more to send.
+                        SecContextInited::AlreadyComplete {
+                            authenticated_http_channel_cert,
+                        } => {
+                            let response = auth_response.expect(
+                                "HTTPS auth completes via the legs, which always yield a response",
+                            );
+                            return Ok(HttpResponseTargeted::new(
+                                response,
+                                conn_id_for_complete,
                                 Some(authenticated_http_channel_cert),
                             ));
                         }
@@ -608,6 +627,9 @@ impl HttpResponseDecoder {
             status_code,
             headers,
             body,
+            // Gateway tunnels the WinRM payload; the target TLS cert is not
+            // surfaced here, so channel binding is not available on this path.
+            peer_cert_der: None,
         }))
     }
 }
