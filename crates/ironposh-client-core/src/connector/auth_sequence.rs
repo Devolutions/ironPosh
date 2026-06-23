@@ -243,8 +243,8 @@ impl SspiAuthSequence {
         match res {
             super::authenticator::ActionReqired::TryInitSecContextAgain { token } => {
                 self.http_builder.with_auth_header(token.0);
-                let body =
-                    operation_body.map_or_else(HttpBody::empty, |xml| HttpBody::Xml(xml.to_owned()));
+                let body = operation_body
+                    .map_or_else(HttpBody::empty, |xml| HttpBody::Xml(xml.to_owned()));
                 Ok(SecCtxInited::Continue(self.http_builder.post(body)))
             }
             super::authenticator::ActionReqired::Done { token } => Ok(SecCtxInited::Done(token)),

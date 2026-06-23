@@ -130,7 +130,10 @@ pub fn test_write_progress_tolerates_nil_fields() {
     let record = ComplexObject::standard()
         .extended("Activity", "Preparing modules for first use.")
         .extended("ActivityId", 0i32)
-        .extended("CurrentOperation", PsValue::Primitive(PsPrimitiveValue::Nil))
+        .extended(
+            "CurrentOperation",
+            PsValue::Primitive(PsPrimitiveValue::Nil),
+        )
         .extended("ParentActivityId", -1i32)
         .extended("PercentComplete", -1i32)
         .extended("SecondsRemaining", -1i32)

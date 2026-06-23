@@ -35,10 +35,8 @@ struct ClientRun {
 fn run_cell(auth: &str, transport: &[&str], tag: &str) -> ClientRun {
     let bin = env!("CARGO_BIN_EXE_ironposh-client-tokio");
     let cfg = e2e_pwsh_config::load_from_env_or_default();
-    let log_path = std::env::temp_dir().join(format!(
-        "ironposh-matrix.{tag}.{}.log",
-        std::process::id()
-    ));
+    let log_path =
+        std::env::temp_dir().join(format!("ironposh-matrix.{tag}.{}.log", std::process::id()));
     let _ = std::fs::remove_file(&log_path);
 
     let mut cmd = Command::new(bin);
@@ -93,24 +91,48 @@ fn tail(r: &ClientRun) -> String {
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn negotiate_over_http_seals_messages() {
     let r = run_cell("negotiate", HTTP, "neg-http");
-    assert!(connected(&r), "Negotiate/HTTP should authenticate and run\n{}", tail(&r));
-    assert!(sealed(&r), "Negotiate/HTTP MUST SSPI-seal the payload\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "Negotiate/HTTP should authenticate and run\n{}",
+        tail(&r)
+    );
+    assert!(
+        sealed(&r),
+        "Negotiate/HTTP MUST SSPI-seal the payload\n{}",
+        tail(&r)
+    );
 }
 
 #[test]
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn kerberos_over_http_seals_messages() {
     let r = run_cell("kerberos", HTTP, "krb-http");
-    assert!(connected(&r), "Kerberos/HTTP should authenticate and run\n{}", tail(&r));
-    assert!(sealed(&r), "Kerberos/HTTP MUST SSPI-seal the payload\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "Kerberos/HTTP should authenticate and run\n{}",
+        tail(&r)
+    );
+    assert!(
+        sealed(&r),
+        "Kerberos/HTTP MUST SSPI-seal the payload\n{}",
+        tail(&r)
+    );
 }
 
 #[test]
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn ntlm_over_http_seals_messages() {
     let r = run_cell("ntlm", HTTP, "ntlm-http");
-    assert!(connected(&r), "NTLM/HTTP should authenticate and run\n{}", tail(&r));
-    assert!(sealed(&r), "NTLM/HTTP MUST SSPI-seal the payload\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "NTLM/HTTP should authenticate and run\n{}",
+        tail(&r)
+    );
+    assert!(
+        sealed(&r),
+        "NTLM/HTTP MUST SSPI-seal the payload\n{}",
+        tail(&r)
+    );
 }
 
 // ──────────────────── HTTPS + SSPI → NOT sealed (TLS) ────────────────────
@@ -119,7 +141,11 @@ fn ntlm_over_http_seals_messages() {
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn negotiate_over_https_does_not_seal() {
     let r = run_cell("negotiate", HTTPS, "neg-https");
-    assert!(connected(&r), "Negotiate/HTTPS should authenticate and run\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "Negotiate/HTTPS should authenticate and run\n{}",
+        tail(&r)
+    );
     assert!(
         !sealed(&r),
         "Negotiate/HTTPS MUST NOT SSPI-seal — TLS provides confidentiality (seal ⟂ TLS)\n{}",
@@ -131,7 +157,11 @@ fn negotiate_over_https_does_not_seal() {
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn kerberos_over_https_does_not_seal() {
     let r = run_cell("kerberos", HTTPS, "krb-https");
-    assert!(connected(&r), "Kerberos/HTTPS should authenticate and run\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "Kerberos/HTTPS should authenticate and run\n{}",
+        tail(&r)
+    );
     assert!(
         !sealed(&r),
         "Kerberos/HTTPS MUST NOT SSPI-seal — TLS provides confidentiality (seal ⟂ TLS)\n{}",
@@ -143,7 +173,11 @@ fn kerberos_over_https_does_not_seal() {
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn ntlm_over_https_does_not_seal() {
     let r = run_cell("ntlm", HTTPS, "ntlm-https");
-    assert!(connected(&r), "NTLM/HTTPS should authenticate and run\n{}", tail(&r));
+    assert!(
+        connected(&r),
+        "NTLM/HTTPS should authenticate and run\n{}",
+        tail(&r)
+    );
     assert!(
         !sealed(&r),
         "NTLM/HTTPS MUST NOT SSPI-seal — TLS provides confidentiality (seal ⟂ TLS)\n{}",
@@ -157,9 +191,14 @@ fn ntlm_over_https_does_not_seal() {
 #[ignore = "e2e matrix test: requires reachable WinRM server (HTTP 5985 + HTTPS 5986)"]
 fn basic_over_http_is_refused_without_force() {
     let r = run_cell("basic", HTTP, "basic-http");
-    assert!(!r.success, "Basic over plain HTTP must be refused\n{}", tail(&r));
     assert!(
-        r.output.contains("Basic authentication over plain HTTP is refused"),
+        !r.success,
+        "Basic over plain HTTP must be refused\n{}",
+        tail(&r)
+    );
+    assert!(
+        r.output
+            .contains("Basic authentication over plain HTTP is refused"),
         "refusal must be explained to the user\n{}",
         tail(&r)
     );
@@ -170,7 +209,8 @@ fn basic_over_http_is_refused_without_force() {
 fn basic_over_http_is_allowed_with_force_flag() {
     let r = run_cell("basic", HTTP_FORCED, "basic-http-forced");
     assert!(
-        !r.output.contains("Basic authentication over plain HTTP is refused"),
+        !r.output
+            .contains("Basic authentication over plain HTTP is refused"),
         "--http-insecure must bypass the Basic-over-HTTP guard\n{}",
         tail(&r)
     );
@@ -188,7 +228,8 @@ fn basic_over_http_is_allowed_with_force_flag() {
 fn basic_over_https_is_allowed_and_unsealed() {
     let r = run_cell("basic", HTTPS, "basic-https");
     assert!(
-        !r.output.contains("Basic authentication over plain HTTP is refused"),
+        !r.output
+            .contains("Basic authentication over plain HTTP is refused"),
         "Basic over HTTPS must be permitted (TLS encrypts the credentials)\n{}",
         tail(&r)
     );
@@ -197,7 +238,11 @@ fn basic_over_https_is_allowed_and_unsealed() {
         "Basic is never SSPI-sealed; over HTTPS confidentiality comes from TLS\n{}",
         tail(&r)
     );
-    assert!(reached_server(&r), "Basic/HTTPS should reach the server\n{}", tail(&r));
+    assert!(
+        reached_server(&r),
+        "Basic/HTTPS should reach the server\n{}",
+        tail(&r)
+    );
 }
 
 // ─────────────── Forced unencrypted SSPI over HTTP → not sealed ───────────────

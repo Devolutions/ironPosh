@@ -43,7 +43,9 @@ impl ConnectionId {
 pub enum ConnectionState {
     /// SSPI only. Retains the queued SOAP so a TLS channel-binding challenge can
     /// restart auth on a fresh connection with the binding applied.
-    PreAuth { queued_xml: String },
+    PreAuth {
+        queued_xml: String,
+    },
     Idle {
         enc: EncryptionOptions,
     },
@@ -688,8 +690,8 @@ impl PostConAuthSequence {
         // When sealing is off (HTTPS), the operation SOAP must ride the auth
         // challenge legs (the server rejects a token-less operation request).
         // Clone it so we can hand a copy to each leg without borrow conflicts.
-        let operation_body = (!self.auth_sequence.require_encryption())
-            .then(|| self.queued_xml.clone());
+        let operation_body =
+            (!self.auth_sequence.require_encryption()).then(|| self.queued_xml.clone());
 
         match self
             .auth_sequence

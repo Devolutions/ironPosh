@@ -307,14 +307,12 @@ async fn main() -> anyhow::Result<()> {
         // multiplexer erroring) and avoids racing the JoinHandle. Bounded so a
         // pathological non-terminating task cannot hang process exit.
         if connection_error.is_none() && !command_completed {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                &mut connection_handle,
-            )
-            .await
+            match tokio::time::timeout(std::time::Duration::from_secs(5), &mut connection_handle)
+                .await
             {
                 Ok(Ok(Ok(()))) => {
-                    connection_error = Some("connection closed before the command completed".into());
+                    connection_error =
+                        Some("connection closed before the command completed".into());
                 }
                 Ok(Ok(Err(e))) => connection_error = Some(e.to_string()),
                 // The handle is awaited before any abort(), so a JoinError here is a
