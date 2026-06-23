@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use super::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
-};
+use super::{ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsType, PsValue};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 
@@ -92,17 +90,18 @@ impl<'a> PsValue {
     }
 }
 
-impl<'a> PsProperty {
-    pub fn to_element(
-        &'a self,
-        objects_map: &mut RefIdMap<'a, ComplexObject>,
-        types_map: &mut RefIdMap<'a, PsType>,
-    ) -> Result<Element<'a>> {
-        Ok(self
-            .value
-            .to_element(objects_map, types_map)?
-            .add_attribute(Attribute::new("N", &self.name)))
-    }
+/// Serialize a single named property value as `<... N="name">` (MS-PSRP
+/// 2.2.5.2.8/2.2.5.2.9). Free function because the property name and value are
+/// borrowed separately from the [`Properties`](super::Properties) map.
+fn property_to_element<'a>(
+    name: &'a str,
+    value: &'a PsValue,
+    objects_map: &mut RefIdMap<'a, ComplexObject>,
+    types_map: &mut RefIdMap<'a, PsType>,
+) -> Result<Element<'a>> {
+    Ok(value
+        .to_element(objects_map, types_map)?
+        .add_attribute(Attribute::new("N", name)))
 }
 
 impl<'a> PsType {
@@ -246,19 +245,25 @@ impl<'a> ComplexObject {
         }
 
         // 4. Add Adapted Properties (<Props>) if they exist
-        if !self.adapted_properties.is_empty() {
+        if self.properties.has_adapted() {
             let mut props_element = Element::new("Props");
-            for prop in self.adapted_properties.values() {
-                props_element = props_element.add_child(prop.to_element(objects_map, types_map)?);
+            for (name, value) in self.properties.adapted() {
+                props_element = props_element.add_child(property_to_element(
+                    name,
+                    value,
+                    objects_map,
+                    types_map,
+                )?);
             }
             element = element.add_child(props_element);
         }
 
         // 5. Add Extended/Standard Properties (<MS>) if they exist
-        if !self.extended_properties.is_empty() {
+        if self.properties.has_extended() {
             let mut ms_element = Element::new("MS");
-            for prop in self.extended_properties.values() {
-                ms_element = ms_element.add_child(prop.to_element(objects_map, types_map)?);
+            for (name, value) in self.properties.extended() {
+                ms_element =
+                    ms_element.add_child(property_to_element(name, value, objects_map, types_map)?);
             }
             element = element.add_child(ms_element);
         }

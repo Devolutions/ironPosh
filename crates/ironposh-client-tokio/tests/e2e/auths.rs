@@ -21,5 +21,9 @@ pub fn auths_from_env_or_default() -> Vec<&'static str> {
             .collect();
     }
 
-    vec!["basic"]
+    // The default target (a domain controller) refuses Basic over HTTP, so the
+    // default auth is negotiate (overridable via IRONPOSH_E2E_AUTH / _AUTHS).
+    vec![Box::leak(
+        ironposh_test_support::e2e_pwsh_config::default_auth_method().into_boxed_str(),
+    )]
 }

@@ -61,16 +61,19 @@ impl PsValue {
         }
     }
 
-    /// Extract string array from PsValue (simplified implementation)
+    /// Extract a string array from a container value (`<LST>`/`<STK>`/`<QUE>`).
+    ///
+    /// Returns `None` when the value is not a container or when any element is
+    /// not a string, so callers cannot mistake "not an array" for "empty array".
     pub fn as_string_array(&self) -> Option<Vec<String>> {
-        // For now, simplified - in reality this would need to parse complex objects
-        // that represent string arrays
+        use super::{ComplexObjectContent, Container};
         match self {
-            Self::Object(_obj) => {
-                // TODO: Parse array objects properly
-                // For now return empty vec as placeholder
-                Some(vec![])
-            }
+            Self::Object(obj) => match &obj.content {
+                ComplexObjectContent::Container(
+                    Container::List(items) | Container::Stack(items) | Container::Queue(items),
+                ) => items.iter().map(Self::as_string).collect(),
+                _ => None,
+            },
             Self::Primitive(_) => None,
         }
     }
@@ -81,8 +84,7 @@ impl PsValue {
             type_def: Some(PsType::array_list()),
             to_string: None,
             content: super::ComplexObjectContent::Container(super::Container::List(values)),
-            adapted_properties: std::collections::BTreeMap::new(),
-            extended_properties: std::collections::BTreeMap::new(),
+            properties: super::Properties::new(),
         })
     }
 

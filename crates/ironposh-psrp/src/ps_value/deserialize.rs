@@ -1,5 +1,5 @@
 use super::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsEnums, PsPrimitiveValue, PsType,
     PsValue,
 };
 use base64::Engine;
@@ -372,9 +372,20 @@ pub struct ComplexObjectContextVisitor<'a> {
     type_def: Option<PsType>,
     to_string: Option<String>,
     content: ComplexObjectContent,
-    adapted_properties: BTreeMap<String, PsProperty>,
-    extended_properties: BTreeMap<String, PsProperty>,
+    properties: Properties,
     _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+/// Parse one `<... N="name">value</...>` property element into its name and
+/// value (MS-PSRP 2.2.5.2.8/2.2.5.2.9). A missing `N` attribute yields an
+/// empty name, matching the previous behavior.
+fn parse_named_property(
+    node: ironposh_xml::parser::Node<'_, '_>,
+    context: &mut DeserializationContext,
+) -> Result<(String, PsValue)> {
+    let name = node.attribute("N").unwrap_or_default().to_string();
+    let value = PsValue::from_node_with_context(node, context)?;
+    Ok((name, value))
 }
 
 impl ComplexObjectContextVisitor<'_> {
@@ -409,8 +420,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     type_def: self.type_def.clone(),
                     to_string: self.to_string.clone(),
                     content: self.content.clone(),
-                    adapted_properties: self.adapted_properties.clone(),
-                    extended_properties: self.extended_properties.clone(),
+                    properties: self.properties.clone(),
                 };
                 context.register_object(ref_id.to_string(), obj);
             }
@@ -457,8 +467,8 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     // Parse adapted properties with context
                     for prop_child in child.children() {
                         if prop_child.is_element() {
-                            let prop = PsProperty::from_node_with_context(prop_child, context)?;
-                            self.adapted_properties.insert(prop.name.clone(), prop);
+                            let (name, value) = parse_named_property(prop_child, context)?;
+                            self.properties.insert_adapted(name, value);
                         }
                     }
                 }
@@ -466,8 +476,8 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                     // Parse extended properties with context
                     for prop_child in child.children() {
                         if prop_child.is_element() {
-                            let prop = PsProperty::from_node_with_context(prop_child, context)?;
-                            self.extended_properties.insert(prop.name.clone(), prop);
+                            let (name, value) = parse_named_property(prop_child, context)?;
+                            self.properties.insert_extended(name, value);
                         }
                     }
                 }
@@ -495,8 +505,7 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
             type_def: self.type_def,
             to_string: self.to_string,
             content: self.content,
-            adapted_properties: self.adapted_properties,
-            extended_properties: self.extended_properties,
+            properties: self.properties,
         })
     }
 }
@@ -723,70 +732,5 @@ impl<'a> PsXmlDeserialize<'a> for Container {
 
     fn visitor_with_context() -> Self::Visitor {
         ContainerContextVisitor::new()
-    }
-}
-
-/// Context-aware PsProperty visitor
-#[derive(Default)]
-pub struct PsPropertyContextVisitor<'a> {
-    name: Option<String>,
-    value: Option<PsValue>,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-
-impl PsPropertyContextVisitor<'_> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl<'a> PsXmlVisitor<'a> for PsPropertyContextVisitor<'a> {
-    type Value = PsProperty;
-
-    fn visit_node(
-        &mut self,
-        node: ironposh_xml::parser::Node<'a, 'a>,
-        context: &mut DeserializationContext,
-    ) -> Result<()> {
-        if !node.is_element() {
-            return Ok(());
-        }
-
-        // Extract the N attribute for property name
-        if let Some(name_attr) = node.attribute("N") {
-            self.name = Some(name_attr.to_string());
-        }
-
-        // Parse the value from the node using context
-        let value = PsValue::from_node_with_context(node, context)?;
-        self.value = Some(value);
-
-        Ok(())
-    }
-
-    fn visit_children(
-        &mut self,
-        _children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-        _context: &mut DeserializationContext,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value> {
-        let value = self.value.ok_or_else(|| {
-            ironposh_xml::XmlError::GenericError("No value found for PsProperty".to_string())
-        })?;
-
-        let name = self.name.unwrap_or_default();
-
-        Ok(PsProperty { name, value })
-    }
-}
-
-impl<'a> PsXmlDeserialize<'a> for PsProperty {
-    type Visitor = PsPropertyContextVisitor<'a>;
-
-    fn visitor_with_context() -> Self::Visitor {
-        PsPropertyContextVisitor::new()
     }
 }

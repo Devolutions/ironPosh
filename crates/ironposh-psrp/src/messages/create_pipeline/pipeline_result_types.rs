@@ -1,7 +1,16 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsEnums, PsType};
-use std::collections::BTreeMap;
+use ironposh_macros::PsEnum;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// MS-PSRP PipelineResultTypes enum, serialized as a full enum `<Obj>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PsEnum)]
+#[ps(
+    repr = "object",
+    type_names(
+        "System.Management.Automation.Runspaces.PipelineResultTypes",
+        "System.Enum",
+        "System.ValueType",
+        "System.Object"
+    )
+)]
 pub enum PipelineResultTypes {
     #[default]
     None = 0x00,
@@ -14,13 +23,9 @@ pub enum PipelineResultTypes {
     Null = 0x40,
 }
 
-impl PipelineResultTypes {
-    pub fn value(self) -> i32 {
-        self as i32
-    }
-}
-
 impl From<i32> for PipelineResultTypes {
+    /// Lenient: a flag *combination* (e.g. `Output|Error` = 3) or unknown value
+    /// maps to `None`, matching PowerShell's tolerant merge-result handling.
     fn from(value: i32) -> Self {
         match value {
             0x01 => Self::Output,
@@ -30,45 +35,36 @@ impl From<i32> for PipelineResultTypes {
             0x10 => Self::Debug,
             0x20 => Self::All,
             0x40 => Self::Null,
-            _ => Self::None, // 0x00 is also None
+            _ => Self::None,
         }
     }
 }
 
-impl From<PipelineResultTypes> for ComplexObject {
-    fn from(result_type: PipelineResultTypes) -> Self {
-        let to_string_value = match result_type {
-            PipelineResultTypes::None => Some("None".to_string()),
-            PipelineResultTypes::Output => Some("Output".to_string()),
-            PipelineResultTypes::Error => Some("Error".to_string()),
-            PipelineResultTypes::Warning => Some("Warning".to_string()),
-            PipelineResultTypes::Verbose => Some("Verbose".to_string()),
-            PipelineResultTypes::Debug => Some("Debug".to_string()),
-            PipelineResultTypes::All => Some("All".to_string()),
-            PipelineResultTypes::Null => Some("Null".to_string()),
+/// `#[ps(with)]` converter for the merge-result fields: serializes via the enum
+/// object, parses leniently (flag combos / unknown → `None`).
+pub mod merge_result_conv {
+    use super::PipelineResultTypes;
+    use crate::PowerShellRemotingError;
+    use crate::ps_value::{
+        ComplexObject, ComplexObjectContent, PsEnums, PsPrimitiveValue, PsValue,
+    };
+
+    #[allow(clippy::trivially_copy_pass_by_ref)] // signature fixed by #[ps(with)]
+    pub fn to_ps_value(value: &PipelineResultTypes) -> PsValue {
+        PsValue::Object(ComplexObject::from(*value))
+    }
+
+    #[allow(clippy::unnecessary_wraps)] // signature fixed by #[ps(with)]
+    pub fn from_ps_value(value: &PsValue) -> Result<PipelineResultTypes, PowerShellRemotingError> {
+        let id = match value {
+            PsValue::Object(o) => match &o.content {
+                ComplexObjectContent::PsEnums(PsEnums { value }) => *value,
+                ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(i)) => *i,
+                _ => 0,
+            },
+            PsValue::Primitive(PsPrimitiveValue::I32(i)) => *i,
+            PsValue::Primitive(_) => 0,
         };
-
-        Self {
-            type_def: Some(PsType::pipeline_result_types()),
-            to_string: to_string_value,
-            content: ComplexObjectContent::PsEnums(PsEnums {
-                value: result_type.value(),
-            }),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for PipelineResultTypes {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, crate::PowerShellRemotingError> {
-        match value.content {
-            ComplexObjectContent::PsEnums(PsEnums { value: val }) => Ok(Self::from(val)),
-            _ => Err(crate::PowerShellRemotingError::InvalidMessage(
-                "PipelineResultTypes must be an enum".to_string(),
-            )),
-        }
+        Ok(PipelineResultTypes::from(id))
     }
 }

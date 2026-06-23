@@ -943,6 +943,61 @@ fn connect_mode_emits_wsman_connect() {
     assert_eq!(connect_runspace_pool.max_runspaces, 1);
 }
 
+/// Reattaching with explicit runspace limits (issue #12) must advertise those
+/// limits in CONNECT_RUNSPACEPOOL instead of the 1/1 default.
+#[test]
+fn connect_mode_advertises_configured_runspaces() {
+    use base64::Engine;
+    use ironposh_psrp::{
+        ConnectRunspacePool, MessageType, PsValue,
+        fragmentation::{DefragmentResult, Defragmenter},
+    };
+
+    let shell_id: uuid::Uuid = "2d6534d0-6b12-40e3-b773-cba26459cfa8".parse().unwrap();
+    let mut connector =
+        Connector::new_connect_with_runspaces(support::test_config(), shell_id, 2, 8);
+
+    let result = connector.step(None).expect("idle step in connect mode");
+    let ConnectorStepResult::SendBack { try_send } = result else {
+        panic!("expected SendBack for Connect");
+    };
+    let (request, _conn) = support::expect_just_send(try_send);
+    let xml = request
+        .body
+        .expect("connect has a body")
+        .as_str()
+        .expect("plaintext body in HttpInsecure mode")
+        .to_owned();
+
+    let re = regex::Regex::new(r"<connectXml[^>]*>([^<]+)</connectXml>").unwrap();
+    let payload_b64 = &re
+        .captures(&xml)
+        .expect("Connect request must carry a connectXml payload")[1];
+    let payload = base64::engine::general_purpose::STANDARD
+        .decode(payload_b64)
+        .expect("connectXml must be valid base64");
+
+    let mut defragmenter = Defragmenter::new();
+    let DefragmentResult::Complete(messages) = defragmenter
+        .defragment(&payload)
+        .expect("defragment connectXml payload")
+    else {
+        panic!("connectXml payload must defragment to complete messages");
+    };
+
+    assert_eq!(messages[1].message_type, MessageType::ConnectRunspacepool);
+    let ps_value = messages[1]
+        .parse_ps_message()
+        .expect("parse ConnectRunspacePool payload");
+    let PsValue::Object(obj) = ps_value else {
+        panic!("expected ConnectRunspacePool as PsValue::Object");
+    };
+    let connect_runspace_pool =
+        ConnectRunspacePool::try_from(obj).expect("decode ConnectRunspacePool");
+    assert_eq!(connect_runspace_pool.min_runspaces, 2);
+    assert_eq!(connect_runspace_pool.max_runspaces, 8);
+}
+
 /// Feeding a ConnectResponse (SessionCapability + RunspacePoolInitData) must
 /// bring the connect-mode connector straight to Connected with an Opened pool.
 #[test]

@@ -1,8 +1,8 @@
 use base64::Engine;
-use ironposh_psrp::{MessageType, PsValue, RunspacePoolInitData, fragmentation};
+use ironposh_psrp::{MessageType, PsrpMessage, fragmentation};
 use ironposh_winrm::soap::SoapEnvelope;
 use ironposh_xml::parser::XmlDeserialize;
-use tracing::{info, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::enums::RunspacePoolState;
 use super::pool::RunspacePool;
@@ -67,22 +67,21 @@ impl ExpectShellConnected {
         let mut saw_session_capability = false;
         let mut saw_init_data = false;
         for message in messages {
-            let ps_value = message.parse_ps_message()?;
-            match message.message_type {
-                MessageType::SessionCapability => {
-                    runspace_pool.handle_session_capability(ps_value)?;
+            // L4 typed stream (issue #12): parse once into a typed PsrpMessage and
+            // match on the variant instead of re-deriving the type from the wire
+            // header and re-parsing per arm.
+            let data_len = message.data.len();
+            match PsrpMessage::parse(&message)? {
+                PsrpMessage::SessionCapability(capability) => {
+                    debug!(target: "session", ?capability, "received SessionCapability");
+                    runspace_pool.session_capability = Some(capability);
                     saw_session_capability = true;
                 }
-                MessageType::ApplicationPrivateData => {
-                    runspace_pool.handle_application_private_data(ps_value)?;
+                PsrpMessage::ApplicationPrivateData(app_data) => {
+                    trace!(target: "session", ?app_data, "received ApplicationPrivateData");
+                    runspace_pool.application_private_data = Some(app_data);
                 }
-                MessageType::RunspacepoolInitData => {
-                    let PsValue::Object(obj) = ps_value else {
-                        return Err(crate::PwshCoreError::InvalidResponse(
-                            "Expected RunspacePoolInitData as PsValue::Object".into(),
-                        ));
-                    };
-                    let init_data = RunspacePoolInitData::try_from(obj)?;
+                PsrpMessage::RunspacePoolInitData(init_data) => {
                     info!(
                         ?init_data,
                         "received RunspacePoolInitData in ConnectResponse"
@@ -108,22 +107,23 @@ impl ExpectShellConnected {
                     runspace_pool.max_runspaces = max;
                     saw_init_data = true;
                 }
-                MessageType::RunspacepoolState => {
+                PsrpMessage::RunspacePoolState(_) => {
                     // Protocol drift: a connect response carries INIT_DATA, not a
                     // pool state transition. Surface it, but keep the reattach (the
                     // transition is tolerated, not fatal).
                     warn!(
                         message_type = ?MessageType::RunspacepoolState,
-                        data_len = message.data.len(),
+                        data_len,
                         "unexpected RunspacepoolState in ConnectResponse; ignoring"
                     );
                 }
                 other => {
                     // Be tolerant: unknown payloads must not kill the reattach.
+                    let message_type = other.message_type();
                     warn!(
-                        message_type = ?other,
-                        message_type_value = other.value(),
-                        data_len = message.data.len(),
+                        message_type = ?message_type,
+                        message_type_value = message_type.value(),
+                        data_len,
                         "ignoring unexpected PSRP message in ConnectResponse"
                     );
                 }

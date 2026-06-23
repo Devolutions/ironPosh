@@ -10,8 +10,10 @@ pub mod pipeline_input;
 pub mod pipeline_output;
 pub mod pipeline_state;
 pub mod progress_record;
+pub mod psrp_message;
 pub mod public_key;
 pub mod public_key_request;
+pub mod remote_host_method_id;
 pub mod runspace_pool_host_call;
 pub mod runspace_pool_host_response;
 pub mod runspace_pool_init_data;
@@ -29,8 +31,10 @@ pub use pipeline_host_response::*;
 pub use pipeline_output::*;
 pub use pipeline_state::*;
 pub use progress_record::*;
+pub use psrp_message::*;
 pub use public_key::*;
 pub use public_key_request::*;
+pub use remote_host_method_id::*;
 pub use runspace_pool_host_call::*;
 pub use runspace_pool_host_response::*;
 pub use runspace_pool_init_data::*;
@@ -39,6 +43,6 @@ pub use session_capability::*;
 
 // Re-export ps_value types for backwards compatibility
 pub use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
-    PsValue, deserialize,
+    ComplexObject, ComplexObjectContent, Container, Properties, Property, PropertyKind, PsEnums,
+    PsPrimitiveValue, PsType, PsValue, deserialize,
 };

@@ -68,7 +68,16 @@ impl TransportSecurity {
         }
     }
 
-    /// Whether SSPI message sealing (wrap/unwrap) should be used
+    /// Whether SSPI message sealing (wrap/unwrap) should be used.
+    ///
+    /// Sealing is used only over plain HTTP, where the transport gives no
+    /// confidentiality so the WinRM payload must be wrapped in an
+    /// `application/HTTP-SPNEGO-session-encrypted` body. Over HTTPS, TLS already
+    /// encrypts the wire, so the spec-correct behavior is to send every operation
+    /// as plain `application/soap+xml` and rely on connection-oriented auth
+    /// (RFC 4559): the connection is authenticated once during the handshake and
+    /// every subsequent operation rides that authenticated, integrity-protected
+    /// connection. Sealing and HTTPS are mutually exclusive.
     pub fn requires_sspi_sealing(&self) -> bool {
         matches!(self, Self::Http)
     }
@@ -203,6 +212,16 @@ pub struct Connector {
     /// (WSMan Connect) instead of creating a new one. The shell id is also
     /// used as the pool RPID (shell id == pool RPID in this codebase).
     connect_shell_id: Option<uuid::Uuid>,
+    /// `(min, max)` runspaces to advertise in CONNECT_RUNSPACEPOOL on reattach.
+    ///
+    /// MS-PSRP §2.2.2.14: the reference client sends the *original pool's*
+    /// stored limits (`RemotingProtocol2.cs:38-39`), which it learns via
+    /// server-side session enumeration. We do not enumerate sessions, so when
+    /// this is `None` we fall back to the creator default of 1/1 — correct only
+    /// for pools that were created 1/1. Callers that know the original size
+    /// should set it via [`Connector::new_connect_with_runspaces`]. See issue
+    /// #12 ("Gap: CONNECT_RUNSPACEPOOL min/max runspaces").
+    connect_runspaces: Option<(usize, usize)>,
 }
 
 impl Connector {
@@ -211,16 +230,38 @@ impl Connector {
             state: ConnectorState::Idle,
             config,
             connect_shell_id: None,
+            connect_runspaces: None,
         }
     }
 
     /// Create a connector that attaches to an existing disconnected shell
     /// (browser-refresh / new-process reattach) instead of creating one.
+    ///
+    /// The advertised runspace limits default to 1/1; use
+    /// [`Connector::new_connect_with_runspaces`] when the original pool size is
+    /// known.
     pub fn new_connect(config: WinRmConfig, shell_id: uuid::Uuid) -> Self {
         Self {
             state: ConnectorState::Idle,
             config,
             connect_shell_id: Some(shell_id),
+            connect_runspaces: None,
+        }
+    }
+
+    /// Like [`Connector::new_connect`], but advertises the given original pool
+    /// runspace limits in CONNECT_RUNSPACEPOOL instead of the 1/1 default.
+    pub fn new_connect_with_runspaces(
+        config: WinRmConfig,
+        shell_id: uuid::Uuid,
+        min_runspaces: usize,
+        max_runspaces: usize,
+    ) -> Self {
+        Self {
+            state: ConnectorState::Idle,
+            config,
+            connect_shell_id: Some(shell_id),
+            connect_runspaces: Some((min_runspaces, max_runspaces)),
         }
     }
 
@@ -271,8 +312,13 @@ impl Connector {
                 if let Some(shell_id) = self.connect_shell_id {
                     // Reattach path: WSMan Connect to an existing disconnected
                     // shell. The provided shell id doubles as the pool RPID.
+                    // Advertise the original pool's runspace limits when known,
+                    // otherwise the creator defaults to 1/1 (see issue #12).
+                    let (min_runspaces, max_runspaces) = self.connect_runspaces.unwrap_or((1, 1));
                     let runspace_pool = RunspacePoolCreator::builder()
                         .id(shell_id)
+                        .min_runspaces(min_runspaces)
+                        .max_runspaces(max_runspaces)
                         .host_info(self.config.host_info.clone())
                         .build()
                         .into_connect_runspace_pool(ws_man);

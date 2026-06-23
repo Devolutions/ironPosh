@@ -162,11 +162,8 @@ fn encrypt_secure_strings_in_value_rec(
         }
         PsValue::Primitive(_) => {}
         PsValue::Object(obj) => {
-            for prop in obj.adapted_properties.values_mut() {
-                encrypt_secure_strings_in_value_rec(&mut prop.value, session_key)?;
-            }
-            for prop in obj.extended_properties.values_mut() {
-                encrypt_secure_strings_in_value_rec(&mut prop.value, session_key)?;
+            for value in obj.properties.values_mut() {
+                encrypt_secure_strings_in_value_rec(value, session_key)?;
             }
 
             match &mut obj.content {
@@ -1466,10 +1463,10 @@ impl RunspacePool {
                     .to_string
                     .clone()
                     .or_else(|| {
-                        obj.extended_properties
+                        obj.properties
                             .get("MessageData")
-                            .or_else(|| obj.extended_properties.get("InformationalRecord_Message"))
-                            .map(|p| p.value.to_string())
+                            .or_else(|| obj.properties.get("InformationalRecord_Message"))
+                            .map(ToString::to_string)
                     })
                     .unwrap_or_else(|| "<InformationRecord>".to_string());
                 (obj, fallback)
@@ -1657,8 +1654,7 @@ impl RunspacePool {
             ?pipeline_host_call,
             stream_name = stream_name,
             command_id = ?command_id,
-            method_id = pipeline_host_call.method_id,
-            method_name = pipeline_host_call.method_name,
+            method = ?pipeline_host_call.method,
             parameters = ?pipeline_host_call.parameters,
             "Received PipelineHostCall"
         );
@@ -1685,8 +1681,7 @@ impl RunspacePool {
         fields(
             command_id = %command_id,
             call_id = host_response.call_id,
-            method_id = host_response.method_id,
-            method_name = %host_response.method_name
+            method = ?host_response.method
         )
     )]
     pub fn send_pipeline_host_response(
@@ -1737,8 +1732,7 @@ impl RunspacePool {
         skip_all,
         fields(
             call_id = host_response.call_id,
-            method_id = host_response.method_id,
-            method_name = %host_response.method_name
+            method = ?host_response.method
         )
     )]
     pub fn send_runspace_pool_host_response(

@@ -1,257 +1,78 @@
 use super::{CommandParameter, PipelineResultTypes};
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsPrimitiveValue, PsProperty, PsType, PsValue,
-};
-use std::collections::BTreeMap;
+use ironposh_macros::{PsDeserialize, PsSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+/// A single pipeline command (MS-PSRP §2.2.3.11).
+///
+/// The object's `<ToString>` is the command text; `Args` is an ArrayList of
+/// CommandParameter; the eight merge-result fields are PipelineResultTypes.
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
 pub struct Command {
     #[builder(setter(into))]
+    #[ps(name = "Cmd", to_string)]
     pub cmd: String,
     #[builder(default = false)]
+    #[ps(name = "IsScript")]
     pub is_script: bool,
     #[builder(default)]
+    #[ps(name = "Args")]
     pub args: Vec<CommandParameter>,
     #[builder(default)]
+    #[ps(name = "UseLocalScope", nil_when_none)]
     pub use_local_scope: Option<bool>,
     #[builder(default)]
+    #[ps(
+        name = "MergeMyResult",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_my_result: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeToResult",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_to_result: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergePreviousResults",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_previous_results: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeDebug",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_debug: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeError",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_error: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeInformation",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_information: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeVerbose",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_verbose: PipelineResultTypes,
     #[builder(default)]
+    #[ps(
+        name = "MergeWarning",
+        with = "super::pipeline_result_types::merge_result_conv",
+        default
+    )]
     pub merge_warning: PipelineResultTypes,
-}
-
-impl From<Command> for ComplexObject {
-    #[expect(clippy::too_many_lines)]
-    fn from(command: Command) -> Self {
-        let mut extended_properties = BTreeMap::new();
-
-        let cmd_str = command.cmd.clone();
-
-        extended_properties.insert(
-            "Cmd".to_string(),
-            PsProperty {
-                name: "Cmd".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Str(command.cmd)),
-            },
-        );
-
-        extended_properties.insert(
-            "IsScript".to_string(),
-            PsProperty {
-                name: "IsScript".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(command.is_script)),
-            },
-        );
-
-        // Args as ArrayList of CommandParameter objects
-        let args_values: Vec<PsValue> = command
-            .args
-            .into_iter()
-            .map(|param| PsValue::Object(param.into()))
-            .collect();
-
-        let args_obj = Self {
-            type_def: Some(PsType::array_list()),
-            to_string: cmd_str.clone().into(),
-            content: ComplexObjectContent::Container(Container::List(args_values)),
-            adapted_properties: BTreeMap::new(),
-            extended_properties: BTreeMap::new(),
-        };
-
-        extended_properties.insert(
-            "Args".to_string(),
-            PsProperty {
-                name: "Args".to_string(),
-                value: PsValue::Object(args_obj),
-            },
-        );
-
-        extended_properties.insert(
-            "UseLocalScope".to_string(),
-            PsProperty {
-                name: "UseLocalScope".to_string(),
-                value: command.use_local_scope.map_or(
-                    PsValue::Primitive(PsPrimitiveValue::Nil),
-                    |use_local_scope| PsValue::Primitive(PsPrimitiveValue::Bool(use_local_scope)),
-                ),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeMyResult".to_string(),
-            PsProperty {
-                name: "MergeMyResult".to_string(),
-                value: PsValue::Object(command.merge_my_result.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeToResult".to_string(),
-            PsProperty {
-                name: "MergeToResult".to_string(),
-                value: PsValue::Object(command.merge_to_result.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergePreviousResults".to_string(),
-            PsProperty {
-                name: "MergePreviousResults".to_string(),
-                value: PsValue::Object(command.merge_previous_results.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeDebug".to_string(),
-            PsProperty {
-                name: "MergeDebug".to_string(),
-                value: PsValue::Object(command.merge_debug.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeError".to_string(),
-            PsProperty {
-                name: "MergeError".to_string(),
-                value: PsValue::Object(command.merge_error.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeInformation".to_string(),
-            PsProperty {
-                name: "MergeInformation".to_string(),
-                value: PsValue::Object(command.merge_information.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeVerbose".to_string(),
-            PsProperty {
-                name: "MergeVerbose".to_string(),
-                value: PsValue::Object(command.merge_verbose.into()),
-            },
-        );
-
-        extended_properties.insert(
-            "MergeWarning".to_string(),
-            PsProperty {
-                name: "MergeWarning".to_string(),
-                value: PsValue::Object(command.merge_warning.into()),
-            },
-        );
-
-        Self {
-            type_def: None,
-            to_string: Some(cmd_str),
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for Command {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
-            value
-                .extended_properties
-                .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
-        };
-
-        let cmd = match &get_property("Cmd")?.value {
-            PsValue::Primitive(PsPrimitiveValue::Str(s)) => s.clone(),
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "Cmd must be a string".to_string(),
-                ));
-            }
-        };
-
-        let is_script = match &get_property("IsScript")?.value {
-            PsValue::Primitive(PsPrimitiveValue::Bool(b)) => *b,
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "IsScript must be a bool".to_string(),
-                ));
-            }
-        };
-
-        let args = match &get_property("Args")?.value {
-            PsValue::Object(obj) => match &obj.content {
-                ComplexObjectContent::Container(Container::List(list)) => {
-                    let mut command_params = Vec::new();
-                    for item in list {
-                        if let PsValue::Object(param_obj) = item
-                            && let Ok(param) = CommandParameter::try_from(param_obj.clone())
-                        {
-                            command_params.push(param);
-                        }
-                    }
-                    command_params
-                }
-                _ => vec![],
-            },
-            PsValue::Primitive(_) => vec![],
-        };
-
-        let use_local_scope = if let Some(prop) = value.extended_properties.get("UseLocalScope")
-            && let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = &prop.value
-        {
-            Some(*b)
-        } else {
-            None
-        };
-
-        let get_merge_property = |name: &str| -> PipelineResultTypes {
-            value
-                .extended_properties
-                .get(name)
-                .map_or_else(PipelineResultTypes::default, |prop| match &prop.value {
-                    PsValue::Object(obj) => {
-                        PipelineResultTypes::try_from(obj.clone()).unwrap_or_default()
-                    }
-                    PsValue::Primitive(_) => PipelineResultTypes::default(),
-                })
-        };
-
-        let merge_my_result = get_merge_property("MergeMyResult");
-        let merge_to_result = get_merge_property("MergeToResult");
-        let merge_previous_results = get_merge_property("MergePreviousResults");
-        let merge_debug = get_merge_property("MergeDebug");
-        let merge_error = get_merge_property("MergeError");
-        let merge_information = get_merge_property("MergeInformation");
-        let merge_verbose = get_merge_property("MergeVerbose");
-        let merge_warning = get_merge_property("MergeWarning");
-
-        Ok(Self {
-            cmd,
-            is_script,
-            args,
-            use_local_scope,
-            merge_my_result,
-            merge_to_result,
-            merge_previous_results,
-            merge_debug,
-            merge_error,
-            merge_information,
-            merge_verbose,
-            merge_warning,
-        })
-    }
 }

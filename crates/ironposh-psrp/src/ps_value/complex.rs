@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Container, PsEnums, PsPrimitiveValue, PsProperty, PsType};
+use super::{Container, Properties, PsEnums, PsPrimitiveValue, PsType};
 
 /*
 https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/3e107e78-3f28-4f85-9e25-493fd9b09726
@@ -22,8 +22,9 @@ pub struct ComplexObject {
     pub type_def: Option<PsType>,
     pub to_string: Option<String>,
     pub content: ComplexObjectContent,
-    pub adapted_properties: BTreeMap<String, PsProperty>,
-    pub extended_properties: BTreeMap<String, PsProperty>,
+    /// All adapted and extended properties in one ordered, name-keyed map
+    /// (RFC #12, L1).
+    pub properties: Properties,
 }
 
 impl Display for ComplexObject {
@@ -48,11 +49,11 @@ impl Display for ComplexObject {
 
         // Fallback to a property-based representation
         writeln!(f, "@{{")?;
-        for prop in self.adapted_properties.values() {
-            writeln!(f, "  {} = {}", prop.name, prop.value)?;
+        for (name, value) in self.properties.adapted() {
+            writeln!(f, "  {name} = {value}")?;
         }
-        for prop in self.extended_properties.values() {
-            writeln!(f, "  {} = {}", prop.name, prop.value)?;
+        for (name, value) in self.properties.extended() {
+            writeln!(f, "  {name} = {value}")?;
         }
         write!(f, "}}")
     }

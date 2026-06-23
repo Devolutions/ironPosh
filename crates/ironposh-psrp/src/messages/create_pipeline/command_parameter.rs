@@ -1,9 +1,13 @@
-use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsProperty, PsValue};
-use std::collections::BTreeMap;
+use crate::ps_value::PsValue;
+use ironposh_macros::{PsDeserialize, PsSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A single pipeline command parameter: a name (`N`, `Nil` when positional)
+/// and an arbitrary value (`V`, the dynamic escape hatch).
+#[derive(Debug, Clone, PartialEq, Eq, PsSerialize, PsDeserialize)]
 pub struct CommandParameter {
+    #[ps(name = "N", nil_when_none)]
     name: Option<String>,
+    #[ps(name = "V")]
     value: PsValue,
 }
 
@@ -20,62 +24,5 @@ impl CommandParameter {
             name: None,
             value: value.into(),
         }
-    }
-}
-
-impl From<CommandParameter> for ComplexObject {
-    fn from(param: CommandParameter) -> Self {
-        let mut extended_properties = BTreeMap::new();
-
-        extended_properties.insert(
-            "N".to_string(),
-            PsProperty {
-                name: "N".to_string(),
-                value: param
-                    .name
-                    .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |name| {
-                        PsValue::Primitive(PsPrimitiveValue::Str(name))
-                    }),
-            },
-        );
-
-        extended_properties.insert(
-            "V".to_string(),
-            PsProperty {
-                name: "V".to_string(),
-                value: param.value,
-            },
-        );
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for CommandParameter {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_property = |name: &str| -> Result<&PsProperty, Self::Error> {
-            value
-                .extended_properties
-                .get(name)
-                .ok_or_else(|| Self::Error::InvalidMessage(format!("Missing property: {name}")))
-        };
-
-        let name = if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = &get_property("N")?.value {
-            Some(s.clone())
-        } else {
-            None
-        };
-
-        let value = get_property("V")?.value.clone();
-
-        Ok(Self { name, value })
     }
 }

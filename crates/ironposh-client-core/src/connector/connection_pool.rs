@@ -6,8 +6,8 @@ use crate::{
     connector::{
         Scheme, WinRmConfig,
         auth_sequence::{
-            AuthSequenceConfig, Authenticated, PostConAuthSequence, SecurityContextBuilderHolder,
-            SspiAuthSequence,
+            AuthSequence, AuthSequenceConfig, Authenticated, PostConAuthSequence,
+            SecurityContextBuilderHolder, SspiAuthSequence,
         },
         encryption::{EncryptionOptions, EncryptionProvider},
         http::{
@@ -41,7 +41,9 @@ impl ConnectionId {
 // ============================= ConnectionState =============================
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectionState {
-    PreAuth, // SSPI only
+    /// SSPI only. Retains the queued SOAP so a TLS channel-binding challenge can
+    /// restart auth on a fresh connection with the binding applied.
+    PreAuth { queued_xml: String },
     Idle {
         enc: EncryptionOptions,
     },
@@ -135,6 +137,11 @@ pub struct ConnectionPool {
     auth_seq_conf: AuthSequenceConfig,
     next_id: u32,
     sever_config: ServerConfig,
+    /// `SEC_CHANNEL_BINDINGS` bytes (`tls-server-end-point`) learned from the
+    /// server's TLS certificate after the first HTTPS challenge. Once set, every
+    /// auth sequence this pool starts includes it (EPA). `None` over plain HTTP
+    /// or before the first challenge.
+    channel_binding: Option<Vec<u8>>,
 }
 
 impl ConnectionPool {
@@ -148,6 +155,7 @@ impl ConnectionPool {
                 scheme: cfg.scheme,
             },
             next_id: 1,
+            channel_binding: None,
         }
     }
 
@@ -180,6 +188,10 @@ impl ConnectionPool {
                         conn_id = id.inner(),
                         "using SSPI encryption provider to encrypt outgoing XML"
                     );
+                    // Over HTTP this seals the body; over HTTPS (unsealed) it returns
+                    // the SOAP plain. The connection was authenticated once during the
+                    // handshake and is now trusted (connection-oriented auth, RFC 4559),
+                    // so no Authorization header is needed on this reused connection.
                     let body = encryption_provider.encrypt(unencrypted_xml)?;
                     self.http_builder().post(body)
                 }
@@ -216,6 +228,10 @@ impl ConnectionPool {
             });
         }
 
+        // No idle connection: open a fresh one and authenticate it. Over HTTPS
+        // (unsealed) the very first operation rides the SPNEGO challenge legs, so the
+        // handshake itself delivers it; the connection is then authenticated and every
+        // subsequent operation is sent plain on the reused (idle) connection above.
         let id = self.alloc_new();
         info!(
             conn_id = id.inner(),
@@ -223,19 +239,22 @@ impl ConnectionPool {
         );
 
         // Build an engine (SSPI or Basic) from cfg and a fresh HttpBuilder.
-        let seq = crate::connector::auth_sequence::AuthSequence::new(
+        let seq = AuthSequence::new(
             &self.auth_seq_conf,
             self.http_builder(),
+            self.channel_binding.clone(),
         )?;
 
         let (try_send, next_state) = match seq {
-            crate::connector::auth_sequence::AuthSequence::Sspi(sspi_auth_sequence) => {
+            AuthSequence::Sspi(sspi_auth_sequence) => {
                 let try_send = sspi_auth_sequence.start(unencrypted_xml, id);
-                let next_state = ConnectionState::PreAuth;
+                let next_state = ConnectionState::PreAuth {
+                    queued_xml: unencrypted_xml.to_owned(),
+                };
 
                 (try_send, next_state)
             }
-            crate::connector::auth_sequence::AuthSequence::Basic(mut basic_auth_sequence) => {
+            AuthSequence::Basic(mut basic_auth_sequence) => {
                 let auth_header = basic_auth_sequence.get_auth_header();
                 let try_send = basic_auth_sequence.start(unencrypted_xml, id);
                 let next_state = ConnectionState::Pending {
@@ -282,8 +301,71 @@ impl ConnectionPool {
         info!(conn_id = connection_id.inner(), state = ?in_progress_state, "processing connection state");
 
         match in_progress_state {
-            ConnectionState::PreAuth => {
+            ConnectionState::PreAuth { queued_xml } => {
                 info!(conn_id = connection_id.inner(), "handling PreAuth response");
+
+                // EPA / channel binding: a server that enforces Extended
+                // Protection (e.g. a DC over HTTPS) rejects the first auth leg
+                // with 401 because the SSPI token carried no channel binding.
+                // Now that the TLS handshake has surfaced the server certificate,
+                // restart auth on a fresh connection with the `tls-server-end-point`
+                // binding applied. We require only a TLS cert and that we have not
+                // yet tried a binding (`channel_binding.is_none()` also bounds this
+                // to a single retry); the `WWW-Authenticate` header is NOT required,
+                // because some EPA rejections come back as a bare 401 + `Connection:
+                // close` with no re-challenge. Without this, such a recoverable 401
+                // would fall through to the terminal-401 guard below and fail hard.
+                if response.status_code == 401
+                    && self.channel_binding.is_none()
+                    && response.peer_cert_der.is_some()
+                {
+                    *state = ConnectionState::Closed;
+
+                    let cert_der = response
+                        .peer_cert_der
+                        .as_deref()
+                        .expect("peer_cert_der checked above");
+                    self.channel_binding = Some(
+                        crate::connector::authenticator::tls_server_end_point_channel_bindings(
+                            cert_der,
+                        ),
+                    );
+                    info!(
+                        conn_id = connection_id.inner(),
+                        "TLS channel-binding challenge; restarting auth with EPA"
+                    );
+
+                    let id = self.alloc_new();
+                    let seq = crate::connector::auth_sequence::AuthSequence::new(
+                        &self.auth_seq_conf,
+                        self.http_builder(),
+                        self.channel_binding.clone(),
+                    )?;
+                    let try_send = match seq {
+                        crate::connector::auth_sequence::AuthSequence::Sspi(sspi_auth_sequence) => {
+                            let ts = sspi_auth_sequence.start(&queued_xml, id);
+                            self.connections
+                                .insert(id, ConnectionState::PreAuth { queued_xml });
+                            ts
+                        }
+                        crate::connector::auth_sequence::AuthSequence::Basic(
+                            mut basic_auth_sequence,
+                        ) => {
+                            let header = basic_auth_sequence.get_auth_header();
+                            let ts = basic_auth_sequence.start(&queued_xml, id);
+                            self.connections.insert(
+                                id,
+                                ConnectionState::Pending {
+                                    enc: EncryptionOptions::IncludeHeader { header },
+                                    queued_xml,
+                                },
+                            );
+                            ts
+                        }
+                    };
+
+                    return Ok(ConnectionPoolAccept::SendBack(vec![try_send]));
+                }
 
                 if let Some(encryption_provider) = encryption {
                     let AuthenticatedHttpChannel {
@@ -292,6 +374,19 @@ impl ConnectionPool {
                     } = encryption_provider;
 
                     let body = encryption_provider.decrypt(response.body)?;
+                    if response.status_code == 401 {
+                        // Recoverable 401 challenges are consumed earlier (in the http
+                        // client's auth loop and the channel-binding restart above). A
+                        // 401 reaching here is a terminal rejection — e.g. unsealed SSPI
+                        // refused over plain HTTP, or auth that simply failed. Surface it
+                        // so the handshake fails fast instead of treating the empty body
+                        // as success and stalling forever.
+                        return reject_terminal_401(
+                            connection_id,
+                            response.status_code,
+                            "server rejected authentication (HTTP 401)",
+                        );
+                    }
                     if response.status_code >= 400 {
                         error!(
                             conn_id = connection_id.inner(),
@@ -364,12 +459,15 @@ impl ConnectionPool {
                     let seq = crate::connector::auth_sequence::AuthSequence::new(
                         &self.auth_seq_conf,
                         self.http_builder(),
+                        self.channel_binding.clone(),
                     )?;
 
                     let (try_send, next_state) = match seq {
                         crate::connector::auth_sequence::AuthSequence::Sspi(sspi_auth_sequence) => {
                             let try_send = sspi_auth_sequence.start(&queued_xml, id);
-                            let next_state = ConnectionState::PreAuth;
+                            let next_state = ConnectionState::PreAuth {
+                                queued_xml: queued_xml.clone(),
+                            };
                             (try_send, next_state)
                         }
                         crate::connector::auth_sequence::AuthSequence::Basic(
@@ -393,6 +491,15 @@ impl ConnectionPool {
                 }
 
                 let body = encryption_provider.decrypt(response.body)?;
+                if response.status_code == 401 {
+                    // The recoverable re-challenge case is handled above; a 401 here
+                    // is a terminal auth rejection. Fail fast rather than stalling.
+                    return reject_terminal_401(
+                        connection_id,
+                        response.status_code,
+                        "server rejected authentication (HTTP 401)",
+                    );
+                }
                 if response.status_code >= 400 {
                     error!(
                         conn_id = connection_id.inner(),
@@ -420,6 +527,16 @@ impl ConnectionPool {
                     "handling Pending response without encryption (Basic auth)"
                 );
 
+                if response.status_code == 401 {
+                    // Basic credentials rejected (or Basic disabled on the listener).
+                    // Terminal — fail fast instead of returning an empty body and
+                    // stalling the handshake.
+                    return reject_terminal_401(
+                        connection_id,
+                        response.status_code,
+                        "server rejected Basic authentication (HTTP 401)",
+                    );
+                }
                 if response.status_code >= 400 {
                     error!(
                         conn_id = connection_id.inner(),
@@ -452,7 +569,12 @@ impl ConnectionPool {
     fn alloc_new(&mut self) -> ConnectionId {
         let id = ConnectionId::new(self.next_id);
         self.next_id += 1;
-        self.connections.insert(id, ConnectionState::PreAuth);
+        self.connections.insert(
+            id,
+            ConnectionState::PreAuth {
+                queued_xml: String::new(),
+            },
+        );
         info!(
             conn_id = id.inner(),
             total_connections = self.connections.len(),
@@ -503,6 +625,22 @@ impl ConnectionPool {
     }
 }
 
+/// Surface a terminal `401` (auth rejected after the recoverable re-challenge /
+/// channel-binding paths) as an error, so the handshake fails fast instead of
+/// treating the empty body as a successful response and stalling. Shared by the
+/// PreAuth/SSPI, Pending/SSPI, and Pending/Basic arms of [`ConnectionPool::accept`].
+fn reject_terminal_401(
+    conn_id: ConnectionId,
+    status_code: u16,
+    detail: &'static str,
+) -> Result<ConnectionPoolAccept, PwshCoreError> {
+    error!(
+        conn_id = conn_id.inner(),
+        status_code, "authentication rejected by server (terminal 401)"
+    );
+    Err(PwshCoreError::Auth(detail))
+}
+
 #[derive(Debug)]
 pub struct AuthenticatedHttpChannel {
     pub(crate) encryption_provider: EncryptionProvider,
@@ -530,6 +668,12 @@ pub enum SecContextInited {
         request: HttpRequestAction,
         authenticated_http_channel_cert: AuthenticatedHttpChannel,
     },
+    /// HTTPS (unsealed): the operation SOAP already rode the auth challenge legs
+    /// and the server processed it, so there is NO separate request to send — the
+    /// operation response is the last HTTP response already received during auth.
+    AlreadyComplete {
+        authenticated_http_channel_cert: AuthenticatedHttpChannel,
+    },
 }
 
 impl PostConAuthSequence {
@@ -541,9 +685,15 @@ impl PostConAuthSequence {
         mut self,
         sec_context: &crate::connector::authenticator::SecContextInit,
     ) -> Result<SecContextInited, PwshCoreError> {
+        // When sealing is off (HTTPS), the operation SOAP must ride the auth
+        // challenge legs (the server rejects a token-less operation request).
+        // Clone it so we can hand a copy to each leg without borrow conflicts.
+        let operation_body = (!self.auth_sequence.require_encryption())
+            .then(|| self.queued_xml.clone());
+
         match self
             .auth_sequence
-            .process_initialized_sec_context(sec_context)?
+            .process_initialized_sec_context(sec_context, operation_body.as_deref())?
         {
             super::auth_sequence::SecCtxInited::Continue(http_request) => {
                 Ok(SecContextInited::Continue {
@@ -561,6 +711,7 @@ impl PostConAuthSequence {
                     conn_id,
                 } = self;
 
+                let sealing = auth_sequence.require_encryption();
                 let authenticated = auth_sequence.when_finish();
 
                 let Authenticated {
@@ -568,6 +719,23 @@ impl PostConAuthSequence {
                     mut http_builder,
                 } = authenticated;
 
+                if !sealing && token.is_none() {
+                    // HTTPS with no final client token (e.g. Kerberos): the
+                    // operation already rode the auth legs and the server
+                    // processed it; the operation response is the last auth
+                    // response. Nothing more to send.
+                    return Ok(SecContextInited::AlreadyComplete {
+                        authenticated_http_channel_cert: AuthenticatedHttpChannel {
+                            encryption_provider,
+                            conn_id,
+                        },
+                    });
+                }
+
+                // Send the operation as the final request: sealed body over HTTP,
+                // plain body over HTTPS. Attach the final client token if present
+                // — e.g. the NTLM AUTHENTICATE message, which must accompany the
+                // operation request that completes the exchange.
                 let body = encryption_provider.encrypt(&queued_xml)?;
 
                 if let Some(token) = token.take() {

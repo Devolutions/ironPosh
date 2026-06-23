@@ -51,7 +51,7 @@ impl From<()> for PsPrimitiveValue {
 
 impl From<uuid::Uuid> for PsPrimitiveValue {
     fn from(guid: uuid::Uuid) -> Self {
-        Self::Guid(guid.to_string().to_uppercase())
+        Self::Guid(super::known_types::format_guid(guid))
     }
 }
 

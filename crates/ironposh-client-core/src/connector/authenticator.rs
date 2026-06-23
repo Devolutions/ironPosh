@@ -30,15 +30,20 @@ pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
 #[derive(Debug)]
 pub struct SspiConfig {
     target_name: String,
+    /// Pre-formatted `SEC_CHANNEL_BINDINGS` bytes (`tls-server-end-point`) to feed
+    /// into every `InitializeSecurityContext` leg as a `ChannelBindings` input
+    /// buffer. `None` for plain HTTP or before the server cert is known.
+    channel_binding: Option<Vec<u8>>,
 }
 
 impl SspiConfig {
-    pub fn new(mut target: String) -> Self {
+    pub fn with_channel_binding(mut target: String, channel_binding: Option<Vec<u8>>) -> Self {
         if !target.trim().starts_with("HTTP/") {
             target = format!("HTTP/{target}");
         }
         Self {
             target_name: target,
+            channel_binding,
         }
     }
 }
@@ -55,8 +60,9 @@ pub struct SspiContext<P: Sspi> {
     // Box<T> provides a stable heap address; we keep borrows within the same `AuthFurniture`.
     cred: Box<P::CredentialsHandle>,
     out: [SecurityBuffer; 1],
-    // Keep the builder + input buffer alive for the duration of the suspension (generator borrows them).
-    inbuf: Option<[SecurityBuffer; 1]>,
+    // Keep the builder + input buffers alive for the duration of the suspension (generator borrows them).
+    // Holds the server Token buffer and, over HTTPS, a ChannelBindings buffer (EPA).
+    inbuf: Option<Vec<SecurityBuffer>>,
     sspi_auth_config: SspiConfig,
 }
 
@@ -157,12 +163,31 @@ where
     }
 
     /// Parse the server's negotiate token (if present) and set `inbuf`.
+    ///
+    /// Over HTTPS, also attach a `ChannelBindings` input buffer derived from the
+    /// server's TLS certificate (`tls-server-end-point`, RFC 5929). Servers that
+    /// enforce Extended Protection for Authentication (EPA) — e.g. a domain
+    /// controller over 5986 — reject Negotiate/Kerberos without it.
     fn take_input(&mut self, response: Option<&HttpResponse>) -> Result<(), PwshCoreError> {
+        let mut buffers = Vec::new();
         if let Some(resp) = response {
             let server_token = parse_negotiate_token(&resp.headers)
                 .ok_or(PwshCoreError::Auth("no Negotiate token"))?;
-            self.inbuf = Some([SecurityBuffer::new(server_token, BufferType::Token)]);
+            buffers.push(SecurityBuffer::new(server_token, BufferType::Token));
         }
+        // Channel binding (EPA) is attached to every leg whenever it is known.
+        // Note it is learned *reactively*: the pool acquires the
+        // `tls-server-end-point` binding only after a server 401 surfaces the TLS
+        // certificate, then restarts auth. So the very first attempt's legs carry
+        // no binding; the binding is present on the restarted sequence onward.
+        if let Some(cb) = &self.sspi_auth_config.channel_binding {
+            debug!(
+                cb_len = cb.len(),
+                "attaching ChannelBindings input buffer (EPA)"
+            );
+            buffers.push(SecurityBuffer::new(cb.clone(), BufferType::ChannelBindings));
+        }
+        self.inbuf = (!buffers.is_empty()).then_some(buffers);
         Ok(())
     }
 }
@@ -219,12 +244,18 @@ impl SspiAuthenticator {
         context.clear_for_next_round();
         context.take_input(response)?;
 
+        // Sign and seal are paired SSPI services. INTEGRITY (sign) is requested
+        // unconditionally: it makes the handshake produce its message-integrity
+        // code (NTLM MIC / SPNEGO mechListMIC), which modern servers require to
+        // accept the context even when the body itself is not sealed. CONFIDENTIALITY
+        // (seal) is added only when we actually wrap the body (plain HTTP); over
+        // HTTPS, TLS provides confidentiality so we sign but do not seal.
         let flag = if require_encryption {
-            debug!("encryption required for this session");
+            debug!("sealing enabled: requesting CONFIDENTIALITY + INTEGRITY");
             ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::INTEGRITY
         } else {
-            debug!("encryption NOT required for this session");
-            ClientRequestFlags::empty()
+            debug!("sealing disabled (TLS transport): requesting INTEGRITY only");
+            ClientRequestFlags::INTEGRITY
         };
 
         // Build the builder; wire inputs/outputs.
@@ -240,7 +271,7 @@ impl SspiAuthenticator {
             .with_output(&mut context.out);
 
         if let Some(input_buffer) = &mut context.inbuf {
-            isc = isc.with_input(input_buffer);
+            isc = isc.with_input(input_buffer.as_mut_slice());
         }
 
         debug!(?isc, "calling SSPI InitializeSecurityContext");
@@ -418,6 +449,31 @@ fn token_header_from(bytes: &[u8]) -> Option<String> {
             base64::engine::general_purpose::STANDARD.encode(bytes)
         ))
     }
+}
+
+/// Build a `SEC_CHANNEL_BINDINGS` buffer carrying the `tls-server-end-point`
+/// binding for the given DER leaf certificate (RFC 5929).
+///
+/// `application_data = "tls-server-end-point:" || H(cert)`, where `H` is SHA-256
+/// (the hash used for end-point bindings whenever the certificate's signature
+/// hash is MD5/SHA-1 or SHA-256 — i.e. every certificate AD WinRM issues). The
+/// initiator/acceptor fields are empty; only the application data is populated.
+pub(crate) fn tls_server_end_point_channel_bindings(cert_der: &[u8]) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+
+    // SEC_CHANNEL_BINDINGS: 32-byte header (8 little-endian u32 fields) followed
+    // by the application data. Only cbApplicationDataLength (offset 24) and
+    // dwApplicationDataOffset (offset 28) are non-zero.
+    const HEADER_LEN: usize = 32;
+
+    let mut application_data = b"tls-server-end-point:".to_vec();
+    application_data.extend_from_slice(&Sha256::digest(cert_der));
+
+    let mut buf = vec![0u8; HEADER_LEN];
+    buf[24..28].copy_from_slice(&(application_data.len() as u32).to_le_bytes());
+    buf[28..32].copy_from_slice(&(HEADER_LEN as u32).to_le_bytes());
+    buf.extend_from_slice(&application_data);
+    buf
 }
 
 /// Parse the "WWW-Authenticate: Negotiate <b64>" header case-insensitively.

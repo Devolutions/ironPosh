@@ -1,127 +1,22 @@
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, Container, PsObjectWithType, PsPrimitiveValue, PsProperty,
-    PsType, PsValue,
-};
+use crate::ps_value::PsValue;
+use ironposh_macros::{PsDeserialize, PsSerialize};
 use std::collections::BTreeMap;
 
-/// ApplicationPrivateData is a specific message type within the PowerShell Remoting Protocol (PSRP)
-/// that facilitates the exchange of private application-level data between a server and a client.
+/// APPLICATION_PRIVATE_DATA (MS-PSRP §2.2.2.13): server → client.
 ///
-/// MessageType value: 0x00021009
-/// Direction: Server to Client
-/// Target: RunspacePool
-///
-/// The data contains an extended property named "ApplicationPrivateData" with a value that is
-/// either a Primitive Dictionary or a Null Value.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Carries an extended property `ApplicationPrivateData` holding either a
+/// `PSPrimitiveDictionary` (arbitrary application data) or `Nil`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PsSerialize, PsDeserialize)]
+#[ps(message_type = ApplicationPrivateData)]
 pub struct ApplicationPrivateData {
-    /// The application private data as a dictionary of string keys to primitive values
+    /// The application private data as a dictionary of string keys to values.
+    #[ps(name = "ApplicationPrivateData", nil_when_none)]
     pub data: Option<BTreeMap<String, PsValue>>,
 }
 
 impl ApplicationPrivateData {
-    /// Create a new ApplicationPrivateData with no data (null value)
+    /// Create a new `ApplicationPrivateData` with no data (null value).
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-impl PsObjectWithType for ApplicationPrivateData {
-    fn message_type(&self) -> MessageType {
-        MessageType::ApplicationPrivateData
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-impl From<ApplicationPrivateData> for ComplexObject {
-    fn from(app_data: ApplicationPrivateData) -> Self {
-        let mut extended_properties = BTreeMap::new();
-
-        let application_private_data_value =
-            app_data
-                .data
-                .map_or(PsValue::Primitive(PsPrimitiveValue::Nil), |data| {
-                    // Convert BTreeMap<String, PsPrimitiveValue> to BTreeMap<PsValue, PsValue>
-                    let ps_dict: BTreeMap<PsValue, PsValue> = data
-                        .into_iter()
-                        .map(|(k, v)| (PsValue::Primitive(PsPrimitiveValue::Str(k)), v))
-                        .collect();
-
-                    PsValue::Object(Self {
-                        type_def: Some(PsType::ps_primitive_dictionary()),
-                        to_string: None,
-                        content: ComplexObjectContent::Container(Container::Dictionary(ps_dict)),
-                        adapted_properties: BTreeMap::new(),
-                        extended_properties: BTreeMap::new(),
-                    })
-                });
-
-        extended_properties.insert(
-            "ApplicationPrivateData".to_string(),
-            PsProperty {
-                name: "ApplicationPrivateData".to_string(),
-                value: application_private_data_value,
-            },
-        );
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for ApplicationPrivateData {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let app_data_property = value
-            .extended_properties
-            .get("ApplicationPrivateData")
-            .ok_or_else(|| {
-                Self::Error::InvalidMessage("Missing ApplicationPrivateData property".to_string())
-            })?;
-
-        let data = if matches!(
-            &app_data_property.value,
-            PsValue::Primitive(PsPrimitiveValue::Nil)
-        ) {
-            None
-        } else {
-            let PsValue::Object(obj) = &app_data_property.value else {
-                return Err(Self::Error::InvalidMessage(
-                    "ApplicationPrivateData property has invalid type".to_string(),
-                ));
-            };
-
-            let ComplexObjectContent::Container(Container::Dictionary(dict)) = &obj.content else {
-                return Err(Self::Error::InvalidMessage(
-                    "ApplicationPrivateData is not a dictionary".to_string(),
-                ));
-            };
-
-            let mut result = BTreeMap::new();
-            for (key, value) in dict {
-                let PsValue::Primitive(PsPrimitiveValue::Str(key_str)) = key else {
-                    return Err(Self::Error::InvalidMessage(
-                        "Dictionary key is not a string".to_string(),
-                    ));
-                };
-
-                // The value can be any PsValue (primitive or object), we store it directly
-                result.insert(key_str.clone(), value.clone());
-            }
-
-            Some(result)
-        };
-
-        Ok(Self { data })
     }
 }

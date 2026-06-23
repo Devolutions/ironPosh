@@ -1,10 +1,8 @@
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsValue,
-};
-use std::collections::BTreeMap;
+use crate::ps_value::PsValue;
+use ironposh_macros::{PsDeserialize, PsEnum, PsSerialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PsEnum)]
+#[ps(repr = "i32")]
 pub enum PSInvocationState {
     NotStarted = 0,
     Running = 1,
@@ -52,88 +50,14 @@ impl TryFrom<i32> for PSInvocationState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(message_type = PipelineState)]
 pub struct PipelineStateMessage {
+    #[ps(name = "PipelineState")]
     pub pipeline_state: PSInvocationState,
     #[builder(default)]
+    #[ps(name = "ExceptionAsErrorRecord")]
     pub exception_as_error_record: Option<PsValue>,
-}
-
-impl PsObjectWithType for PipelineStateMessage {
-    fn message_type(&self) -> MessageType {
-        MessageType::PipelineState
-    }
-
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-impl From<PipelineStateMessage> for ComplexObject {
-    fn from(state: PipelineStateMessage) -> Self {
-        let mut extended_properties = BTreeMap::new();
-
-        extended_properties.insert(
-            "PipelineState".to_string(),
-            PsProperty {
-                name: "PipelineState".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::I32(state.pipeline_state.as_i32())),
-            },
-        );
-
-        if let Some(exception) = state.exception_as_error_record {
-            extended_properties.insert(
-                "ExceptionAsErrorRecord".to_string(),
-                PsProperty {
-                    name: "ExceptionAsErrorRecord".to_string(),
-                    value: exception,
-                },
-            );
-        }
-
-        Self {
-            type_def: None,
-            to_string: None,
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
-        }
-    }
-}
-
-impl TryFrom<ComplexObject> for PipelineStateMessage {
-    type Error = crate::PowerShellRemotingError;
-
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let pipeline_state_prop =
-            value
-                .extended_properties
-                .get("PipelineState")
-                .ok_or_else(|| {
-                    Self::Error::InvalidMessage("Missing PipelineState property".to_string())
-                })?;
-
-        let pipeline_state = match &pipeline_state_prop.value {
-            PsValue::Primitive(PsPrimitiveValue::I32(state)) => {
-                PSInvocationState::try_from(*state)?
-            }
-            _ => {
-                return Err(Self::Error::InvalidMessage(
-                    "PipelineState property is not an I32".to_string(),
-                ));
-            }
-        };
-
-        let exception_as_error_record = value
-            .extended_properties
-            .get("ExceptionAsErrorRecord")
-            .map(|prop| prop.value.clone());
-
-        Ok(Self {
-            pipeline_state,
-            exception_as_error_record,
-        })
-    }
 }
 
 impl PipelineStateMessage {
@@ -171,6 +95,7 @@ impl PipelineStateMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ps_value::{ComplexObject, PsObjectWithType, PsPrimitiveValue};
 
     #[test]
     fn test_pipeline_state_completed() {

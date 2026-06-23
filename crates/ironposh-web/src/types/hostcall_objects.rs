@@ -1,6 +1,6 @@
 use ironposh_client_core::host;
 use ironposh_psrp::{
-    ComplexObject, ComplexObjectContent, Container, PsEnums, PsPrimitiveValue, PsProperty, PsType,
+    ComplexObject, ComplexObjectContent, Container, Properties, PsEnums, PsPrimitiveValue, PsType,
     PsValue,
 };
 use serde::{Deserialize, Serialize};
@@ -432,23 +432,12 @@ pub struct JsPsProperty {
     pub value: JsPsValue,
 }
 
-impl From<PsProperty> for JsPsProperty {
-    fn from(value: PsProperty) -> Self {
+impl JsPsProperty {
+    fn from_named(name: &str, value: &PsValue) -> Self {
         Self {
-            name: value.name,
-            value: JsPsValue::from(value.value),
+            name: name.to_string(),
+            value: JsPsValue::from(value.clone()),
         }
-    }
-}
-
-impl TryFrom<JsPsProperty> for PsProperty {
-    type Error = String;
-
-    fn try_from(value: JsPsProperty) -> Result<Self, Self::Error> {
-        Ok(Self {
-            name: value.name,
-            value: PsValue::try_from(value.value)?,
-        })
     }
 }
 
@@ -594,14 +583,14 @@ impl From<ComplexObject> for JsComplexObject {
             to_string: value.to_string,
             content: JsComplexObjectContent::from(value.content),
             adapted_properties: value
-                .adapted_properties
-                .into_iter()
-                .map(|(k, v)| (k, JsPsProperty::from(v)))
+                .properties
+                .adapted()
+                .map(|(k, v)| (k.to_string(), JsPsProperty::from_named(k, v)))
                 .collect(),
             extended_properties: value
-                .extended_properties
-                .into_iter()
-                .map(|(k, v)| (k, JsPsProperty::from(v)))
+                .properties
+                .extended()
+                .map(|(k, v)| (k.to_string(), JsPsProperty::from_named(k, v)))
                 .collect(),
         }
     }
@@ -615,16 +604,16 @@ impl TryFrom<JsComplexObject> for ComplexObject {
             type_def: value.type_def.map(PsType::from),
             to_string: value.to_string,
             content: ComplexObjectContent::try_from(value.content)?,
-            adapted_properties: value
-                .adapted_properties
-                .into_iter()
-                .map(|(k, v)| Ok((k, PsProperty::try_from(v)?)))
-                .collect::<Result<_, String>>()?,
-            extended_properties: value
-                .extended_properties
-                .into_iter()
-                .map(|(k, v)| Ok((k, PsProperty::try_from(v)?)))
-                .collect::<Result<_, String>>()?,
+            properties: {
+                let mut properties = Properties::new();
+                for (k, v) in value.adapted_properties {
+                    properties.insert_adapted(k, PsValue::try_from(v.value)?);
+                }
+                for (k, v) in value.extended_properties {
+                    properties.insert_extended(k, PsValue::try_from(v.value)?);
+                }
+                properties
+            },
         })
     }
 }

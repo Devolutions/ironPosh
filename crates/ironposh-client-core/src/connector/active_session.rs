@@ -126,6 +126,8 @@ pub enum UserOperation {
     CancelHostCall {
         scope: HostCallScope,
         call_id: i64,
+        /// The host method being cancelled (echoed back as `mi`).
+        method: ironposh_psrp::RemoteHostMethodId,
         reason: Option<String>,
     },
     /// disconnect the runspace pool shell (MS-WSMV Disconnect)
@@ -318,15 +320,13 @@ impl ActiveSession {
                         HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
                             command_id,
                             response.call_id,
-                            response.method_id,
-                            response.method_name,
+                            response.method,
                             response.method_result,
                             response.method_exception,
                         ),
                         HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
                             response.call_id,
-                            response.method_id,
-                            response.method_name,
+                            response.method,
                             response.method_result,
                             response.method_exception,
                         ),
@@ -341,6 +341,7 @@ impl ActiveSession {
             UserOperation::CancelHostCall {
                 scope,
                 call_id,
+                method,
                 reason: _,
             } => {
                 // send an error response back
@@ -348,21 +349,12 @@ impl ActiveSession {
                     "Host call {call_id} was cancelled"
                 ))));
                 match scope {
-                    HostCallScope::Pipeline { command_id } => self.send_pipeline_host_response(
-                        command_id,
-                        call_id,
-                        0,
-                        "Cancelled".to_string(),
-                        None,
-                        err,
-                    ),
-                    HostCallScope::RunspacePool => self.send_runspace_pool_host_response(
-                        call_id,
-                        0,
-                        "Cancelled".to_string(),
-                        None,
-                        err,
-                    ),
+                    HostCallScope::Pipeline { command_id } => {
+                        self.send_pipeline_host_response(command_id, call_id, method, None, err)
+                    }
+                    HostCallScope::RunspacePool => {
+                        self.send_runspace_pool_host_response(call_id, method, None, err)
+                    }
                 }
             }
 
@@ -826,13 +818,12 @@ impl ActiveSession {
     }
 
     /// Build + send a pipeline host response, then queue a receive for that pipeline.
-    #[instrument(skip(self, result, error), fields(command_id = %command_id, call_id, method_name = %method_name))]
+    #[instrument(skip(self, result, error), fields(command_id = %command_id, call_id, method = ?method))]
     fn send_pipeline_host_response(
         &mut self,
         command_id: uuid::Uuid,
         call_id: i64,
-        method_id: i32,
-        method_name: String,
+        method: ironposh_psrp::RemoteHostMethodId,
         result: Option<PsValue>,
         error: Option<PsValue>,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
@@ -856,8 +847,7 @@ impl ActiveSession {
         info!("building pipeline host response");
         let host_resp = PipelineHostResponse::builder()
             .call_id(call_id)
-            .method_id(method_id)
-            .method_name(method_name)
+            .method(method)
             .method_result_opt(result)
             .method_exception_opt(error)
             .build();
@@ -880,12 +870,11 @@ impl ActiveSession {
     }
 
     /// Build + send a runspace-pool host response, then queue a receive for pool streams.
-    #[instrument(skip(self, result, error), fields(call_id, method_name = %method_name))]
+    #[instrument(skip(self, result, error), fields(call_id, method = ?method))]
     fn send_runspace_pool_host_response(
         &mut self,
         call_id: i64,
-        method_id: i32,
-        method_name: String,
+        method: ironposh_psrp::RemoteHostMethodId,
         result: Option<PsValue>,
         error: Option<PsValue>,
     ) -> Result<ActiveSessionOutput, crate::PwshCoreError> {
@@ -909,8 +898,7 @@ impl ActiveSession {
         info!("building runspace pool host response");
         let host_resp = RunspacePoolHostResponse::builder()
             .call_id(call_id)
-            .method_id(method_id)
-            .method_name(method_name)
+            .method(method)
             .method_result_opt(result)
             .method_exception_opt(error)
             .build();

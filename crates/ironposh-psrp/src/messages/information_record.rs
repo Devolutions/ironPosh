@@ -1,483 +1,155 @@
-use crate::MessageType;
-use crate::ps_value::{
-    ComplexObject, ComplexObjectContent, PsObjectWithType, PsPrimitiveValue, PsProperty, PsType,
-    PsValue,
-};
-use std::{borrow::Cow, collections::BTreeMap};
+use crate::ps_value::PsValue;
+use ironposh_macros::{PsDeserialize, PsSerialize, PsUnion};
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+/// A `HostInformationMessage` (from `Write-Host`), macro-derived as a typed object.
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(type_names("System.Management.Automation.HostInformationMessage", "System.Object"))]
 pub struct HostInformationMessage {
+    #[ps(name = "Message", to_string)]
     pub message: String,
     #[builder(default)]
+    #[ps(name = "ForegroundColor")]
     pub foreground_color: Option<i32>,
     #[builder(default)]
+    #[ps(name = "BackgroundColor")]
     pub background_color: Option<i32>,
     #[builder(default = false)]
+    #[ps(name = "NoNewLine", default)]
     pub no_new_line: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The `MessageData` of an INFORMATION_RECORD — an untagged polymorphic union.
+///
+/// Macro-derived via [`PsUnion`]: a bare string, a typed `HostInformationMessage`
+/// object, or any other remote object (the dynamic escape hatch).
+#[derive(Debug, Clone, PartialEq, Eq, PsUnion)]
 pub enum InformationMessageData {
+    #[ps(primitive)]
     String(String),
+    #[ps(type_match = "HostInformationMessage")]
     HostInformationMessage(HostInformationMessage),
+    #[ps(fallback)]
     Object(PsValue),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder)]
+impl Default for InformationMessageData {
+    fn default() -> Self {
+        Self::String(String::new())
+    }
+}
+
+impl std::fmt::Display for InformationMessageData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(s) => f.write_str(s),
+            Self::HostInformationMessage(m) => f.write_str(&m.message),
+            Self::Object(v) => write!(f, "{v}"),
+        }
+    }
+}
+
+/// INFORMATION_RECORD (MS-PSRP §2.2.2.26). Fully macro-derived.
+///
+/// `message_data` dispatches through [`InformationMessageData`]'s `PsUnion`;
+/// `time_generated` is a `DateTime`-or-string primitive and `tags` is a
+/// `System.String[]` object, each handled by a small typed converter.
+#[derive(Debug, Clone, PartialEq, Eq, typed_builder::TypedBuilder, PsSerialize, PsDeserialize)]
+#[ps(
+    message_type = InformationRecord,
+    type_names(
+        "System.Management.Automation.InformationRecord",
+        "System.Management.Automation.InformationalRecord",
+        "System.Object"
+    )
+)]
 pub struct InformationRecord {
+    #[ps(name = "MessageData", default, to_string)]
     pub message_data: InformationMessageData,
     #[builder(default = false)]
+    #[ps(name = "SerializeInvocationInfo", default)]
     pub serialize_invocation_info: bool,
     #[builder(default)]
+    #[ps(name = "Source")]
     pub source: Option<String>,
     #[builder(default)]
+    #[ps(name = "TimeGenerated", with = "datetime_conv")]
     pub time_generated: Option<String>,
     #[builder(default)]
+    #[ps(name = "Tags", with = "tags_conv")]
     pub tags: Option<Vec<String>>,
     #[builder(default)]
+    #[ps(name = "User")]
     pub user: Option<String>,
     #[builder(default)]
+    #[ps(name = "Computer")]
     pub computer: Option<String>,
     #[builder(default)]
+    #[ps(name = "ProcessId")]
     pub process_id: Option<i32>,
     #[builder(default)]
+    #[ps(name = "NativeThreadId")]
     pub native_thread_id: Option<i32>,
     #[builder(default)]
+    #[ps(name = "ManagedThreadId")]
     pub managed_thread_id: Option<i32>,
 }
 
-impl PsObjectWithType for InformationRecord {
-    fn message_type(&self) -> MessageType {
-        MessageType::InformationRecord
+/// `#[ps(with)]`: a `DateTime`-or-`String` primitive carried as a `String`.
+mod datetime_conv {
+    use crate::PowerShellRemotingError;
+    use crate::ps_value::{PsPrimitiveValue, PsValue};
+
+    pub fn to_ps_value(value: &str) -> PsValue {
+        PsValue::Primitive(PsPrimitiveValue::Str(value.to_string()))
     }
 
-    fn to_ps_object(&self) -> PsValue {
-        PsValue::Object(ComplexObject::from(self.clone()))
-    }
-}
-
-fn parse_console_color(value: &PsValue) -> Option<i32> {
-    match value {
-        PsValue::Primitive(PsPrimitiveValue::I32(v)) => Some(*v),
-        PsValue::Primitive(_) => None,
-        PsValue::Object(obj) => match &obj.content {
-            ComplexObjectContent::PsEnums(e) => Some(e.value),
-            ComplexObjectContent::ExtendedPrimitive(PsPrimitiveValue::I32(v)) => Some(*v),
-            _ => None,
-        },
-    }
-}
-
-fn message_data_to_string(value: &InformationMessageData) -> String {
-    match value {
-        InformationMessageData::String(s) => s.clone(),
-        InformationMessageData::HostInformationMessage(m) => m.message.clone(),
-        InformationMessageData::Object(v) => v.to_string(),
-    }
-}
-
-fn parse_message_data(value: PsValue) -> InformationMessageData {
-    match value {
-        PsValue::Primitive(PsPrimitiveValue::Str(s)) => InformationMessageData::String(s),
-        PsValue::Primitive(other) => InformationMessageData::String(other.to_string()),
-        PsValue::Object(obj) => {
-            let is_host_information_message = obj.type_def.as_ref().is_some_and(|t| {
-                t.type_names
-                    .iter()
-                    .any(|n| n.contains("HostInformationMessage"))
-            });
-
-            if !is_host_information_message {
-                return InformationMessageData::Object(PsValue::Object(obj));
+    #[allow(clippy::unnecessary_wraps)] // signature fixed by #[ps(with)]
+    pub fn from_ps_value(value: &PsValue) -> Result<String, PowerShellRemotingError> {
+        Ok(match value {
+            PsValue::Primitive(PsPrimitiveValue::Str(s) | PsPrimitiveValue::DateTime(s)) => {
+                s.clone()
             }
-
-            let get_prop = |name: &str| {
-                obj.extended_properties
-                    .get(name)
-                    .map(|p| p.value.clone())
-                    .or_else(|| obj.adapted_properties.get(name).map(|p| p.value.clone()))
-            };
-
-            let message = get_prop("Message")
-                .and_then(|v| v.as_string())
-                .or_else(|| obj.to_string.clone())
-                .unwrap_or_default();
-
-            let foreground_color =
-                get_prop("ForegroundColor").and_then(|v| parse_console_color(&v));
-            let background_color =
-                get_prop("BackgroundColor").and_then(|v| parse_console_color(&v));
-            let no_new_line = get_prop("NoNewLine").is_some_and(|v| match v {
-                PsValue::Primitive(PsPrimitiveValue::Bool(b)) => b,
-                _ => false,
-            });
-
-            InformationMessageData::HostInformationMessage(
-                HostInformationMessage::builder()
-                    .message(message)
-                    .foreground_color(foreground_color)
-                    .background_color(background_color)
-                    .no_new_line(no_new_line)
-                    .build(),
-            )
-        }
+            _ => String::new(),
+        })
     }
 }
 
-impl From<InformationRecord> for ComplexObject {
-    #[expect(clippy::too_many_lines)]
-    fn from(record: InformationRecord) -> Self {
-        let mut extended_properties = BTreeMap::new();
+/// `#[ps(with)]`: a `System.String[]` whose members are keyed by index.
+mod tags_conv {
+    use crate::PowerShellRemotingError;
+    use crate::ps_value::{ComplexObject, PsPrimitiveValue, PsValue};
+    use std::borrow::Cow;
 
-        extended_properties.insert(
-            "MessageData".to_string(),
-            PsProperty {
-                name: "MessageData".to_string(),
-                value: match &record.message_data {
-                    InformationMessageData::String(s) => {
-                        PsValue::Primitive(PsPrimitiveValue::Str(s.clone()))
-                    }
-                    InformationMessageData::HostInformationMessage(m) => {
-                        let mut props = BTreeMap::new();
-                        props.insert(
-                            "Message".to_string(),
-                            PsProperty {
-                                name: "Message".to_string(),
-                                value: PsValue::Primitive(PsPrimitiveValue::Str(m.message.clone())),
-                            },
-                        );
-                        if let Some(fg) = m.foreground_color {
-                            props.insert(
-                                "ForegroundColor".to_string(),
-                                PsProperty {
-                                    name: "ForegroundColor".to_string(),
-                                    value: PsValue::Primitive(PsPrimitiveValue::I32(fg)),
-                                },
-                            );
-                        }
-                        if let Some(bg) = m.background_color {
-                            props.insert(
-                                "BackgroundColor".to_string(),
-                                PsProperty {
-                                    name: "BackgroundColor".to_string(),
-                                    value: PsValue::Primitive(PsPrimitiveValue::I32(bg)),
-                                },
-                            );
-                        }
-                        props.insert(
-                            "NoNewLine".to_string(),
-                            PsProperty {
-                                name: "NoNewLine".to_string(),
-                                value: PsValue::Primitive(PsPrimitiveValue::Bool(m.no_new_line)),
-                            },
-                        );
-
-                        PsValue::Object(Self {
-                            type_def: Some(PsType {
-                                type_names: vec![
-                                    Cow::Borrowed(
-                                        "System.Management.Automation.HostInformationMessage",
-                                    ),
-                                    Cow::Borrowed("System.Object"),
-                                ],
-                            }),
-                            to_string: Some(m.message.clone()),
-                            content: ComplexObjectContent::Standard,
-                            adapted_properties: BTreeMap::new(),
-                            extended_properties: props,
-                        })
-                    }
-                    InformationMessageData::Object(v) => v.clone(),
-                },
-            },
-        );
-
-        extended_properties.insert(
-            "SerializeInvocationInfo".to_string(),
-            PsProperty {
-                name: "SerializeInvocationInfo".to_string(),
-                value: PsValue::Primitive(PsPrimitiveValue::Bool(record.serialize_invocation_info)),
-            },
-        );
-
-        if let Some(source) = record.source {
-            extended_properties.insert(
-                "Source".to_string(),
-                PsProperty {
-                    name: "Source".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(source)),
-                },
-            );
+    pub fn to_ps_value(tags: &[String]) -> PsValue {
+        let mut builder = ComplexObject::standard().type_names([
+            Cow::Borrowed("System.String[]"),
+            Cow::Borrowed("System.Array"),
+            Cow::Borrowed("System.Object"),
+        ]);
+        for (i, tag) in tags.iter().enumerate() {
+            builder = builder.extended(i.to_string(), tag.clone());
         }
-
-        if let Some(time) = record.time_generated {
-            extended_properties.insert(
-                "TimeGenerated".to_string(),
-                PsProperty {
-                    name: "TimeGenerated".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(time)),
-                },
-            );
-        }
-
-        if let Some(tags) = record.tags
-            && !tags.is_empty()
-        {
-            // Create array-like structure for tags
-            let tags_obj = Self {
-                type_def: Some(PsType {
-                    type_names: vec![
-                        Cow::Borrowed("System.String[]"),
-                        Cow::Borrowed("System.Array"),
-                        Cow::Borrowed("System.Object"),
-                    ],
-                }),
-                to_string: None,
-                content: ComplexObjectContent::Standard,
-                adapted_properties: BTreeMap::new(),
-                extended_properties: tags
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, tag)| {
-                        let value = PsValue::Primitive(PsPrimitiveValue::Str(tag));
-                        (
-                            i.to_string(),
-                            PsProperty {
-                                name: i.to_string(),
-                                value,
-                            },
-                        )
-                    })
-                    .collect(),
-            };
-
-            extended_properties.insert(
-                "Tags".to_string(),
-                PsProperty {
-                    name: "Tags".to_string(),
-                    value: PsValue::Object(tags_obj),
-                },
-            );
-        }
-
-        if let Some(user) = record.user {
-            extended_properties.insert(
-                "User".to_string(),
-                PsProperty {
-                    name: "User".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(user)),
-                },
-            );
-        }
-
-        if let Some(computer) = record.computer {
-            extended_properties.insert(
-                "Computer".to_string(),
-                PsProperty {
-                    name: "Computer".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::Str(computer)),
-                },
-            );
-        }
-
-        if let Some(pid) = record.process_id {
-            extended_properties.insert(
-                "ProcessId".to_string(),
-                PsProperty {
-                    name: "ProcessId".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(pid)),
-                },
-            );
-        }
-
-        if let Some(native_tid) = record.native_thread_id {
-            extended_properties.insert(
-                "NativeThreadId".to_string(),
-                PsProperty {
-                    name: "NativeThreadId".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(native_tid)),
-                },
-            );
-        }
-
-        if let Some(managed_tid) = record.managed_thread_id {
-            extended_properties.insert(
-                "ManagedThreadId".to_string(),
-                PsProperty {
-                    name: "ManagedThreadId".to_string(),
-                    value: PsValue::Primitive(PsPrimitiveValue::I32(managed_tid)),
-                },
-            );
-        }
-
-        Self {
-            type_def: Some(PsType {
-                type_names: vec![
-                    Cow::Borrowed("System.Management.Automation.InformationRecord"),
-                    Cow::Borrowed("System.Management.Automation.InformationalRecord"),
-                    Cow::Borrowed("System.Object"),
-                ],
-            }),
-            to_string: Some(message_data_to_string(&record.message_data)),
-            content: ComplexObjectContent::Standard,
-            adapted_properties: BTreeMap::new(),
-            extended_properties,
-        }
+        builder.build_value()
     }
-}
 
-impl TryFrom<ComplexObject> for InformationRecord {
-    type Error = crate::PowerShellRemotingError;
-
-    #[expect(clippy::too_many_lines)]
-    fn try_from(value: ComplexObject) -> Result<Self, Self::Error> {
-        let get_prop = |names: &[&str]| {
-            for name in names {
-                if let Some(p) = value.extended_properties.get(*name) {
-                    return Some(p);
-                }
-                if let Some(p) = value.adapted_properties.get(*name) {
-                    return Some(p);
+    #[allow(clippy::unnecessary_wraps)] // signature fixed by #[ps(with)]
+    pub fn from_ps_value(value: &PsValue) -> Result<Vec<String>, PowerShellRemotingError> {
+        let mut out = Vec::new();
+        if let PsValue::Object(obj) = value {
+            for (_, v) in obj.properties.extended() {
+                if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = v {
+                    out.push(s.clone());
                 }
             }
-            None
-        };
-
-        // Spec: "MessageData". Back-compat: older/broken naming used "InformationalRecord_Message".
-        let message_data_value = get_prop(&["MessageData", "InformationalRecord_Message"])
-            .map_or_else(
-                || PsValue::Primitive(PsPrimitiveValue::Str(String::new())),
-                |p| p.value.clone(),
-            );
-        let message_data = parse_message_data(message_data_value);
-
-        let serialize_invocation_info = get_prop(&[
-            "SerializeInvocationInfo",
-            "InformationalRecord_SerializeInvocationInfo",
-        ])
-        .is_some_and(|prop| {
-            if let PsValue::Primitive(PsPrimitiveValue::Bool(b)) = prop.value {
-                b
-            } else {
-                false
-            }
-        });
-
-        let source =
-            get_prop(&["Source", "InformationalRecord_Source"]).and_then(|prop| {
-                match &prop.value {
-                    PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                    _ => None,
-                }
-            });
-
-        let time_generated = get_prop(&["TimeGenerated", "InformationalRecord_TimeGenerated"])
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s) | PsPrimitiveValue::DateTime(s)) => {
-                    Some(s.clone())
-                }
-                _ => None,
-            });
-
-        let tags = value
-            .extended_properties
-            .get("Tags")
-            .or_else(|| value.extended_properties.get("InformationalRecord_Tags"))
-            .and_then(|prop| match &prop.value {
-                PsValue::Object(obj) => {
-                    let mut tags = Vec::new();
-                    for prop in obj.extended_properties.values() {
-                        if let PsValue::Primitive(PsPrimitiveValue::Str(s)) = &prop.value {
-                            tags.push(s.clone());
-                        }
-                    }
-                    if tags.is_empty() { None } else { Some(tags) }
-                }
-                PsValue::Primitive(_) => None,
-            });
-
-        let user = value
-            .extended_properties
-            .get("User")
-            .or_else(|| value.extended_properties.get("InformationalRecord_User"))
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
-
-        let computer = value
-            .extended_properties
-            .get("Computer")
-            .or_else(|| {
-                value
-                    .extended_properties
-                    .get("InformationalRecord_Computer")
-            })
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::Str(s)) => Some(s.clone()),
-                _ => None,
-            });
-
-        let process_id = value
-            .extended_properties
-            .get("ProcessId")
-            .or_else(|| {
-                value
-                    .extended_properties
-                    .get("InformationalRecord_ProcessId")
-            })
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
-                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
-                _ => None,
-            });
-
-        let native_thread_id = value
-            .extended_properties
-            .get("NativeThreadId")
-            .or_else(|| {
-                value
-                    .extended_properties
-                    .get("InformationalRecord_NativeThreadId")
-            })
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
-                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
-                _ => None,
-            });
-
-        let managed_thread_id = value
-            .extended_properties
-            .get("ManagedThreadId")
-            .or_else(|| {
-                value
-                    .extended_properties
-                    .get("InformationalRecord_ManagedThreadId")
-            })
-            .and_then(|prop| match &prop.value {
-                PsValue::Primitive(PsPrimitiveValue::I32(id)) => Some(*id),
-                PsValue::Primitive(PsPrimitiveValue::U32(id)) => Some((*id) as i32),
-                _ => None,
-            });
-
-        Ok(Self::builder()
-            .message_data(message_data)
-            .serialize_invocation_info(serialize_invocation_info)
-            .source(source)
-            .time_generated(time_generated)
-            .tags(tags)
-            .user(user)
-            .computer(computer)
-            .process_id(process_id)
-            .native_thread_id(native_thread_id)
-            .managed_thread_id(managed_thread_id)
-            .build())
+        }
+        Ok(out)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ps_value::{ComplexObject, PsObjectWithType};
 
     #[test]
     fn test_information_record_basic() {

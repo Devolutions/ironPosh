@@ -61,8 +61,8 @@ impl<M: Method> ResultTransport<M> {
         if M::should_send_response() {
             Submission::Send(PipelineHostResponse {
                 call_id: self.call_id,
-                method_id: M::ID,
-                method_name: M::NAME.to_string(),
+                method: ironposh_psrp::RemoteHostMethodId::from_id(M::ID)
+                    .expect("Method::ID is a valid host method id"),
                 method_result: <M::Return as ToPs>::to_ps(v),
                 method_exception: None,
             })
