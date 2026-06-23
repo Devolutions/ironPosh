@@ -78,6 +78,20 @@ const CONFIGURATION_NAME_ENV: &[&str] = &[
     "VITE_PWSH_TER_CONFIGURATION_NAME",
 ];
 
+/// Default WinRM auth method for real-server e2e runs.
+///
+/// The default target (a domain controller) refuses Basic over HTTP, so the
+/// out-of-the-box default is `negotiate`. Override with `IRONPOSH_E2E_AUTH`
+/// (`basic` | `ntlm` | `negotiate` | `kerberos`).
+#[must_use]
+pub fn default_auth_method() -> String {
+    std::env::var("IRONPOSH_E2E_AUTH")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "negotiate".to_string())
+}
+
 struct Defaults {
     hostname: &'static str,
     port: &'static str,
