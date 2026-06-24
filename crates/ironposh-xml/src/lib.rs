@@ -1,6 +1,7 @@
 use roxmltree::NodeType;
 
 pub mod builder;
+pub mod mapping;
 pub mod parser;
 
 #[derive(Debug, thiserror::Error)]
