@@ -1,17 +1,22 @@
 use ironposh_macros::{FromXml, SimpleTagValue};
 
 use crate::cores::{
-    CommandState, DesiredStream, ExitCode, Stream, Tag, TagName, TagValue, Text, tag_value,
+    DesiredStream, DesiredStreamTag, ExitCode, Stream, StreamTag, TagName, TagValue,
 };
+use crate::tag;
 use ironposh_xml::{
     XmlError,
     builder::Element,
     mapping::{FromXml, NodeExt},
 };
 
+tag!(Receive = ReceiveValue<'a> => WsmanShell);
+tag!(ReceiveResponse = ReceiveResponseValue<'a> => WsmanShell);
+tag!(CommandState = CommandStateValue<'a> => WsmanShell);
+
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct ReceiveValue<'a> {
-    pub desired_streams: Vec<Tag<'a, Text<'a>, DesiredStream>>,
+    pub desired_streams: Vec<DesiredStream<'a>>,
 }
 
 impl<'a> TagValue<'a> for ReceiveValue<'a> {
@@ -27,8 +32,8 @@ impl<'a> FromXml<'a> for ReceiveValue<'a> {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
         let mut desired_streams = Vec::new();
         for child in node.children() {
-            if child.is_element_named(DesiredStream::NAMESPACE, DesiredStream::TAG_NAME) {
-                desired_streams.push(Tag::from_xml(child)?);
+            if child.is_element_named(DesiredStreamTag::NAMESPACE, DesiredStreamTag::TAG_NAME) {
+                desired_streams.push(DesiredStream::from_xml(child)?);
             }
         }
         Ok(ReceiveValue { desired_streams })
@@ -81,14 +86,14 @@ impl TryFrom<&str> for CommandStateValueState {
 
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct CommandStateValue<'a> {
-    pub exit_code: Option<Tag<'a, tag_value::I32, ExitCode>>,
+    pub exit_code: Option<ExitCode<'a>>,
 }
 
 // ReceiveResponse main structure
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
 pub struct ReceiveResponseValue<'a> {
-    pub streams: Vec<Tag<'a, Text<'a>, Stream>>,
-    pub command_state: Option<Tag<'a, CommandStateValue<'a>, CommandState>>,
+    pub streams: Vec<Stream<'a>>,
+    pub command_state: Option<CommandState<'a>>,
 }
 
 impl<'a> TagValue<'a> for ReceiveResponseValue<'a> {
@@ -106,10 +111,11 @@ impl<'a> FromXml<'a> for ReceiveResponseValue<'a> {
         let mut streams = Vec::new();
         let mut command_state = None;
         for child in node.children() {
-            if child.is_element_named(Stream::NAMESPACE, Stream::TAG_NAME) {
-                streams.push(Tag::from_xml(child)?);
-            } else if child.is_element_named(CommandState::NAMESPACE, CommandState::TAG_NAME) {
-                command_state = Some(Tag::from_xml(child)?);
+            if child.is_element_named(StreamTag::NAMESPACE, StreamTag::TAG_NAME) {
+                streams.push(Stream::from_xml(child)?);
+            } else if child.is_element_named(CommandStateTag::NAMESPACE, CommandStateTag::TAG_NAME)
+            {
+                command_state = Some(CommandState::from_xml(child)?);
             }
         }
         Ok(ReceiveResponseValue {

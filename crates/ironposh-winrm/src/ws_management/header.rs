@@ -5,7 +5,11 @@ use ironposh_xml::{
     mapping::{FromXml, NodeExt},
 };
 
-use crate::cores::{self, OptionTagName, Selector, Tag, TagName, TagValue, Text};
+use crate::cores::{self, OptionTagNameTag, Selector, SelectorTag, TagName, TagValue, Text};
+use crate::tag;
+
+tag!(SelectorSet = SelectorSetValue => DmtfWsmanSchema);
+tag!(OptionSet = OptionSetValue => DmtfWsmanSchema);
 
 #[derive(Debug, Clone, Default)]
 pub struct SelectorSetValue {
@@ -39,8 +43,7 @@ impl SelectorSetValue {
 impl<'a> TagValue<'a> for SelectorSetValue {
     fn append_to_element(self, mut element: Element<'a>) -> Element<'a> {
         for (name, value) in self.selectors {
-            let selector = Tag::from_name(Selector)
-                .with_value(Text::from(value))
+            let selector = Selector::new(Text::from(value))
                 .with_attribute(crate::cores::Attribute::Name(name.into()));
 
             let selector = selector.into_element();
@@ -56,7 +59,7 @@ impl<'a> FromXml<'a> for SelectorSetValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
         let mut selectors = HashMap::new();
         for child in node.children() {
-            if child.is_element_named(Selector::NAMESPACE, Selector::TAG_NAME)
+            if child.is_element_named(SelectorTag::NAMESPACE, SelectorTag::TAG_NAME)
                 && let Some(name) = child
                     .attributes()
                     .find(|attr| attr.name() == "Name")
@@ -99,7 +102,7 @@ impl<'a> TagValue<'a> for OptionSetValue {
         for (name, value) in self.options {
             let option_element = Element::new("Option")
                 .set_namespace(ironposh_xml::builder::Namespace::from(
-                    OptionTagName::NAMESPACE.expect("OptionTagName definately has a namespace"),
+                    OptionTagNameTag::NAMESPACE.expect("OptionTagName definately has a namespace"),
                 ))
                 .set_text(value)
                 .add_attribute(cores::Attribute::Name(name.into()).into())
@@ -115,7 +118,7 @@ impl<'a> FromXml<'a> for OptionSetValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
         let mut options = HashMap::new();
         for child in node.children() {
-            if child.is_element_named(OptionTagName::NAMESPACE, OptionTagName::TAG_NAME)
+            if child.is_element_named(OptionTagNameTag::NAMESPACE, OptionTagNameTag::TAG_NAME)
                 && let Some(name) = child
                     .attributes()
                     .find(|attr| attr.name() == "Name")

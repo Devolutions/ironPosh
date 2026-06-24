@@ -1,58 +1,53 @@
 use crate::cores::{
-    Tag, Text, Time,
-    tag_name::{
-        BufferMode, ClientIP, CompressionMode, CreationXml, DataLocale, Encoding, IdleTimeOut,
-        InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
-        ResourceUri, ShellId, ShellInactivity, ShellRunTime, State,
-    },
+    BufferMode, ClientIP, CompressionMode, CreationXml, DataLocaleText, Encoding, IdleTimeOut,
+    InputStreams, LocaleText, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
+    ResourceUri, ShellId, ShellInactivity, ShellRunTime, State,
 };
+use crate::tag;
 use ironposh_macros::{FromXml, SimpleTagValue};
 
-// The XmlTagContainer derive macro generates:
-// - TagValue implementation
-// - ShellValueVisitor struct
-// - XmlVisitor implementation for ShellValueVisitor
-// - XmlDeserialize implementation
+tag!(Shell = ShellValue<'a> => WsmanShell);
+
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct ShellValue<'a> {
     #[builder(default, setter(strip_option, into))]
-    pub shell_id: Option<Tag<'a, Text<'a>, ShellId>>,
+    pub shell_id: Option<ShellId<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub name: Option<Tag<'a, Text<'a>, Name>>,
+    pub name: Option<Name<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub resource_uri: Option<Tag<'a, Text<'a>, ResourceUri>>,
+    pub resource_uri: Option<ResourceUri<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub owner: Option<Tag<'a, Text<'a>, Owner>>,
+    pub owner: Option<Owner<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub client_ip: Option<Tag<'a, Text<'a>, ClientIP>>,
+    pub client_ip: Option<ClientIP<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub process_id: Option<Tag<'a, Text<'a>, ProcessId>>,
+    pub process_id: Option<ProcessId<'a>>,
     #[builder(default, setter(strip_option(fallback_suffix = "_opt"), into))]
-    pub idle_time_out: Option<Tag<'a, Time, IdleTimeOut>>,
+    pub idle_time_out: Option<IdleTimeOut<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub input_streams: Option<Tag<'a, Text<'a>, InputStreams>>,
+    pub input_streams: Option<InputStreams<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub output_streams: Option<Tag<'a, Text<'a>, OutputStreams>>,
+    pub output_streams: Option<OutputStreams<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub max_idle_time_out: Option<Tag<'a, Text<'a>, MaxIdleTimeOut>>,
+    pub max_idle_time_out: Option<MaxIdleTimeOut<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub locale: Option<Tag<'a, Text<'a>, Locale>>,
+    pub locale: Option<LocaleText<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub data_locale: Option<Tag<'a, Text<'a>, DataLocale>>,
+    pub data_locale: Option<DataLocaleText<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub compression_mode: Option<Tag<'a, Text<'a>, CompressionMode>>,
+    pub compression_mode: Option<CompressionMode<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub profile_loaded: Option<Tag<'a, Text<'a>, ProfileLoaded>>,
+    pub profile_loaded: Option<ProfileLoaded<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub encoding: Option<Tag<'a, Text<'a>, Encoding>>,
+    pub encoding: Option<Encoding<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub buffer_mode: Option<Tag<'a, Text<'a>, BufferMode>>,
+    pub buffer_mode: Option<BufferMode<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub state: Option<Tag<'a, Text<'a>, State>>,
+    pub state: Option<State<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub shell_run_time: Option<Tag<'a, Text<'a>, ShellRunTime>>,
+    pub shell_run_time: Option<ShellRunTime<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub shell_inactivity: Option<Tag<'a, Text<'a>, ShellInactivity>>,
+    pub shell_inactivity: Option<ShellInactivity<'a>>,
     #[builder(default, setter(strip_option, into))]
-    pub creation_xml: Option<Tag<'a, Text<'a>, CreationXml>>,
+    pub creation_xml: Option<CreationXml<'a>>,
 }

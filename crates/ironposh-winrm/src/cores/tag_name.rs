@@ -1,5 +1,5 @@
-use crate::cores::namespace::*;
-use crate::{define_custom_tagname, define_tagname};
+use crate::cores::tag_value::{Empty, I32, ReadOnlyUnParsed, Text, Time, U32, WsUuid};
+use crate::tag;
 
 pub trait TagName {
     const TAG_NAME: &'static str;
@@ -14,131 +14,91 @@ pub trait TagName {
     }
 }
 
-// ==========================
+// Leaf-valued tags live here (their value types are all in `cores`). Tags whose
+// value is a domain struct (Shell = ShellValue, Body = SoapBody, …) are defined
+// with `tag!` next to that struct instead — see the rsp/soap/ws_* modules.
+
+// ============================================================
 // PowerShell Remoting Shell (rsp namespace)
-// ==========================
-define_tagname!(ShellId, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Name, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ResourceUri, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Owner, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ClientIP, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ProcessId, Some(Namespace::WsmanShell.uri()));
-define_tagname!(IdleTimeOut, Some(Namespace::WsmanShell.uri()));
-define_tagname!(InputStreams, Some(Namespace::WsmanShell.uri()));
-define_tagname!(OutputStreams, Some(Namespace::WsmanShell.uri()));
-define_tagname!(MaxIdleTimeOut, Some(Namespace::WsmanShell.uri()));
-define_tagname!(CompressionMode, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ProfileLoaded, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Encoding, Some(Namespace::WsmanShell.uri()));
-define_tagname!(BufferMode, Some(Namespace::WsmanShell.uri()));
-define_tagname!(State, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ShellRunTime, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ShellInactivity, Some(Namespace::WsmanShell.uri()));
-define_tagname!(CompressionType, Some(Namespace::WsmanShell.uri()));
-define_tagname!(DesiredStream, Some(Namespace::WsmanShell.uri()));
+// ============================================================
+tag!(ShellId = Text<'a> => WsmanShell);
+tag!(Name = Text<'a> => WsmanShell);
+tag!(ResourceUri = Text<'a> => WsmanShell);
+tag!(Owner = Text<'a> => WsmanShell);
+tag!(ClientIP = Text<'a> => WsmanShell);
+tag!(ProcessId = Text<'a> => WsmanShell);
+tag!(IdleTimeOut = Time => WsmanShell);
+tag!(InputStreams = Text<'a> => WsmanShell);
+tag!(OutputStreams = Text<'a> => WsmanShell);
+tag!(MaxIdleTimeOut = Text<'a> => WsmanShell);
+tag!(CompressionMode = Text<'a> => WsmanShell);
+tag!(ProfileLoaded = Text<'a> => WsmanShell);
+tag!(Encoding = Text<'a> => WsmanShell);
+tag!(BufferMode = Text<'a> => WsmanShell);
+tag!(State = Text<'a> => WsmanShell);
+tag!(ShellRunTime = Text<'a> => WsmanShell);
+tag!(ShellInactivity = Text<'a> => WsmanShell);
+tag!(CompressionType = Text<'a> => WsmanShell);
+tag!(DesiredStream = Text<'a> => WsmanShell);
+tag!(Stream = Text<'a> => WsmanShell);
+tag!(ExitCode = I32 => WsmanShell);
+tag!(CommandId = WsUuid => WsmanShell);
+tag!(CommandResponse = CommandId<'a> => WsmanShell); // wraps a single CommandId child
+tag!(Command = Text<'a> => WsmanShell);
+tag!(Arguments = Text<'a> => WsmanShell);
+tag!(DisconnectResponse = Empty => WsmanShell);
+tag!(Reconnect = Empty => WsmanShell);
+tag!(ReconnectResponse = Empty => WsmanShell);
+tag!(SignalCode = "Code": Text<'a> => WsmanShell);
+tag!(Signal = SignalCode<'a> => WsmanShell); // wraps a single Code child
+tag!(SignalResponse = Empty => WsmanShell);
 
-define_custom_tagname!(
-    CreationXml,
-    "creationXml",
-    Some(Namespace::PowerShellRemoting.uri())
-);
+tag!(CreationXml = "creationXml": Text<'a> => PowerShellRemoting);
+tag!(ConnectXml = "connectXml": Text<'a> => PowerShellRemoting);
+tag!(ConnectResponseXml = "connectResponseXml": Text<'a> => PowerShellRemoting);
 
-define_tagname!(CommandLine, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Shell, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Command, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Receive, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ReceiveResponse, Some(Namespace::WsmanShell.uri()));
-define_tagname!(CommandResponse, Some(Namespace::WsmanShell.uri()));
-define_tagname!(CommandId, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Stream, Some(Namespace::WsmanShell.uri()));
-define_tagname!(CommandState, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ExitCode, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Send, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Disconnect, Some(Namespace::WsmanShell.uri()));
-define_tagname!(DisconnectResponse, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Reconnect, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ReconnectResponse, Some(Namespace::WsmanShell.uri()));
-define_tagname!(Connect, Some(Namespace::WsmanShell.uri()));
-define_tagname!(ConnectResponse, Some(Namespace::WsmanShell.uri()));
-define_custom_tagname!(
-    ConnectXml,
-    "connectXml",
-    Some(Namespace::PowerShellRemoting.uri())
-);
-define_custom_tagname!(
-    ConnectResponseXml,
-    "connectResponseXml",
-    Some(Namespace::PowerShellRemoting.uri())
-);
-define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
-define_tagname!(SignalResponse, Some(Namespace::WsmanShell.uri()));
-define_custom_tagname!(SignalCode, "Code", Some(Namespace::WsmanShell.uri()));
-define_tagname!(Arguments, Some(Namespace::WsmanShell.uri()));
-
-// ====================
+// ============================================================
 // WS-Addressing (a namespace)
-// ====================
-define_tagname!(Action, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(To, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(MessageID, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(RelatesTo, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(ReplyTo, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(Address, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(ReferenceParameters, Some(Namespace::WsAddressing2004.uri()));
+// ============================================================
+tag!(Action = Text<'a> => WsAddressing2004);
+tag!(To = Text<'a> => WsAddressing2004);
+tag!(MessageID = WsUuid => WsAddressing2004);
+tag!(RelatesTo = WsUuid => WsAddressing2004);
+tag!(Address = Text<'a> => WsAddressing2004);
 
-// =============
+// ============================================================
 // SOAP (s namespace)
-// =============
-define_tagname!(Envelope, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Header, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Body, Some(Namespace::SoapEnvelope2003.uri()));
+// ============================================================
+tag!(Detail = ReadOnlyUnParsed<'a> => SoapEnvelope2003);
+tag!(SoapValue = "Value": Text<'a> => SoapEnvelope2003);
+tag!(SoapText = "Text": Text<'a> => SoapEnvelope2003);
 
-// SOAP Fault elements
-define_tagname!(Fault, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Code, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Reason, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Detail, Some(Namespace::SoapEnvelope2003.uri()));
-define_tagname!(Subcode, Some(Namespace::SoapEnvelope2003.uri()));
-define_custom_tagname!(SoapValue, "Value", Some(Namespace::SoapEnvelope2003.uri()));
-define_custom_tagname!(SoapText, "Text", Some(Namespace::SoapEnvelope2003.uri()));
-
-// ===============================
+// ============================================================
 // WS-Management DMTF (w namespace)
-// ===============================
-define_tagname!(Identify, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Get, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Put, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Delete, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Enumerate, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Pull, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Release, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(GetStatus, Some(Namespace::DmtfWsmanSchema.uri()));
+// ============================================================
+tag!(Identify = Empty => DmtfWsmanSchema);
+tag!(Get = Text<'a> => DmtfWsmanSchema);
+tag!(Put = Text<'a> => DmtfWsmanSchema);
+tag!(Delete = Text<'a> => DmtfWsmanSchema);
+tag!(Enumerate = ReadOnlyUnParsed<'a> => DmtfWsmanSchema);
+tag!(ResourceURI = Text<'a> => DmtfWsmanSchema);
+tag!(OperationTimeout = Time => DmtfWsmanSchema);
+tag!(MaxEnvelopeSize = U32 => DmtfWsmanSchema);
+tag!(Selector = Text<'a> => DmtfWsmanSchema);
+tag!(OptionTagName = "Option": Empty => DmtfWsmanSchema);
+tag!(LocaleEmpty = "Locale": Empty => DmtfWsmanSchema);
+tag!(LocaleText = "Locale": Text<'a> => DmtfWsmanSchema);
 
-// WS-Management DMTF Headers (w namespace)
-define_tagname!(ResourceURI, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(OperationTimeout, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(MaxEnvelopeSize, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(SelectorSet, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(OptionSet, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Locale, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(Selector, Some(Namespace::DmtfWsmanSchema.uri()));
-define_custom_tagname!(
-    OptionTagName,
-    "Option",
-    Some(Namespace::DmtfWsmanSchema.uri())
-);
-
-// ===================================
+// ============================================================
 // WS-Transfer (x namespace)
-// ===================================
-define_tagname!(Create, Some(Namespace::WsTransfer2004.uri()));
+// ============================================================
+tag!(Create = Text<'a> => WsTransfer2004);
 
-define_tagname!(ResourceCreated, Some(Namespace::WsTransfer2004.uri()));
-
-// ====================================
+// ============================================================
 // Microsoft WS-Management (p namespace)
-// ====================================
-define_tagname!(SequenceId, Some(Namespace::MsWsmanSchema.uri()));
-define_tagname!(OperationID, Some(Namespace::MsWsmanSchema.uri()));
-define_tagname!(SessionId, Some(Namespace::MsWsmanSchema.uri()));
-define_tagname!(DataLocale, Some(Namespace::MsWsmanSchema.uri()));
+// ============================================================
+tag!(SequenceId = Text<'a> => MsWsmanSchema);
+tag!(OperationID = WsUuid => MsWsmanSchema);
+tag!(SessionId = WsUuid => MsWsmanSchema);
+tag!(DataLocaleEmpty = "DataLocale": Empty => MsWsmanSchema);
+tag!(DataLocaleText = "DataLocale": Text<'a> => MsWsmanSchema);

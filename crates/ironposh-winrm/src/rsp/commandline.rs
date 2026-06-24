@@ -1,9 +1,9 @@
 use ironposh_xml::mapping::{FromXml, NodeExt};
 
-use crate::cores::{
-    Tag, TagName, TagValue, Text,
-    tag_name::{Arguments, Command},
-};
+use crate::cores::{ArgumentsTag, CommandTag, Tag, TagName, TagValue, Text};
+use crate::tag;
+
+tag!(CommandLine = CommandLineValue => WsmanShell);
 
 #[derive(Debug, Clone)]
 pub struct CommandLineValue {
@@ -16,10 +16,12 @@ impl TagValue<'_> for CommandLineValue {
         self,
         mut element: ironposh_xml::builder::Element,
     ) -> ironposh_xml::builder::Element {
+        // `Command` carries either nothing (`<Command/>`) or text, so it's built
+        // explicitly from the marker rather than a single-value alias.
         let command_element = self.command.map_or_else(
-            || Tag::from_name(Command).with_value(()).into_element(),
+            || Tag::from_name(CommandTag).with_value(()).into_element(),
             |cmd| {
-                Tag::from_name(Command)
+                Tag::from_name(CommandTag)
                     .with_value(Text::from(cmd))
                     .into_element()
             },
@@ -28,7 +30,7 @@ impl TagValue<'_> for CommandLineValue {
         element = element.add_child(command_element);
 
         for arg in self.arguments {
-            let arg_element = Tag::from_name(Arguments)
+            let arg_element = Tag::from_name(ArgumentsTag)
                 .with_value(Text::from(arg))
                 .into_element();
             element = element.add_child(arg_element);
@@ -43,9 +45,9 @@ impl<'a> FromXml<'a> for CommandLineValue {
         let mut command = None;
         let mut arguments = Vec::new();
         for child in node.children() {
-            if child.is_element_named(Command::NAMESPACE, Command::TAG_NAME) {
+            if child.is_element_named(CommandTag::NAMESPACE, CommandTag::TAG_NAME) {
                 command = child.text().map(ToString::to_string);
-            } else if child.is_element_named(Arguments::NAMESPACE, Arguments::TAG_NAME)
+            } else if child.is_element_named(ArgumentsTag::NAMESPACE, ArgumentsTag::TAG_NAME)
                 && let Some(text) = child.text()
             {
                 arguments.push(text.to_string());

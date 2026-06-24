@@ -1,8 +1,12 @@
-use crate::{
-    cores::*,
-    ws_addressing::AddressValue,
-    ws_management::{OptionSetValue, SelectorSetValue},
+use crate::cores::{
+    Action, CompressionType, DataLocaleEmpty, LocaleEmpty, MaxEnvelopeSize, MessageID, OperationID,
+    OperationTimeout, RelatesTo, ResourceURI, SequenceId, SessionId, To,
 };
+use crate::tag;
+use crate::ws_addressing::ReplyTo;
+use crate::ws_management::{OptionSet, SelectorSet};
+
+tag!(Header = SoapHeaders<'a> => SoapEnvelope2003);
 
 #[derive(
     Debug,
@@ -14,37 +18,37 @@ use crate::{
 pub struct SoapHeaders<'a> {
     /// WS-Addressing headers
     #[builder(default, setter(into, strip_option))]
-    pub to: Option<Tag<'a, Text<'a>, To>>,
+    pub to: Option<To<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub action: Option<Tag<'a, Text<'a>, Action>>,
+    pub action: Option<Action<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub reply_to: Option<Tag<'a, AddressValue<'a>, ReplyTo>>,
+    pub reply_to: Option<ReplyTo<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub message_id: Option<Tag<'a, WsUuid, MessageID>>,
+    pub message_id: Option<MessageID<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub relates_to: Option<Tag<'a, WsUuid, RelatesTo>>,
+    pub relates_to: Option<RelatesTo<'a>>,
 
     /// WS-Management headers
     #[builder(default, setter(into, strip_option))]
-    pub resource_uri: Option<Tag<'a, Text<'a>, ResourceURI>>,
+    pub resource_uri: Option<ResourceURI<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub max_envelope_size: Option<Tag<'a, U32, MaxEnvelopeSize>>,
+    pub max_envelope_size: Option<MaxEnvelopeSize<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub locale: Option<Tag<'a, Empty, Locale>>,
+    pub locale: Option<LocaleEmpty<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub data_locale: Option<Tag<'a, Empty, DataLocale>>,
+    pub data_locale: Option<DataLocaleEmpty<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub session_id: Option<Tag<'a, WsUuid, SessionId>>,
+    pub session_id: Option<SessionId<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub operation_id: Option<Tag<'a, WsUuid, OperationID>>,
+    pub operation_id: Option<OperationID<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub sequence_id: Option<Tag<'a, Text<'a>, SequenceId>>,
+    pub sequence_id: Option<SequenceId<'a>>,
     #[builder(default, setter(into, strip_option(fallback_suffix = "_opt")))]
-    pub option_set: Option<Tag<'a, OptionSetValue, OptionSet>>,
+    pub option_set: Option<OptionSet<'a>>,
     #[builder(default, setter(into, strip_option(fallback_suffix = "_opt")))]
-    pub selector_set: Option<Tag<'a, SelectorSetValue, SelectorSet>>,
+    pub selector_set: Option<SelectorSet<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub operation_timeout: Option<Tag<'a, Time, OperationTimeout>>,
+    pub operation_timeout: Option<OperationTimeout<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub compression_type: Option<Tag<'a, Text<'a>, CompressionType>>,
+    pub compression_type: Option<CompressionType<'a>>,
 }

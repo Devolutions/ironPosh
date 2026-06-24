@@ -7,8 +7,11 @@ use ironposh_psrp::{
     fragmentation::{DefragmentResult, Defragmenter, Fragmenter},
 };
 use ironposh_winrm::{
-    cores::{Attribute, ReceiveResponse, Send, Tag, Text, tag_name::Stream},
-    rsp::{receive::ReceiveResponseValue, send::SendValue},
+    cores::{Attribute, StreamTag, Tag, Text},
+    rsp::{
+        receive::{ReceiveResponseTag, ReceiveResponseValue},
+        send::{SendTag, SendValue},
+    },
     soap::{SoapEnvelope, body::SoapBody},
 };
 use ironposh_xml::builder::Element;
@@ -42,10 +45,10 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         .collect();
 
     // 4. Create SendValue with multiple Stream elements (NEW CODE PATH)
-    let streams: Vec<Tag<Text, Stream>> = base64_fragments
+    let streams: Vec<Tag<Text, StreamTag>> = base64_fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdin".into()))
         })
@@ -53,7 +56,7 @@ fn test_send_receive_roundtrip_with_fragmentation() {
 
     let send_value = SendValue::builder().streams(streams).build();
 
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_attribute(Attribute::CommandId(command_id))
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
@@ -80,10 +83,10 @@ fn test_send_receive_roundtrip_with_fragmentation() {
 
     // 6. Simulate receiving the response - create ReceiveResponse with same streams
     // (In real flow, server would echo back or client would receive similar structure)
-    let receive_streams: Vec<Tag<Text, Stream>> = base64_fragments
+    let receive_streams: Vec<Tag<Text, StreamTag>> = base64_fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdout".into()))
                 .with_attribute(Attribute::CommandId(command_id))
@@ -95,7 +98,7 @@ fn test_send_receive_roundtrip_with_fragmentation() {
         .command_state(None)
         .build();
 
-    let receive_response_tag = Tag::from_name(ReceiveResponse)
+    let receive_response_tag = Tag::from_name(ReceiveResponseTag)
         .with_value(receive_response_value)
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 
@@ -183,7 +186,7 @@ fn create_large_session_capability() -> SessionCapability {
 fn test_send_with_no_fragments() {
     let send_value = SendValue::builder().streams(vec![]).build();
 
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 
@@ -222,13 +225,13 @@ fn test_send_with_single_fragment() {
 
     let base64_fragment = base64::engine::general_purpose::STANDARD.encode(&fragments[0]);
 
-    let stream = Tag::from_name(Stream)
+    let stream = Tag::from_name(StreamTag)
         .with_value(Text::from(base64_fragment.as_str()))
         .with_attribute(Attribute::Name("stdin".into()));
 
     let send_value = SendValue::builder().streams(vec![stream]).build();
 
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_attribute(Attribute::CommandId(command_id))
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);

@@ -1,6 +1,6 @@
 use ironposh_winrm::{
-    cores::{Namespace, Tag, Text, tag_name::*},
-    rsp::connect::ConnectValue,
+    cores::{Namespace, Tag, Text},
+    rsp::connect::{ConnectTag, ConnectValue},
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{SelectorSetValue, WsAction, WsMan},
 };
@@ -29,7 +29,7 @@ fn test_build_connect_envelope() {
             .with_declaration(Namespace::PowerShellRemoting),
     };
 
-    let connect_tag = Tag::from_name(Connect)
+    let connect_tag = Tag::from_name(ConnectTag)
         .with_declaration(Namespace::WsmanShell)
         .with_value(connect_value);
 

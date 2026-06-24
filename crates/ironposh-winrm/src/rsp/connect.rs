@@ -1,8 +1,9 @@
-use crate::cores::{
-    Tag, Text,
-    tag_name::{ConnectResponseXml, ConnectXml},
-};
+use crate::cores::{ConnectResponseXml, ConnectXml};
+use crate::tag;
 use ironposh_macros::{FromXml, SimpleTagValue};
+
+tag!(Connect = ConnectValue<'a> => WsmanShell);
+tag!(ConnectResponse = ConnectResponseValue<'a> => WsmanShell);
 
 /// Value for the Connect element (MS-WSMV 3.1.4.15).
 ///
@@ -10,7 +11,7 @@ use ironposh_macros::{FromXml, SimpleTagValue};
 /// in a `connectXml` child element, analogous to `creationXml` on shell create.
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ConnectValue<'a> {
-    pub connect_xml: Tag<'a, Text<'a>, ConnectXml>,
+    pub connect_xml: ConnectXml<'a>,
 }
 
 /// Value for the ConnectResponse element (MS-WSMV 3.1.4.15).
@@ -20,5 +21,5 @@ pub struct ConnectValue<'a> {
 /// can surface a descriptive error instead of failing the whole envelope parse.
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ConnectResponseValue<'a> {
-    pub connect_response_xml: Option<Tag<'a, Text<'a>, ConnectResponseXml>>,
+    pub connect_response_xml: Option<ConnectResponseXml<'a>>,
 }

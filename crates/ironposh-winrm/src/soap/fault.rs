@@ -1,36 +1,42 @@
-use crate::cores::*;
+use crate::cores::{Detail, SoapText, SoapValue};
+use crate::tag;
 use ironposh_macros::{FromXml, SimpleTagValue};
 
 // SOAP Fault structures for handling SOAP error responses
 
+tag!(Fault = SoapFaultValue<'a> => SoapEnvelope2003);
+tag!(Code = SoapFaultCodeValue<'a> => SoapEnvelope2003);
+tag!(Subcode = SoapFaultSubcodeValue<'a> => SoapEnvelope2003);
+tag!(Reason = SoapFaultReasonValue<'a> => SoapEnvelope2003);
+
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapFaultValue<'a> {
     #[builder(default, setter(into, strip_option))]
-    pub code: Option<Tag<'a, SoapFaultCodeValue<'a>, Code>>,
+    pub code: Option<Code<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub reason: Option<Tag<'a, SoapFaultReasonValue<'a>, Reason>>,
+    pub reason: Option<Reason<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub detail: Option<Tag<'a, ReadOnlyUnParsed<'a>, Detail>>,
+    pub detail: Option<Detail<'a>>,
 }
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapFaultCodeValue<'a> {
     #[builder(default, setter(into, strip_option))]
-    pub value: Option<Tag<'a, Text<'a>, SoapValue>>,
+    pub value: Option<SoapValue<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub subcode: Option<Tag<'a, SoapFaultSubcodeValue<'a>, Subcode>>,
+    pub subcode: Option<Subcode<'a>>,
 }
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapFaultSubcodeValue<'a> {
     #[builder(default, setter(into, strip_option))]
-    pub value: Option<Tag<'a, Text<'a>, SoapValue>>,
+    pub value: Option<SoapValue<'a>>,
 }
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapFaultReasonValue<'a> {
     #[builder(default, setter(into, strip_option))]
-    pub text: Option<Tag<'a, Text<'a>, SoapText>>,
+    pub text: Option<SoapText<'a>>,
 }
 
 impl SoapFaultValue<'_> {

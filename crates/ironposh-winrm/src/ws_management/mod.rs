@@ -3,13 +3,8 @@ pub mod header;
 pub use header::*;
 
 use crate::{
-    cores::{
-        Attribute, Tag, Time, WsUuid,
-        namespace::Namespace,
-        tag_name::{Action, Envelope},
-        tag_value::Text,
-    },
-    soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
+    cores::{Action, Attribute, Tag, Time, WsUuid, namespace::Namespace, tag_value::Text},
+    soap::{Envelope, SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
 };
 
@@ -107,7 +102,7 @@ impl WsMan {
         resource_body: SoapBody<'a>,
         option_set: Option<header::OptionSetValue>,
         selector_set: Option<header::SelectorSetValue>,
-    ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
+    ) -> Envelope<'a> {
         self.invoke_with_operation_timeout(
             action,
             resource_uri,
@@ -126,7 +121,7 @@ impl WsMan {
         option_set: Option<header::OptionSetValue>,
         selector_set: Option<header::SelectorSetValue>,
         operation_timeout_secs: Option<f64>,
-    ) -> Tag<'a, SoapEnvelope<'a>, Envelope> {
+    ) -> Envelope<'a> {
         // Generate a unique message ID and operation ID for this request
         let message_id = uuid::Uuid::new_v4();
         let operation_id = uuid::Uuid::new_v4();
@@ -142,8 +137,7 @@ impl WsMan {
         // Create the SOAP header with all required fields
         let header = SoapHeaders::builder()
             .action(
-                Tag::new(action.as_str().to_owned())
-                    .with_name(Action)
+                Action::new(action.as_str().to_owned())
                     .with_attribute(Attribute::MustUnderstand(true)),
             )
             .data_locale(
@@ -189,7 +183,7 @@ impl WsMan {
 
         // Convert to XML using Tag wrapper with proper namespaces
 
-        let mut soap = Tag::<SoapEnvelope, Envelope>::new(envelope)
+        let mut soap = Envelope::new(envelope)
             .with_declaration(Namespace::SoapEnvelope2003)
             .with_declaration(Namespace::WsAddressing2004)
             .with_declaration(Namespace::DmtfWsmanSchema)
