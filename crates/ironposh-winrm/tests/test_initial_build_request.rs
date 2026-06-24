@@ -1,5 +1,5 @@
 use ironposh_winrm::{
-    cores::{Tag, TagList, tag_name::*, tag_value::Text},
+    cores::{Tag, tag_name::*, tag_value::Text},
     rsp::shell_value::ShellValue,
     soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
     ws_addressing::AddressValue,
@@ -16,9 +16,6 @@ mod tests {
 
     #[test]
     fn test_build_soap_envelope_for_shell_creation() {
-        // Create an empty TagList for creation_xml (simplified for now)
-        let _creation_xml_content = TagList::new();
-
         // Build the Shell content for the body
         let shell = ShellValue::builder()
             .name("Runspace1")

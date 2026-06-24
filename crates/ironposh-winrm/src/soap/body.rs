@@ -29,12 +29,6 @@ pub struct SoapBody<'a> {
     pub delete: Option<Tag<'a, Text<'a>, Delete>>,
     #[builder(default, setter(into, strip_option))]
     pub enumerate: Option<Tag<'a, ReadOnlyUnParsed<'a>, Enumerate>>,
-    #[builder(default, setter(into, strip_option))]
-    pub pull: Option<Tag<'a, TagList<'a>, Pull>>,
-    #[builder(default, setter(into, strip_option))]
-    pub release: Option<Tag<'a, TagList<'a>, Release>>,
-    #[builder(default, setter(into, strip_option))]
-    pub get_status: Option<Tag<'a, TagList<'a>, GetStatus>>,
 
     /// WS-Transfer operations
     #[builder(default, setter(into, strip_option))]
@@ -43,8 +37,6 @@ pub struct SoapBody<'a> {
     /// PowerShell Remoting operations
     #[builder(default, setter(into, strip_option))]
     pub shell: Option<Tag<'a, ShellValue<'a>, Shell>>,
-    #[builder(default, setter(into, strip_option))]
-    pub command: Option<Tag<'a, TagList<'a>, Command>>,
     #[builder(default, setter(into, strip_option))]
     pub command_line: Option<Tag<'a, CommandLineValue, CommandLine>>,
     #[builder(default, setter(into, strip_option))]
