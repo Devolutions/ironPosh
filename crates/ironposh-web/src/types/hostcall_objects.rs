@@ -345,6 +345,16 @@ pub enum JsPsPrimitiveValue {
     Version(String),
     DateTime(String),
     TimeSpan(String),
+    Double(String),
+    Single(String),
+    Decimal(String),
+    Int16(i16),
+    UInt16(u16),
+    Byte(u8),
+    SByte(i8),
+    Uri(String),
+    ScriptBlock(String),
+    Xml(String),
 }
 
 impl From<PsPrimitiveValue> for JsPsPrimitiveValue {
@@ -364,6 +374,16 @@ impl From<PsPrimitiveValue> for JsPsPrimitiveValue {
             PsPrimitiveValue::Version(v) => Self::Version(v),
             PsPrimitiveValue::DateTime(d) => Self::DateTime(d),
             PsPrimitiveValue::TimeSpan(t) => Self::TimeSpan(t),
+            PsPrimitiveValue::Double(s) => Self::Double(s),
+            PsPrimitiveValue::Single(s) => Self::Single(s),
+            PsPrimitiveValue::Decimal(s) => Self::Decimal(s),
+            PsPrimitiveValue::Int16(i) => Self::Int16(i),
+            PsPrimitiveValue::UInt16(u) => Self::UInt16(u),
+            PsPrimitiveValue::Byte(b) => Self::Byte(b),
+            PsPrimitiveValue::SByte(i) => Self::SByte(i),
+            PsPrimitiveValue::Uri(u) => Self::Uri(u),
+            PsPrimitiveValue::ScriptBlock(s) => Self::ScriptBlock(s),
+            PsPrimitiveValue::Xml(x) => Self::Xml(x),
         }
     }
 }
@@ -393,6 +413,16 @@ impl TryFrom<JsPsPrimitiveValue> for PsPrimitiveValue {
             JsPsPrimitiveValue::Version(v) => Self::Version(v),
             JsPsPrimitiveValue::DateTime(d) => Self::DateTime(d),
             JsPsPrimitiveValue::TimeSpan(t) => Self::TimeSpan(t),
+            JsPsPrimitiveValue::Double(s) => Self::Double(s),
+            JsPsPrimitiveValue::Single(s) => Self::Single(s),
+            JsPsPrimitiveValue::Decimal(s) => Self::Decimal(s),
+            JsPsPrimitiveValue::Int16(i) => Self::Int16(i),
+            JsPsPrimitiveValue::UInt16(u) => Self::UInt16(u),
+            JsPsPrimitiveValue::Byte(b) => Self::Byte(b),
+            JsPsPrimitiveValue::SByte(i) => Self::SByte(i),
+            JsPsPrimitiveValue::Uri(u) => Self::Uri(u),
+            JsPsPrimitiveValue::ScriptBlock(s) => Self::ScriptBlock(s),
+            JsPsPrimitiveValue::Xml(x) => Self::Xml(x),
         })
     }
 }

@@ -793,14 +793,14 @@ mod primitive_coverage_tests {
     use ironposh_xml::builder::Builder;
     use ironposh_xml::parser::parse;
 
-    fn roundtrip(value: PsValue) {
+    fn roundtrip(value: &PsValue) {
         let element = value.to_element_as_root().expect("serialize");
         let xml = Builder::new(None, element).to_xml_string().expect("render");
         let doc = parse(&xml).expect("parse");
         let mut ctx = DeserializationContext::new();
         let parsed =
             PsValue::from_node_with_context(doc.root_element(), &mut ctx).expect("deserialize");
-        assert_eq!(parsed, value, "round-trip mismatch; xml={xml}");
+        assert_eq!(&parsed, value, "round-trip mismatch; xml={xml}");
     }
 
     fn ext_primitive(p: PsPrimitiveValue) -> PsValue {
@@ -813,7 +813,7 @@ mod primitive_coverage_tests {
     // #40: a primitive carried as complex-object content must not be dropped.
     #[test]
     fn securestring_as_object_content_roundtrips() {
-        roundtrip(ext_primitive(PsPrimitiveValue::SecureString(vec![
+        roundtrip(&ext_primitive(PsPrimitiveValue::SecureString(vec![
             9, 8, 7, 6,
         ])));
     }
@@ -824,8 +824,8 @@ mod primitive_coverage_tests {
         ($name:ident, $variant:expr) => {
             #[test]
             fn $name() {
-                roundtrip(PsValue::Primitive($variant));
-                roundtrip(ext_primitive($variant));
+                roundtrip(&PsValue::Primitive($variant));
+                roundtrip(&ext_primitive($variant));
             }
         };
     }

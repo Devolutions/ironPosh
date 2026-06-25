@@ -37,30 +37,31 @@ pub enum PsPrimitiveValue {
 impl Display for PsPrimitiveValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Str(s) => write!(f, "{s}"),
+            // All string-backed variants render as their text.
+            Self::Str(s)
+            | Self::Guid(s)
+            | Self::Version(s)
+            | Self::DateTime(s)
+            | Self::TimeSpan(s)
+            | Self::Double(s)
+            | Self::Single(s)
+            | Self::Decimal(s)
+            | Self::Uri(s)
+            | Self::ScriptBlock(s)
+            | Self::Xml(s) => write!(f, "{s}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::I32(i) => write!(f, "{i}"),
             Self::U32(u) => write!(f, "{u}"),
             Self::I64(i) => write!(f, "{i}"),
             Self::U64(u) => write!(f, "{u}"),
-            Self::Guid(g) => write!(f, "{g}"),
             Self::Char(c) => write!(f, "{c}"),
             Self::Nil => write!(f, ""), // PowerShell $null stringifies to empty string
             Self::Bytes(_bytes) => write!(f, "System.Byte[]"),
             Self::SecureString(_bytes) => write!(f, "System.Security.SecureString"),
-            Self::Version(v) => write!(f, "{v}"),
-            Self::DateTime(d) => write!(f, "{d}"),
-            Self::TimeSpan(t) => write!(f, "{t}"),
-            Self::Double(s) => write!(f, "{s}"),
-            Self::Single(s) => write!(f, "{s}"),
-            Self::Decimal(s) => write!(f, "{s}"),
             Self::Int16(i) => write!(f, "{i}"),
             Self::UInt16(u) => write!(f, "{u}"),
             Self::Byte(b) => write!(f, "{b}"),
             Self::SByte(i) => write!(f, "{i}"),
-            Self::Uri(u) => write!(f, "{u}"),
-            Self::ScriptBlock(s) => write!(f, "{s}"),
-            Self::Xml(x) => write!(f, "{x}"),
         }
     }
 }

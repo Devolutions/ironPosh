@@ -6,6 +6,7 @@
 //! WinRM server is reachable (see each suite's ignore message).
 
 mod auths;
+mod clixml_primitives;
 mod command_latency;
 mod command_matrix;
 mod configuration_name;

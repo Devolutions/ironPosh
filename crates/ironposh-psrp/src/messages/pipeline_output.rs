@@ -25,13 +25,12 @@ impl PipelineOutput {
     }
 
     pub fn format_as_displyable_string(&self) -> Result<String, PowerShellRemotingError> {
-        let Some(output_str) = self.data.as_string() else {
-            return Err(PowerShellRemotingError::OutputFormattingError(
-                "Pipeline output is not a string",
-            ));
-        };
-
-        decode_escaped_ps_string(&output_str)
+        match &self.data {
+            // Strings carry PowerShell's `_xHHHH_` escapes; decode them.
+            PsValue::Primitive(PsPrimitiveValue::Str(s)) => decode_escaped_ps_string(s),
+            // Everything else (numbers, uris, objects, …) renders via Display.
+            other => Ok(other.to_string()),
+        }
     }
 }
 
@@ -169,4 +168,26 @@ fn decode_escaped_ps_string(input: &str) -> Result<String, PowerShellRemotingErr
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_non_string_primitive() {
+        let out = PipelineOutput {
+            data: PsValue::Primitive(PsPrimitiveValue::Double("1234.5".into())),
+        };
+        assert_eq!(out.format_as_displyable_string().unwrap(), "1234.5");
+    }
+
+    #[test]
+    fn formats_string_with_escape_decoding() {
+        // `_x000A_` is PowerShell's escaped newline.
+        let out = PipelineOutput {
+            data: PsValue::Primitive(PsPrimitiveValue::Str("a_x000A_b".into())),
+        };
+        assert_eq!(out.format_as_displyable_string().unwrap(), "a\nb");
+    }
 }
