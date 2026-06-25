@@ -233,6 +233,18 @@ mod tests {
     }
 
     #[test]
+    fn numeric_leaf_rejects_mixed_content() {
+        let doc = parse("<x>1<child/></x>").unwrap();
+        assert!(U32::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn wsuuid_leaf_rejects_mixed_content() {
+        let doc = parse("<x>uuid:2d6534d0-6b12-40e3-b773-cba26459cfa8<child/></x>").unwrap();
+        assert!(WsUuid::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
     fn empty_rejects_text_content() {
         let doc = parse("<x>nope</x>").unwrap();
         assert!(Empty::from_xml(doc.root_element()).is_err());

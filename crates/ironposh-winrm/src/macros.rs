@@ -3,7 +3,8 @@
 /// Generates a zero-sized `TagName` marker (`<Alias>Tag`) that pins the element's
 /// wire name + namespace at the type level, plus an ergonomic type alias
 /// `Alias<'a> = Tag<'a, Value, AliasTag>` used in struct fields and construction.
-/// The marker stays internal; everything else writes the alias.
+/// The alias is the normal spelling; the `<Alias>Tag` marker is also public,
+/// written directly at the few `Tag::from_name` call sites.
 ///
 /// Forms:
 /// - `tag!(Get = Text<'a> => DmtfWsmanSchema)` — wire name is the alias ident.

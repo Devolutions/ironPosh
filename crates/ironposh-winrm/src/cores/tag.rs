@@ -179,12 +179,13 @@ where
             let mut elements = node
                 .children()
                 .filter(ironposh_xml::parser::Node::is_element);
-            let only = elements
-                .next()
-                .ok_or_else(|| ironposh_xml::XmlError::XmlInvalidTag {
-                    expected: N::TAG_NAME.to_string(),
-                    found: node.tag_name().name().to_string(),
-                })?;
+            let only = elements.next().ok_or_else(|| {
+                ironposh_xml::XmlError::InvalidXml(format!(
+                    "expected a <{}> child in <{}>, found none",
+                    N::TAG_NAME,
+                    node.tag_name().name()
+                ))
+            })?;
             if elements.next().is_some() {
                 return Err(ironposh_xml::XmlError::InvalidXml(format!(
                     "expected exactly one child element in <{}>",
@@ -299,8 +300,7 @@ mod tests {
         assert_eq!(tag.value.value.0.to_string().to_uppercase(), uuid);
     }
 
-    /// The descend branch must reject a wrapper with no element child rather
-    /// than silently yielding a default.
+    /// A wrapper that yields no usable child must be rejected, not defaulted.
     #[test]
     fn nested_tag_rejects_no_child() {
         let xml = format!(r#"<rsp:CommandResponse xmlns:rsp="{RSP}"/>"#);

@@ -43,14 +43,14 @@ tag!(DesiredStream = Text<'a> => WsmanShell);
 tag!(Stream = Text<'a> => WsmanShell);
 tag!(ExitCode = I32 => WsmanShell);
 tag!(CommandId = WsUuid => WsmanShell);
-tag!(CommandResponse = CommandId<'a> => WsmanShell); // wraps a single CommandId child
+tag!(CommandResponse = CommandId<'a> => WsmanShell);
 tag!(Command = Text<'a> => WsmanShell);
 tag!(Arguments = Text<'a> => WsmanShell);
 tag!(DisconnectResponse = Empty => WsmanShell);
 tag!(Reconnect = Empty => WsmanShell);
 tag!(ReconnectResponse = Empty => WsmanShell);
 tag!(SignalCode = "Code": Text<'a> => WsmanShell);
-tag!(Signal = SignalCode<'a> => WsmanShell); // wraps a single Code child
+tag!(Signal = SignalCode<'a> => WsmanShell);
 tag!(SignalResponse = Empty => WsmanShell);
 
 tag!(CreationXml = "creationXml": Text<'a> => PowerShellRemoting);
