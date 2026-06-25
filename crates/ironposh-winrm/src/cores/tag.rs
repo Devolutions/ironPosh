@@ -1,10 +1,9 @@
 use ironposh_xml::builder::Element;
-use ironposh_xml::parser::{XmlDeserialize, XmlVisitor};
-use tracing::{debug, trace, warn};
+use ironposh_xml::mapping::{FromXml, NodeExt};
 
-use crate::cores::namespace::NamespaceDeclaration;
+use crate::cores::WsUuid;
+use crate::cores::namespace::{Namespace, NamespaceDeclaration};
 use crate::cores::tag_value::{Text, U32};
-use crate::cores::{Namespace, WsUuid};
 use crate::impl_tag_from;
 
 use super::attribute::Attribute;
@@ -160,155 +159,40 @@ where
     }
 }
 
-pub struct TagVisitor<'a, V, N>
+impl<'a, V, N> FromXml<'a> for Tag<'a, V, N>
 where
-    V: TagValue<'a>,
+    V: TagValue<'a> + FromXml<'a>,
     N: TagName,
 {
-    pub tag: Option<V>,
-    pub attributes: Vec<Attribute<'a>>,
-    pub namespaces: NamespaceDeclaration,
-    pub namespace: Option<Namespace>,
-    __phantom: std::marker::PhantomData<&'a N>,
-}
-
-pub struct NodeDeserializer<'a> {
-    root: ironposh_xml::parser::Node<'a, 'a>,
-}
-
-impl<'a> NodeDeserializer<'a> {
-    pub fn new(root: ironposh_xml::parser::Node<'a, 'a>) -> Self {
-        Self { root }
-    }
-
-    /// Drive any visitor over the subtree rooted at `self.root`
-    pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, ironposh_xml::XmlError>
-    where
-        V: XmlVisitor<'a>,
-    {
-        visitor.visit_node(self.root)?;
-        visitor.finish()
-    }
-}
-
-impl<'a, V, N> XmlVisitor<'a> for TagVisitor<'a, V, N>
-where
-    V: TagValue<'a> + 'a + XmlDeserialize<'a>,
-    N: TagName,
-{
-    type Value = Tag<'a, V, N>;
-
-    fn visit_node(
-        &mut self,
-        node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        trace!(
-            expected_tag_name = N::TAG_NAME,
-            actual_tag_name = node.tag_name().name(),
-            namespace = ?node.tag_name().namespace(),
-            "TagVisitor visiting node",
-        );
-
-        if node.is_element() && node.tag_name().name() == N::TAG_NAME {
-            let value =
-                V::from_children(node.children().filter(|c| c.is_element() || c.is_text()))?;
-            self.tag = Some(value);
-            trace!(tag_name = N::TAG_NAME, "Successfully created tag value");
-        } else {
-            warn!(
-                actual_tag_name = node.tag_name().name(),
-                expected_tag_name = N::TAG_NAME,
-                "Tag name doesn't match or node is not an element"
-            );
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        // Identity is the (namespace-URI, local-name) pair; the prefix is never
+        // consulted. A dispatcher (a derived struct, AnyTag, or a TagList) has
+        // usually already matched this, so the check is a cheap self-validation.
+        if !node.is_element_named(N::NAMESPACE, N::TAG_NAME) {
+            return Err(ironposh_xml::XmlError::XmlInvalidTag {
+                expected: N::TAG_NAME.to_string(),
+                found: node.tag_name().name().to_string(),
+            });
         }
 
-        for attr in node.attributes() {
-            trace!(
-                name = attr.name(),
-                value = attr.value(),
-                "Processing attribute"
-            );
-            if let Ok(attribute) = Attribute::from_attribute(attr) {
-                trace!("Successfully parsed attribute: {:?}", attribute);
-                self.attributes.push(attribute);
-            } else {
-                debug!("Failed to parse attribute: {}", attr.name());
-            }
-        }
-
-        self.namespaces = NamespaceDeclaration::from_node(node)?;
-
-        self.namespace = Namespace::from_node(node).ok();
-
-        Ok(())
-    }
-
-    fn visit_children(
-        &mut self,
-        children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for child in children {
-            if child.is_element()
-                && child.tag_name().name() == N::TAG_NAME
-                && child.tag_name().namespace() == N::NAMESPACE
-            {
-                debug!("Visiting child node: {}", child.tag_name().name());
-                self.visit_node(child)?;
-            } else {
-                warn!(
-                    "Skipping child node: {} (namespace: {:?})",
-                    child.tag_name().name(),
-                    child.tag_name().namespace()
-                );
-
-                return Err(ironposh_xml::XmlError::InvalidXml(format!(
-                    "Unexpected child node: {} (namespace: {:?})",
-                    child.tag_name().name(),
-                    child.tag_name().namespace()
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        self.tag
-            .map(|value| Tag {
-                value,
-                attributes: self.attributes,
-                namespaces_declaration: self.namespaces,
-                __phantom: std::marker::PhantomData,
-                __phantom_name: std::marker::PhantomData,
+        let value = V::from_xml(node)?;
+        let attributes = node
+            .attributes()
+            .filter_map(|attr| {
+                Attribute::from_name_and_value(attr.name(), attr.value())
+                    .ok()
+                    .flatten()
             })
-            .ok_or_else(|| {
-                ironposh_xml::XmlError::InvalidXml(format!(
-                    "Tag visitor cannot built for tag: {}",
-                    N::TAG_NAME
-                ))
-            })
-    }
-}
+            .collect();
+        let namespaces_declaration = NamespaceDeclaration::from_xml(node)?;
 
-impl<'a, V, N> XmlDeserialize<'a> for Tag<'a, V, N>
-where
-    V: TagValue<'a> + XmlDeserialize<'a>,
-    N: TagName + 'a,
-{
-    type Visitor = TagVisitor<'a, V, N>;
-
-    fn visitor() -> Self::Visitor {
-        TagVisitor {
-            tag: None,
-            attributes: Vec::new(),
-            namespaces: NamespaceDeclaration::new(),
-            namespace: None,
+        Ok(Tag {
+            value,
+            attributes,
+            namespaces_declaration,
             __phantom: std::marker::PhantomData,
-        }
-    }
-
-    fn from_node(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
-        NodeDeserializer::new(node).deserialize(Self::visitor())
+            __phantom_name: std::marker::PhantomData,
+        })
     }
 }
 

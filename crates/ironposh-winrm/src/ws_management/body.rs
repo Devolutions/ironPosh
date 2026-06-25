@@ -1,4 +1,4 @@
-use ironposh_macros::{SimpleTagValue, SimpleXmlDeserialize};
+use ironposh_macros::{FromXml, SimpleTagValue};
 use ironposh_xml::builder::Element;
 
 use crate::{
@@ -125,13 +125,13 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
     }
 }
 
-#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ReferenceParametersValue<'a> {
     pub resource_uri: Tag<'a, Text<'a>, ResourceURI>,
     pub selector_set: Tag<'a, SelectorSetValue, SelectorSet>,
 }
 
-#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ResourceCreatedValue<'a> {
     pub address: Tag<'a, Text<'a>, Address>,
     pub reference_parameters: Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>,
@@ -140,7 +140,7 @@ pub struct ResourceCreatedValue<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ironposh_xml::parser::XmlDeserialize;
+    use ironposh_xml::mapping::FromXml;
 
     #[test]
     fn test_resource_created_value_deserialize() {
@@ -169,7 +169,7 @@ mod tests {
 
         let element = ironposh_xml::parser::parse(xml).unwrap();
         let root = element.root_element();
-        let tag: Tag<'_, ResourceCreatedValue, ResourceCreated> = Tag::from_node(root).unwrap();
+        let tag: Tag<'_, ResourceCreatedValue, ResourceCreated> = Tag::from_xml(root).unwrap();
         let value = tag.value;
 
         assert_eq!(

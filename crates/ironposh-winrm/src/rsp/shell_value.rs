@@ -3,17 +3,17 @@ use crate::cores::{
     tag_name::{
         BufferMode, ClientIP, CompressionMode, CreationXml, DataLocale, Encoding, IdleTimeOut,
         InputStreams, Locale, MaxIdleTimeOut, Name, OutputStreams, Owner, ProcessId, ProfileLoaded,
-        ResourceUri, ShellId, ShellInactivity, ShellRunTime, State, TagName,
+        ResourceUri, ShellId, ShellInactivity, ShellRunTime, State,
     },
 };
-use ironposh_macros::{SimpleTagValue, SimpleXmlDeserialize};
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 // The XmlTagContainer derive macro generates:
 // - TagValue implementation
 // - ShellValueVisitor struct
 // - XmlVisitor implementation for ShellValueVisitor
 // - XmlDeserialize implementation
-#[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct ShellValue<'a> {
     #[builder(default, setter(strip_option, into))]
     pub shell_id: Option<Tag<'a, Text<'a>, ShellId>>,

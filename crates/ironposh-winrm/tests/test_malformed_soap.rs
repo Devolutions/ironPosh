@@ -4,7 +4,7 @@
 //! without panicking, returning appropriate errors instead.
 
 use ironposh_winrm::soap::SoapEnvelope;
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 use std::fs;
 
 #[cfg(test)]
@@ -27,7 +27,7 @@ mod tests {
         };
 
         let root = document.root_element();
-        let result = SoapEnvelope::from_node(root);
+        let result = SoapEnvelope::from_xml(root);
 
         assert!(
             result.is_err(),
@@ -50,7 +50,7 @@ mod tests {
         let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
 
         let root = document.root_element();
-        let result = SoapEnvelope::from_node(root);
+        let result = SoapEnvelope::from_xml(root);
 
         // Empty body is technically valid XML - it should parse
         // The resulting SoapEnvelope should have empty body fields
@@ -85,7 +85,7 @@ mod tests {
         let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
 
         let root = document.root_element();
-        let result = SoapEnvelope::from_node(root);
+        let result = SoapEnvelope::from_xml(root);
 
         match result {
             Ok(envelope) => {
@@ -132,7 +132,7 @@ mod tests {
             ironposh_xml::parser::parse(&xml_content).expect("Valid XML syntax should parse");
 
         let root = document.root_element();
-        let result = SoapEnvelope::from_node(root);
+        let result = SoapEnvelope::from_xml(root);
 
         // Wrong namespace could either:
         // 1. Fail because the envelope isn't recognized
@@ -147,36 +147,32 @@ mod tests {
         }
     }
 
-    /// Test: Valid SOAP envelope with unknown/extra elements mixed in
-    /// Expected: Current implementation is STRICT - rejects unknown namespaces
+    /// Test: Valid SOAP envelope with unknown/extra extension elements mixed in.
     ///
-    /// NOTE: This documents the current behavior. A more lenient parser might
-    /// ignore unknown elements, but the current implementation validates namespaces.
+    /// The parser is lenient (SOAP must-ignore semantics): unknown elements and
+    /// extension namespaces are ignored, and the known content is still
+    /// extracted. Matching is by `(URI, local-name)`, so unrecognized children
+    /// simply don't bind to any field.
     #[test]
-    fn test_extra_unknown_elements_rejected() {
+    fn test_extra_unknown_elements_ignored() {
         let path = "tests/resources/malformed/extra_unknown_elements.xml";
         let xml_content = fs::read_to_string(path).expect("Failed to read file");
 
         let document = ironposh_xml::parser::parse(&xml_content).expect("Valid XML should parse");
+        let envelope = SoapEnvelope::from_xml(document.root_element())
+            .expect("Envelope with unknown extension elements should still parse");
 
-        let root = document.root_element();
-        let result = SoapEnvelope::from_node(root);
-
-        // Current implementation is strict: unknown namespaces are rejected
-        // This is actually safer than silently ignoring them
+        // The known ReceiveResponse/Stream content is extracted despite the noise.
+        let receive_response = envelope
+            .body
+            .as_ref()
+            .receive_response
+            .as_ref()
+            .expect("ReceiveResponse should be parsed");
         assert!(
-            result.is_err(),
-            "Envelope with unknown namespaces should be rejected by strict parser"
+            !receive_response.as_ref().streams.is_empty(),
+            "Stream content should be extracted alongside ignored unknown elements"
         );
-
-        let err = result.unwrap_err();
-        let err_str = format!("{err}");
-        assert!(
-            err_str.contains("Unknown namespace"),
-            "Error should mention unknown namespace, got: {err_str}"
-        );
-
-        println!("Unknown namespace correctly rejected (strict mode): {err}");
     }
 
     /// Test: XML with mismatched tags (invalid syntax)

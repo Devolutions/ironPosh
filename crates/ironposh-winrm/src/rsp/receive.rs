@@ -1,5 +1,4 @@
-use ironposh_macros::{SimpleTagValue, SimpleXmlDeserialize};
-use tracing::warn;
+use ironposh_macros::{FromXml, SimpleTagValue};
 
 use crate::cores::{
     CommandState, DesiredStream, ExitCode, Stream, Tag, TagName, TagValue, Text, tag_value,
@@ -7,7 +6,7 @@ use crate::cores::{
 use ironposh_xml::{
     XmlError,
     builder::Element,
-    parser::{XmlDeserialize, XmlVisitor},
+    mapping::{FromXml, NodeExt},
 };
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder)]
@@ -24,45 +23,15 @@ impl<'a> TagValue<'a> for ReceiveValue<'a> {
     }
 }
 
-pub struct ReceiveVisitor<'a> {
-    pub desired_stream: Vec<Tag<'a, Text<'a>, DesiredStream>>,
-}
-
-impl<'a> XmlVisitor<'a> for ReceiveVisitor<'a> {
-    type Value = ReceiveValue<'a>;
-
-    fn visit_children(
-        &mut self,
-        nodes: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for node in nodes {
-            match (node.tag_name().name(), node.tag_name().namespace()) {
-                (DesiredStream::TAG_NAME, DesiredStream::NAMESPACE) => {
-                    let stream = Tag::from_node(node)?;
-                    self.desired_stream.push(stream);
-                }
-                _ => {
-                    warn!("Unexpected tag in Receive: {}", node.tag_name().name());
-                }
+impl<'a> FromXml<'a> for ReceiveValue<'a> {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
+        let mut desired_streams = Vec::new();
+        for child in node.children() {
+            if child.is_element_named(DesiredStream::NAMESPACE, DesiredStream::TAG_NAME) {
+                desired_streams.push(Tag::from_xml(child)?);
             }
         }
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, XmlError> {
-        Ok(ReceiveValue {
-            desired_streams: self.desired_stream,
-        })
-    }
-}
-
-impl<'a> XmlDeserialize<'a> for ReceiveValue<'a> {
-    type Visitor = ReceiveVisitor<'a>;
-
-    fn visitor() -> Self::Visitor {
-        ReceiveVisitor {
-            desired_stream: Vec::new(),
-        }
+        Ok(ReceiveValue { desired_streams })
     }
 }
 
@@ -110,7 +79,7 @@ impl TryFrom<&str> for CommandStateValueState {
     }
 }
 
-#[derive(Debug, Clone, SimpleTagValue, SimpleXmlDeserialize)]
+#[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct CommandStateValue<'a> {
     pub exit_code: Option<Tag<'a, tag_value::I32, ExitCode>>,
 }
@@ -132,54 +101,20 @@ impl<'a> TagValue<'a> for ReceiveResponseValue<'a> {
     }
 }
 
-pub struct ReceiveResponseVisitor<'a> {
-    pub streams: Vec<Tag<'a, Text<'a>, Stream>>,
-    pub command_state: Option<Tag<'a, CommandStateValue<'a>, CommandState>>,
-}
-
-impl<'a> XmlVisitor<'a> for ReceiveResponseVisitor<'a> {
-    type Value = ReceiveResponseValue<'a>;
-
-    fn visit_children(
-        &mut self,
-        nodes: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for node in nodes {
-            match (node.tag_name().name(), node.tag_name().namespace()) {
-                (Stream::TAG_NAME, Stream::NAMESPACE) => {
-                    let stream = Tag::from_node(node)?;
-                    self.streams.push(stream);
-                }
-                (CommandState::TAG_NAME, CommandState::NAMESPACE) => {
-                    let command_state = Tag::from_node(node)?;
-                    self.command_state = Some(command_state);
-                }
-                _ => {
-                    warn!(
-                        "Unexpected tag in ReceiveResponse: {}",
-                        node.tag_name().name()
-                    );
-                }
+impl<'a> FromXml<'a> for ReceiveResponseValue<'a> {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
+        let mut streams = Vec::new();
+        let mut command_state = None;
+        for child in node.children() {
+            if child.is_element_named(Stream::NAMESPACE, Stream::TAG_NAME) {
+                streams.push(Tag::from_xml(child)?);
+            } else if child.is_element_named(CommandState::NAMESPACE, CommandState::TAG_NAME) {
+                command_state = Some(Tag::from_xml(child)?);
             }
         }
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, XmlError> {
         Ok(ReceiveResponseValue {
-            streams: self.streams,
-            command_state: self.command_state,
+            streams,
+            command_state,
         })
-    }
-}
-
-impl<'a> XmlDeserialize<'a> for ReceiveResponseValue<'a> {
-    type Visitor = ReceiveResponseVisitor<'a>;
-
-    fn visitor() -> Self::Visitor {
-        ReceiveResponseVisitor {
-            streams: Vec::new(),
-            command_state: None,
-        }
     }
 }

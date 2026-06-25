@@ -30,13 +30,14 @@ pub fn parse(xml: &str) -> Result<Document<'_>, crate::XmlError> {
     roxmltree::Document::parse(xml).map_err(crate::XmlError::ParserError)
 }
 
-/// =========== 1.  The Visitor every type supplies  ===========
+/// Legacy visitor-based deserialization.
+///
+/// Superseded by [`crate::mapping::FromXml`] (direct, namespace-aware) for the
+/// WinRM/SOAP layer. Retained because `ironposh-psrp`'s CLIXML primitive layer
+/// still rides on it; once that migrates, this can go.
 pub trait XmlVisitor<'a> {
-    /// Rust value produced after the whole subtree was walked.
     type Value;
 
-    /// Visit a specific node - used by Tag types that need to match by name
-    /// Default implementation calls visit_children for backward compatibility
     fn visit_children(
         &mut self,
         _node: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
@@ -47,8 +48,6 @@ pub trait XmlVisitor<'a> {
         })
     }
 
-    /// Visit the children of a node - used by TagValue types that process content
-    /// Default implementation does nothing
     fn visit_node(&mut self, _node: crate::parser::Node<'a, 'a>) -> Result<(), crate::XmlError> {
         Err(crate::XmlError::NotSupposeToBeCalled {
             extra_info: "Default visit_node called, should be overridden or not called at all"
@@ -56,21 +55,9 @@ pub trait XmlVisitor<'a> {
         })
     }
 
-    fn visit_attribute(
-        &mut self,
-        _attribute: crate::parser::Attribute<'a, 'a>,
-    ) -> Result<(), crate::XmlError> {
-        Err(crate::XmlError::NotSupposeToBeCalled {
-            extra_info: "Default visit_attribute called, should be overridden or not called at all"
-                .to_string(),
-        })
-    }
-
-    /// Return the finished value after traversal.
     fn finish(self) -> Result<Self::Value, XmlError>;
 }
 
-/// =========== 2.  Blanket “Deserializer” driver  =============
 pub struct NodeDeserializer<'a> {
     root: roxmltree::Node<'a, 'a>,
 }
@@ -80,7 +67,6 @@ impl<'a> NodeDeserializer<'a> {
         Self { root }
     }
 
-    /// Drive any visitor over the subtree rooted at `self.root`
     pub fn deserialize<V>(self, mut visitor: V) -> Result<V::Value, XmlError>
     where
         V: XmlVisitor<'a>,
@@ -90,30 +76,12 @@ impl<'a> NodeDeserializer<'a> {
     }
 }
 
-/// =========== 3.  Per-type convenience trait  ================
 pub trait XmlDeserialize<'a>: Sized {
-    /// “Associated visitor” type that knows how to build Self
     type Visitor: XmlVisitor<'a, Value = Self>;
 
-    /// Create the visitor that will build Self.
     fn visitor() -> Self::Visitor;
 
-    /// One-liner users will call.
     fn from_node(node: roxmltree::Node<'a, 'a>) -> Result<Self, XmlError> {
         NodeDeserializer::new(node).deserialize(Self::visitor())
-    }
-
-    fn from_children(
-        children: impl Iterator<Item = crate::parser::Node<'a, 'a>>,
-    ) -> Result<Self, XmlError> {
-        let mut visitor = Self::visitor();
-        visitor.visit_children(children)?;
-        visitor.finish()
-    }
-
-    fn from_attribute(attribute: crate::parser::Attribute<'a, 'a>) -> Result<Self, XmlError> {
-        let mut visitor = Self::visitor();
-        visitor.visit_attribute(attribute)?;
-        visitor.finish()
     }
 }

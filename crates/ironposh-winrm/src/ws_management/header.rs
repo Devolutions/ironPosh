@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use ironposh_xml::{
     builder::Element,
-    parser::{XmlDeserialize, XmlVisitor},
+    mapping::{FromXml, NodeExt},
 };
-use tracing::warn;
 
 use crate::cores::{self, OptionTagName, Selector, Tag, TagName, TagValue, Text};
 
@@ -53,75 +52,20 @@ impl<'a> TagValue<'a> for SelectorSetValue {
     }
 }
 
-pub struct SelectorSetVisitor {
-    selectors: HashMap<String, String>,
-}
-
-impl<'a> XmlVisitor<'a> for SelectorSetVisitor {
-    type Value = SelectorSetValue;
-
-    fn visit_children(
-        &mut self,
-        children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for child in children {
-            if !child.is_element() {
-                continue;
-            }
-
-            match (child.tag_name().name(), child.tag_name().namespace()) {
-                (Selector::TAG_NAME, Selector::NAMESPACE) => {
-                    // Extract Name attribute and text content
-                    let mut name = None;
-                    for attr in child.attributes() {
-                        if attr.name() == "Name" {
-                            name = Some(attr.value().to_string());
-                            break;
-                        }
-                    }
-
-                    if let Some(name) = name {
-                        let value = child.text().unwrap_or_default().to_string();
-                        self.selectors.insert(name, value);
-                    } else {
-                        warn!("Selector element missing Name attribute");
-                    }
-                }
-                _ => {
-                    warn!(
-                        "Unexpected child element in SelectorSetValue: {} (namespace: {:?})",
-                        child.tag_name().name(),
-                        child.tag_name().namespace()
-                    );
-                }
+impl<'a> FromXml<'a> for SelectorSetValue {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        let mut selectors = HashMap::new();
+        for child in node.children() {
+            if child.is_element_named(Selector::NAMESPACE, Selector::TAG_NAME)
+                && let Some(name) = child
+                    .attributes()
+                    .find(|attr| attr.name() == "Name")
+                    .map(|attr| attr.value().to_string())
+            {
+                selectors.insert(name, child.text().unwrap_or_default().to_string());
             }
         }
-
-        Ok(())
-    }
-
-    fn visit_node(
-        &mut self,
-        _node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        // SelectorSetValue doesn't need to process individual nodes, only children
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        Ok(SelectorSetValue {
-            selectors: self.selectors,
-        })
-    }
-}
-
-impl XmlDeserialize<'_> for SelectorSetValue {
-    type Visitor = SelectorSetVisitor;
-
-    fn visitor() -> Self::Visitor {
-        SelectorSetVisitor {
-            selectors: HashMap::new(),
-        }
+        Ok(Self { selectors })
     }
 }
 
@@ -167,74 +111,19 @@ impl<'a> TagValue<'a> for OptionSetValue {
     }
 }
 
-pub struct OptionSetVisitor {
-    options: HashMap<String, String>,
-}
-
-impl<'a> XmlVisitor<'a> for OptionSetVisitor {
-    type Value = OptionSetValue;
-
-    fn visit_children(
-        &mut self,
-        children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for child in children {
-            if !child.is_element() {
-                continue;
-            }
-
-            match (child.tag_name().name(), child.tag_name().namespace()) {
-                (OptionTagName::TAG_NAME, OptionTagName::NAMESPACE) => {
-                    // Extract Name attribute and text content
-                    let mut name = None;
-                    for attr in child.attributes() {
-                        if attr.name() == "Name" {
-                            name = Some(attr.value().to_string());
-                            break;
-                        }
-                    }
-
-                    if let Some(name) = name {
-                        let value = child.text().unwrap_or_default().to_string();
-                        self.options.insert(name, value);
-                    } else {
-                        warn!("Option element missing Name attribute");
-                    }
-                }
-                _ => {
-                    warn!(
-                        "Unexpected child element in OptionSetValue: {} (namespace: {:?})",
-                        child.tag_name().name(),
-                        child.tag_name().namespace()
-                    );
-                }
+impl<'a> FromXml<'a> for OptionSetValue {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        let mut options = HashMap::new();
+        for child in node.children() {
+            if child.is_element_named(OptionTagName::NAMESPACE, OptionTagName::TAG_NAME)
+                && let Some(name) = child
+                    .attributes()
+                    .find(|attr| attr.name() == "Name")
+                    .map(|attr| attr.value().to_string())
+            {
+                options.insert(name, child.text().unwrap_or_default().to_string());
             }
         }
-
-        Ok(())
-    }
-
-    fn visit_node(
-        &mut self,
-        _node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        // OptionSetValue doesn't need to process individual nodes, only children
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        Ok(OptionSetValue {
-            options: self.options,
-        })
-    }
-}
-
-impl XmlDeserialize<'_> for OptionSetValue {
-    type Visitor = OptionSetVisitor;
-
-    fn visitor() -> Self::Visitor {
-        OptionSetVisitor {
-            options: HashMap::new(),
-        }
+        Ok(Self { options })
     }
 }

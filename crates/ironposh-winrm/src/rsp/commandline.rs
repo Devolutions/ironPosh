@@ -1,4 +1,4 @@
-use tracing::warn;
+use ironposh_xml::mapping::{FromXml, NodeExt};
 
 use crate::cores::{
     Tag, TagName, TagValue, Text,
@@ -38,55 +38,19 @@ impl TagValue<'_> for CommandLineValue {
     }
 }
 
-pub struct CommandLineValueVisitor {
-    command_line: Option<String>,
-    arguments: Vec<String>,
-}
-
-impl<'a> ironposh_xml::parser::XmlVisitor<'a> for CommandLineValueVisitor {
-    type Value = CommandLineValue;
-
-    fn visit_children(
-        &mut self,
-        nodes: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for node in nodes {
-            match (node.tag_name().name(), node.tag_name().namespace()) {
-                (Command::TAG_NAME, Command::NAMESPACE) => {
-                    let cmd_text = node.text().map(ToString::to_string);
-                    self.command_line = cmd_text;
-                }
-                (Arguments::TAG_NAME, Arguments::NAMESPACE) => {
-                    if let Some(text) = node.text() {
-                        self.arguments.push(text.to_string());
-                    }
-                }
-                _ => {
-                    warn!(
-                        "Unexpected tag in CommandLineValue: {}",
-                        node.tag_name().name()
-                    );
-                }
+impl<'a> FromXml<'a> for CommandLineValue {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        let mut command = None;
+        let mut arguments = Vec::new();
+        for child in node.children() {
+            if child.is_element_named(Command::NAMESPACE, Command::TAG_NAME) {
+                command = child.text().map(ToString::to_string);
+            } else if child.is_element_named(Arguments::NAMESPACE, Arguments::TAG_NAME)
+                && let Some(text) = child.text()
+            {
+                arguments.push(text.to_string());
             }
         }
-        Ok(())
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        Ok(CommandLineValue {
-            command: self.command_line,
-            arguments: self.arguments,
-        })
-    }
-}
-
-impl ironposh_xml::parser::XmlDeserialize<'_> for CommandLineValue {
-    type Visitor = CommandLineValueVisitor;
-
-    fn visitor() -> Self::Visitor {
-        CommandLineValueVisitor {
-            command_line: None,
-            arguments: Vec::new(),
-        }
+        Ok(Self { command, arguments })
     }
 }

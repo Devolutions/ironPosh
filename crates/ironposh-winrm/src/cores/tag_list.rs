@@ -1,7 +1,4 @@
-use ironposh_xml::{
-    builder::Element,
-    parser::{XmlDeserialize, XmlVisitor},
-};
+use ironposh_xml::{builder::Element, mapping::FromXml};
 
 use crate::cores::{TagValue, anytag::AnyTag};
 
@@ -37,49 +34,14 @@ impl<'a> TagValue<'a> for TagList<'a> {
     }
 }
 
-pub struct TagListVisitor<'a> {
-    items: Vec<AnyTag<'a>>,
-}
-
-impl<'a> XmlVisitor<'a> for TagListVisitor<'a> {
-    type Value = TagList<'a>;
-
-    fn visit_children(
-        &mut self,
-        children: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        for child in children {
+impl<'a> FromXml<'a> for TagList<'a> {
+    fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        let mut items = Vec::new();
+        for child in node.children() {
             if child.is_element() {
-                let tag = AnyTag::from_node(child)?;
-                self.items.push(tag);
-            } else {
-                return Err(ironposh_xml::XmlError::InvalidXml(format!(
-                    "Expected element child, found: {:?}",
-                    child.node_type()
-                )));
+                items.push(AnyTag::from_xml(child)?);
             }
         }
-        Ok(())
-    }
-
-    fn visit_node(
-        &mut self,
-        _node: ironposh_xml::parser::Node<'a, 'a>,
-    ) -> Result<(), ironposh_xml::XmlError> {
-        Err(ironposh_xml::XmlError::InvalidXml(
-            "TagListVisitor should not be called with a single node".to_string(),
-        ))
-    }
-
-    fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-        Ok(TagList { items: self.items })
-    }
-}
-
-impl<'a> XmlDeserialize<'a> for TagList<'a> {
-    type Visitor = TagListVisitor<'a>;
-
-    fn visitor() -> Self::Visitor {
-        TagListVisitor { items: Vec::new() }
+        Ok(TagList { items })
     }
 }

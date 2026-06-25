@@ -1,5 +1,5 @@
 use ironposh_winrm::soap::SoapEnvelope;
-use ironposh_xml::parser::XmlDeserialize;
+use ironposh_xml::mapping::FromXml;
 
 use super::pool::RunspacePool;
 
@@ -14,7 +14,7 @@ impl ExpectShellCreated {
 
         let parsed = ironposh_xml::parser::parse(response)?;
 
-        let soap_response = SoapEnvelope::from_node(parsed.root_element())
+        let soap_response = SoapEnvelope::from_xml(parsed.root_element())
             .map_err(crate::PwshCoreError::XmlParsingError)?;
 
         runspace_pool.shell.accept_create_response(&soap_response)?;

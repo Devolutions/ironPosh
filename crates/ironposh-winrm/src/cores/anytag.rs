@@ -1,5 +1,3 @@
-use ironposh_xml::parser::{XmlDeserialize, XmlVisitor};
-
 use crate::{
     cores::{Tag, TagList, TagName, tag_name::*, tag_value::Text},
     rsp::{receive::ReceiveValue, shell_value::ShellValue},
@@ -7,7 +5,7 @@ use crate::{
 
 #[macro_export]
 macro_rules! define_any_tag {
-    ($enum_name:ident, $visitor_name:ident, $(($variant:ident, $tag_name:ty, $tag_type:ty)),* $(,)?) => {
+    ($enum_name:ident, $(($variant:ident, $tag_name:ty, $tag_type:ty)),* $(,)?) => {
         #[expect(clippy::large_enum_variant)]
         #[derive(Debug, Clone)]
         pub enum $enum_name<'a> {
@@ -45,57 +43,22 @@ macro_rules! define_any_tag {
             }
         }
 
-        pub struct $visitor_name<'a> {
-            tag: Option<$enum_name<'a>>,
-        }
-
-        impl<'a> XmlVisitor<'a> for $visitor_name<'a> {
-            type Value = $enum_name<'a>;
-
-            fn visit_children(
-                &mut self,
-                node: impl Iterator<Item = ironposh_xml::parser::Node<'a, 'a>>,
-            ) -> Result<(), ironposh_xml::XmlError> {
-                Err(ironposh_xml::XmlError::InvalidXml(format!(
-                    "Expected a single tag, found {} children",
-                    node.count()
-                )))
-            }
-
-            fn visit_node(&mut self, node: ironposh_xml::parser::Node<'a, 'a>) -> Result<(), ironposh_xml::XmlError> {
-                match node.tag_name().name() {
-                    $(
-                        <$tag_name>::TAG_NAME => {
-                            let tag = <$tag_type>::from_node(node)?;
-                            self.tag = Some($enum_name::$variant(tag));
-                        }
-                    )*
-                    _ => {
-                        return Err(ironposh_xml::XmlError::InvalidXml(format!(
-                            "Unknown tag: {}",
-                            node.tag_name().name()
-                        )));
+        impl<'a> ironposh_xml::mapping::FromXml<'a> for $enum_name<'a> {
+            fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+                use ironposh_xml::mapping::NodeExt;
+                // Dispatch by (namespace-URI, local-name) — prefix is irrelevant.
+                $(
+                    if node.is_element_named(<$tag_name>::NAMESPACE, <$tag_name>::TAG_NAME) {
+                        return Ok($enum_name::$variant(
+                            <$tag_type as ironposh_xml::mapping::FromXml>::from_xml(node)?,
+                        ));
                     }
-                };
-
-                Ok(())
-            }
-
-            fn finish(self) -> Result<Self::Value, ironposh_xml::XmlError> {
-                self.tag
-                    .ok_or(ironposh_xml::XmlError::InvalidXml("No valid tag found".to_string()))
-            }
-        }
-
-        impl<'a> XmlDeserialize<'a> for $enum_name<'a> {
-            type Visitor = $visitor_name<'a>;
-
-            fn visitor() -> Self::Visitor {
-                $visitor_name { tag: None }
-            }
-
-            fn from_node(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
-                ironposh_xml::parser::NodeDeserializer::new(node).deserialize(Self::visitor())
+                )*
+                Err(ironposh_xml::XmlError::InvalidXml(format!(
+                    "Unknown tag: {} (namespace: {:?})",
+                    node.tag_name().name(),
+                    node.tag_name().namespace()
+                )))
             }
         }
     };
@@ -108,7 +71,6 @@ macro_rules! define_any_tag {
 // while perserving the compile-time safety of tag definitions.
 define_any_tag!(
     AnyTag,
-    AnyTagVisitor,
     // SOAP elements
     (Envelope, Envelope, Tag<'a, TagList<'a>, Envelope>),
     (Header, Header, Tag<'a, TagList<'a>, Header>),

@@ -9,7 +9,7 @@ use crate::{
     Clone,
     typed_builder::TypedBuilder,
     ironposh_macros::SimpleTagValue,
-    ironposh_macros::SimpleXmlDeserialize,
+    ironposh_macros::FromXml,
 )]
 pub struct SoapHeaders<'a> {
     /// WS-Addressing headers

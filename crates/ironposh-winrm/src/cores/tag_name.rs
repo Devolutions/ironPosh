@@ -37,7 +37,11 @@ define_tagname!(ShellInactivity, Some(Namespace::WsmanShell.uri()));
 define_tagname!(CompressionType, Some(Namespace::WsmanShell.uri()));
 define_tagname!(DesiredStream, Some(Namespace::WsmanShell.uri()));
 
-define_custom_tagname!(CreationXml, "creationXml", None);
+define_custom_tagname!(
+    CreationXml,
+    "creationXml",
+    Some(Namespace::PowerShellRemoting.uri())
+);
 
 define_tagname!(CommandLine, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Shell, Some(Namespace::WsmanShell.uri()));
@@ -56,8 +60,16 @@ define_tagname!(Reconnect, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ReconnectResponse, Some(Namespace::WsmanShell.uri()));
 define_tagname!(Connect, Some(Namespace::WsmanShell.uri()));
 define_tagname!(ConnectResponse, Some(Namespace::WsmanShell.uri()));
-define_custom_tagname!(ConnectXml, "connectXml", None);
-define_custom_tagname!(ConnectResponseXml, "connectResponseXml", None);
+define_custom_tagname!(
+    ConnectXml,
+    "connectXml",
+    Some(Namespace::PowerShellRemoting.uri())
+);
+define_custom_tagname!(
+    ConnectResponseXml,
+    "connectResponseXml",
+    Some(Namespace::PowerShellRemoting.uri())
+);
 define_tagname!(Signal, Some(Namespace::WsmanShell.uri()));
 define_tagname!(SignalResponse, Some(Namespace::WsmanShell.uri()));
 define_custom_tagname!(SignalCode, "Code", Some(Namespace::WsmanShell.uri()));
