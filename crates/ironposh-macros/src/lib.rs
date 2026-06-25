@@ -1291,10 +1291,10 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
         .map(|field| {
             let field_name = field.ident.as_ref().unwrap().clone();
             let is_optional = is_option_type(&field.ty);
-            let tag_name_type = extract_tag_name_type(&field.ty);
+            let value_type = inner_value_type(&field.ty);
             SimpleFieldEntry {
                 field_name,
-                tag_name_type,
+                value_type,
                 is_optional,
             }
         })
@@ -1305,19 +1305,19 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
         quote! { let mut #f = None; }
     });
 
-    // One namespace-correct match per field: identity is (URI, local-name).
-    let matchers = entries.iter().filter_map(|e| {
+    // One namespace-correct match per field: identity is (URI, local-name),
+    // read from the field's tag type via `NamedTag` so it works through aliases.
+    let matchers = entries.iter().map(|e| {
         let f = &e.field_name;
-        e.tag_name_type.as_ref().map(|n| {
-            quote! {
-                if child.is_element_named(
-                    <crate::cores::#n as crate::cores::TagName>::NAMESPACE,
-                    <crate::cores::#n as crate::cores::TagName>::TAG_NAME,
-                ) {
-                    #f = Some(ironposh_xml::mapping::FromXml::from_xml(child)?);
-                }
+        let ty = &e.value_type;
+        quote! {
+            if child.is_element_named(
+                <#ty as crate::cores::NamedTag>::NAMESPACE,
+                <#ty as crate::cores::NamedTag>::TAG_NAME,
+            ) {
+                #f = Some(ironposh_xml::mapping::FromXml::from_xml(child)?);
             }
-        })
+        }
     });
 
     let construct = entries.iter().map(|e| {
@@ -1419,7 +1419,7 @@ fn impl_simple_tag_value(input: &DeriveInput) -> TokenStream2 {
 
 struct SimpleFieldEntry {
     field_name: Ident,
-    tag_name_type: Option<Ident>,
+    value_type: Type,
     is_optional: bool,
 }
 
@@ -1437,55 +1437,18 @@ fn is_option_type(ty: &Type) -> bool {
     false
 }
 
-fn extract_tag_name_type(ty: &Type) -> Option<Ident> {
-    // Try to extract TagName from Tag<'a, ValueType, TagName> or Option<Tag<'a, ValueType, TagName>>
+/// The value a field carries: `Option<T>` -> `T`, otherwise the type itself.
+fn inner_value_type(ty: &Type) -> Type {
     if let Type::Path(TypePath { path, .. }) = ty {
-        for segment in &path.segments {
-            if segment.ident == "Tag" || segment.ident == "Option" {
+        if let Some(segment) = path.segments.last() {
+            if segment.ident == "Option" {
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    // For Option<Tag<...>>, we need to look at the inner type
-                    for arg in &args.args {
-                        if let syn::GenericArgument::Type(inner_type) = arg {
-                            if let Some(tag_name) = extract_tag_name_from_tag_type(inner_type) {
-                                return Some(tag_name);
-                            }
-                        }
-                    }
-
-                    // For Tag<'a, ValueType, TagName>, the third argument is TagName
-                    if segment.ident == "Tag" && args.args.len() >= 3 {
-                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) =
-                            &args.args[2]
-                        {
-                            if let Some(segment) = path.segments.last() {
-                                return Some(segment.ident.clone());
-                            }
-                        }
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return inner.clone();
                     }
                 }
             }
         }
     }
-    None
-}
-
-fn extract_tag_name_from_tag_type(ty: &Type) -> Option<Ident> {
-    if let Type::Path(TypePath { path, .. }) = ty {
-        for segment in &path.segments {
-            if segment.ident == "Tag" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if args.args.len() >= 3 {
-                        if let syn::GenericArgument::Type(Type::Path(TypePath { path, .. })) =
-                            &args.args[2]
-                        {
-                            if let Some(segment) = path.segments.last() {
-                                return Some(segment.ident.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
+    ty.clone()
 }

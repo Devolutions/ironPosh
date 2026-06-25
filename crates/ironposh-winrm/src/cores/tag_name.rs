@@ -83,8 +83,6 @@ define_tagname!(To, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(MessageID, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(RelatesTo, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(ReplyTo, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(FaultTo, Some(Namespace::WsAddressing2004.uri()));
-define_tagname!(From, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(Address, Some(Namespace::WsAddressing2004.uri()));
 define_tagname!(ReferenceParameters, Some(Namespace::WsAddressing2004.uri()));
 
@@ -120,7 +118,6 @@ define_tagname!(GetStatus, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(ResourceURI, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(OperationTimeout, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(MaxEnvelopeSize, Some(Namespace::DmtfWsmanSchema.uri()));
-define_tagname!(FragmentTransfer, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(SelectorSet, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(OptionSet, Some(Namespace::DmtfWsmanSchema.uri()));
 define_tagname!(Locale, Some(Namespace::DmtfWsmanSchema.uri()));
@@ -145,31 +142,3 @@ define_tagname!(SequenceId, Some(Namespace::MsWsmanSchema.uri()));
 define_tagname!(OperationID, Some(Namespace::MsWsmanSchema.uri()));
 define_tagname!(SessionId, Some(Namespace::MsWsmanSchema.uri()));
 define_tagname!(DataLocale, Some(Namespace::MsWsmanSchema.uri()));
-
-// PowerShell Remoting Protocol;
-define_tagname!(Obj, None);
-define_tagname!(MS, None);
-define_tagname!(Version, None);
-define_tagname!(BA, None);
-
-// PowerShell Serialization Format
-// define_tagname!(I32, None); // 32-bit integer
-define_custom_tagname!(I32TagName, "I32", None); // 32-bit integer
-define_tagname!(TN, None); // Type Name
-define_tagname!(T, None); // Type
-define_custom_tagname!(ToString, "ToString", None); // ToString representation
-define_tagname!(DCT, None); // Dictionary
-define_tagname!(En, None); // Dictionary Entry
-define_tagname!(Key, None); // Dictionary Key
-define_tagname!(Value, None); // Dictionary Value
-define_tagname!(Nil, None); // Null Value
-define_tagname!(B, None); // Boolean
-define_tagname!(S, None); // String
-
-// PowerShell InitRunspacepool Message Tags
-define_tagname!(MinRunspaces, None); // Minimum number of runspaces
-define_tagname!(MaxRunspaces, None); // Maximum number of runspaces
-define_tagname!(PSThreadOptions, None); // PowerShell thread options
-define_tagname!(ApartmentState, None); // Apartment state for runspace
-define_tagname!(HostInfo, None); // Host information
-define_tagname!(ApplicationArguments, None); // Application arguments

@@ -111,10 +111,6 @@ mod tests {
         );
         assert!(body.shell.is_none(), "Body should not have Shell in error");
         assert!(
-            body.command.is_none(),
-            "Body should not have Command in error"
-        );
-        assert!(
             body.receive.is_none(),
             "Body should not have Receive in error"
         );

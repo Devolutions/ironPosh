@@ -202,6 +202,25 @@ where
     }
 }
 
+/// A tag type's XML identity (name + namespace) exposed at the type level.
+///
+/// `Tag<'a, V, N>` forwards to its `N: TagName`. Reading identity through this
+/// trait — rather than naming `N` syntactically — lets `#[derive(FromXml)]`
+/// work through type aliases like `pub type Get<'a> = Tag<'a, Text<'a>, GetTag>`.
+pub trait NamedTag {
+    const TAG_NAME: &'static str;
+    const NAMESPACE: Option<&'static str>;
+}
+
+impl<'a, V, N> NamedTag for Tag<'a, V, N>
+where
+    V: TagValue<'a>,
+    N: TagName,
+{
+    const TAG_NAME: &'static str = N::TAG_NAME;
+    const NAMESPACE: Option<&'static str> = N::NAMESPACE;
+}
+
 impl<'a, V, N> AsRef<V> for Tag<'a, V, N>
 where
     V: TagValue<'a>,

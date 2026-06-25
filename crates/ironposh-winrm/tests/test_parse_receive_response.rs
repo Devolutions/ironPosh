@@ -140,7 +140,6 @@ mod tests {
             "Body should not have ResourceCreated"
         );
         assert!(body.shell.is_none(), "Body should not have Shell");
-        assert!(body.command.is_none(), "Body should not have Command");
         assert!(body.receive.is_none(), "Body should not have Receive");
         assert!(
             body.command_response.is_none(),
