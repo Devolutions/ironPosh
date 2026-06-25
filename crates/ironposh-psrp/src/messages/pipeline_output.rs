@@ -28,7 +28,6 @@ impl PipelineOutput {
         match &self.data {
             // Strings carry PowerShell's `_xHHHH_` escapes; decode them.
             PsValue::Primitive(PsPrimitiveValue::Str(s)) => decode_escaped_ps_string(s),
-            // Everything else (numbers, uris, objects, …) renders via Display.
             other => Ok(other.to_string()),
         }
     }
@@ -176,10 +175,18 @@ mod tests {
 
     #[test]
     fn formats_non_string_primitive() {
-        let out = PipelineOutput {
+        let double = PipelineOutput {
             data: PsValue::Primitive(PsPrimitiveValue::Double("1234.5".into())),
         };
-        assert_eq!(out.format_as_displyable_string().unwrap(), "1234.5");
+        assert_eq!(double.format_as_displyable_string().unwrap(), "1234.5");
+
+        let uri = PipelineOutput {
+            data: PsValue::Primitive(PsPrimitiveValue::Uri("https://example.com/x".into())),
+        };
+        assert_eq!(
+            uri.format_as_displyable_string().unwrap(),
+            "https://example.com/x"
+        );
     }
 
     #[test]

@@ -19,9 +19,8 @@ pub enum PsPrimitiveValue {
     Version(String),
     DateTime(String), // Store as string for now
     TimeSpan(String), // Store as string for now
-    // Double/Single/Decimal keep their lexical text: the enum must stay
-    // Eq+Hash+Ord (it backs the serializer's RefId map, which floats can't), and
-    // the wire form is already text, so this also round-trips exactly.
+    // Double/Single/Decimal keep their lexical text: the enum must stay Eq+Hash+Ord
+    // (it backs the serializer's RefId map), which f64/f32 can't.
     Double(String),
     Single(String),
     Decimal(String),
@@ -37,7 +36,6 @@ pub enum PsPrimitiveValue {
 impl Display for PsPrimitiveValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            // All string-backed variants render as their text.
             Self::Str(s)
             | Self::Guid(s)
             | Self::Version(s)

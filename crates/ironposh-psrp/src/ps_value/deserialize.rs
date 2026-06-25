@@ -627,8 +627,8 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
                 }
             }
             // Otherwise it's a primitive value. Delegating to the primitive codec
-            // keeps the recognized-tag set in one place; a genuinely unknown tag
-            // surfaces as its UnexpectedTag error.
+            // keeps the recognized-tag set in one place. Unlike unknown content
+            // inside <Obj> (must-ignore), an unknown *root* tag is a hard error.
             _ => {
                 let primitive = PsPrimitiveValue::from_node(node)?;
                 self.value = Some(PsValue::Primitive(primitive));
@@ -816,6 +816,30 @@ mod primitive_coverage_tests {
         roundtrip(&ext_primitive(PsPrimitiveValue::SecureString(vec![
             9, 8, 7, 6,
         ])));
+    }
+
+    // The same path also carries a byte array as object content.
+    #[test]
+    fn bytes_as_object_content_roundtrips() {
+        roundtrip(&ext_primitive(PsPrimitiveValue::Bytes(vec![1, 2, 3, 4])));
+    }
+
+    // The delegation must still reject a genuinely unknown *root* tag.
+    #[test]
+    fn unknown_root_tag_errors() {
+        let doc = parse("<Bogus>x</Bogus>").unwrap();
+        let mut ctx = DeserializationContext::new();
+        assert!(PsValue::from_node_with_context(doc.root_element(), &mut ctx).is_err());
+    }
+
+    // ...but an unknown tag *inside* `<Obj>` is ignored (SOAP must-ignore).
+    #[test]
+    fn unknown_object_content_is_ignored() {
+        let doc = parse(r#"<Obj RefId="0"><Bogus/></Obj>"#).unwrap();
+        let mut ctx = DeserializationContext::new();
+        let parsed = PsValue::from_node_with_context(doc.root_element(), &mut ctx)
+            .expect("unknown object content should be ignored, not fatal");
+        assert!(matches!(parsed, PsValue::Object(_)));
     }
 
     // Each primitive round-trips both as a bare value and as Extended Primitive
