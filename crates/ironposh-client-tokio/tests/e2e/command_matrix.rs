@@ -100,6 +100,23 @@ fn real_server_command_matrix_all_auths() {
                 "C3 retry marker missing for auth={auth}. stdout={stdout} stderr={stderr}"
             );
         }
+
+        // C4: a non-existent command. PowerShell reports CommandNotFound as an
+        // error record (not a process-fatal failure), so the client prints it via
+        // `render_concise` to stdout and still exits 0. The message echoes the
+        // command name, which is what we assert on (locale-independent).
+        {
+            let bogus = "Get-IronPoshDefinitelyNotARealCommand";
+            let (ok, stdout, stderr) = run_noninteractive(auth, bogus);
+            assert!(
+                ok,
+                "C4 process should exit 0 (error record is non-fatal) for auth={auth}. stdout={stdout} stderr={stderr}"
+            );
+            assert!(
+                stdout.contains(bogus),
+                "C4 command-not-found error missing the command name for auth={auth}. stdout={stdout} stderr={stderr}"
+            );
+        }
     }
     let _ = Instant::now(); // keep `Instant` import used without adding behavior
 }
