@@ -43,6 +43,7 @@ impl TagValue<'_> for CommandLineValue {
 
 impl<'a> FromXml<'a> for CommandLineValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut command = None;
         let mut seen_command = false;
         let mut arguments = Vec::new();

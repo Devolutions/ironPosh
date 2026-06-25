@@ -29,6 +29,7 @@ impl<'a> TagValue<'a> for SendValue<'a> {
 
 impl<'a> FromXml<'a> for SendValue<'a> {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut streams = Vec::new();
         for child in node.children() {
             if child.is_element_named(StreamTag::NAMESPACE, StreamTag::TAG_NAME) {

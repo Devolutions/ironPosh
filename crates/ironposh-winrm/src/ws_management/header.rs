@@ -58,14 +58,19 @@ impl<'a> TagValue<'a> for SelectorSetValue {
 
 impl<'a> FromXml<'a> for SelectorSetValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut selectors = HashMap::new();
         for child in node.children() {
-            if child.is_element_named(SelectorTag::NAMESPACE, SelectorTag::TAG_NAME)
-                && let Some(name) = child
+            if child.is_element_named(SelectorTag::NAMESPACE, SelectorTag::TAG_NAME) {
+                let name = child
                     .attributes()
-                    .find(|attr| attr.name() == "Name")
+                    .find(|attr| attr.namespace().is_none() && attr.name() == "Name")
                     .map(|attr| attr.value().to_string())
-            {
+                    .ok_or_else(|| {
+                        ironposh_xml::XmlError::InvalidXml(
+                            "<Selector> missing Name attribute".into(),
+                        )
+                    })?;
                 if selectors.contains_key(&name) {
                     return Err(ironposh_xml::XmlError::InvalidXml(format!(
                         "duplicate selector {name:?}"
@@ -122,14 +127,17 @@ impl<'a> TagValue<'a> for OptionSetValue {
 
 impl<'a> FromXml<'a> for OptionSetValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut options = HashMap::new();
         for child in node.children() {
-            if child.is_element_named(OptionTagNameTag::NAMESPACE, OptionTagNameTag::TAG_NAME)
-                && let Some(name) = child
+            if child.is_element_named(OptionTagNameTag::NAMESPACE, OptionTagNameTag::TAG_NAME) {
+                let name = child
                     .attributes()
-                    .find(|attr| attr.name() == "Name")
+                    .find(|attr| attr.namespace().is_none() && attr.name() == "Name")
                     .map(|attr| attr.value().to_string())
-            {
+                    .ok_or_else(|| {
+                        ironposh_xml::XmlError::InvalidXml("<Option> missing Name attribute".into())
+                    })?;
                 if options.contains_key(&name) {
                     return Err(ironposh_xml::XmlError::InvalidXml(format!(
                         "duplicate option {name:?}"
@@ -165,5 +173,22 @@ mod tests {
         );
         let doc = parse(&xml).unwrap();
         assert!(OptionSetValue::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn rejects_selector_without_name() {
+        let xml =
+            format!(r#"<w:SelectorSet xmlns:w="{W}"><w:Selector>v</w:Selector></w:SelectorSet>"#);
+        let doc = parse(&xml).unwrap();
+        assert!(SelectorSetValue::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn rejects_selectorset_with_stray_text() {
+        let xml = format!(
+            r#"<w:SelectorSet xmlns:w="{W}">junk<w:Selector Name="x">v</w:Selector></w:SelectorSet>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(SelectorSetValue::from_xml(doc.root_element()).is_err());
     }
 }
