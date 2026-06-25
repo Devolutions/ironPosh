@@ -6,6 +6,10 @@ use ironposh_xml::{
     mapping::{FromXml, NodeExt},
 };
 
+// NOTE: this `Send` type alias shares its spelling with `std::marker::Send`.
+// They live in different namespaces (type alias vs trait), so they don't
+// collide here — but avoid writing a bare `Send` trait bound in modules that
+// import this alias.
 tag!(Send = SendValue<'a> => WsmanShell);
 
 /// Value for Send element containing multiple Stream elements

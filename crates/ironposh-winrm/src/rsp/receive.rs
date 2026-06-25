@@ -115,6 +115,11 @@ impl<'a> FromXml<'a> for ReceiveResponseValue<'a> {
                 streams.push(Stream::from_xml(child)?);
             } else if child.is_element_named(CommandStateTag::NAMESPACE, CommandStateTag::TAG_NAME)
             {
+                if command_state.is_some() {
+                    return Err(XmlError::InvalidXml(
+                        "duplicate <CommandState> in ReceiveResponse".into(),
+                    ));
+                }
                 command_state = Some(CommandState::from_xml(child)?);
             }
         }

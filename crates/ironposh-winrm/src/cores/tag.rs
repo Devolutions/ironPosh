@@ -173,12 +173,31 @@ where
         let element = if node.is_element_named(N::NAMESPACE, N::TAG_NAME) {
             node
         } else {
-            node.children()
-                .find(|child| child.is_element_named(N::NAMESPACE, N::TAG_NAME))
+            // Wrapper case (`Tag<Tag<..>, _>`): exactly one child element, which
+            // must be N. Reject zero (wrong wrapper), >1 (malformed), or a single
+            // child of the wrong name rather than silently picking one.
+            let mut elements = node
+                .children()
+                .filter(ironposh_xml::parser::Node::is_element);
+            let only = elements
+                .next()
                 .ok_or_else(|| ironposh_xml::XmlError::XmlInvalidTag {
                     expected: N::TAG_NAME.to_string(),
                     found: node.tag_name().name().to_string(),
-                })?
+                })?;
+            if elements.next().is_some() {
+                return Err(ironposh_xml::XmlError::InvalidXml(format!(
+                    "expected exactly one child element in <{}>",
+                    node.tag_name().name()
+                )));
+            }
+            if !only.is_element_named(N::NAMESPACE, N::TAG_NAME) {
+                return Err(ironposh_xml::XmlError::XmlInvalidTag {
+                    expected: N::TAG_NAME.to_string(),
+                    found: only.tag_name().name().to_string(),
+                });
+            }
+            only
         };
 
         let value = V::from_xml(element)?;

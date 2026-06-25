@@ -1260,30 +1260,47 @@ pub fn derive_simple_tag_value(input: TokenStream) -> TokenStream {
 }
 
 /// Derives [`ironposh_xml::mapping::FromXml`] for a WinRM struct whose fields
-/// are `Tag<'a, V, N>` / `Option<Tag<'a, V, N>>`.
+/// are tag types (`Tag<'a, V, N>`, or a `tag!` alias for one, optionally wrapped
+/// in `Option`).
 ///
-/// Generates a direct, namespace-correct `from_xml(node)` — no visitor struct,
-/// no `finish()`. Each child element is matched by its `(namespace-URI,
-/// local-name)` pair, sourced from the field's `N: TagName` (`NAMESPACE` +
-/// `TAG_NAME`); the prefix is never compared. `Option<_>` fields stay `None`
-/// when absent; required fields error. This is the deserialize-side replacement
-/// for the visitor that `SimpleXmlDeserialize` generates.
+/// Generates a direct, namespace-correct `from_xml(node)` — no visitor. Each
+/// child is matched by its `(namespace-URI, local-name)` pair, read from the
+/// field type via `NamedTag` (so it works through type aliases); the prefix is
+/// never compared. `Option<_>` fields stay `None` when absent; required fields
+/// error.
+///
+/// Requirements: the deriving struct must carry a single lifetime parameter `'a`,
+/// and the consumer crate must expose `cores::{NamedTag, TagValue}` — this derive
+/// is winrm-specific.
 #[proc_macro_derive(FromXml)]
 pub fn derive_from_xml(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    TokenStream::from(impl_from_xml(&input))
+    match impl_from_xml(&input) {
+        Ok(ts) => ts.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
 }
 
-fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
+fn impl_from_xml(input: &DeriveInput) -> Result<TokenStream2, syn::Error> {
     let name = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {
             Fields::Named(fields) => &fields.named,
-            _ => panic!("FromXml can only be derived for structs with named fields"),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "FromXml can only be derived for structs with named fields",
+                ));
+            }
         },
-        _ => panic!("FromXml can only be derived for structs"),
+        _ => {
+            return Err(syn::Error::new_spanned(
+                input,
+                "FromXml can only be derived for structs",
+            ));
+        }
     };
 
     let entries: Vec<SimpleFieldEntry> = fields
@@ -1307,6 +1324,7 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
 
     // One namespace-correct match per field: identity is (URI, local-name),
     // read from the field's tag type via `NamedTag` so it works through aliases.
+    // Emitted as an `if … else if …` chain so each child binds at most one field.
     let matchers = entries.iter().map(|e| {
         let f = &e.field_name;
         let ty = &e.value_type;
@@ -1315,6 +1333,13 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
                 <#ty as crate::cores::NamedTag>::NAMESPACE,
                 <#ty as crate::cores::NamedTag>::TAG_NAME,
             ) {
+                if #f.is_some() {
+                    return Err(ironposh_xml::XmlError::InvalidXml(format!(
+                        "duplicate <{}> in {}",
+                        <#ty as crate::cores::NamedTag>::TAG_NAME,
+                        stringify!(#name),
+                    )));
+                }
                 #f = Some(ironposh_xml::mapping::FromXml::from_xml(child)?);
             }
         }
@@ -1333,7 +1358,7 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
         }
     });
 
-    quote! {
+    Ok(quote! {
         impl #impl_generics ironposh_xml::mapping::FromXml<'a> for #name #ty_generics #where_clause {
             fn from_xml(
                 node: ironposh_xml::parser::Node<'a, 'a>,
@@ -1344,12 +1369,12 @@ fn impl_from_xml(input: &DeriveInput) -> TokenStream2 {
                     if !child.is_element() {
                         continue;
                     }
-                    #(#matchers)*
+                    #(#matchers)else*
                 }
                 Ok(#name { #(#construct),* })
             }
         }
-    }
+    })
 }
 
 fn impl_simple_tag_value(input: &DeriveInput) -> TokenStream2 {

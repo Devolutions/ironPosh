@@ -8,6 +8,22 @@ pub trait TagValue<'a> {
     fn append_to_element(self, element: Element<'a>) -> Element<'a>;
 }
 
+/// The text content of a leaf element, rejecting mixed content. A text-valued
+/// element (`Text`, `WsUuid`, `Time`, numerics) must not contain child elements;
+/// silently truncating such malformed input would let it slip through.
+pub(crate) fn leaf_text<'a>(node: Node<'a, 'a>) -> Result<&'a str, XmlError> {
+    // Only text children are allowed. Any element (mixed content), comment, or PI
+    // is rejected — otherwise `node.text()` (which yields the first child only when
+    // it is a text node) could silently shadow or drop the real value.
+    if node.children().any(|child| !child.is_text()) {
+        return Err(XmlError::InvalidXml(format!(
+            "<{}> is a text leaf but contains non-text content",
+            node.tag_name().name()
+        )));
+    }
+    Ok(node.text().unwrap_or("").trim())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Text<'a>(Cow<'a, str>);
 
@@ -49,7 +65,7 @@ impl<'a> TagValue<'a> for Text<'a> {
 
 impl<'a> FromXml<'a> for Text<'a> {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        Ok(Self(node.text().unwrap_or("").trim().into()))
+        Ok(Self(leaf_text(node)?.into()))
     }
 }
 
@@ -69,7 +85,15 @@ impl<'a> TagValue<'a> for Empty {
 }
 
 impl<'a> FromXml<'a> for Empty {
-    fn from_xml(_node: Node<'a, 'a>) -> Result<Self, XmlError> {
+    fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
+        // `leaf_text` rejects any non-text child (element/comment/PI); an empty
+        // tag additionally must have no non-whitespace text.
+        if !leaf_text(node)?.is_empty() {
+            return Err(XmlError::InvalidXml(format!(
+                "<{}> must be empty but has text content",
+                node.tag_name().name()
+            )));
+        }
         Ok(Self)
     }
 }
@@ -96,7 +120,7 @@ impl<'a> TagValue<'a> for WsUuid {
 
 impl<'a> FromXml<'a> for WsUuid {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        let text = node.text().unwrap_or("").trim();
+        let text = leaf_text(node)?;
         // WS-Management prefixes UUIDs with "uuid:" — strip it if present.
         let raw = text.strip_prefix("uuid:").unwrap_or(text);
         uuid::Uuid::parse_str(raw)
@@ -135,7 +159,7 @@ impl<'a> TagValue<'a> for Time {
 impl<'a> FromXml<'a> for Time {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
         // WS-Management timeout format: "PT180.000S".
-        let text = node.text().unwrap_or("").trim();
+        let text = leaf_text(node)?;
         let seconds = text
             .strip_prefix("PT")
             .and_then(|s| s.strip_suffix('S'))

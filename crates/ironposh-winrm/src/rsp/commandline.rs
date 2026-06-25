@@ -1,5 +1,6 @@
 use ironposh_xml::mapping::{FromXml, NodeExt};
 
+use crate::cores::tag_value::leaf_text;
 use crate::cores::{ArgumentsTag, CommandTag, Tag, TagName, TagValue, Text};
 use crate::tag;
 
@@ -43,14 +44,22 @@ impl TagValue<'_> for CommandLineValue {
 impl<'a> FromXml<'a> for CommandLineValue {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
         let mut command = None;
+        let mut seen_command = false;
         let mut arguments = Vec::new();
         for child in node.children() {
             if child.is_element_named(CommandTag::NAMESPACE, CommandTag::TAG_NAME) {
-                command = child.text().map(ToString::to_string);
-            } else if child.is_element_named(ArgumentsTag::NAMESPACE, ArgumentsTag::TAG_NAME)
-                && let Some(text) = child.text()
-            {
-                arguments.push(text.to_string());
+                if seen_command {
+                    return Err(ironposh_xml::XmlError::InvalidXml(
+                        "duplicate <Command> in CommandLine".into(),
+                    ));
+                }
+                seen_command = true;
+                // An empty `<Command/>` is "no command", matching how the
+                // serializer's `None` path emits it.
+                let text = leaf_text(child)?;
+                command = (!text.is_empty()).then(|| text.to_string());
+            } else if child.is_element_named(ArgumentsTag::NAMESPACE, ArgumentsTag::TAG_NAME) {
+                arguments.push(leaf_text(child)?.to_string());
             }
         }
         Ok(Self { command, arguments })
