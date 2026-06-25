@@ -62,7 +62,7 @@ macro_rules! xml_num_value {
             // ------------ Deserialize -------------
             impl<'a> ironposh_xml::mapping::FromXml<'a> for $name {
                 fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, ironposh_xml::XmlError> {
-                    let text = node.text().unwrap_or("").trim();
+                    let text = $crate::cores::tag_value::leaf_text(node)?;
                     Ok($name(text.parse::<$inner>().map_err(|_| {
                         ironposh_xml::XmlError::InvalidXml(format!("invalid {} value: {}", stringify!($name), text))
                     })?))

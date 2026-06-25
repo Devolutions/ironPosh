@@ -5,6 +5,7 @@ use ironposh_xml::{
     mapping::{FromXml, NodeExt},
 };
 
+use crate::cores::tag_value::leaf_text;
 use crate::cores::{self, OptionTagNameTag, Selector, SelectorTag, TagName, TagValue, Text};
 use crate::tag;
 
@@ -65,7 +66,12 @@ impl<'a> FromXml<'a> for SelectorSetValue {
                     .find(|attr| attr.name() == "Name")
                     .map(|attr| attr.value().to_string())
             {
-                selectors.insert(name, child.text().unwrap_or_default().to_string());
+                if selectors.contains_key(&name) {
+                    return Err(ironposh_xml::XmlError::InvalidXml(format!(
+                        "duplicate selector {name:?}"
+                    )));
+                }
+                selectors.insert(name, leaf_text(child)?.to_string());
             }
         }
         Ok(Self { selectors })
@@ -124,7 +130,12 @@ impl<'a> FromXml<'a> for OptionSetValue {
                     .find(|attr| attr.name() == "Name")
                     .map(|attr| attr.value().to_string())
             {
-                options.insert(name, child.text().unwrap_or_default().to_string());
+                if options.contains_key(&name) {
+                    return Err(ironposh_xml::XmlError::InvalidXml(format!(
+                        "duplicate option {name:?}"
+                    )));
+                }
+                options.insert(name, leaf_text(child)?.to_string());
             }
         }
         Ok(Self { options })

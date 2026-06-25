@@ -33,6 +33,10 @@ pub struct SoapHeaders<'a> {
     pub resource_uri: Option<ResourceURI<'a>>,
     #[builder(default, setter(into, strip_option))]
     pub max_envelope_size: Option<MaxEnvelopeSize<'a>>,
+    // `Locale`/`DataLocale` are empty-bodied in headers, hence the `*Empty`
+    // aliases. They share a wire name with the text-bodied `*Text` variants used
+    // in ShellValue; since both resolve to the same `(URI, "Locale")`, the field
+    // alias chosen here is what determines how an inbound element is parsed.
     #[builder(default, setter(into, strip_option))]
     pub locale: Option<LocaleEmpty<'a>>,
     #[builder(default, setter(into, strip_option))]
