@@ -1,132 +1,60 @@
-use crate::cores::tag_name::*;
-use crate::cores::{Tag, Text};
+use crate::cores::Text;
+use crate::tag;
 use ironposh_macros::{FromXml, SimpleTagValue};
 
-// Example struct with mixed required and optional fields using new derive macros
+// Self-contained tags for exercising the SimpleTagValue + FromXml derives.
+tag!(ReqA = Text<'a> => WsAddressing2004);
+tag!(ReqB = Text<'a> => WsAddressing2004);
+tag!(OptA = Text<'a> => WsAddressing2004);
+tag!(OptB = Text<'a> => WsAddressing2004);
+
+// Example struct with mixed required and optional fields using the derives.
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct TestStruct<'a> {
-    pub action: Tag<'a, Text<'a>, Action>,        // Required
-    pub message_id: Tag<'a, Text<'a>, MessageID>, // Required
-    pub to: Option<Tag<'a, Text<'a>, To>>,        // Optional
-    pub relates_to: Option<Tag<'a, Text<'a>, RelatesTo>>, // Optional
+    pub req_a: ReqA<'a>,         // Required
+    pub req_b: ReqB<'a>,         // Required
+    pub opt_a: Option<OptA<'a>>, // Optional
+    pub opt_b: Option<OptB<'a>>, // Optional
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cores::TagValue;
+    use crate::cores::{Tag, TagValue};
     use ironposh_xml::mapping::FromXml;
+
+    const A: &str = "http://schemas.xmlsoap.org/ws/2004/08/addressing";
 
     #[test]
     fn test_serialization_and_deserialization_roundtrip() {
-        // Create a test struct with both required and optional fields
         let original = TestStruct {
-            action: Tag::new(Text::from("test-action")),
-            message_id: Tag::new(Text::from("msg-123")),
-            to: Some(Tag::new(Text::from("destination"))),
-            relates_to: None, // This optional field is not set
+            req_a: Tag::new(Text::from("a-value")),
+            req_b: Tag::new(Text::from("b-value")),
+            opt_a: Some(Tag::new(Text::from("opt-a-value"))),
+            opt_b: None,
         };
 
-        // Test that the TagValue implementation works (serialize to XML)
+        // Serialize via the TagValue derive (must not panic).
         let element = ironposh_xml::builder::Element::new("test");
-        let _serialized_element = original.append_to_element(element);
+        let _serialized = original.append_to_element(element);
 
-        // The TagValue implementation worked if we got here without panicking
+        // Deserialize a namespaced document — matching is by URI.
+        let xml = format!(
+            r#"<test xmlns:a="{A}"><a:ReqA>a-value</a:ReqA><a:ReqB>b-value</a:ReqB><a:OptA>opt-a-value</a:OptA></test>"#
+        );
+        let doc = ironposh_xml::parser::parse(&xml).expect("parse");
+        let parsed = TestStruct::from_xml(doc.root_element()).expect("deserialize");
 
-        // Test deserialization. Action/MessageID/To live in the WS-Addressing
-        // namespace, so the document must declare it — matching is by URI.
-        let test_xml = r#"<test xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
-            <a:Action>test-action</a:Action>
-            <a:MessageID>msg-123</a:MessageID>
-            <a:To>destination</a:To>
-        </test>"#;
-
-        // Parse the XML back
-        let doc = ironposh_xml::parser::parse(test_xml).expect("Failed to parse XML");
-        let root = doc.root_element();
-
-        // Deserialize back to struct
-        let deserialized = TestStruct::from_xml(root).expect("Failed to deserialize");
-
-        println!("Deserialized struct: {deserialized:#?}");
-
-        // Verify deserialization matches original
-        assert_eq!(deserialized.action.value.as_ref(), "test-action");
-        assert_eq!(deserialized.message_id.value.as_ref(), "msg-123");
-        assert!(deserialized.to.is_some());
-        assert_eq!(deserialized.to.unwrap().value.as_ref(), "destination");
-        assert!(deserialized.relates_to.is_none());
-    }
-
-    #[test]
-    fn test_deserialize_with_all_fields() {
-        let xml = r#"
-            <test xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
-                <a:Action>test-action</a:Action>
-                <a:MessageID>msg-123</a:MessageID>
-                <a:To>destination</a:To>
-                <a:RelatesTo>relation-123</a:RelatesTo>
-            </test>
-        "#;
-
-        let doc = ironposh_xml::parser::parse(xml).expect("Failed to parse XML");
-        let root = doc.root_element();
-
-        let result = TestStruct::from_xml(root).expect("Failed to deserialize");
-        println!("Deserialized with all fields: {result:#?}");
-
-        // Verify required fields
-        assert_eq!(result.action.value.as_ref(), "test-action");
-        assert_eq!(result.message_id.value.as_ref(), "msg-123");
-
-        // Verify optional fields
-        assert!(result.to.is_some());
-        assert_eq!(result.to.unwrap().value.as_ref(), "destination");
-        assert!(result.relates_to.is_some());
-        assert_eq!(result.relates_to.unwrap().value.as_ref(), "relation-123");
-    }
-
-    #[test]
-    fn test_deserialize_with_only_required_fields() {
-        let xml = r#"
-            <test xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
-                <a:Action>test-action</a:Action>
-                <a:MessageID>msg-123</a:MessageID>
-            </test>
-        "#;
-
-        let doc = ironposh_xml::parser::parse(xml).expect("Failed to parse XML");
-        let root = doc.root_element();
-
-        let result = TestStruct::from_xml(root).expect("Failed to deserialize");
-        println!("Deserialized with required fields only: {result:#?}");
-
-        // Verify required fields
-        assert_eq!(result.action.value.as_ref(), "test-action");
-        assert_eq!(result.message_id.value.as_ref(), "msg-123");
-
-        // Verify optional fields are None
-        assert!(result.to.is_none());
-        assert!(result.relates_to.is_none());
+        assert_eq!(parsed.req_a.value.as_ref(), "a-value");
+        assert_eq!(parsed.req_b.value.as_ref(), "b-value");
+        assert_eq!(parsed.opt_a.unwrap().value.as_ref(), "opt-a-value");
+        assert!(parsed.opt_b.is_none());
     }
 
     #[test]
     fn test_deserialize_missing_required_field() {
-        let xml = r#"
-            <test xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing">
-                <a:Action>test-action</a:Action>
-                <!-- Missing MessageID -->
-            </test>
-        "#;
-
-        let doc = ironposh_xml::parser::parse(xml).expect("Failed to parse XML");
-        let root = doc.root_element();
-
-        let result = TestStruct::from_xml(root);
-        assert!(result.is_err());
-        println!(
-            "Expected error for missing required field: {:?}",
-            result.err()
-        );
+        let xml = format!(r#"<test xmlns:a="{A}"><a:ReqA>only-a</a:ReqA></test>"#);
+        let doc = ironposh_xml::parser::parse(&xml).expect("parse");
+        assert!(TestStruct::from_xml(doc.root_element()).is_err());
     }
 }

@@ -1,37 +1,35 @@
+/// Defines a WinRM/SOAP tag.
+///
+/// Generates a zero-sized `TagName` marker (`<Alias>Tag`) that pins the element's
+/// wire name + namespace at the type level, plus an ergonomic type alias
+/// `Alias<'a> = Tag<'a, Value, AliasTag>` used in struct fields and construction.
+/// The marker stays internal; everything else writes the alias.
+///
+/// Forms:
+/// - `tag!(Get = Text<'a> => DmtfWsmanSchema)` — wire name is the alias ident.
+/// - `tag!(SoapValue = "Value": Text<'a> => SoapEnvelope2003)` — custom wire name
+///   (and lets several aliases share one wire name, e.g. `LocaleEmpty`/`LocaleText`).
 #[macro_export]
-macro_rules! define_custom_tagname {
-    ($name:ident, $tagName:expr, $namespace:expr) => {
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct $name;
-
-        impl $crate::cores::TagName for $name {
-            const TAG_NAME: &'static str = $tagName;
-            const NAMESPACE: Option<&'static str> = $namespace;
-
-            fn tag_name(&self) -> &'static str {
-                Self::TAG_NAME
-            }
-
-            fn namespace(&self) -> Option<&'static str> {
-                Self::NAMESPACE
-            }
-        }
-
-        impl<'a> $name {
-            pub fn new_tag<V>(value: V) -> $crate::cores::tag::Tag<'a, V, Self>
-            where
-                V: $crate::cores::TagValue<'a>,
-            {
-                $crate::cores::tag::Tag::new(value)
-            }
-        }
+macro_rules! tag {
+    ($alias:ident = $value:ty => $ns:ident) => {
+        $crate::tag!(@build $alias, stringify!($alias), $value, $ns);
     };
-}
+    ($alias:ident = $wire:literal : $value:ty => $ns:ident) => {
+        $crate::tag!(@build $alias, $wire, $value, $ns);
+    };
+    (@build $alias:ident, $wire:expr, $value:ty, $ns:ident) => {
+        paste::paste! {
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct [<$alias Tag>];
 
-#[macro_export]
-macro_rules! define_tagname {
-    ($name:ident, $namespace:expr) => {
-        $crate::define_custom_tagname!($name, stringify!($name), $namespace);
+            impl $crate::cores::TagName for [<$alias Tag>] {
+                const TAG_NAME: &'static str = $wire;
+                const NAMESPACE: Option<&'static str> =
+                    ::core::option::Option::Some($crate::cores::Namespace::$ns.uri());
+            }
+
+            pub type $alias<'a> = $crate::cores::Tag<'a, $value, [<$alias Tag>]>;
+        }
     };
 }
 

@@ -1,9 +1,9 @@
 use ironposh_winrm::{
     cores::{Tag, tag_name::*, tag_value::Text},
-    rsp::shell_value::ShellValue,
-    soap::{SoapEnvelope, body::SoapBody, header::SoapHeaders},
-    ws_addressing::AddressValue,
-    ws_management::header::OptionSetValue,
+    rsp::shell_value::{ShellTag, ShellValue},
+    soap::{Envelope, SoapEnvelope, body::SoapBody, header::SoapHeaders},
+    ws_addressing::{AddressValue, ReplyToTag},
+    ws_management::header::{OptionSetTag, OptionSetValue},
 };
 
 #[cfg(test)]
@@ -26,7 +26,7 @@ mod tests {
 
         // Create shell tag with attributes
         let shell_tag = Tag::new(shell)
-            .with_name(Shell)
+            .with_name(ShellTag)
             .with_attribute(ironposh_winrm::cores::Attribute::ShellId(
                 "2D6534D0-6B12-40E3-B773-CBA26459CFA8".into(),
             ))
@@ -42,10 +42,10 @@ mod tests {
             url: Tag::new(Text::from(
                 "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous",
             ))
-            .with_name(Address)
+            .with_name(AddressTag)
             .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
         })
-        .with_name(ReplyTo)
+        .with_name(ReplyToTag)
         .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true));
 
         // Build the complete SOAP envelope
@@ -58,7 +58,7 @@ mod tests {
                         Tag::new(Text::from(
                             "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create",
                         ))
-                        .with_name(Action)
+                        .with_name(ActionTag)
                         .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .reply_to(reply_to_address)
@@ -71,21 +71,21 @@ mod tests {
                         Tag::new(Text::from(
                             "http://schemas.microsoft.com/powershell/Microsoft.PowerShell",
                         ))
-                        .with_name(ResourceURI)
+                        .with_name(ResourceURITag)
                         .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .max_envelope_size(
                         Tag::new(512000)
-                            .with_name(MaxEnvelopeSize)
+                            .with_name(MaxEnvelopeSizeTag)
                             .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .locale(
-                        Tag::new(()).with_name(Locale).with_attribute(
+                        Tag::new(()).with_name(LocaleEmptyTag).with_attribute(
                             ironposh_winrm::cores::Attribute::MustUnderstand(false),
                         ),
                     )
                     .data_locale(
-                        Tag::new(()).with_name(DataLocale).with_attribute(
+                        Tag::new(()).with_name(DataLocaleEmptyTag).with_attribute(
                             ironposh_winrm::cores::Attribute::MustUnderstand(false),
                         ),
                     )
@@ -94,7 +94,7 @@ mod tests {
                             uuid::Uuid::from_str("9EC885D6-F5A4-4771-9D47-4BDF7DAAEA8C")
                                 .expect("Failed to parse UUID"),
                         )
-                        .with_name(SessionId)
+                        .with_name(SessionIdTag)
                         .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(false)),
                     )
                     .operation_id(
@@ -102,25 +102,25 @@ mod tests {
                             uuid::Uuid::from_str("73C4BCA6-7FF0-4AFE-B8C3-335FB19BA649")
                                 .expect("Failed to parse UUID"),
                         )
-                        .with_name(OperationID)
+                        .with_name(OperationIDTag)
                         .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(false)),
                     )
                     .sequence_id(
                         Tag::new(Text::from("1"))
-                            .with_name(SequenceId)
+                            .with_name(SequenceIdTag)
                             .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(
                                 false,
                             )),
                     )
                     .option_set(
                         Tag::new(option_set_tag)
-                            .with_name(OptionSet)
+                            .with_name(OptionSetTag)
                             .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .operation_timeout(Time::from(60000))
                     .compression_type(
                         Tag::new(Text::from("xpress"))
-                            .with_name(CompressionType)
+                            .with_name(CompressionTypeTag)
                             .with_attribute(ironposh_winrm::cores::Attribute::MustUnderstand(true)),
                     )
                     .build(),
@@ -129,7 +129,7 @@ mod tests {
             .build();
 
         // Convert envelope to Tag and add namespace declarations
-        let envelope: Tag<'_, _, Envelope> = envelope.into();
+        let envelope: Envelope<'_> = envelope.into();
         let envelope = envelope
             .with_declaration(ironposh_winrm::cores::namespace::Namespace::SoapEnvelope2003)
             .with_declaration(ironposh_winrm::cores::namespace::Namespace::WsAddressing2004)

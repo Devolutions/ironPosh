@@ -1,6 +1,6 @@
 use ironposh_winrm::{
-    cores::{Attribute, Send, Tag, Text, tag_name::Stream},
-    rsp::send::SendValue,
+    cores::{Attribute, StreamTag, Tag, Text},
+    rsp::send::{SendTag, SendValue},
 };
 use ironposh_xml::builder::Element;
 use uuid::Uuid;
@@ -19,10 +19,10 @@ fn test_send_with_multiple_stream_fragments() {
     let command_id = Uuid::new_v4();
 
     // Create Stream tags for each fragment
-    let streams: Vec<Tag<Text, Stream>> = fragments
+    let streams: Vec<Tag<Text, StreamTag>> = fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdin".into()))
         })
@@ -32,7 +32,7 @@ fn test_send_with_multiple_stream_fragments() {
     let send_value = SendValue::builder().streams(streams).build();
 
     // Create Send tag with CommandId
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_attribute(Attribute::CommandId(command_id))
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
@@ -86,10 +86,10 @@ fn test_send_with_multiple_stream_fragments() {
 fn test_send_without_command_id() {
     let fragments = ["FRAGMENT1==".to_string(), "FRAGMENT2==".to_string()];
 
-    let streams: Vec<Tag<Text, Stream>> = fragments
+    let streams: Vec<Tag<Text, StreamTag>> = fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdin".into()))
         })
@@ -97,7 +97,7 @@ fn test_send_without_command_id() {
 
     let send_value = SendValue::builder().streams(streams).build();
 
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 
@@ -128,10 +128,10 @@ fn test_send_large_response_multiple_fragments() {
 
     let command_id = Uuid::new_v4();
 
-    let streams: Vec<Tag<Text, Stream>> = fragments
+    let streams: Vec<Tag<Text, StreamTag>> = fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdin".into()))
         })
@@ -139,7 +139,7 @@ fn test_send_large_response_multiple_fragments() {
 
     let send_value = SendValue::builder().streams(streams).build();
 
-    let send_tag = Tag::from_name(Send)
+    let send_tag = Tag::from_name(SendTag)
         .with_value(send_value)
         .with_attribute(Attribute::CommandId(command_id))
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);

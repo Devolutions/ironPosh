@@ -1,6 +1,6 @@
 use ironposh_winrm::{
     cores::{Empty, Namespace, Tag, Time, tag_name::*},
-    rsp::disconnect::DisconnectValue,
+    rsp::disconnect::{DisconnectTag, DisconnectValue},
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{SelectorSetValue, WsAction, WsMan},
 };
@@ -35,7 +35,7 @@ fn test_build_disconnect_envelope() {
         .idle_time_out(Tag::new(Time(180.0)))
         .build();
 
-    let disconnect_tag = Tag::from_name(Disconnect)
+    let disconnect_tag = Tag::from_name(DisconnectTag)
         .with_declaration(Namespace::WsmanShell)
         .with_value(disconnect_value);
 
@@ -78,7 +78,7 @@ fn test_build_disconnect_envelope_without_idle_timeout() {
         .to("http://10.10.0.3:5985/wsman".to_string())
         .build();
 
-    let disconnect_tag = Tag::from_name(Disconnect)
+    let disconnect_tag = Tag::from_name(DisconnectTag)
         .with_declaration(Namespace::WsmanShell)
         .with_value(DisconnectValue::builder().build());
 
@@ -107,7 +107,7 @@ fn test_build_reconnect_envelope() {
         .to("http://10.10.0.3:5985/wsman".to_string())
         .build();
 
-    let reconnect_tag = Tag::from_name(Reconnect)
+    let reconnect_tag = Tag::from_name(ReconnectTag)
         .with_declaration(Namespace::WsmanShell)
         .with_value(Empty);
 

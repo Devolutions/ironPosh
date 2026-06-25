@@ -1,10 +1,10 @@
 use base64::Engine;
 use ironposh_winrm::{
-    cores::{Attribute, DesiredStream, Receive, Shell, Tag, Text, Time, tag_name},
+    cores::{Attribute, DesiredStreamTag, StreamTag, Tag, Text, Time},
     rsp::{
         commandline::CommandLineValue,
-        receive::{CommandStateValue, ReceiveValue},
-        shell_value::ShellValue,
+        receive::{CommandStateTag, CommandStateValue, ReceiveTag, ReceiveValue},
+        shell_value::{ShellTag, ShellValue},
     },
     soap::{SoapEnvelope, body::SoapBody},
     ws_management::{OptionSetValue, SelectorSetValue, WsAction, WsMan},
@@ -67,7 +67,7 @@ impl WinRunspace {
         option_set: Option<OptionSetValue>,
         open_content: &'a str,
     ) -> impl Into<Element<'a>> {
-        let shell = Tag::from_name(Shell)
+        let shell = Tag::from_name(ShellTag)
             .with_attribute(ironposh_winrm::cores::Attribute::ShellId(
                 self.id.to_string().into(),
             ))
@@ -130,7 +130,7 @@ impl WinRunspace {
                 // Join stream names with spaces as required by Windows Shell schema
                 let combined_streams = stream_names.join(" ");
                 let mut tag =
-                    Tag::from_name(DesiredStream).with_value(Text::from(combined_streams));
+                    Tag::from_name(DesiredStreamTag).with_value(Text::from(combined_streams));
 
                 if let Some(command_id) = command_id {
                     tag = tag.with_attribute(Attribute::CommandId(command_id));
@@ -144,7 +144,7 @@ impl WinRunspace {
             .desired_streams(desired_stream_tags)
             .build();
 
-        let receive_tag = Tag::from_name(Receive)
+        let receive_tag = Tag::from_name(ReceiveTag)
             .with_value(receive)
             .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 
@@ -172,9 +172,12 @@ impl WinRunspace {
 
     /// Build a Disconnect request targeting this shell (MS-WSMV 3.1.4.13).
     pub(crate) fn fire_disconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
-        use ironposh_winrm::{cores::Namespace, rsp::disconnect::DisconnectValue};
+        use ironposh_winrm::{
+            cores::Namespace,
+            rsp::disconnect::{DisconnectTag, DisconnectValue},
+        };
 
-        let disconnect_tag = Tag::from_name(tag_name::Disconnect)
+        let disconnect_tag = Tag::from_name(DisconnectTag)
             .with_declaration(Namespace::WsmanShell)
             .with_value(DisconnectValue::builder().build());
 
@@ -197,13 +200,16 @@ impl WinRunspace {
         option_set: Option<OptionSetValue>,
         connect_payload: &'a str,
     ) -> impl Into<Element<'a>> {
-        use ironposh_winrm::{cores::Namespace, rsp::connect::ConnectValue};
+        use ironposh_winrm::{
+            cores::Namespace,
+            rsp::connect::{ConnectTag, ConnectValue},
+        };
 
         let connect_value = ConnectValue {
             connect_xml: Tag::new(connect_payload).with_declaration(Namespace::PowerShellRemoting),
         };
 
-        let connect_tag = Tag::from_name(tag_name::Connect)
+        let connect_tag = Tag::from_name(ConnectTag)
             .with_declaration(Namespace::WsmanShell)
             .with_value(connect_value);
 
@@ -218,9 +224,9 @@ impl WinRunspace {
 
     /// Build a Reconnect request targeting this shell (MS-WSMV 3.1.4.14).
     pub(crate) fn fire_reconnect<'a>(&'a self, ws_man: &'a WsMan) -> impl Into<Element<'a>> {
-        use ironposh_winrm::cores::{Empty, Namespace};
+        use ironposh_winrm::cores::{Empty, Namespace, ReconnectTag};
 
-        let reconnect_tag = Tag::from_name(tag_name::Reconnect)
+        let reconnect_tag = Tag::from_name(ReconnectTag)
             .with_declaration(Namespace::WsmanShell)
             .with_value(Empty);
 
@@ -390,20 +396,17 @@ impl WinRunspace {
         data: &'a [String],
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
         use ironposh_winrm::{
-            cores::{
-                Namespace, Tag,
-                tag_name::{Send, Stream},
-            },
-            rsp::send::SendValue,
+            cores::{Namespace, StreamTag, Tag},
+            rsp::send::{SendTag, SendValue},
             soap::body::SoapBody,
         };
 
         // Create a Stream tag for each fragment
         // Each fragment is a base64-encoded PSRP fragment that goes in its own <rsp:Stream> element
-        let streams: Vec<Tag<Text, Stream>> = data
+        let streams: Vec<Tag<Text, StreamTag>> = data
             .iter()
             .map(|fragment| {
-                Tag::from_name(Stream)
+                Tag::from_name(StreamTag)
                     .with_value(Text::from(fragment.as_str()))
                     .with_attribute(Attribute::Name("stdin".into()))
             })
@@ -413,12 +416,12 @@ impl WinRunspace {
 
         // Add send tag with SendValue containing multiple streams
         let send_tag = if let Some(cmd_id) = command_id {
-            Tag::from_name(Send)
+            Tag::from_name(SendTag)
                 .with_value(send_value)
                 .with_attribute(Attribute::CommandId(cmd_id))
                 .with_declaration(Namespace::WsmanShell)
         } else {
-            Tag::from_name(Send)
+            Tag::from_name(SendTag)
                 .with_value(send_value)
                 .with_declaration(Namespace::WsmanShell)
         };
@@ -460,18 +463,15 @@ impl WinRunspace {
         connection: &'a WsMan,
         id: Uuid,
     ) -> Result<impl Into<Element<'a>>, crate::PwshCoreError> {
-        use ironposh_winrm::cores::{
-            Namespace,
-            tag_name::{Signal, SignalCode},
-        };
+        use ironposh_winrm::cores::{Namespace, SignalCodeTag, SignalTag};
 
         // Build <rsp:Code>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_c</rsp:Code>
-        let code = Tag::from_name(SignalCode).with_value(Text::from(
+        let code = Tag::from_name(SignalCodeTag).with_value(Text::from(
             "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/terminate",
         ));
 
         // Build <w:Signal CommandId="...">...</w:Signal>
-        let signal = Tag::from_name(Signal)
+        let signal = Tag::from_name(SignalTag)
             .with_attribute(Attribute::CommandId(id))
             .with_value(code)
             .with_declaration(Namespace::WsmanShell);
@@ -535,10 +535,10 @@ impl Stream {
     }
 }
 
-impl<'a> TryFrom<&Tag<'a, Text<'a>, tag_name::Stream>> for Stream {
+impl<'a> TryFrom<&Tag<'a, Text<'a>, StreamTag>> for Stream {
     type Error = crate::PwshCoreError;
 
-    fn try_from(value: &Tag<'a, Text<'a>, tag_name::Stream>) -> Result<Self, Self::Error> {
+    fn try_from(value: &Tag<'a, Text<'a>, StreamTag>) -> Result<Self, Self::Error> {
         let attributes = &value.attributes;
         let name = attributes
             .iter()
@@ -577,11 +577,11 @@ pub struct CommandState {
     pub exit_code: Option<i32>,
 }
 
-impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, tag_name::CommandState>> for CommandState {
+impl<'a> TryFrom<&Tag<'a, CommandStateValue<'a>, CommandStateTag>> for CommandState {
     type Error = crate::PwshCoreError;
 
     fn try_from(
-        value: &Tag<'a, CommandStateValue<'a>, tag_name::CommandState>,
+        value: &Tag<'a, CommandStateValue<'a>, CommandStateTag>,
     ) -> Result<Self, Self::Error> {
         let command_id = value
             .attributes

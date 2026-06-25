@@ -260,7 +260,7 @@ impl_tag_from!(uuid::Uuid => Tag<'a, WsUuid, N>);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cores::{CommandId, CommandResponse};
+    use crate::cores::CommandResponse;
     use ironposh_xml::parser::parse;
 
     const RSP: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
@@ -275,9 +275,8 @@ mod tests {
             r#"<rsp:CommandResponse xmlns:rsp="{RSP}"><rsp:CommandId>{uuid}</rsp:CommandId></rsp:CommandResponse>"#
         );
         let doc = parse(&xml).unwrap();
-        let tag: Tag<'_, Tag<'_, WsUuid, CommandId>, CommandResponse> =
-            Tag::from_xml(doc.root_element())
-                .expect("nested CommandResponse/CommandId should parse");
+        let tag = CommandResponse::from_xml(doc.root_element())
+            .expect("nested CommandResponse/CommandId should parse");
         assert_eq!(tag.value.value.0.to_string().to_uppercase(), uuid);
     }
 }

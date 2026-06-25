@@ -15,12 +15,9 @@ use ironposh_psrp::{
     PowerShellRemotingMessage, Size,
 };
 use ironposh_winrm::{
-    cores::{
-        tag_name::{Envelope, Stream},
-        Attribute, Namespace, ReceiveResponse, Tag, Text,
-    },
-    rsp::receive::ReceiveResponseValue,
-    soap::{body::SoapBody, SoapEnvelope},
+    cores::{Attribute, Namespace, StreamTag, Tag, Text},
+    rsp::receive::{ReceiveResponseTag, ReceiveResponseValue},
+    soap::{body::SoapBody, Envelope, SoapEnvelope},
 };
 use ironposh_xml::builder::Element;
 use uuid::Uuid;
@@ -156,10 +153,10 @@ pub fn receive_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> S
         })
         .collect();
 
-    let streams: Vec<Tag<'_, Text<'_>, Stream>> = base64_fragments
+    let streams: Vec<Tag<'_, Text<'_>, StreamTag>> = base64_fragments
         .iter()
         .map(|fragment| {
-            Tag::from_name(Stream)
+            Tag::from_name(StreamTag)
                 .with_value(Text::from(fragment.as_str()))
                 .with_attribute(Attribute::Name("stdout".into()))
         })
@@ -170,7 +167,7 @@ pub fn receive_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> S
         .command_state(None)
         .build();
 
-    let receive_response_tag = Tag::from_name(ReceiveResponse)
+    let receive_response_tag = Tag::from_name(ReceiveResponseTag)
         .with_value(receive_response_value)
         .with_declaration(Namespace::WsmanShell);
 
@@ -180,7 +177,7 @@ pub fn receive_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> S
 
     let envelope = SoapEnvelope::builder().body(body).build();
 
-    let soap = Tag::<SoapEnvelope<'_>, Envelope>::new(envelope)
+    let soap = Envelope::new(envelope)
         .with_declaration(Namespace::SoapEnvelope2003)
         .with_declaration(Namespace::WsAddressing2004)
         .with_declaration(Namespace::DmtfWsmanSchema)

@@ -1,12 +1,15 @@
-use crate::cores::{Tag, Time, tag_name::IdleTimeOut};
+use crate::cores::IdleTimeOut;
+use crate::tag;
 use ironposh_macros::{FromXml, SimpleTagValue};
+
+tag!(Disconnect = DisconnectValue<'a> => WsmanShell);
 
 /// Value for the Disconnect element (MS-WSMV 3.1.4.13).
 /// Optionally carries an IdleTimeOut serialized as `PT{seconds}S`.
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct DisconnectValue<'a> {
     #[builder(default, setter(strip_option, into))]
-    pub idle_time_out: Option<Tag<'a, Time, IdleTimeOut>>,
+    pub idle_time_out: Option<IdleTimeOut<'a>>,
 }
 
 #[cfg(test)]

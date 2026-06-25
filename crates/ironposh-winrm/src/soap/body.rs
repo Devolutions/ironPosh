@@ -1,70 +1,76 @@
 use ironposh_macros::{FromXml, SimpleTagValue};
 
+use crate::tag;
 use crate::{
-    cores::*,
-    rsp::{
-        commandline::CommandLineValue,
-        connect::{ConnectResponseValue, ConnectValue},
-        disconnect::DisconnectValue,
-        receive::{ReceiveResponseValue, ReceiveValue},
-        send::SendValue,
-        shell_value::ShellValue,
+    cores::{
+        CommandResponse, Create, Delete, DisconnectResponse, Enumerate, Get, Identify, Put,
+        Reconnect, ReconnectResponse, Signal, SignalResponse,
     },
-    soap::fault::SoapFaultValue,
-    ws_management::body::ResourceCreatedValue,
+    rsp::{
+        commandline::CommandLine,
+        connect::{Connect, ConnectResponse},
+        disconnect::Disconnect,
+        receive::{Receive, ReceiveResponse},
+        send::Send,
+        shell_value::Shell,
+    },
+    soap::fault::Fault,
+    ws_management::body::ResourceCreated,
 };
+
+tag!(Body = SoapBody<'a> => SoapEnvelope2003);
 
 #[derive(Debug, Clone, typed_builder::TypedBuilder, SimpleTagValue, FromXml)]
 pub struct SoapBody<'a> {
     /// WS-Management operations
     #[builder(default, setter(into, strip_option))]
-    pub identify: Option<Tag<'a, Empty, Identify>>,
+    pub identify: Option<Identify<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub get: Option<Tag<'a, Text<'a>, Get>>,
+    pub get: Option<Get<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub put: Option<Tag<'a, Text<'a>, Put>>,
+    pub put: Option<Put<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub create: Option<Tag<'a, Text<'a>, Create>>,
+    pub create: Option<Create<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub delete: Option<Tag<'a, Text<'a>, Delete>>,
+    pub delete: Option<Delete<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub enumerate: Option<Tag<'a, ReadOnlyUnParsed<'a>, Enumerate>>,
+    pub enumerate: Option<Enumerate<'a>>,
 
     /// WS-Transfer operations
     #[builder(default, setter(into, strip_option))]
-    pub resource_created: Option<Tag<'a, ResourceCreatedValue<'a>, ResourceCreated>>,
+    pub resource_created: Option<ResourceCreated<'a>>,
 
     /// PowerShell Remoting operations
     #[builder(default, setter(into, strip_option))]
-    pub shell: Option<Tag<'a, ShellValue<'a>, Shell>>,
+    pub shell: Option<Shell<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub command_line: Option<Tag<'a, CommandLineValue, CommandLine>>,
+    pub command_line: Option<CommandLine<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub receive: Option<Tag<'a, ReceiveValue<'a>, Receive>>,
+    pub receive: Option<Receive<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub receive_response: Option<Tag<'a, ReceiveResponseValue<'a>, ReceiveResponse>>,
+    pub receive_response: Option<ReceiveResponse<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub command_response: Option<Tag<'a, Tag<'a, WsUuid, CommandId>, CommandResponse>>,
+    pub command_response: Option<CommandResponse<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub send: Option<Tag<'a, SendValue<'a>, Send>>,
+    pub send: Option<Send<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub signal: Option<Tag<'a, Tag<'a, Text<'a>, SignalCode>, Signal>>,
+    pub signal: Option<Signal<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub signal_response: Option<Tag<'a, Empty, SignalResponse>>,
+    pub signal_response: Option<SignalResponse<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub disconnect: Option<Tag<'a, DisconnectValue<'a>, Disconnect>>,
+    pub disconnect: Option<Disconnect<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub disconnect_response: Option<Tag<'a, Empty, DisconnectResponse>>,
+    pub disconnect_response: Option<DisconnectResponse<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub reconnect: Option<Tag<'a, Empty, Reconnect>>,
+    pub reconnect: Option<Reconnect<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub reconnect_response: Option<Tag<'a, Empty, ReconnectResponse>>,
+    pub reconnect_response: Option<ReconnectResponse<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub connect: Option<Tag<'a, ConnectValue<'a>, Connect>>,
+    pub connect: Option<Connect<'a>>,
     #[builder(default, setter(into, strip_option))]
-    pub connect_response: Option<Tag<'a, ConnectResponseValue<'a>, ConnectResponse>>,
+    pub connect_response: Option<ConnectResponse<'a>>,
 
     /// SOAP fault handling
     #[builder(default, setter(into, strip_option))]
-    pub fault: Option<Tag<'a, SoapFaultValue<'a>, Fault>>,
+    pub fault: Option<Fault<'a>>,
 }

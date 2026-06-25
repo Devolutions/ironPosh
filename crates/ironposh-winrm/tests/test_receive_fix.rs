@@ -1,6 +1,6 @@
 use ironposh_winrm::{
-    cores::{DesiredStream, Receive, Tag, Text},
-    rsp::receive::ReceiveValue,
+    cores::{DesiredStreamTag, Tag, Text},
+    rsp::receive::{ReceiveTag, ReceiveValue},
     soap::SoapEnvelope,
 };
 use ironposh_xml::{builder::Element, mapping::FromXml};
@@ -14,13 +14,13 @@ fn test_receive_with_single_desired_stream() {
     // Create a ReceiveValue with single DesiredStream containing space-separated streams
     let receive = ReceiveValue::builder()
         .desired_streams(vec![
-            Tag::from_name(DesiredStream)
+            Tag::from_name(DesiredStreamTag)
                 .with_value(Text::from("stdout stderr"))
                 .with_attribute(ironposh_winrm::cores::Attribute::CommandId(command_id)),
         ])
         .build();
 
-    let receive_tag = Tag::from_name(Receive)
+    let receive_tag = Tag::from_name(ReceiveTag)
         .with_value(receive)
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 
@@ -50,11 +50,11 @@ fn test_receive_shell_level_without_command_id() {
     // Test case: Shell-level receive without CommandId
     let receive = ReceiveValue::builder()
         .desired_streams(vec![
-            Tag::from_name(DesiredStream).with_value(Text::from("stdout stderr")),
+            Tag::from_name(DesiredStreamTag).with_value(Text::from("stdout stderr")),
         ])
         .build();
 
-    let receive_tag = Tag::from_name(Receive)
+    let receive_tag = Tag::from_name(ReceiveTag)
         .with_value(receive)
         .with_declaration(ironposh_winrm::cores::Namespace::WsmanShell);
 

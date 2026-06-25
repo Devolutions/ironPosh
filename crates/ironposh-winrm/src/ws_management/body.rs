@@ -1,10 +1,12 @@
 use ironposh_macros::{FromXml, SimpleTagValue};
 use ironposh_xml::builder::Element;
 
-use crate::{
-    cores::{ResourceURI, SelectorSet, Tag, TagValue, tag_name::*, tag_value::Text},
-    ws_management::SelectorSetValue,
-};
+use crate::cores::{Address, ResourceURI, TagValue, tag_value::Text};
+use crate::tag;
+use crate::ws_management::SelectorSet;
+
+tag!(ReferenceParameters = ReferenceParametersValue<'a> => WsAddressing2004);
+tag!(ResourceCreated = ResourceCreatedValue<'a> => WsTransfer2004);
 
 // Enumeration operations
 #[derive(Debug, Clone, Default)]
@@ -127,14 +129,14 @@ impl<'a> TagValue<'a> for GetStatusValue<'a> {
 
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ReferenceParametersValue<'a> {
-    pub resource_uri: Tag<'a, Text<'a>, ResourceURI>,
-    pub selector_set: Tag<'a, SelectorSetValue, SelectorSet>,
+    pub resource_uri: ResourceURI<'a>,
+    pub selector_set: SelectorSet<'a>,
 }
 
 #[derive(Debug, Clone, SimpleTagValue, FromXml)]
 pub struct ResourceCreatedValue<'a> {
-    pub address: Tag<'a, Text<'a>, Address>,
-    pub reference_parameters: Tag<'a, ReferenceParametersValue<'a>, ReferenceParameters>,
+    pub address: Address<'a>,
+    pub reference_parameters: ReferenceParameters<'a>,
 }
 
 #[cfg(test)]
@@ -169,7 +171,7 @@ mod tests {
 
         let element = ironposh_xml::parser::parse(xml).unwrap();
         let root = element.root_element();
-        let tag: Tag<'_, ResourceCreatedValue, ResourceCreated> = Tag::from_xml(root).unwrap();
+        let tag = ResourceCreated::from_xml(root).unwrap();
         let value = tag.value;
 
         assert_eq!(
