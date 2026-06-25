@@ -52,6 +52,25 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_optional_permutations() {
+        // Both optionals present.
+        let xml = format!(
+            r#"<test xmlns:a="{A}"><a:ReqA>a</a:ReqA><a:ReqB>b</a:ReqB><a:OptA>oa</a:OptA><a:OptB>ob</a:OptB></test>"#
+        );
+        let doc = ironposh_xml::parser::parse(&xml).expect("parse");
+        let parsed = TestStruct::from_xml(doc.root_element()).expect("deserialize");
+        assert_eq!(parsed.opt_a.unwrap().value.as_ref(), "oa");
+        assert_eq!(parsed.opt_b.unwrap().value.as_ref(), "ob");
+
+        // Neither optional present.
+        let xml = format!(r#"<test xmlns:a="{A}"><a:ReqA>a</a:ReqA><a:ReqB>b</a:ReqB></test>"#);
+        let doc = ironposh_xml::parser::parse(&xml).expect("parse");
+        let parsed = TestStruct::from_xml(doc.root_element()).expect("deserialize");
+        assert!(parsed.opt_a.is_none());
+        assert!(parsed.opt_b.is_none());
+    }
+
+    #[test]
     fn test_deserialize_missing_required_field() {
         let xml = format!(r#"<test xmlns:a="{A}"><a:ReqA>only-a</a:ReqA></test>"#);
         let doc = ironposh_xml::parser::parse(&xml).expect("parse");

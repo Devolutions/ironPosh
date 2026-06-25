@@ -65,3 +65,28 @@ impl<'a> FromXml<'a> for CommandLineValue {
         Ok(Self { command, arguments })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironposh_xml::parser::parse;
+
+    const RSP: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
+
+    #[test]
+    fn rejects_duplicate_command() {
+        let xml = format!(
+            r#"<rsp:CommandLine xmlns:rsp="{RSP}"><rsp:Command>a</rsp:Command><rsp:Command>b</rsp:Command></rsp:CommandLine>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(CommandLineValue::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn empty_command_element_is_none() {
+        let xml = format!(r#"<rsp:CommandLine xmlns:rsp="{RSP}"><rsp:Command/></rsp:CommandLine>"#);
+        let doc = parse(&xml).unwrap();
+        let value = CommandLineValue::from_xml(doc.root_element()).unwrap();
+        assert!(value.command.is_none());
+    }
+}

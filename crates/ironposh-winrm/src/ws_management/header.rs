@@ -141,3 +141,29 @@ impl<'a> FromXml<'a> for OptionSetValue {
         Ok(Self { options })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironposh_xml::parser::parse;
+
+    const W: &str = "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd";
+
+    #[test]
+    fn rejects_duplicate_selector_name() {
+        let xml = format!(
+            r#"<w:SelectorSet xmlns:w="{W}"><w:Selector Name="ShellId">a</w:Selector><w:Selector Name="ShellId">b</w:Selector></w:SelectorSet>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(SelectorSetValue::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_option_name() {
+        let xml = format!(
+            r#"<w:OptionSet xmlns:w="{W}"><w:Option Name="WINRS_NOPROFILE">TRUE</w:Option><w:Option Name="WINRS_NOPROFILE">FALSE</w:Option></w:OptionSet>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(OptionSetValue::from_xml(doc.root_element()).is_err());
+    }
+}
