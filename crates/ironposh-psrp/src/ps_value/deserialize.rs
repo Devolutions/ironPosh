@@ -121,6 +121,60 @@ impl<'a> XmlVisitor<'a> for PsPrimitiveValueVisitor<'a> {
                 let text = node.text().unwrap_or("").to_string();
                 self.value = Some(PsPrimitiveValue::Version(text));
             }
+            "Db" => {
+                self.value = Some(PsPrimitiveValue::Double(
+                    node.text().unwrap_or("").to_string(),
+                ));
+            }
+            "Sg" => {
+                self.value = Some(PsPrimitiveValue::Single(
+                    node.text().unwrap_or("").to_string(),
+                ));
+            }
+            "D" => {
+                self.value = Some(PsPrimitiveValue::Decimal(
+                    node.text().unwrap_or("").to_string(),
+                ));
+            }
+            "I16" => {
+                let text = node.text().unwrap_or("0");
+                let val = text.parse::<i16>().map_err(|_| {
+                    ironposh_xml::XmlError::GenericError(format!("Invalid i16 value: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::Int16(val));
+            }
+            "U16" => {
+                let text = node.text().unwrap_or("0");
+                let val = text.parse::<u16>().map_err(|_| {
+                    ironposh_xml::XmlError::GenericError(format!("Invalid u16 value: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::UInt16(val));
+            }
+            "By" => {
+                let text = node.text().unwrap_or("0");
+                let val = text.parse::<u8>().map_err(|_| {
+                    ironposh_xml::XmlError::GenericError(format!("Invalid u8 value: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::Byte(val));
+            }
+            "SB" => {
+                let text = node.text().unwrap_or("0");
+                let val = text.parse::<i8>().map_err(|_| {
+                    ironposh_xml::XmlError::GenericError(format!("Invalid i8 value: {text}"))
+                })?;
+                self.value = Some(PsPrimitiveValue::SByte(val));
+            }
+            "URI" => {
+                self.value = Some(PsPrimitiveValue::Uri(node.text().unwrap_or("").to_string()));
+            }
+            "SBK" => {
+                self.value = Some(PsPrimitiveValue::ScriptBlock(
+                    node.text().unwrap_or("").to_string(),
+                ));
+            }
+            "XD" => {
+                self.value = Some(PsPrimitiveValue::Xml(node.text().unwrap_or("").to_string()));
+            }
             _ => {
                 return Err(ironposh_xml::XmlError::UnexpectedTag(tag_name.to_string()));
             }
@@ -452,12 +506,6 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                         self.to_string = Some(text.to_string());
                     }
                 }
-                // Handle primitive content for ExtendedPrimitive objects
-                "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA"
-                | "Version" | "DT" | "TS" => {
-                    let primitive = PsPrimitiveValue::from_node(child)?;
-                    self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
-                }
                 // Handle containers with context
                 "STK" | "QUE" | "LST" | "DCT" => {
                     let container = Container::from_node_with_context(child, context)?;
@@ -481,10 +529,17 @@ impl<'a> PsXmlVisitor<'a> for ComplexObjectContextVisitor<'a> {
                         }
                     }
                 }
-                _ => {
-                    // Unknown element - could be part of content or should be ignored
-                    // For now, we'll ignore unknown elements
-                }
+                // Anything else is an Extended Primitive value. Delegating to the
+                // primitive codec instead of a hand-kept tag list keeps this in
+                // lockstep with the supported primitives; a tag the codec rejects
+                // is an unknown element and ignored (SOAP must-ignore).
+                _ => match PsPrimitiveValue::from_node(child) {
+                    Ok(primitive) => {
+                        self.content = ComplexObjectContent::ExtendedPrimitive(primitive);
+                    }
+                    Err(ironposh_xml::XmlError::UnexpectedTag(_)) => {}
+                    Err(e) => return Err(e),
+                },
             }
         }
 
@@ -546,12 +601,6 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
         let tag_name = node.tag_name().name();
 
         match tag_name {
-            // Handle primitive values
-            "S" | "B" | "I32" | "U32" | "I64" | "U64" | "G" | "C" | "Nil" | "BA" | "Version"
-            | "DT" | "TS" => {
-                let primitive = PsPrimitiveValue::from_node(node)?;
-                self.value = Some(PsValue::Primitive(primitive));
-            }
             // Handle complex objects with context
             "Obj" => {
                 let complex_obj = ComplexObject::from_node_with_context(node, context)?;
@@ -577,10 +626,12 @@ impl<'a> PsXmlVisitor<'a> for PsValueContextVisitor<'a> {
                     ));
                 }
             }
+            // Otherwise it's a primitive value. Delegating to the primitive codec
+            // keeps the recognized-tag set in one place; a genuinely unknown tag
+            // surfaces as its UnexpectedTag error.
             _ => {
-                return Err(ironposh_xml::XmlError::UnexpectedTag(format!(
-                    "Unexpected tag for PsValue: {tag_name}"
-                )));
+                let primitive = PsPrimitiveValue::from_node(node)?;
+                self.value = Some(PsValue::Primitive(primitive));
             }
         }
 
@@ -733,4 +784,74 @@ impl<'a> PsXmlDeserialize<'a> for Container {
     fn visitor_with_context() -> Self::Visitor {
         ContainerContextVisitor::new()
     }
+}
+
+#[cfg(test)]
+mod primitive_coverage_tests {
+    use super::*;
+    use crate::ps_value::{ComplexObject, ComplexObjectContent, PsPrimitiveValue, PsValue};
+    use ironposh_xml::builder::Builder;
+    use ironposh_xml::parser::parse;
+
+    fn roundtrip(value: PsValue) {
+        let element = value.to_element_as_root().expect("serialize");
+        let xml = Builder::new(None, element).to_xml_string().expect("render");
+        let doc = parse(&xml).expect("parse");
+        let mut ctx = DeserializationContext::new();
+        let parsed =
+            PsValue::from_node_with_context(doc.root_element(), &mut ctx).expect("deserialize");
+        assert_eq!(parsed, value, "round-trip mismatch; xml={xml}");
+    }
+
+    fn ext_primitive(p: PsPrimitiveValue) -> PsValue {
+        PsValue::Object(ComplexObject {
+            content: ComplexObjectContent::ExtendedPrimitive(p),
+            ..Default::default()
+        })
+    }
+
+    // #40: a primitive carried as complex-object content must not be dropped.
+    #[test]
+    fn securestring_as_object_content_roundtrips() {
+        roundtrip(ext_primitive(PsPrimitiveValue::SecureString(vec![
+            9, 8, 7, 6,
+        ])));
+    }
+
+    // Each primitive round-trips both as a bare value and as Extended Primitive
+    // object content (the latter is the #40 drift guard).
+    macro_rules! prim_rt {
+        ($name:ident, $variant:expr) => {
+            #[test]
+            fn $name() {
+                roundtrip(PsValue::Primitive($variant));
+                roundtrip(ext_primitive($variant));
+            }
+        };
+    }
+
+    // #41: the previously-missing primitives.
+    prim_rt!(rt_double, PsPrimitiveValue::Double("3.14".to_string()));
+    prim_rt!(rt_single, PsPrimitiveValue::Single("1.5".to_string()));
+    prim_rt!(rt_decimal, PsPrimitiveValue::Decimal("12.340".to_string()));
+    prim_rt!(rt_int16, PsPrimitiveValue::Int16(-12345));
+    prim_rt!(rt_uint16, PsPrimitiveValue::UInt16(54321));
+    prim_rt!(rt_byte, PsPrimitiveValue::Byte(200));
+    prim_rt!(rt_sbyte, PsPrimitiveValue::SByte(-100));
+    prim_rt!(
+        rt_uri,
+        PsPrimitiveValue::Uri("https://example.com/a?b=c".to_string())
+    );
+    prim_rt!(
+        rt_scriptblock,
+        PsPrimitiveValue::ScriptBlock("Get-Process | Sort-Object CPU".to_string())
+    );
+    prim_rt!(
+        rt_xml,
+        PsPrimitiveValue::Xml("<a x=\"1\"><b/></a>".to_string())
+    );
+
+    // Regression guard for a sample of already-supported primitives.
+    prim_rt!(rt_string, PsPrimitiveValue::Str("hello".to_string()));
+    prim_rt!(rt_i32, PsPrimitiveValue::I32(-7));
 }

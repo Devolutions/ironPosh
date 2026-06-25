@@ -67,6 +67,16 @@ impl<'a> PsPrimitiveValue {
             Self::Version(v) => Element::new("Version").set_text_owned(v.clone()),
             Self::DateTime(dt) => Element::new("DT").set_text_owned(dt.clone()),
             Self::TimeSpan(ts) => Element::new("TS").set_text_owned(ts.clone()),
+            Self::Double(s) => Element::new("Db").set_text_owned(s.clone()),
+            Self::Single(s) => Element::new("Sg").set_text_owned(s.clone()),
+            Self::Decimal(s) => Element::new("D").set_text_owned(s.clone()),
+            Self::Int16(i) => Element::new("I16").set_text_owned(i.to_string()),
+            Self::UInt16(u) => Element::new("U16").set_text_owned(u.to_string()),
+            Self::Byte(b) => Element::new("By").set_text_owned(b.to_string()),
+            Self::SByte(i) => Element::new("SB").set_text_owned(i.to_string()),
+            Self::Uri(u) => Element::new("URI").set_text_owned(u.clone()),
+            Self::ScriptBlock(s) => Element::new("SBK").set_text_owned(s.clone()),
+            Self::Xml(x) => Element::new("XD").set_text_owned(x.clone()),
         })
     }
 }

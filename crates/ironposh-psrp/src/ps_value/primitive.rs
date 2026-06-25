@@ -19,7 +19,19 @@ pub enum PsPrimitiveValue {
     Version(String),
     DateTime(String), // Store as string for now
     TimeSpan(String), // Store as string for now
-                      // Add more primitive types as needed
+    // Double/Single/Decimal keep their lexical text: the enum must stay
+    // Eq+Hash+Ord (it backs the serializer's RefId map, which floats can't), and
+    // the wire form is already text, so this also round-trips exactly.
+    Double(String),
+    Single(String),
+    Decimal(String),
+    Int16(i16),
+    UInt16(u16),
+    Byte(u8),
+    SByte(i8),
+    Uri(String),
+    ScriptBlock(String),
+    Xml(String),
 }
 
 impl Display for PsPrimitiveValue {
@@ -39,6 +51,16 @@ impl Display for PsPrimitiveValue {
             Self::Version(v) => write!(f, "{v}"),
             Self::DateTime(d) => write!(f, "{d}"),
             Self::TimeSpan(t) => write!(f, "{t}"),
+            Self::Double(s) => write!(f, "{s}"),
+            Self::Single(s) => write!(f, "{s}"),
+            Self::Decimal(s) => write!(f, "{s}"),
+            Self::Int16(i) => write!(f, "{i}"),
+            Self::UInt16(u) => write!(f, "{u}"),
+            Self::Byte(b) => write!(f, "{b}"),
+            Self::SByte(i) => write!(f, "{i}"),
+            Self::Uri(u) => write!(f, "{u}"),
+            Self::ScriptBlock(s) => write!(f, "{s}"),
+            Self::Xml(x) => write!(f, "{x}"),
         }
     }
 }
