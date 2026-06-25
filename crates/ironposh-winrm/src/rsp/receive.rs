@@ -30,6 +30,7 @@ impl<'a> TagValue<'a> for ReceiveValue<'a> {
 
 impl<'a> FromXml<'a> for ReceiveValue<'a> {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut desired_streams = Vec::new();
         for child in node.children() {
             if child.is_element_named(DesiredStreamTag::NAMESPACE, DesiredStreamTag::TAG_NAME) {
@@ -108,6 +109,7 @@ impl<'a> TagValue<'a> for ReceiveResponseValue<'a> {
 
 impl<'a> FromXml<'a> for ReceiveResponseValue<'a> {
     fn from_xml(node: ironposh_xml::parser::Node<'a, 'a>) -> Result<Self, XmlError> {
+        ironposh_xml::mapping::reject_mixed_content(node)?;
         let mut streams = Vec::new();
         let mut command_state = None;
         for child in node.children() {

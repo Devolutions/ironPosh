@@ -11,17 +11,34 @@ pub trait TagValue<'a> {
 /// The text content of a leaf element, rejecting mixed content. A text-valued
 /// element (`Text`, `WsUuid`, `Time`, numerics) must not contain child elements;
 /// silently truncating such malformed input would let it slip through.
-pub(crate) fn leaf_text<'a>(node: Node<'a, 'a>) -> Result<&'a str, XmlError> {
-    // Only text children are allowed. Any element (mixed content), comment, or PI
-    // is rejected — otherwise `node.text()` (which yields the first child only when
-    // it is a text node) could silently shadow or drop the real value.
-    if node.children().any(|child| !child.is_text()) {
+pub(crate) fn leaf_text<'a>(node: Node<'a, 'a>) -> Result<Cow<'a, str>, XmlError> {
+    // A text leaf carries no child elements; an element child is mixed content
+    // that would corrupt the value. Comments/PIs are tolerated, and text runs are
+    // concatenated — a comment between two runs splits one logical value into two
+    // text nodes, so reading only the first would silently truncate it.
+    if node.children().any(|child| child.is_element()) {
         return Err(XmlError::InvalidXml(format!(
-            "<{}> is a text leaf but contains non-text content",
+            "<{}> is a text leaf but contains a child element",
             node.tag_name().name()
         )));
     }
-    Ok(node.text().unwrap_or("").trim())
+    // Only text nodes contribute — a comment node's own text would otherwise leak in.
+    let mut runs = node
+        .children()
+        .filter(Node::is_text)
+        .filter_map(|c| c.text());
+    let first = runs.next().unwrap_or("");
+    runs.next().map_or_else(
+        || Ok(Cow::Borrowed(first.trim())),
+        |second| {
+            let mut combined = String::from(first);
+            combined.push_str(second);
+            for run in runs {
+                combined.push_str(run);
+            }
+            Ok(Cow::Owned(combined.trim().to_string()))
+        },
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -65,7 +82,7 @@ impl<'a> TagValue<'a> for Text<'a> {
 
 impl<'a> FromXml<'a> for Text<'a> {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        Ok(Self(leaf_text(node)?.into()))
+        Ok(Self(leaf_text(node)?))
     }
 }
 
@@ -86,8 +103,8 @@ impl<'a> TagValue<'a> for Empty {
 
 impl<'a> FromXml<'a> for Empty {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
-        // `leaf_text` rejects any non-text child (element/comment/PI); an empty
-        // tag additionally must have no non-whitespace text.
+        // `leaf_text` rejects child elements; an empty tag additionally must have
+        // no non-whitespace text.
         if !leaf_text(node)?.is_empty() {
             return Err(XmlError::InvalidXml(format!(
                 "<{}> must be empty but has text content",
@@ -121,6 +138,7 @@ impl<'a> TagValue<'a> for WsUuid {
 impl<'a> FromXml<'a> for WsUuid {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError> {
         let text = leaf_text(node)?;
+        let text = text.as_ref();
         // WS-Management prefixes UUIDs with "uuid:" — strip it if present.
         let raw = text.strip_prefix("uuid:").unwrap_or(text);
         uuid::Uuid::parse_str(raw)
@@ -229,6 +247,15 @@ mod tests {
         assert_eq!(
             Text::from_xml(doc.root_element()).unwrap().as_ref(),
             "hello"
+        );
+    }
+
+    #[test]
+    fn text_leaf_tolerates_comment_and_concatenates_runs() {
+        let doc = parse("<x>foo<!--c-->bar</x>").unwrap();
+        assert_eq!(
+            Text::from_xml(doc.root_element()).unwrap().as_ref(),
+            "foobar"
         );
     }
 

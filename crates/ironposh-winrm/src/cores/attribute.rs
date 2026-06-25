@@ -19,20 +19,23 @@ macro_rules! define_attributes {
         impl<'a> Attribute<'a> {
             /// Convert an attribute name to the corresponding enum variant type
             /// This is automatically generated to match all enum variants
-            pub fn from_name_and_value(name: &str, value: &'a str) -> Result<Option<Self>, ironposh_xml::XmlError> {
-                match name {
-                    $(
-                        $attr_name => {
-                            match $parser(value) {
+            pub fn from_name_and_value(namespace: Option<&str>, name: &str, value: &'a str) -> Result<Option<Self>, ironposh_xml::XmlError> {
+                // Identity is the (namespace-URI, local-name) pair, like elements:
+                // a known attribute in the wrong namespace is not that attribute.
+                $(
+                    {
+                        let expected_ns: Option<crate::cores::namespace::Namespace> = $namespace;
+                        if name == $attr_name && namespace == expected_ns.map(|ns| ns.uri()) {
+                            return match $parser(value) {
                                 Ok(val) => Ok(Some(Attribute::$variant(val))),
                                 Err(e) => Err(ironposh_xml::XmlError::InvalidXml(
                                     format!("Invalid value for {}: {}", $attr_name, e)
                                 )),
-                            }
+                            };
                         }
-                    )*
-                    _ => Ok(None), // Unknown attribute, ignore
-                }
+                    }
+                )*
+                Ok(None) // Unknown attribute, ignore
             }
 
             /// Get the attribute name for this enum variant
@@ -151,13 +154,18 @@ mod tests {
     #[test]
     fn test_parsing_round_trip() {
         let test_cases = [
-            ("mustUnderstand", "true"),
-            ("Name", "test-name"),
-            ("MustComply", "false"),
+            (
+                Some(crate::cores::namespace::Namespace::SoapEnvelope2003.uri()),
+                "mustUnderstand",
+                "true",
+            ),
+            (None, "Name", "test-name"),
+            (None, "MustComply", "false"),
         ];
 
-        for (attr_name, attr_value) in test_cases {
-            if let Some(parsed) = Attribute::from_name_and_value(attr_name, attr_value).unwrap() {
+        for (ns, attr_name, attr_value) in test_cases {
+            if let Some(parsed) = Attribute::from_name_and_value(ns, attr_name, attr_value).unwrap()
+            {
                 // Test that we can get the name back
                 assert_eq!(parsed.attribute_name(), attr_name);
 
@@ -165,5 +173,20 @@ mod tests {
                 let _xml_attr: ironposh_xml::builder::Attribute = parsed.into();
             }
         }
+    }
+
+    #[test]
+    fn known_attribute_in_wrong_namespace_is_unmatched() {
+        // `mustUnderstand` lives in the SOAP namespace; unqualified it is unknown.
+        assert!(
+            Attribute::from_name_and_value(None, "mustUnderstand", "true")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn known_attribute_with_bad_value_propagates_error() {
+        assert!(Attribute::from_name_and_value(None, "MustComply", "notabool").is_err());
     }
 }

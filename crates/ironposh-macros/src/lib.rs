@@ -1364,6 +1364,7 @@ fn impl_from_xml(input: &DeriveInput) -> Result<TokenStream2, syn::Error> {
                 node: ironposh_xml::parser::Node<'a, 'a>,
             ) -> Result<Self, ironposh_xml::XmlError> {
                 use ironposh_xml::mapping::NodeExt;
+                ironposh_xml::mapping::reject_mixed_content(node)?;
                 #(#inits)*
                 for child in node.children() {
                     if !child.is_element() {

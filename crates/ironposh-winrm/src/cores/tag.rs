@@ -174,8 +174,10 @@ where
             node
         } else {
             // Wrapper case (`Tag<Tag<..>, _>`): exactly one child element, which
-            // must be N. Reject zero (wrong wrapper), >1 (malformed), or a single
-            // child of the wrong name rather than silently picking one.
+            // must be N. Reject zero (wrong wrapper), >1 (malformed), a single
+            // child of the wrong name, or stray text rather than silently
+            // picking one.
+            ironposh_xml::mapping::reject_mixed_content(node)?;
             let mut elements = node
                 .children()
                 .filter(ironposh_xml::parser::Node::is_element);
@@ -202,14 +204,16 @@ where
         };
 
         let value = V::from_xml(element)?;
-        let attributes = element
-            .attributes()
-            .filter_map(|attr| {
-                Attribute::from_name_and_value(attr.name(), attr.value())
-                    .ok()
-                    .flatten()
-            })
-            .collect();
+        // Identity is (namespace-URI, local-name); a parse error on a *known*
+        // attribute is propagated, while a truly unknown attribute is ignored.
+        let mut attributes = Vec::new();
+        for attr in element.attributes() {
+            if let Some(parsed) =
+                Attribute::from_name_and_value(attr.namespace(), attr.name(), attr.value())?
+            {
+                attributes.push(parsed);
+            }
+        }
         let namespaces_declaration = NamespaceDeclaration::from_xml(element)?;
 
         Ok(Tag {

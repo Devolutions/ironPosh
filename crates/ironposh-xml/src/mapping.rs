@@ -42,6 +42,22 @@ pub trait FromXml<'a>: Sized {
     fn from_xml(node: Node<'a, 'a>) -> Result<Self, XmlError>;
 }
 
+/// Reject mixed content: non-whitespace text directly under a container element.
+///
+/// Whitespace from pretty-printing and any comments/PIs are tolerated. Containers
+/// carry child elements, not text, so stray text means the input is malformed.
+pub fn reject_mixed_content(node: Node<'_, '_>) -> Result<(), XmlError> {
+    for child in node.children() {
+        if child.is_text() && child.text().is_some_and(|t| !t.trim().is_empty()) {
+            return Err(XmlError::InvalidXml(format!(
+                "<{}> contains unexpected text content",
+                node.tag_name().name()
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
