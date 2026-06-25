@@ -211,3 +211,36 @@ impl<'a> FromXml<'a> for ReadOnlyUnParsed<'a> {
         Ok(ReadOnlyUnParsed::Node(node))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironposh_xml::parser::parse;
+
+    #[test]
+    fn text_leaf_rejects_mixed_content() {
+        let doc = parse("<x>text<child/></x>").unwrap();
+        assert!(Text::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn text_leaf_trims_surrounding_whitespace() {
+        let doc = parse("<x>  hello  </x>").unwrap();
+        assert_eq!(
+            Text::from_xml(doc.root_element()).unwrap().as_ref(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn empty_rejects_text_content() {
+        let doc = parse("<x>nope</x>").unwrap();
+        assert!(Empty::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn empty_accepts_whitespace_only() {
+        let doc = parse("<x>   </x>").unwrap();
+        assert!(Empty::from_xml(doc.root_element()).is_ok());
+    }
+}

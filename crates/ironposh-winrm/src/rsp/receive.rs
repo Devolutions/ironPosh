@@ -129,3 +129,30 @@ impl<'a> FromXml<'a> for ReceiveResponseValue<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironposh_xml::parser::parse;
+
+    const RSP: &str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell";
+
+    #[test]
+    fn rejects_duplicate_command_state() {
+        let xml = format!(
+            r#"<rsp:ReceiveResponse xmlns:rsp="{RSP}"><rsp:CommandState/><rsp:CommandState/></rsp:ReceiveResponse>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(ReceiveResponseValue::from_xml(doc.root_element()).is_err());
+    }
+
+    /// The `#[derive(FromXml)]` singleton field must reject a second binding.
+    #[test]
+    fn derive_rejects_duplicate_exit_code() {
+        let xml = format!(
+            r#"<rsp:CommandState xmlns:rsp="{RSP}"><rsp:ExitCode>0</rsp:ExitCode><rsp:ExitCode>1</rsp:ExitCode></rsp:CommandState>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(CommandStateValue::from_xml(doc.root_element()).is_err());
+    }
+}

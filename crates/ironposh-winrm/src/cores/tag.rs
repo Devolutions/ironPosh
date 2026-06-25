@@ -298,4 +298,33 @@ mod tests {
             .expect("nested CommandResponse/CommandId should parse");
         assert_eq!(tag.value.value.0.to_string().to_uppercase(), uuid);
     }
+
+    /// The descend branch must reject a wrapper with no element child rather
+    /// than silently yielding a default.
+    #[test]
+    fn nested_tag_rejects_no_child() {
+        let xml = format!(r#"<rsp:CommandResponse xmlns:rsp="{RSP}"/>"#);
+        let doc = parse(&xml).unwrap();
+        assert!(CommandResponse::from_xml(doc.root_element()).is_err());
+    }
+
+    /// More than one child element is ambiguous; the descend branch must reject
+    /// it rather than silently picking the first.
+    #[test]
+    fn nested_tag_rejects_multiple_children() {
+        let uuid = "2D6534D0-6B12-40E3-B773-CBA26459CFA8";
+        let xml = format!(
+            r#"<rsp:CommandResponse xmlns:rsp="{RSP}"><rsp:CommandId>{uuid}</rsp:CommandId><rsp:CommandId>{uuid}</rsp:CommandId></rsp:CommandResponse>"#
+        );
+        let doc = parse(&xml).unwrap();
+        assert!(CommandResponse::from_xml(doc.root_element()).is_err());
+    }
+
+    #[test]
+    fn nested_tag_rejects_wrong_child_name() {
+        let xml =
+            format!(r#"<rsp:CommandResponse xmlns:rsp="{RSP}"><rsp:Wrong/></rsp:CommandResponse>"#);
+        let doc = parse(&xml).unwrap();
+        assert!(CommandResponse::from_xml(doc.root_element()).is_err());
+    }
 }
