@@ -28,6 +28,7 @@ pub use information_record::*;
 pub use init_runspace_pool::*;
 pub use pipeline_host_call::*;
 pub use pipeline_host_response::*;
+pub use pipeline_input::*;
 pub use pipeline_output::*;
 pub use pipeline_state::*;
 pub use progress_record::*;
