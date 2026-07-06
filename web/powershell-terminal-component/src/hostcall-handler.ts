@@ -60,15 +60,28 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
   };
 
   const keyQueue: JsKeyInfo[] = [];
-  const keyWaiters: Array<(k: JsKeyInfo) => void> = [];
+  const keyWaiters: Array<{
+    resolve: (k: JsKeyInfo) => void;
+    reject: (e: Error) => void;
+  }> = [];
 
   const enqueueKey = (keyInfo: JsKeyInfo) => {
     const waiter = keyWaiters.shift();
     if (waiter) {
-      waiter(keyInfo);
+      waiter.resolve(keyInfo);
       return;
     }
     keyQueue.push(keyInfo);
+  };
+
+  // Reject any input a host call is currently blocked on. Without this, a
+  // Ctrl+C during Read-Host/Prompt leaves the handler promise pending forever,
+  // so the Rust side never submits a response and the session loop wedges.
+  const cancelPendingInput = (reason: string) => {
+    const err = new Error(reason);
+    while (keyWaiters.length > 0) {
+      keyWaiters.shift()!.reject(err);
+    }
   };
 
   const normalizeChar = (s: string): string => {
@@ -304,8 +317,8 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
   const readKeyAsync = async (): Promise<JsKeyInfo> => {
     const next = keyQueue.shift();
     if (next) return next;
-    return await new Promise<JsKeyInfo>((resolve) => {
-      keyWaiters.push(resolve);
+    return await new Promise<JsKeyInfo>((resolve, reject) => {
+      keyWaiters.push({ resolve, reject });
     });
   };
 
@@ -832,5 +845,5 @@ export function createHostCallHandler(config: HostCallHandlerConfig) {
     return (handler as any)(variant.params);
   }) as TypedHostCallHandler;
 
-  return dispatch;
+  return { handler: dispatch, cancelPendingInput };
 }

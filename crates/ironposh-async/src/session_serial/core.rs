@@ -15,8 +15,9 @@ use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::{
     ActiveSessionOutput, UserOperation, connection_pool::TrySend,
 };
-use ironposh_client_core::host::HostCall;
+use ironposh_client_core::host::{HostCall, HostCallScope};
 use ironposh_client_core::runspace_pool::DesiredStream;
+use ironposh_psrp::RemoteHostMethodId;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
@@ -70,11 +71,23 @@ impl Queues {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum HostCallState {
     Idle,
-    Waiting { call_id: i64 },
+    Waiting {
+        call_id: i64,
+        scope: HostCallScope,
+        method: RemoteHostMethodId,
+        /// Absolute deadline (ms since the loop epoch) by which the consumer must
+        /// answer this host call before the loop gives up on it.
+        deadline_ms: u64,
+    },
 }
+
+/// How long the serial loop waits for a host-call response before treating the
+/// call as abandoned. Mirrors the parallel loop's 5s host-response timeout so a
+/// dropped/orphaned consumer promise cannot wedge Receive promotion forever.
+const HOST_CALL_TIMEOUT_MS: u64 = 5_000;
 
 // ── Backend trait ─────────────────────────────────────────────────────────
 
@@ -537,6 +550,9 @@ impl<S: SessionBackend> SessionCore<S> {
         );
         self.host_call_state = HostCallState::Waiting {
             call_id: hc.call_id(),
+            scope: hc.scope(),
+            method: hc.method(),
+            deadline_ms: self.now_ms() + HOST_CALL_TIMEOUT_MS,
         };
         Some(hc)
     }
@@ -549,6 +565,42 @@ impl<S: SessionBackend> SessionCore<S> {
     /// Whether a HostCall is currently active (event loop uses this for `select!` guard).
     pub(super) fn is_host_call_active(&self) -> bool {
         matches!(self.host_call_state, HostCallState::Waiting { .. })
+    }
+
+    /// Absolute deadline (ms since epoch) by which the active host call must be
+    /// answered, if any is outstanding.
+    pub(super) fn host_call_deadline_ms(&self) -> Option<u64> {
+        match &self.host_call_state {
+            HostCallState::Waiting { deadline_ms, .. } => Some(*deadline_ms),
+            HostCallState::Idle => None,
+        }
+    }
+
+    /// Give up on an unanswered host call: clear the waiting state and produce a
+    /// `CancelHostCall` op so the server-side pipeline unblocks. The consumer
+    /// promise was dropped (e.g. Ctrl+C during Read-Host), so no response is
+    /// coming — without this, Receive promotion stays gated forever.
+    pub(super) fn abandon_host_call(&mut self) -> Option<UserOperation> {
+        let HostCallState::Waiting {
+            call_id,
+            scope,
+            method,
+            ..
+        } = std::mem::replace(&mut self.host_call_state, HostCallState::Idle)
+        else {
+            return None;
+        };
+        warn!(
+            target: "serial",
+            call_id,
+            "host call timed out without a response; abandoning it and cancelling server-side"
+        );
+        Some(UserOperation::CancelHostCall {
+            scope,
+            call_id,
+            method,
+            reason: Some("host call timed out (no response from consumer)".to_string()),
+        })
     }
 
     /// Whether buffered user operations are still waiting to be processed.
@@ -813,6 +865,16 @@ mod tests {
         PipelineHandle::new(id)
     }
 
+    /// Build a `Waiting` host-call state for testing.
+    fn waiting(call_id: i64) -> HostCallState {
+        HostCallState::Waiting {
+            call_id,
+            scope: HostCallScope::RunspacePool,
+            method: RemoteHostMethodId::GetName,
+            deadline_ms: 0,
+        }
+    }
+
     // ── Promotion priority (6 tests) ────────────────────────────────────
 
     #[test]
@@ -884,7 +946,7 @@ mod tests {
         core.queues
             .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1);
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -1036,7 +1098,7 @@ mod tests {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
         core.queues.host_calls.push_back(dummy_host_call(1));
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1);
 
         assert!(core.poll_host_call().is_none());
     }
@@ -1057,7 +1119,7 @@ mod tests {
     fn buffer_host_response_clears_active_flag() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1);
 
         core.buffer_host_response(HostResponse {
             call_id: 1,
@@ -1328,5 +1390,60 @@ mod tests {
             core.scheduler.is_allowed_target(target, core.now_ms()),
             "target must remain eligible after an empty poll"
         );
+    }
+
+    // ── Host-call timeout (2 tests) ─────────────────────────────────────
+
+    #[test]
+    fn host_call_deadline_reported_only_while_waiting() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+        assert!(core.host_call_deadline_ms().is_none());
+        core.host_call_state = waiting(1);
+        assert!(core.host_call_deadline_ms().is_some());
+    }
+
+    /// A host call that never gets answered (dropped consumer promise, e.g. the
+    /// Ctrl+C-during-Read-Host wedge) must be abandonable: clearing the waiting
+    /// state and emitting a cancel so Receive promotion resumes.
+    #[test]
+    fn host_call_timeout_clears_waiting_and_resumes_promotion() {
+        let mut mock = MockBackend::new();
+        // CancelHostCall → a host-response Send.
+        mock.op_responses
+            .push_back(ActiveSessionOutput::SendBack(vec![dummy_try_send(88)]));
+        // ...then the previously-gated demanded Receive fires.
+        mock.receive_results.push_back(dummy_try_send(20));
+
+        let mut core = core_idle(mock);
+        core.queues
+            .demanded_streams
+            .push_back(pipeline_stream(Uuid::new_v4()));
+        core.host_call_state = waiting(7);
+
+        // While a host call is outstanding, Receive promotion is gated.
+        assert!(core.promote_next_request().unwrap().is_none());
+
+        // Timeout: abandon produces a cancel and clears the waiting state.
+        let op = core
+            .abandon_host_call()
+            .expect("should produce a cancel op");
+        assert!(matches!(
+            op,
+            UserOperation::CancelHostCall { call_id: 7, .. }
+        ));
+        assert!(!core.is_host_call_active());
+        assert!(
+            core.abandon_host_call().is_none(),
+            "idempotent once cleared"
+        );
+
+        // Processing the cancel enqueues the host-response Send...
+        core.accept_user_op(op).unwrap();
+        let first = core.promote_next_request().unwrap().unwrap();
+        assert_eq!(first.get_connection_id().inner(), 88);
+        // ...and the previously-gated Receive now promotes.
+        let second = core.promote_next_request().unwrap().unwrap();
+        assert_eq!(second.get_connection_id().inner(), 20);
     }
 }
