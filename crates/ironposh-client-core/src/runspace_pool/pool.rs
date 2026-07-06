@@ -747,4 +747,38 @@ mod tests {
             "a WSMan fault must surface as SoapFault, got: {result:?}"
         );
     }
+
+    #[test]
+    fn non_timeout_fault_while_pipeline_stopping_finishes_it() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        let id = uuid::Uuid::new_v4();
+        let mut pipeline = Pipeline::new();
+        pipeline.set_state(PsInvocationState::Stopping);
+        pool.pipelines.insert(id, pipeline);
+
+        let results = pool
+            .accept_response(FAULT_ENVELOPE)
+            .expect("a fault answering a Stopping pipeline must not kill the session");
+
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, AcceptResponsResult::PipelineFinished(h) if h.id == id)),
+            "the stopping pipeline should be reported finished, got: {results:?}"
+        );
+        assert!(
+            pool.pipelines.is_empty(),
+            "the stopping pipeline should be removed from the pool"
+        );
+    }
+
+    #[test]
+    fn non_timeout_fault_without_stopping_pipeline_stays_fatal() {
+        let mut pool = test_pool(RunspacePoolState::Opened);
+        let result = pool.accept_response(FAULT_ENVELOPE);
+        assert!(
+            matches!(result, Err(PwshCoreError::SoapFault { .. })),
+            "a fault unrelated to a stopping pipeline must still be fatal, got: {result:?}"
+        );
+    }
 }

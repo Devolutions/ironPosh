@@ -257,6 +257,13 @@ impl ActiveSession {
         self.fire_receive(desired, None)
     }
 
+    /// Desired streams for the currently-active work (running pipelines, else the
+    /// runspace-pool stream). The serial loop re-arms polling with these after
+    /// tolerating a transport error on an in-flight Receive.
+    pub fn active_desired_streams(&self) -> Vec<DesiredStream> {
+        self.runspace_pool.compute_active_desired_streams()
+    }
+
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.
     #[instrument(skip_all, fields(operation_type = operation.operation_type()))]
     pub fn accept_client_operation(

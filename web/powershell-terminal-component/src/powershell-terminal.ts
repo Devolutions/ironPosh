@@ -227,11 +227,25 @@ export class PowerShellTerminalElement extends HTMLElement {
             if (event === "ActiveSessionStarted") {
               this.setState("connected");
               resolve(undefined);
+              return;
             }
 
             if (typeof event === "object" && "error" in event) {
-              this.setState("closed");
-              reject(new Error(event.error));
+              if (this.state === "connecting") {
+                this.setState("closed");
+                reject(new Error(event.error));
+              } else {
+                this.handleSessionLost(event.error);
+              }
+              return;
+            }
+
+            // The session ended after it was established (task exited / closed).
+            if (
+              this.state === "connected" &&
+              (event === "ActiveSessionEnded" || event === "Closed")
+            ) {
+              this.handleSessionLost("session ended");
             }
           }
         );
@@ -383,6 +397,22 @@ export class PowerShellTerminalElement extends HTMLElement {
       }
       if ("PipelineFinished" in event) break;
     }
+  }
+
+  // A session that dies mid-run (transport reset, task error, remote close)
+  // must be surfaced: otherwise input silently stops working and the terminal
+  // just goes dark. Print why, unstick the running flag, then close.
+  private handleSessionLost(reason: string): void {
+    if (this.state === "closed") return;
+    this.isRunning = false;
+    this.runningController = null;
+    this.cancelHostCallInput?.(`Connection lost: ${reason}`);
+    if (this.terminal) {
+      this.terminal.writeln("");
+      this.terminal.writeln(`\x1b[31mConnection lost: ${reason}\x1b[0m`);
+    }
+    this.setState("closed");
+    this.emitEvent({ type: "error", detail: new Error(reason) });
   }
 
   disconnect(): void {

@@ -10,10 +10,13 @@ use std::collections::VecDeque;
 
 use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
-use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
+use ironposh_client_core::connector::active_session::{
+    ActiveSession, TransportErrorDisposition, UserEvent,
+};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::{
-    ActiveSessionOutput, UserOperation, connection_pool::TrySend,
+    ActiveSessionOutput, UserOperation,
+    connection_pool::{ConnectionId, TrySend},
 };
 use ironposh_client_core::host::{HostCall, HostCallScope};
 use ironposh_client_core::runspace_pool::DesiredStream;
@@ -89,6 +92,12 @@ enum HostCallState {
 /// dropped/orphaned consumer promise cannot wedge Receive promotion forever.
 const HOST_CALL_TIMEOUT_MS: u64 = 5_000;
 
+/// Consecutive transport failures on in-flight Receives tolerated before the
+/// serial loop gives up. A long-poll Receive is idempotent (re-issuable), so a
+/// transient gateway/WS drop should not kill the session — but a dead link must
+/// still terminate it.
+const MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES: u32 = 3;
+
 // ── Backend trait ─────────────────────────────────────────────────────────
 
 /// Abstraction over [`ActiveSession`] so that [`SessionCore`] can be tested
@@ -109,6 +118,10 @@ pub(super) trait SessionBackend {
         streams: Vec<DesiredStream>,
         hold_secs: Option<f64>,
     ) -> Result<TrySend, PwshCoreError>;
+
+    fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition;
+
+    fn active_desired_streams(&self) -> Vec<DesiredStream>;
 }
 
 impl SessionBackend for ActiveSession {
@@ -132,6 +145,14 @@ impl SessionBackend for ActiveSession {
         hold_secs: Option<f64>,
     ) -> Result<TrySend, PwshCoreError> {
         Self::fire_receive(self, streams, hold_secs)
+    }
+
+    fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition {
+        Self::handle_transport_error(self, conn_id)
+    }
+
+    fn active_desired_streams(&self) -> Vec<DesiredStream> {
+        Self::active_desired_streams(self)
     }
 }
 
@@ -172,6 +193,7 @@ pub(super) struct SessionCore<S: SessionBackend = ActiveSession> {
     in_flight_receive_target: Option<TargetId>,
     queues: Queues,
     host_call_state: HostCallState,
+    consecutive_receive_transport_failures: u32,
 }
 
 impl SessionCore {
@@ -190,6 +212,7 @@ impl<S: SessionBackend> SessionCore<S> {
             in_flight_receive_target: None,
             queues: Queues::new(first_receive),
             host_call_state: HostCallState::Idle,
+            consecutive_receive_transport_failures: 0,
         }
     }
 
@@ -396,6 +419,8 @@ impl<S: SessionBackend> SessionCore<S> {
     /// Process an HTTP response from the server.
     pub(super) fn accept_response(&mut self, resp: HttpResponseTargeted) -> anyhow::Result<()> {
         let now_ms = self.now_ms();
+        // A response came back — the link is alive; reset the transient-failure tally.
+        self.consecutive_receive_transport_failures = 0;
         let in_flight_receive = self.in_flight_receive_target.take();
 
         let outputs = match self.active_session.accept_server_response(resp) {
@@ -603,6 +628,47 @@ impl<S: SessionBackend> SessionCore<S> {
         })
     }
 
+    /// Whether the request currently in flight is a Receive (vs. a Send).
+    pub(super) fn is_in_flight_receive(&self) -> bool {
+        self.in_flight_receive_target.is_some()
+    }
+
+    /// Tolerate a transport-level failure on the in-flight Receive: a long-poll
+    /// Receive is idempotent, so a transient gateway/WS drop is recovered by
+    /// re-arming polling instead of tearing down the session. Consults
+    /// [`SessionBackend::handle_transport_error`] for its connection bookkeeping,
+    /// caps consecutive failures so a dead link still terminates.
+    pub(super) fn tolerate_receive_transport_error(
+        &mut self,
+        conn_id: ConnectionId,
+    ) -> anyhow::Result<()> {
+        let target = self.in_flight_receive_target.take();
+        let disposition = self.active_session.handle_transport_error(conn_id);
+
+        self.consecutive_receive_transport_failures += 1;
+        let count = self.consecutive_receive_transport_failures;
+        if count > MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            return Err(anyhow::anyhow!(
+                "giving up after {count} consecutive Receive transport failures"
+            ));
+        }
+
+        warn!(
+            target: "serial",
+            conn_id = conn_id.inner(),
+            ?disposition,
+            count,
+            "tolerating transport error on in-flight Receive; re-arming polling"
+        );
+
+        if let Some(target) = target {
+            self.scheduler.note_receive_timeout(target, self.now_ms());
+        }
+        let streams = self.active_session.active_desired_streams();
+        merge_speculative_streams(&mut self.queues.speculative_streams, streams);
+        Ok(())
+    }
+
     /// Whether buffered user operations are still waiting to be processed.
     ///
     /// The main loop drains `user_ops` one op per iteration via
@@ -780,6 +846,8 @@ mod tests {
     struct MockBackend {
         op_responses: VecDeque<ActiveSessionOutput>,
         receive_results: VecDeque<TrySend>,
+        transport_error_disposition: TransportErrorDisposition,
+        active_streams: Vec<DesiredStream>,
     }
 
     impl MockBackend {
@@ -787,6 +855,8 @@ mod tests {
             Self {
                 op_responses: VecDeque::new(),
                 receive_results: VecDeque::new(),
+                transport_error_disposition: TransportErrorDisposition::Fatal,
+                active_streams: Vec::new(),
             }
         }
     }
@@ -806,7 +876,7 @@ mod tests {
             &mut self,
             _resp: HttpResponseTargeted,
         ) -> Result<Vec<ActiveSessionOutput>, PwshCoreError> {
-            unimplemented!("accept_server_response not needed for these tests")
+            Ok(Vec::new())
         }
 
         fn fire_receive(
@@ -818,6 +888,14 @@ mod tests {
                 .receive_results
                 .pop_front()
                 .expect("MockBackend: receive_results exhausted"))
+        }
+
+        fn handle_transport_error(&mut self, _conn_id: ConnectionId) -> TransportErrorDisposition {
+            self.transport_error_disposition
+        }
+
+        fn active_desired_streams(&self) -> Vec<DesiredStream> {
+            self.active_streams.clone()
         }
     }
 
@@ -1356,6 +1434,15 @@ mod tests {
             ) -> Result<TrySend, PwshCoreError> {
                 Ok(dummy_try_send(70))
             }
+            fn handle_transport_error(
+                &mut self,
+                _conn_id: ConnectionId,
+            ) -> TransportErrorDisposition {
+                TransportErrorDisposition::Fatal
+            }
+            fn active_desired_streams(&self) -> Vec<DesiredStream> {
+                Vec::new()
+            }
         }
 
         let mut core = core_idle(TimeoutMock);
@@ -1445,5 +1532,79 @@ mod tests {
         // ...and the previously-gated Receive now promotes.
         let second = core.promote_next_request().unwrap().unwrap();
         assert_eq!(second.get_connection_id().inner(), 20);
+    }
+
+    // ── Receive transport-error tolerance (2 tests) ─────────────────────
+
+    /// A transient transport drop on an in-flight Receive must not kill the loop:
+    /// it re-arms polling from the active streams instead.
+    #[test]
+    fn tolerated_receive_transport_error_rearms_polling() {
+        let mut mock = MockBackend::new();
+        // Serial mode never disconnects, so ActiveSession classifies an Opened-state
+        // Receive failure as Fatal; the serial loop tolerates it regardless.
+        mock.transport_error_disposition = TransportErrorDisposition::Fatal;
+        let id = Uuid::new_v4();
+        mock.active_streams = vec![pipeline_stream(id)];
+
+        let mut core = core_idle(mock);
+        core.in_flight_receive_target = Some(TargetId::Pipeline(id));
+
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .expect("first transport error must be tolerated");
+
+        assert!(core.in_flight_receive_target.is_none());
+        assert_eq!(
+            core.queues.speculative_streams.len(),
+            1,
+            "polling must be re-armed from the active streams"
+        );
+    }
+
+    #[test]
+    fn receive_transport_errors_become_fatal_after_cap() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        for _ in 0..MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .expect("failures under the cap are tolerated");
+        }
+        assert!(
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .is_err(),
+            "a dead link must terminate once the cap is exceeded"
+        );
+    }
+
+    #[test]
+    fn successful_response_resets_receive_failure_tally() {
+        let mut mock = MockBackend::new();
+        mock.transport_error_disposition = TransportErrorDisposition::Fatal;
+        let mut core = core_idle(mock);
+
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .unwrap();
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .unwrap();
+
+        // A good response resets the tally...
+        let resp = HttpResponseTargeted::new(
+            ironposh_client_core::connector::http::HttpResponse {
+                status_code: 200,
+                headers: vec![],
+                body: ironposh_client_core::connector::http::HttpBody::Xml(String::new()),
+                peer_cert_der: None,
+            },
+            ConnectionId::test_new(1),
+            None,
+        );
+        core.accept_response(resp).unwrap();
+
+        // ...so the cap starts fresh and the next failures are tolerated again.
+        for _ in 0..MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .expect("tally reset means these are tolerated");
+        }
     }
 }

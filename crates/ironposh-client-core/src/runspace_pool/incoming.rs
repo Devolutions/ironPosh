@@ -330,6 +330,27 @@ impl RunspacePool {
                 if !desired_streams.is_empty() {
                     result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
                 }
+            } else if let Some(stopping) = self.stopping_pipelines_for_fault() {
+                // A non-timeout fault can answer a Receive we issued for a pipeline the
+                // server already tore down after our Ctrl+C. If a pipeline is Stopping,
+                // treat the fault as its completion instead of killing the session.
+                let reason = fault.reason_text().unwrap_or("unknown");
+                warn!(
+                    target: "accept_response",
+                    reason = %reason,
+                    stopping_count = stopping.len(),
+                    "non-timeout SOAP fault while a pipeline is stopping; finishing it and continuing"
+                );
+
+                for id in stopping {
+                    self.pipelines.remove(&id);
+                    result.push(AcceptResponsResult::PipelineFinished(PipelineHandle { id }));
+                }
+
+                let desired_streams = self.compute_active_desired_streams();
+                if !desired_streams.is_empty() {
+                    result.push(AcceptResponsResult::ReceiveResponse { desired_streams });
+                }
             } else {
                 // Real fault - propagate as error
                 let code = fault
@@ -357,6 +378,20 @@ impl RunspacePool {
         );
 
         Ok(result)
+    }
+
+    /// Pipelines currently in the `Stopping` state, if any. Used to decide
+    /// whether a non-timeout SOAP fault is answering a Receive for a pipeline we
+    /// are already tearing down (Ctrl+C), in which case the fault is expected and
+    /// non-fatal.
+    fn stopping_pipelines_for_fault(&self) -> Option<Vec<Uuid>> {
+        let stopping: Vec<Uuid> = self
+            .pipelines
+            .iter()
+            .filter(|(_, p)| p.state() == PsInvocationState::Stopping)
+            .map(|(id, _)| *id)
+            .collect();
+        (!stopping.is_empty()).then_some(stopping)
     }
 
     /// Fire create pipeline for a specific pipeline handle (used by service API)

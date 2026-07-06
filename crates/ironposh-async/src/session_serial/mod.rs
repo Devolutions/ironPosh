@@ -16,7 +16,7 @@ use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
 use ironposh_client_core::connector::connection_pool::TrySend;
 use ironposh_client_core::host::HostCall;
 use std::time::Duration;
-use tracing::{info, instrument, trace};
+use tracing::{info, instrument, trace, warn};
 
 use ironposh_client_core::connector::UserOperation;
 
@@ -65,8 +65,10 @@ pub async fn start_serial_session_loop(
         core.process_one_buffered_op()?;
 
         if let Some(req) = core.promote_next_request()? {
+            let conn_id = req.get_connection_id();
+            let was_receive = core.is_in_flight_receive();
             // HTTP in-flight: send request and buffer incoming ops until response.
-            let resp = send_and_buffer(
+            match send_and_buffer(
                 &client,
                 req,
                 &mut core,
@@ -74,9 +76,25 @@ pub async fn start_serial_session_loop(
                 &mut host_resp_rx,
                 &host_call_tx,
             )
-            .await?;
-
-            core.accept_response(resp)?;
+            .await
+            {
+                Ok(resp) => core.accept_response(resp)?,
+                Err(e) => {
+                    // A Receive is an idempotent long-poll: tolerate a transient
+                    // transport drop and re-arm. A Send's server-side effect is
+                    // unknown, so it stays fatal.
+                    if !was_receive {
+                        return Err(e);
+                    }
+                    warn!(
+                        target: "serial",
+                        conn_id = conn_id.inner(),
+                        error = %e,
+                        "transport error on in-flight Receive; attempting to tolerate"
+                    );
+                    core.tolerate_receive_transport_error(conn_id)?;
+                }
+            }
 
             // Drain any user ops that arrived while HTTP was in flight.
             if drain_channel(&mut core, &mut user_input_rx) {
