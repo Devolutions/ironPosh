@@ -74,6 +74,7 @@ export class PowerShellTerminalElement extends HTMLElement {
   private isRunning = false;
   private hostCallInputDepth = 0;
   private isPrompting = false;
+  private cancelHostCallInput: ((reason: string) => void) | null = null;
 
   constructor() {
     super();
@@ -201,19 +202,21 @@ export class PowerShellTerminalElement extends HTMLElement {
       console.log("Connecting with config:", { ...config, password: "*****" });
 
       // Create host call handler with terminal integration
-      const hostCallHandler = createHostCallHandler({
-        terminal: this.terminal,
-        hostName: "PowerShell Terminal",
-        hostVersion: "1.0.0",
-        culture: "en-US",
-        uiCulture: "en-US",
-        beginHostCallInput: () => {
-          this.hostCallInputDepth += 1;
-        },
-        endHostCallInput: () => {
-          this.hostCallInputDepth = Math.max(0, this.hostCallInputDepth - 1);
-        },
-      });
+      const { handler: hostCallHandler, cancelPendingInput } =
+        createHostCallHandler({
+          terminal: this.terminal,
+          hostName: "PowerShell Terminal",
+          hostVersion: "1.0.0",
+          culture: "en-US",
+          uiCulture: "en-US",
+          beginHostCallInput: () => {
+            this.hostCallInputDepth += 1;
+          },
+          endHostCallInput: () => {
+            this.hostCallInputDepth = Math.max(0, this.hostCallInputDepth - 1);
+          },
+        });
+      this.cancelHostCallInput = cancelPendingInput;
 
       // Create PowerShell client
       await new Promise((resolve, reject) => {
@@ -224,11 +227,25 @@ export class PowerShellTerminalElement extends HTMLElement {
             if (event === "ActiveSessionStarted") {
               this.setState("connected");
               resolve(undefined);
+              return;
             }
 
             if (typeof event === "object" && "error" in event) {
-              this.setState("closed");
-              reject(new Error(event.error));
+              if (this.state === "connecting") {
+                this.setState("closed");
+                reject(new Error(event.error));
+              } else {
+                this.handleSessionLost(event.error);
+              }
+              return;
+            }
+
+            // The session ended after it was established (task exited / closed).
+            if (
+              this.state === "connected" &&
+              (event === "ActiveSessionEnded" || event === "Closed")
+            ) {
+              this.handleSessionLost("session ended");
             }
           }
         );
@@ -262,6 +279,9 @@ export class PowerShellTerminalElement extends HTMLElement {
     if (this.hostCallInputDepth > 0) {
       // Still allow Ctrl+C to cancel a running command.
       if (data === "\u0003") {
+        // Reject the host call's pending input so the Rust side submits a
+        // response instead of leaving the session loop wedged on the host call.
+        this.cancelHostCallInput?.("Canceled by user");
         if (this.isRunning && this.runningController) {
           this.terminal.write("^C\r\n");
           this.runningController.abort(new Error("Canceled by user"));
@@ -377,6 +397,22 @@ export class PowerShellTerminalElement extends HTMLElement {
       }
       if ("PipelineFinished" in event) break;
     }
+  }
+
+  // A session that dies mid-run (transport reset, task error, remote close)
+  // must be surfaced: otherwise input silently stops working and the terminal
+  // just goes dark. Print why, unstick the running flag, then close.
+  private handleSessionLost(reason: string): void {
+    if (this.state === "closed") return;
+    this.isRunning = false;
+    this.runningController = null;
+    this.cancelHostCallInput?.(`Connection lost: ${reason}`);
+    if (this.terminal) {
+      this.terminal.writeln("");
+      this.terminal.writeln(`\x1b[31mConnection lost: ${reason}\x1b[0m`);
+    }
+    this.setState("closed");
+    this.emitEvent({ type: "error", detail: new Error(reason) });
   }
 
   disconnect(): void {

@@ -231,11 +231,18 @@ impl ActiveSession {
 
     /// Generate a Receive TrySend for the given streams.
     /// Used by the serial session loop to issue Receives after processing sends.
+    /// `hold_secs` sets the server-side Receive OperationTimeout — how long the
+    /// server parks the poll waiting for output. `None` uses the configured
+    /// default. The serial loop passes an adaptive value so a Receive is always
+    /// parked while a pipeline runs, instead of the old client-side backoff.
     pub fn fire_receive(
         &mut self,
         desired_streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
     ) -> Result<TrySend, PwshCoreError> {
-        let recv_xml = self.runspace_pool.fire_receive(desired_streams)?;
+        let recv_xml = self
+            .runspace_pool
+            .fire_receive(desired_streams, hold_secs)?;
         let ts_send = self.connection_pool.send(&recv_xml)?;
         self.outstanding_receive_conns
             .insert(ts_send.get_connection_id());
@@ -247,7 +254,14 @@ impl ActiveSession {
     /// the pool to Opened, since the pre-disconnect Receive was retired.
     pub fn fire_active_receive(&mut self) -> Result<TrySend, PwshCoreError> {
         let desired = self.runspace_pool.compute_active_desired_streams();
-        self.fire_receive(desired)
+        self.fire_receive(desired, None)
+    }
+
+    /// Desired streams for the currently-active work (running pipelines, else the
+    /// runspace-pool stream). The serial loop re-arms polling with these after
+    /// tolerating a transport error on an in-flight Receive.
+    pub fn active_desired_streams(&self) -> Vec<DesiredStream> {
+        self.runspace_pool.compute_active_desired_streams()
     }
 
     /// Client-initiated operation → produce network work (`TrySend`) or a user-level event.

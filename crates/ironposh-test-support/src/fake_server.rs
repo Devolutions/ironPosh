@@ -132,6 +132,149 @@ pub fn connect_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> S
     )
 }
 
+/// Build a CommandResponse SOAP envelope acknowledging a pipeline start.
+pub fn command_response_xml(command_id: Uuid) -> String {
+    format!(
+        r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandResponse</a:Action>
+        <a:MessageID>uuid:{message_id}</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+    </s:Header>
+    <s:Body>
+        <rsp:CommandResponse>
+            <rsp:CommandId>{command_id}</rsp:CommandId>
+        </rsp:CommandResponse>
+    </s:Body>
+</s:Envelope>"#,
+        message_id = Uuid::new_v4(),
+    )
+}
+
+/// Build a `w:TimedOut` WS-Management fault envelope — what a real server
+/// returns when a Receive exhausts its OperationTimeout with no data.
+pub fn timeout_fault_xml() -> String {
+    format!(
+        r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd">
+    <s:Header>
+        <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
+        <a:MessageID>uuid:{message_id}</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+    </s:Header>
+    <s:Body>
+        <s:Fault>
+            <s:Code>
+                <s:Value>s:Receiver</s:Value>
+                <s:Subcode>
+                    <s:Value>w:TimedOut</s:Value>
+                </s:Subcode>
+            </s:Code>
+            <s:Reason>
+                <s:Text xml:lang="en-US">The WS-Management service cannot complete the operation within the time specified in OperationTimeout.</s:Text>
+            </s:Reason>
+        </s:Fault>
+    </s:Body>
+</s:Envelope>"#,
+        message_id = Uuid::new_v4(),
+    )
+}
+
+/// Build a SignalResponse SOAP envelope. `relates_to` must echo the Signal
+/// request's MessageID (the client correlates signal acks through it).
+pub fn signal_response_xml(relates_to: &str) -> String {
+    format!(
+        r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/SignalResponse</a:Action>
+        <a:MessageID>uuid:{message_id}</a:MessageID>
+        <a:RelatesTo>{relates_to}</a:RelatesTo>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+    </s:Header>
+    <s:Body>
+        <rsp:SignalResponse/>
+    </s:Body>
+</s:Envelope>"#,
+        message_id = Uuid::new_v4(),
+    )
+}
+
+/// Build a ReceiveResponse SOAP envelope carrying pipeline-scoped PSRP messages
+/// (streams tagged with `CommandId`, PSRP `pid` set to the command id).
+///
+/// `object_id_start` seeds the PSRP fragment object ids so ids stay unique
+/// across successive responses in one session. When `done` is set, a
+/// `CommandState Done` element is appended — mirroring how a real server closes
+/// out a finished pipeline.
+pub fn pipeline_receive_response_xml(
+    rpid: Uuid,
+    command_id: Uuid,
+    messages: &[&dyn PsObjectWithType],
+    done: bool,
+    object_id_start: u64,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut streams = String::new();
+    for (index, message) in messages.iter().enumerate() {
+        let remoting_message = PowerShellRemotingMessage::new(
+            Destination::Client,
+            message.message_type(),
+            rpid,
+            Some(command_id),
+            &message.to_ps_object(),
+        )
+        .expect("serialize PSRP message");
+
+        let fragment = Fragment::new(
+            object_id_start + index as u64,
+            0,
+            remoting_message.pack(),
+            true,
+            true,
+        );
+        let payload = base64::engine::general_purpose::STANDARD.encode(fragment.pack());
+        write!(
+            streams,
+            r#"<rsp:Stream Name="stdout" CommandId="{command_id}">{payload}</rsp:Stream>"#
+        )
+        .expect("write stream XML");
+    }
+
+    let command_state = if done {
+        format!(
+            r#"<rsp:CommandState CommandId="{command_id}" State="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Done"><rsp:ExitCode>0</rsp:ExitCode></rsp:CommandState>"#
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<s:Envelope xml:lang="en-US"
+    xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+    xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+    xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">
+    <s:Header>
+        <a:Action>http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReceiveResponse</a:Action>
+        <a:MessageID>uuid:{message_id}</a:MessageID>
+        <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+    </s:Header>
+    <s:Body>
+        <rsp:ReceiveResponse>{streams}{command_state}</rsp:ReceiveResponse>
+    </s:Body>
+</s:Envelope>"#,
+        message_id = Uuid::new_v4(),
+    )
+}
+
 /// Build a ReceiveResponse SOAP envelope carrying the given server-to-client PSRP
 /// messages as single-fragment `stdout` streams (no command id => runspace pool stream).
 pub fn receive_response_xml(rpid: Uuid, messages: &[&dyn PsObjectWithType]) -> String {

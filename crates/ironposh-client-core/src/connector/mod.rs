@@ -369,8 +369,8 @@ impl Connector {
                         // pool is Opened right away. Fire the initial Receive
                         // and hand off to the ActiveSession like the normal path.
                         let runspace_pool = expect_shell_connected.accept(&xml)?;
-                        let next_receive_xml =
-                            runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
+                        let next_receive_xml = runspace_pool
+                            .fire_receive(DesiredStream::runspace_pool_streams(), None)?;
                         info!(connect_receive_xml = %next_receive_xml, "outgoing unencrypted post-connect receive SOAP");
                         let next_req = connection_pool.send(&next_receive_xml)?;
 
@@ -411,8 +411,8 @@ impl Connector {
                     ConnectionPoolAccept::Body(xml) => {
                         // Advance runspace handshake
                         let runspace_pool = expect_shell_created.accept(&xml)?;
-                        let receive_xml =
-                            runspace_pool.fire_receive(DesiredStream::runspace_pool_streams())?;
+                        let receive_xml = runspace_pool
+                            .fire_receive(DesiredStream::runspace_pool_streams(), None)?;
                         info!(connecting_receive_xml = %receive_xml, "outgoing unencrypted connecting receive SOAP");
                         let try_send = connection_pool.send(&receive_xml)?;
 
@@ -459,7 +459,7 @@ impl Connector {
                         };
 
                         if runspace_pool.state == RunspacePoolState::NegotiationSent {
-                            let receive_xml = runspace_pool.fire_receive(desired_streams)?;
+                            let receive_xml = runspace_pool.fire_receive(desired_streams, None)?;
                             let try_send = connection_pool.send(&receive_xml)?;
                             let new_state = ConnectorState::ConnectReceiveCycle {
                                 runspace_pool,
@@ -468,7 +468,8 @@ impl Connector {
                             (new_state, ConnectorStepResult::SendBack { try_send })
                         } else if runspace_pool.state == RunspacePoolState::Opened {
                             // Hand off to ActiveSession: it should carry the pool forward
-                            let next_receive_xml = runspace_pool.fire_receive(desired_streams)?;
+                            let next_receive_xml =
+                                runspace_pool.fire_receive(desired_streams, None)?;
                             let next_req = connection_pool.send(&next_receive_xml)?;
                             let active_session = ActiveSession::new(runspace_pool, connection_pool);
                             let new_state = ConnectorState::Connected;

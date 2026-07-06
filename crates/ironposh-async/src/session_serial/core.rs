@@ -10,12 +10,15 @@ use std::collections::VecDeque;
 
 use anyhow::Context;
 use ironposh_client_core::PwshCoreError;
-use ironposh_client_core::connector::active_session::{ActiveSession, UserEvent};
+use ironposh_client_core::connector::active_session::{
+    ActiveSession, TransportErrorDisposition, UserEvent,
+};
 use ironposh_client_core::connector::http::HttpResponseTargeted;
 use ironposh_client_core::connector::{
-    ActiveSessionOutput, UserOperation, connection_pool::TrySend,
+    ActiveSessionOutput, UserOperation,
+    connection_pool::{ConnectionId, TrySend},
 };
-use ironposh_client_core::host::HostCall;
+use ironposh_client_core::host::{HostCall, HostCallScope};
 use ironposh_client_core::runspace_pool::DesiredStream;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
@@ -70,11 +73,29 @@ impl Queues {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum HostCallState {
     Idle,
-    Waiting { call_id: i64 },
+    Waiting {
+        call_id: i64,
+        scope: HostCallScope,
+        /// End of the Receive-gating grace window (ms since the loop epoch).
+        /// The call stays answerable past this — only the gating stops.
+        deadline_ms: u64,
+    },
 }
+
+/// How long Receive promotion is held back for a dispatched host call. Most
+/// answers (auto-replied metadata calls) arrive within milliseconds; a human at
+/// Read-Host can take minutes, and holding Receives that long would wedge the
+/// session — so past this window we poll again while still awaiting the answer.
+const HOST_CALL_GATE_GRACE_MS: u64 = 5_000;
+
+/// Consecutive transport failures on in-flight Receives tolerated before the
+/// serial loop gives up. A long-poll Receive is idempotent (re-issuable), so a
+/// transient gateway/WS drop should not kill the session — but a dead link must
+/// still terminate it.
+const MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES: u32 = 3;
 
 // ── Backend trait ─────────────────────────────────────────────────────────
 
@@ -91,7 +112,15 @@ pub(super) trait SessionBackend {
         resp: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, PwshCoreError>;
 
-    fn fire_receive(&mut self, streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError>;
+    fn fire_receive(
+        &mut self,
+        streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
+    ) -> Result<TrySend, PwshCoreError>;
+
+    fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition;
+
+    fn active_desired_streams(&self) -> Vec<DesiredStream>;
 }
 
 impl SessionBackend for ActiveSession {
@@ -109,8 +138,20 @@ impl SessionBackend for ActiveSession {
         Self::accept_server_response(self, resp)
     }
 
-    fn fire_receive(&mut self, streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError> {
-        Self::fire_receive(self, streams)
+    fn fire_receive(
+        &mut self,
+        streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
+    ) -> Result<TrySend, PwshCoreError> {
+        Self::fire_receive(self, streams, hold_secs)
+    }
+
+    fn handle_transport_error(&mut self, conn_id: ConnectionId) -> TransportErrorDisposition {
+        Self::handle_transport_error(self, conn_id)
+    }
+
+    fn active_desired_streams(&self) -> Vec<DesiredStream> {
+        Self::active_desired_streams(self)
     }
 }
 
@@ -151,6 +192,7 @@ pub(super) struct SessionCore<S: SessionBackend = ActiveSession> {
     in_flight_receive_target: Option<TargetId>,
     queues: Queues,
     host_call_state: HostCallState,
+    consecutive_receive_transport_failures: u32,
 }
 
 impl SessionCore {
@@ -169,6 +211,7 @@ impl<S: SessionBackend> SessionCore<S> {
             in_flight_receive_target: None,
             queues: Queues::new(first_receive),
             host_call_state: HostCallState::Idle,
+            consecutive_receive_transport_failures: 0,
         }
     }
 
@@ -243,10 +286,13 @@ impl<S: SessionBackend> SessionCore<S> {
             return Ok(Some(req));
         }
 
-        // Only build Receives when all HostCalls are resolved. The server blocks
-        // Receives while waiting for our HostCall response, so sending one early
-        // would always time out (adding an unnecessary OperationTimeout delay).
-        if self.is_host_call_active() || !self.queues.host_calls.is_empty() {
+        // Prefer to hold Receives while a host call awaits its answer — the
+        // server blocks them anyway, so polling early just burns round-trips.
+        // But the answer can take arbitrarily long (a human at Read-Host) or
+        // never come (dropped consumer promise), so after a grace period we
+        // resume polling; the session must stay live either way.
+        if let Some(gate_until_ms) = self.receive_gate_deadline(now_ms) {
+            self.next_wakeup_at_ms = Some(gate_until_ms);
             return Ok(None);
         }
 
@@ -296,9 +342,10 @@ impl<S: SessionBackend> SessionCore<S> {
                 speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting demanded stream to Receive"
             );
+            let hold_secs = self.receive_hold_secs(target, now_ms);
             let receive = self
                 .active_session
-                .fire_receive(vec![stream])
+                .fire_receive(vec![stream], Some(hold_secs))
                 .context("Failed to build Receive from demanded stream")?;
             self.in_flight_receive_target = Some(target);
             return Ok(Some(receive));
@@ -335,15 +382,17 @@ impl<S: SessionBackend> SessionCore<S> {
                 "DIAG promote: Receive for pipeline stream ({} speculative remaining)",
                 self.queues.speculative_streams.len()
             );
+            let hold_secs = self.receive_hold_secs(target, now_ms);
             trace!(
                 target: "serial",
                 ?stream,
+                hold_secs,
                 speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting pipeline stream to Receive"
             );
             let receive = self
                 .active_session
-                .fire_receive(vec![stream])
+                .fire_receive(vec![stream], Some(hold_secs))
                 .context("Failed to build Receive from speculative stream")?;
             self.in_flight_receive_target = Some(target);
             return Ok(Some(receive));
@@ -372,6 +421,8 @@ impl<S: SessionBackend> SessionCore<S> {
     /// Process an HTTP response from the server.
     pub(super) fn accept_response(&mut self, resp: HttpResponseTargeted) -> anyhow::Result<()> {
         let now_ms = self.now_ms();
+        // A response came back — the link is alive; reset the transient-failure tally.
+        self.consecutive_receive_transport_failures = 0;
         let in_flight_receive = self.in_flight_receive_target.take();
 
         let outputs = match self.active_session.accept_server_response(resp) {
@@ -444,6 +495,15 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "host-call response received while idle"
         );
+        self.scheduler.note_user_activity(self.now_ms());
+        if !self.host_response_matches(&hr) {
+            warn!(
+                target: "serial",
+                call_id = hr.call_id,
+                "dropping stale host-call response (no matching call outstanding)"
+            );
+            return Ok(());
+        }
         self.host_call_state = HostCallState::Idle;
         let output = self
             .active_session
@@ -491,6 +551,15 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "buffering host-call response (HTTP in flight)"
         );
+        self.scheduler.note_user_activity(self.now_ms());
+        if !self.host_response_matches(&hr) {
+            warn!(
+                target: "serial",
+                call_id = hr.call_id,
+                "dropping stale host-call response (no matching call outstanding)"
+            );
+            return;
+        }
         self.queues
             .user_ops
             .push_back(UserOperation::SubmitHostResponse {
@@ -524,6 +593,8 @@ impl<S: SessionBackend> SessionCore<S> {
         );
         self.host_call_state = HostCallState::Waiting {
             call_id: hc.call_id(),
+            scope: hc.scope(),
+            deadline_ms: self.now_ms() + HOST_CALL_GATE_GRACE_MS,
         };
         Some(hc)
     }
@@ -536,6 +607,100 @@ impl<S: SessionBackend> SessionCore<S> {
     /// Whether a HostCall is currently active (event loop uses this for `select!` guard).
     pub(super) fn is_host_call_active(&self) -> bool {
         matches!(self.host_call_state, HostCallState::Waiting { .. })
+    }
+
+    /// How long Receive promotion should still be held back for host-call
+    /// handling, if at all.
+    ///
+    /// While a dispatched host call is inside its grace window we wait for the
+    /// answer (returning the window's end as a wake-up time). Past the window
+    /// the call may legitimately still be answered later (slow human input),
+    /// but Receives flow again so the session cannot wedge. Undispatched
+    /// queued host calls gate only until the loop's next dispatch pass.
+    fn receive_gate_deadline(&self, now_ms: u64) -> Option<u64> {
+        match &self.host_call_state {
+            HostCallState::Waiting { deadline_ms, .. } => {
+                (now_ms < *deadline_ms).then_some(*deadline_ms)
+            }
+            HostCallState::Idle => (!self.queues.host_calls.is_empty()).then_some(now_ms),
+        }
+    }
+
+    /// A finished (completed/killed) pipeline can no longer consume host-call
+    /// responses, and its consumer promise may already be gone (Ctrl+C during
+    /// Read-Host). Clearing the waiting state here is what lets the next
+    /// pipeline's host calls dispatch instead of queueing behind a corpse.
+    fn clear_host_call_for_finished_pipeline(&mut self, pipeline_id: Uuid) {
+        let HostCallState::Waiting {
+            call_id,
+            scope: HostCallScope::Pipeline { command_id },
+            ..
+        } = &self.host_call_state
+        else {
+            return;
+        };
+        if *command_id != pipeline_id {
+            return;
+        }
+        info!(
+            target: "serial",
+            call_id = *call_id,
+            pipeline_id = %pipeline_id,
+            "clearing outstanding host call for finished pipeline"
+        );
+        self.host_call_state = HostCallState::Idle;
+    }
+
+    /// Whether this response answers the host call we are actually waiting on.
+    /// A stale response (e.g. the consumer rejecting an input promise after the
+    /// pipeline was already killed and cleaned up) must be dropped, not
+    /// submitted against a dead server-side call.
+    fn host_response_matches(&self, hr: &HostResponse) -> bool {
+        matches!(
+            &self.host_call_state,
+            HostCallState::Waiting { call_id, .. } if *call_id == hr.call_id
+        )
+    }
+
+    /// Whether the request currently in flight is a Receive (vs. a Send).
+    pub(super) fn is_in_flight_receive(&self) -> bool {
+        self.in_flight_receive_target.is_some()
+    }
+
+    /// Tolerate a transport-level failure on the in-flight Receive: a long-poll
+    /// Receive is idempotent, so a transient gateway/WS drop is recovered by
+    /// re-arming polling instead of tearing down the session. Consults
+    /// [`SessionBackend::handle_transport_error`] for its connection bookkeeping,
+    /// caps consecutive failures so a dead link still terminates.
+    pub(super) fn tolerate_receive_transport_error(
+        &mut self,
+        conn_id: ConnectionId,
+    ) -> anyhow::Result<()> {
+        let target = self.in_flight_receive_target.take();
+        let disposition = self.active_session.handle_transport_error(conn_id);
+
+        self.consecutive_receive_transport_failures += 1;
+        let count = self.consecutive_receive_transport_failures;
+        if count > MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            return Err(anyhow::anyhow!(
+                "giving up after {count} consecutive Receive transport failures"
+            ));
+        }
+
+        warn!(
+            target: "serial",
+            conn_id = conn_id.inner(),
+            ?disposition,
+            count,
+            "tolerating transport error on in-flight Receive; re-arming polling"
+        );
+
+        if let Some(target) = target {
+            self.scheduler.note_receive_timeout(target, self.now_ms());
+        }
+        let streams = self.active_session.active_desired_streams();
+        merge_speculative_streams(&mut self.queues.speculative_streams, streams);
+        Ok(())
     }
 
     /// Whether buffered user operations are still waiting to be processed.
@@ -623,6 +788,7 @@ impl<S: SessionBackend> SessionCore<S> {
                 if let UserEvent::PipelineFinished { pipeline } = &event {
                     self.scheduler
                         .note_pipeline_finished(pipeline.id(), self.now_ms());
+                    self.clear_host_call_for_finished_pipeline(pipeline.id());
                 }
                 self.queues.user_events.push(event);
             }
@@ -639,12 +805,14 @@ impl<S: SessionBackend> SessionCore<S> {
     }
 
     fn observe_user_op(&mut self, op: &UserOperation) {
+        let now_ms = self.now_ms();
+        self.scheduler.note_user_activity(now_ms);
+
         let UserOperation::KillPipeline { pipeline } = op else {
             return;
         };
 
         let pipeline_id: Uuid = pipeline.id();
-        let now_ms = self.now_ms();
         self.scheduler.note_cancel_requested(pipeline_id, now_ms);
 
         info!(
@@ -652,6 +820,13 @@ impl<S: SessionBackend> SessionCore<S> {
             pipeline_id = %pipeline_id,
             "scheduler: cancel requested"
         );
+    }
+
+    /// Server-side hold (Receive OperationTimeout) for the next poll of this
+    /// target, in seconds.
+    #[allow(clippy::cast_precision_loss)]
+    fn receive_hold_secs(&self, target: TargetId, now_ms: u64) -> f64 {
+        self.scheduler.receive_hold_ms(target, now_ms) as f64 / 1000.0
     }
 }
 
@@ -706,6 +881,8 @@ mod tests {
     struct MockBackend {
         op_responses: VecDeque<ActiveSessionOutput>,
         receive_results: VecDeque<TrySend>,
+        transport_error_disposition: TransportErrorDisposition,
+        active_streams: Vec<DesiredStream>,
     }
 
     impl MockBackend {
@@ -713,6 +890,8 @@ mod tests {
             Self {
                 op_responses: VecDeque::new(),
                 receive_results: VecDeque::new(),
+                transport_error_disposition: TransportErrorDisposition::Fatal,
+                active_streams: Vec::new(),
             }
         }
     }
@@ -732,14 +911,26 @@ mod tests {
             &mut self,
             _resp: HttpResponseTargeted,
         ) -> Result<Vec<ActiveSessionOutput>, PwshCoreError> {
-            unimplemented!("accept_server_response not needed for these tests")
+            Ok(Vec::new())
         }
 
-        fn fire_receive(&mut self, _streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError> {
+        fn fire_receive(
+            &mut self,
+            _streams: Vec<DesiredStream>,
+            _hold_secs: Option<f64>,
+        ) -> Result<TrySend, PwshCoreError> {
             Ok(self
                 .receive_results
                 .pop_front()
                 .expect("MockBackend: receive_results exhausted"))
+        }
+
+        fn handle_transport_error(&mut self, _conn_id: ConnectionId) -> TransportErrorDisposition {
+            self.transport_error_disposition
+        }
+
+        fn active_desired_streams(&self) -> Vec<DesiredStream> {
+            self.active_streams.clone()
         }
     }
 
@@ -785,6 +976,15 @@ mod tests {
     /// Build a `PipelineHandle` for testing.
     fn pipeline_handle(id: Uuid) -> PipelineHandle {
         PipelineHandle::new(id)
+    }
+
+    /// Build a `Waiting` host-call state for testing.
+    fn waiting(call_id: i64, scope: HostCallScope, deadline_ms: u64) -> HostCallState {
+        HostCallState::Waiting {
+            call_id,
+            scope,
+            deadline_ms,
+        }
     }
 
     // ── Promotion priority (6 tests) ────────────────────────────────────
@@ -858,7 +1058,7 @@ mod tests {
         core.queues
             .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -1010,7 +1210,7 @@ mod tests {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
         core.queues.host_calls.push_back(dummy_host_call(1));
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         assert!(core.poll_host_call().is_none());
     }
@@ -1031,7 +1231,7 @@ mod tests {
     fn buffer_host_response_clears_active_flag() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.host_call_state = HostCallState::Waiting { call_id: 1 };
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         core.buffer_host_response(HostResponse {
             call_id: 1,
@@ -1214,29 +1414,35 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_backed_off_demanded_sets_wakeup() {
+    fn empty_polled_demanded_still_promoted_without_wakeup() {
         let mut mock = MockBackend::new();
         mock.receive_results.push_back(dummy_try_send(60));
 
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
         let target = TargetId::Pipeline(id);
-        // Trigger backoff (not cancellation) — should set a wakeup.
+        // Empty polls only grow the server-side hold; they never park the loop
+        // on a client-side sleep, so the target stays eligible for promotion.
+        core.scheduler.note_receive_timeout(target, 0);
         core.scheduler.note_receive_timeout(target, 0);
         core.queues.demanded_streams.push_back(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
-        assert!(promoted.is_none());
-        // A backed-off (not cancelled) target should set a wakeup.
         assert!(
-            core.next_wakeup_at_ms.is_some(),
-            "backed-off stream should schedule a wakeup"
+            promoted.is_some(),
+            "empty-polled target must still be polled"
         );
+        assert!(
+            core.next_wakeup_at_ms.is_none(),
+            "adaptive hold must not schedule a client-side wakeup"
+        );
+        // The grown hold is what parks the Receive server-side.
+        assert_eq!(core.scheduler.receive_hold_ms(target, core.now_ms()), 1_000);
     }
 
     #[test]
-    fn accept_response_timeout_triggers_backoff() {
-        // This test verifies that timeout-like responses trigger scheduler backoff.
+    fn accept_response_timeout_grows_receive_hold() {
+        // Timeout-like responses grow the server-side hold (no client backoff).
         // We need accept_server_response, so we use a specialized mock.
         struct TimeoutMock;
         impl SessionBackend for TimeoutMock {
@@ -1258,8 +1464,18 @@ mod tests {
             fn fire_receive(
                 &mut self,
                 _streams: Vec<DesiredStream>,
+                _hold_secs: Option<f64>,
             ) -> Result<TrySend, PwshCoreError> {
                 Ok(dummy_try_send(70))
+            }
+            fn handle_transport_error(
+                &mut self,
+                _conn_id: ConnectionId,
+            ) -> TransportErrorDisposition {
+                TransportErrorDisposition::Fatal
+            }
+            fn active_desired_streams(&self) -> Vec<DesiredStream> {
+                Vec::new()
             }
         }
 
@@ -1269,6 +1485,7 @@ mod tests {
 
         // Simulate an in-flight Receive for this target.
         core.in_flight_receive_target = Some(target);
+        let hold_before = core.scheduler.receive_hold_ms(target, core.now_ms());
 
         // Build a minimal HttpResponseTargeted to pass to accept_response.
         // We need ConnectionId and HttpResponse. Using test_new for ConnectionId.
@@ -1284,10 +1501,224 @@ mod tests {
         );
         core.accept_response(resp).unwrap();
 
-        // After a timeout-like response, the scheduler should have applied backoff.
+        // A timeout-like response grows the server-side hold, and the target
+        // stays eligible (no client-side blocking).
         assert!(
-            !core.scheduler.is_allowed_target(target, core.now_ms()),
-            "scheduler should have applied backoff after timeout"
+            core.scheduler.receive_hold_ms(target, core.now_ms()) > hold_before,
+            "timeout-like response should grow the receive hold"
         );
+        assert!(
+            core.scheduler.is_allowed_target(target, core.now_ms()),
+            "target must remain eligible after an empty poll"
+        );
+    }
+
+    // ── Host-call gate (4 tests) ────────────────────────────────────────
+
+    /// Within the grace window a pending host call gates Receives (and sets a
+    /// wake-up); past it, the same waiting call no longer blocks promotion, so
+    /// a slow-to-answer (or never-answering) consumer cannot wedge the session.
+    #[test]
+    fn host_call_gate_expires_and_promotion_resumes() {
+        let mut mock = MockBackend::new();
+        mock.receive_results.push_back(dummy_try_send(20));
+
+        let mut core = core_idle(mock);
+        core.queues
+            .demanded_streams
+            .push_back(pipeline_stream(Uuid::new_v4()));
+
+        // Deadline far in the future → gated, with a wake-up at the deadline.
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, u64::MAX);
+        assert!(core.promote_next_request().unwrap().is_none());
+        assert_eq!(core.next_wakeup_at_ms, Some(u64::MAX));
+
+        // Deadline already elapsed → the Receive promotes while still Waiting.
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, 0);
+        let promoted = core.promote_next_request().unwrap().unwrap();
+        assert_eq!(promoted.get_connection_id().inner(), 20);
+        assert!(
+            core.is_host_call_active(),
+            "the call must remain answerable after the gate expires"
+        );
+    }
+
+    /// A response for a call we are no longer waiting on (e.g. the consumer
+    /// rejecting an input promise after the pipeline was killed) is dropped,
+    /// never submitted. MockBackend panics on submit, so reaching the backend
+    /// would fail this test.
+    #[test]
+    fn stale_host_response_is_dropped() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, 0);
+
+        core.accept_host_response(HostResponse {
+            call_id: 9,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        })
+        .unwrap();
+        assert!(
+            core.is_host_call_active(),
+            "a mismatched response must not clear the waiting call"
+        );
+
+        core.buffer_host_response(HostResponse {
+            call_id: 9,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        });
+        assert!(core.is_host_call_active());
+        assert!(
+            core.queues.user_ops.is_empty(),
+            "a stale response must not be buffered for submission"
+        );
+    }
+
+    /// PipelineFinished clears an outstanding host call scoped to that pipeline
+    /// (its consumer promise may be gone after Ctrl+C), letting the next
+    /// pipeline's host calls dispatch. Other scopes are untouched.
+    #[test]
+    fn finished_pipeline_clears_its_outstanding_host_call() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+        let pipeline_id = Uuid::new_v4();
+
+        // A call scoped to a different pipeline is untouched.
+        core.host_call_state = waiting(
+            5,
+            HostCallScope::Pipeline {
+                command_id: Uuid::new_v4(),
+            },
+            u64::MAX,
+        );
+        core.route_output(
+            ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished {
+                pipeline: pipeline_handle(pipeline_id),
+            }),
+            SendPriority::Normal,
+        )
+        .unwrap();
+        assert!(core.is_host_call_active());
+
+        // A call scoped to the finished pipeline is cleared.
+        core.host_call_state = waiting(
+            6,
+            HostCallScope::Pipeline {
+                command_id: pipeline_id,
+            },
+            u64::MAX,
+        );
+        core.route_output(
+            ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished {
+                pipeline: pipeline_handle(pipeline_id),
+            }),
+            SendPriority::Normal,
+        )
+        .unwrap();
+        assert!(!core.is_host_call_active());
+    }
+
+    /// The matching response still clears the waiting state and submits.
+    #[test]
+    fn matching_host_response_clears_waiting_and_submits() {
+        let mut mock = MockBackend::new();
+        mock.op_responses.push_back(ActiveSessionOutput::Ignore);
+        // The demanded Receive that was gated behind the host call.
+        mock.receive_results.push_back(dummy_try_send(20));
+
+        let mut core = core_idle(mock);
+        core.queues
+            .demanded_streams
+            .push_back(pipeline_stream(Uuid::new_v4()));
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, u64::MAX);
+        assert!(core.promote_next_request().unwrap().is_none());
+
+        core.accept_host_response(HostResponse {
+            call_id: 7,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        })
+        .unwrap();
+        assert!(!core.is_host_call_active());
+
+        // The previously-gated Receive now promotes.
+        let second = core.promote_next_request().unwrap().unwrap();
+        assert_eq!(second.get_connection_id().inner(), 20);
+    }
+
+    // ── Receive transport-error tolerance (2 tests) ─────────────────────
+
+    /// A transient transport drop on an in-flight Receive must not kill the loop:
+    /// it re-arms polling from the active streams instead.
+    #[test]
+    fn tolerated_receive_transport_error_rearms_polling() {
+        let mut mock = MockBackend::new();
+        // Serial mode never disconnects, so ActiveSession classifies an Opened-state
+        // Receive failure as Fatal; the serial loop tolerates it regardless.
+        mock.transport_error_disposition = TransportErrorDisposition::Fatal;
+        let id = Uuid::new_v4();
+        mock.active_streams = vec![pipeline_stream(id)];
+
+        let mut core = core_idle(mock);
+        core.in_flight_receive_target = Some(TargetId::Pipeline(id));
+
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .expect("first transport error must be tolerated");
+
+        assert!(core.in_flight_receive_target.is_none());
+        assert_eq!(
+            core.queues.speculative_streams.len(),
+            1,
+            "polling must be re-armed from the active streams"
+        );
+    }
+
+    #[test]
+    fn receive_transport_errors_become_fatal_after_cap() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+
+        for _ in 0..MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .expect("failures under the cap are tolerated");
+        }
+        assert!(
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .is_err(),
+            "a dead link must terminate once the cap is exceeded"
+        );
+    }
+
+    #[test]
+    fn successful_response_resets_receive_failure_tally() {
+        let mut mock = MockBackend::new();
+        mock.transport_error_disposition = TransportErrorDisposition::Fatal;
+        let mut core = core_idle(mock);
+
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .unwrap();
+        core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+            .unwrap();
+
+        // A good response resets the tally...
+        let resp = HttpResponseTargeted::new(
+            ironposh_client_core::connector::http::HttpResponse {
+                status_code: 200,
+                headers: vec![],
+                body: ironposh_client_core::connector::http::HttpBody::Xml(String::new()),
+                peer_cert_der: None,
+            },
+            ConnectionId::test_new(1),
+            None,
+        );
+        core.accept_response(resp).unwrap();
+
+        // ...so the cap starts fresh and the next failures are tolerated again.
+        for _ in 0..MAX_CONSECUTIVE_RECEIVE_TRANSPORT_FAILURES {
+            core.tolerate_receive_transport_error(ConnectionId::test_new(1))
+                .expect("tally reset means these are tolerated");
+        }
     }
 }

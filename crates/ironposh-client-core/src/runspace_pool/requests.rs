@@ -27,11 +27,12 @@ impl RunspacePool {
     pub(crate) fn fire_receive(
         &self,
         desired_streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
     ) -> Result<String, crate::PwshCoreError> {
         debug_assert!(!desired_streams.is_empty(), "At least one desired stream");
         Ok(self
             .shell
-            .fire_receive(&self.connection, desired_streams)
+            .fire_receive(&self.connection, desired_streams, hold_secs)
             .into()
             .to_xml_string()?)
     }

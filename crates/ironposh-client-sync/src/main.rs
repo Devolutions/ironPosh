@@ -206,7 +206,7 @@ fn run_event_loop(
                         .send(send_request)
                         .context("Failed to send HTTP request")?;
                     let recv = active_session
-                        .fire_receive(then_receive_streams)
+                        .fire_receive(then_receive_streams, None)
                         .context("Failed to build receive after send-then-receive")?;
                     network_request_tx
                         .send(recv)
@@ -219,7 +219,7 @@ fn run_event_loop(
                         "firing deferred receive"
                     );
                     let recv = active_session
-                        .fire_receive(desired_streams)
+                        .fire_receive(desired_streams, None)
                         .context("Failed to build deferred receive")?;
                     network_request_tx
                         .send(recv)

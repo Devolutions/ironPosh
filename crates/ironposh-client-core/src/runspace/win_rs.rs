@@ -111,6 +111,7 @@ impl WinRunspace {
         &'a self,
         ws_man: &'a WsMan,
         desired_streams: Vec<crate::runspace_pool::DesiredStream>,
+        hold_secs: Option<f64>,
     ) -> impl Into<Element<'a>> {
         // Group streams by CommandId - streams with the same CommandId go into one DesiredStream element
         let mut grouped_streams: std::collections::BTreeMap<Option<uuid::Uuid>, Vec<String>> =
@@ -156,12 +157,13 @@ impl WinRunspace {
             .as_ref()
             .map(|shell_id| SelectorSetValue::new().add_selector("ShellId", shell_id));
 
-        ws_man.invoke(
+        ws_man.invoke_with_operation_timeout(
             &WsAction::ShellReceive,
             Some(&self.resource_uri),
             SoapBody::builder().receive(receive_tag).build(),
             Some(option_set),
             selector_set,
+            hold_secs,
         )
     }
 
