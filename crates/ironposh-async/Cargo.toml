@@ -25,6 +25,9 @@ web-sys = { version = "0.3.81", features = ["console"], optional = true }
 base64 = "0.22.1"
 ironposh-client-core = { path = "../ironposh-client-core", features = ["test-helpers"] }
 ironposh-psrp = { path = "../ironposh-psrp" }
+ironposh-test-support = { path = "../ironposh-test-support" }
+futures = { version = "0.3.31", features = ["executor"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 default = []
