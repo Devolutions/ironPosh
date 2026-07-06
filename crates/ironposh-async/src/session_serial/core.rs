@@ -91,7 +91,11 @@ pub(super) trait SessionBackend {
         resp: HttpResponseTargeted,
     ) -> Result<Vec<ActiveSessionOutput>, PwshCoreError>;
 
-    fn fire_receive(&mut self, streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError>;
+    fn fire_receive(
+        &mut self,
+        streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
+    ) -> Result<TrySend, PwshCoreError>;
 }
 
 impl SessionBackend for ActiveSession {
@@ -109,8 +113,12 @@ impl SessionBackend for ActiveSession {
         Self::accept_server_response(self, resp)
     }
 
-    fn fire_receive(&mut self, streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError> {
-        Self::fire_receive(self, streams)
+    fn fire_receive(
+        &mut self,
+        streams: Vec<DesiredStream>,
+        hold_secs: Option<f64>,
+    ) -> Result<TrySend, PwshCoreError> {
+        Self::fire_receive(self, streams, hold_secs)
     }
 }
 
@@ -296,9 +304,10 @@ impl<S: SessionBackend> SessionCore<S> {
                 speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting demanded stream to Receive"
             );
+            let hold_secs = self.receive_hold_secs(target, now_ms);
             let receive = self
                 .active_session
-                .fire_receive(vec![stream])
+                .fire_receive(vec![stream], Some(hold_secs))
                 .context("Failed to build Receive from demanded stream")?;
             self.in_flight_receive_target = Some(target);
             return Ok(Some(receive));
@@ -341,9 +350,10 @@ impl<S: SessionBackend> SessionCore<S> {
                 speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting pipeline stream to Receive"
             );
+            let hold_secs = self.receive_hold_secs(target, now_ms);
             let receive = self
                 .active_session
-                .fire_receive(vec![stream])
+                .fire_receive(vec![stream], Some(hold_secs))
                 .context("Failed to build Receive from speculative stream")?;
             self.in_flight_receive_target = Some(target);
             return Ok(Some(receive));
@@ -444,6 +454,7 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "host-call response received while idle"
         );
+        self.scheduler.note_user_activity(self.now_ms());
         self.host_call_state = HostCallState::Idle;
         let output = self
             .active_session
@@ -491,6 +502,7 @@ impl<S: SessionBackend> SessionCore<S> {
             call_id = hr.call_id,
             "buffering host-call response (HTTP in flight)"
         );
+        self.scheduler.note_user_activity(self.now_ms());
         self.queues
             .user_ops
             .push_back(UserOperation::SubmitHostResponse {
@@ -639,12 +651,14 @@ impl<S: SessionBackend> SessionCore<S> {
     }
 
     fn observe_user_op(&mut self, op: &UserOperation) {
+        let now_ms = self.now_ms();
+        self.scheduler.note_user_activity(now_ms);
+
         let UserOperation::KillPipeline { pipeline } = op else {
             return;
         };
 
         let pipeline_id: Uuid = pipeline.id();
-        let now_ms = self.now_ms();
         self.scheduler.note_cancel_requested(pipeline_id, now_ms);
 
         info!(
@@ -652,6 +666,13 @@ impl<S: SessionBackend> SessionCore<S> {
             pipeline_id = %pipeline_id,
             "scheduler: cancel requested"
         );
+    }
+
+    /// Server-side hold (Receive OperationTimeout) for the next poll of this
+    /// target, in seconds.
+    #[allow(clippy::cast_precision_loss)]
+    fn receive_hold_secs(&self, target: TargetId, now_ms: u64) -> f64 {
+        self.scheduler.receive_hold_ms(target, now_ms) as f64 / 1000.0
     }
 }
 
@@ -735,7 +756,11 @@ mod tests {
             unimplemented!("accept_server_response not needed for these tests")
         }
 
-        fn fire_receive(&mut self, _streams: Vec<DesiredStream>) -> Result<TrySend, PwshCoreError> {
+        fn fire_receive(
+            &mut self,
+            _streams: Vec<DesiredStream>,
+            _hold_secs: Option<f64>,
+        ) -> Result<TrySend, PwshCoreError> {
             Ok(self
                 .receive_results
                 .pop_front()
@@ -1214,29 +1239,35 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_backed_off_demanded_sets_wakeup() {
+    fn empty_polled_demanded_still_promoted_without_wakeup() {
         let mut mock = MockBackend::new();
         mock.receive_results.push_back(dummy_try_send(60));
 
         let mut core = core_idle(mock);
         let id = Uuid::new_v4();
         let target = TargetId::Pipeline(id);
-        // Trigger backoff (not cancellation) — should set a wakeup.
+        // Empty polls only grow the server-side hold; they never park the loop
+        // on a client-side sleep, so the target stays eligible for promotion.
+        core.scheduler.note_receive_timeout(target, 0);
         core.scheduler.note_receive_timeout(target, 0);
         core.queues.demanded_streams.push_back(pipeline_stream(id));
 
         let promoted = core.promote_next_request().unwrap();
-        assert!(promoted.is_none());
-        // A backed-off (not cancelled) target should set a wakeup.
         assert!(
-            core.next_wakeup_at_ms.is_some(),
-            "backed-off stream should schedule a wakeup"
+            promoted.is_some(),
+            "empty-polled target must still be polled"
         );
+        assert!(
+            core.next_wakeup_at_ms.is_none(),
+            "adaptive hold must not schedule a client-side wakeup"
+        );
+        // The grown hold is what parks the Receive server-side.
+        assert_eq!(core.scheduler.receive_hold_ms(target, core.now_ms()), 1_000);
     }
 
     #[test]
-    fn accept_response_timeout_triggers_backoff() {
-        // This test verifies that timeout-like responses trigger scheduler backoff.
+    fn accept_response_timeout_grows_receive_hold() {
+        // Timeout-like responses grow the server-side hold (no client backoff).
         // We need accept_server_response, so we use a specialized mock.
         struct TimeoutMock;
         impl SessionBackend for TimeoutMock {
@@ -1258,6 +1289,7 @@ mod tests {
             fn fire_receive(
                 &mut self,
                 _streams: Vec<DesiredStream>,
+                _hold_secs: Option<f64>,
             ) -> Result<TrySend, PwshCoreError> {
                 Ok(dummy_try_send(70))
             }
@@ -1269,6 +1301,7 @@ mod tests {
 
         // Simulate an in-flight Receive for this target.
         core.in_flight_receive_target = Some(target);
+        let hold_before = core.scheduler.receive_hold_ms(target, core.now_ms());
 
         // Build a minimal HttpResponseTargeted to pass to accept_response.
         // We need ConnectionId and HttpResponse. Using test_new for ConnectionId.
@@ -1284,10 +1317,15 @@ mod tests {
         );
         core.accept_response(resp).unwrap();
 
-        // After a timeout-like response, the scheduler should have applied backoff.
+        // A timeout-like response grows the server-side hold, and the target
+        // stays eligible (no client-side blocking).
         assert!(
-            !core.scheduler.is_allowed_target(target, core.now_ms()),
-            "scheduler should have applied backoff after timeout"
+            core.scheduler.receive_hold_ms(target, core.now_ms()) > hold_before,
+            "timeout-like response should grow the receive hold"
+        );
+        assert!(
+            core.scheduler.is_allowed_target(target, core.now_ms()),
+            "target must remain eligible after an empty poll"
         );
     }
 }

@@ -29,13 +29,13 @@ fn resolve_deferred_sends(
             then_receive_streams,
         } => {
             let recv = active_session
-                .fire_receive(then_receive_streams)
+                .fire_receive(then_receive_streams, None)
                 .context("Failed to build receive after send-then-receive")?;
             Ok(ActiveSessionOutput::SendBack(vec![send_request, recv]))
         }
         ActiveSessionOutput::PendingReceive { desired_streams } => {
             let recv = active_session
-                .fire_receive(desired_streams)
+                .fire_receive(desired_streams, None)
                 .context("Failed to build receive from PendingReceive")?;
             Ok(ActiveSessionOutput::SendBack(vec![recv]))
         }

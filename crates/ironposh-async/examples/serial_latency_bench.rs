@@ -14,7 +14,11 @@
 //! One process run = one bench run; repeat N times per the bench doc.
 
 #![allow(clippy::significant_drop_tightening)] // bench: lock scopes are already minimal
-#![allow(clippy::items_after_statements, clippy::large_futures, clippy::large_stack_frames)]
+#![allow(
+    clippy::items_after_statements,
+    clippy::large_futures,
+    clippy::large_stack_frames
+)]
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -204,9 +208,7 @@ impl HttpClient for SharedServer {
                     }
                     fake_server::signal_response_xml(&relates_to)
                 }
-                "receive" => {
-                    server.handle_receive(&body).await
-                }
+                "receive" => server.handle_receive(&body).await,
                 _ => fake_server::timeout_fault_xml(),
             };
 
@@ -414,8 +416,10 @@ async fn run_scenario(
     kill_after: Option<Duration>,
 ) -> ScenarioResult {
     let server = std::sync::Arc::new(FakeWinRmServer::new(scripts.clone()));
-    let (client, host_io, mut session_events, task) =
-        RemoteAsyncPowershellClient::open_task_serial(serial_config(), SharedServer(server.clone()));
+    let (client, host_io, mut session_events, task) = RemoteAsyncPowershellClient::open_task_serial(
+        serial_config(),
+        SharedServer(server.clone()),
+    );
 
     let started = Instant::now();
     let server_for_driver = server.clone();
@@ -562,7 +566,9 @@ fn main() {
             run_scenario(
                 "drip_2s",
                 vec![PipelineScript {
-                    outputs: (1..=8).map(|i| (secs(2.0 * i as f64), format!("drip-{i}"))).collect(),
+                    outputs: (1..=8)
+                        .map(|i| (secs(2.0 * i as f64), format!("drip-{i}")))
+                        .collect(),
                     complete_at: Some(secs(16.5)),
                 }],
                 None,
