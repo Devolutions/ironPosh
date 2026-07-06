@@ -120,7 +120,9 @@ fn extract_action(body: &str) -> &'static str {
 }
 
 fn extract_operation_timeout(body: &str) -> Duration {
-    extract_between(body, "PT", 'S')
+    // Anchor on the element content ("...OperationTimeout>PT0.250S<...") —
+    // a bare "PT" search would match WSMAN_CMDSHELL_OPTION_KEEPALIVE first.
+    extract_between(body, "OperationTimeout>PT", 'S')
         .and_then(|s| s.parse::<f64>().ok())
         .map_or(Duration::from_millis(250), Duration::from_secs_f64)
 }
@@ -223,6 +225,13 @@ impl FakeWinRmServer {
     /// `w:TimedOut` fault — exactly like a real WSMan server.
     async fn handle_receive(&self, body: &str) -> String {
         let op_timeout = extract_operation_timeout(body);
+        if std::env::var("BENCH_DEBUG").is_ok() {
+            eprintln!(
+                "recv hold={}ms cmd={:?}",
+                op_timeout.as_millis(),
+                extract_command_id(body)
+            );
+        }
         let deadline = Instant::now() + op_timeout;
         let command_id = extract_command_id(body);
 

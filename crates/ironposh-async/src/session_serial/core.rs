@@ -344,13 +344,14 @@ impl<S: SessionBackend> SessionCore<S> {
                 "DIAG promote: Receive for pipeline stream ({} speculative remaining)",
                 self.queues.speculative_streams.len()
             );
+            let hold_secs = self.receive_hold_secs(target, now_ms);
             trace!(
                 target: "serial",
                 ?stream,
+                hold_secs,
                 speculative_remaining = self.queues.speculative_streams.len(),
                 "promoting pipeline stream to Receive"
             );
-            let hold_secs = self.receive_hold_secs(target, now_ms);
             let receive = self
                 .active_session
                 .fire_receive(vec![stream], Some(hold_secs))
