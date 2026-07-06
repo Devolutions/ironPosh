@@ -1682,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "ironposh-web"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
