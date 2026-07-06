@@ -20,7 +20,6 @@ use ironposh_client_core::connector::{
 };
 use ironposh_client_core::host::{HostCall, HostCallScope};
 use ironposh_client_core::runspace_pool::DesiredStream;
-use ironposh_psrp::RemoteHostMethodId;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
@@ -80,17 +79,17 @@ enum HostCallState {
     Waiting {
         call_id: i64,
         scope: HostCallScope,
-        method: RemoteHostMethodId,
-        /// Absolute deadline (ms since the loop epoch) by which the consumer must
-        /// answer this host call before the loop gives up on it.
+        /// End of the Receive-gating grace window (ms since the loop epoch).
+        /// The call stays answerable past this — only the gating stops.
         deadline_ms: u64,
     },
 }
 
-/// How long the serial loop waits for a host-call response before treating the
-/// call as abandoned. Mirrors the parallel loop's 5s host-response timeout so a
-/// dropped/orphaned consumer promise cannot wedge Receive promotion forever.
-const HOST_CALL_TIMEOUT_MS: u64 = 5_000;
+/// How long Receive promotion is held back for a dispatched host call. Most
+/// answers (auto-replied metadata calls) arrive within milliseconds; a human at
+/// Read-Host can take minutes, and holding Receives that long would wedge the
+/// session — so past this window we poll again while still awaiting the answer.
+const HOST_CALL_GATE_GRACE_MS: u64 = 5_000;
 
 /// Consecutive transport failures on in-flight Receives tolerated before the
 /// serial loop gives up. A long-poll Receive is idempotent (re-issuable), so a
@@ -287,10 +286,13 @@ impl<S: SessionBackend> SessionCore<S> {
             return Ok(Some(req));
         }
 
-        // Only build Receives when all HostCalls are resolved. The server blocks
-        // Receives while waiting for our HostCall response, so sending one early
-        // would always time out (adding an unnecessary OperationTimeout delay).
-        if self.is_host_call_active() || !self.queues.host_calls.is_empty() {
+        // Prefer to hold Receives while a host call awaits its answer — the
+        // server blocks them anyway, so polling early just burns round-trips.
+        // But the answer can take arbitrarily long (a human at Read-Host) or
+        // never come (dropped consumer promise), so after a grace period we
+        // resume polling; the session must stay live either way.
+        if let Some(gate_until_ms) = self.receive_gate_deadline(now_ms) {
+            self.next_wakeup_at_ms = Some(gate_until_ms);
             return Ok(None);
         }
 
@@ -494,6 +496,14 @@ impl<S: SessionBackend> SessionCore<S> {
             "host-call response received while idle"
         );
         self.scheduler.note_user_activity(self.now_ms());
+        if !self.host_response_matches(&hr) {
+            warn!(
+                target: "serial",
+                call_id = hr.call_id,
+                "dropping stale host-call response (no matching call outstanding)"
+            );
+            return Ok(());
+        }
         self.host_call_state = HostCallState::Idle;
         let output = self
             .active_session
@@ -542,6 +552,14 @@ impl<S: SessionBackend> SessionCore<S> {
             "buffering host-call response (HTTP in flight)"
         );
         self.scheduler.note_user_activity(self.now_ms());
+        if !self.host_response_matches(&hr) {
+            warn!(
+                target: "serial",
+                call_id = hr.call_id,
+                "dropping stale host-call response (no matching call outstanding)"
+            );
+            return;
+        }
         self.queues
             .user_ops
             .push_back(UserOperation::SubmitHostResponse {
@@ -576,8 +594,7 @@ impl<S: SessionBackend> SessionCore<S> {
         self.host_call_state = HostCallState::Waiting {
             call_id: hc.call_id(),
             scope: hc.scope(),
-            method: hc.method(),
-            deadline_ms: self.now_ms() + HOST_CALL_TIMEOUT_MS,
+            deadline_ms: self.now_ms() + HOST_CALL_GATE_GRACE_MS,
         };
         Some(hc)
     }
@@ -592,40 +609,57 @@ impl<S: SessionBackend> SessionCore<S> {
         matches!(self.host_call_state, HostCallState::Waiting { .. })
     }
 
-    /// Absolute deadline (ms since epoch) by which the active host call must be
-    /// answered, if any is outstanding.
-    pub(super) fn host_call_deadline_ms(&self) -> Option<u64> {
+    /// How long Receive promotion should still be held back for host-call
+    /// handling, if at all.
+    ///
+    /// While a dispatched host call is inside its grace window we wait for the
+    /// answer (returning the window's end as a wake-up time). Past the window
+    /// the call may legitimately still be answered later (slow human input),
+    /// but Receives flow again so the session cannot wedge. Undispatched
+    /// queued host calls gate only until the loop's next dispatch pass.
+    fn receive_gate_deadline(&self, now_ms: u64) -> Option<u64> {
         match &self.host_call_state {
-            HostCallState::Waiting { deadline_ms, .. } => Some(*deadline_ms),
-            HostCallState::Idle => None,
+            HostCallState::Waiting { deadline_ms, .. } => {
+                (now_ms < *deadline_ms).then_some(*deadline_ms)
+            }
+            HostCallState::Idle => (!self.queues.host_calls.is_empty()).then_some(now_ms),
         }
     }
 
-    /// Give up on an unanswered host call: clear the waiting state and produce a
-    /// `CancelHostCall` op so the server-side pipeline unblocks. The consumer
-    /// promise was dropped (e.g. Ctrl+C during Read-Host), so no response is
-    /// coming — without this, Receive promotion stays gated forever.
-    pub(super) fn abandon_host_call(&mut self) -> Option<UserOperation> {
+    /// A finished (completed/killed) pipeline can no longer consume host-call
+    /// responses, and its consumer promise may already be gone (Ctrl+C during
+    /// Read-Host). Clearing the waiting state here is what lets the next
+    /// pipeline's host calls dispatch instead of queueing behind a corpse.
+    fn clear_host_call_for_finished_pipeline(&mut self, pipeline_id: Uuid) {
         let HostCallState::Waiting {
             call_id,
-            scope,
-            method,
+            scope: HostCallScope::Pipeline { command_id },
             ..
-        } = std::mem::replace(&mut self.host_call_state, HostCallState::Idle)
+        } = &self.host_call_state
         else {
-            return None;
+            return;
         };
-        warn!(
+        if *command_id != pipeline_id {
+            return;
+        }
+        info!(
             target: "serial",
-            call_id,
-            "host call timed out without a response; abandoning it and cancelling server-side"
+            call_id = *call_id,
+            pipeline_id = %pipeline_id,
+            "clearing outstanding host call for finished pipeline"
         );
-        Some(UserOperation::CancelHostCall {
-            scope,
-            call_id,
-            method,
-            reason: Some("host call timed out (no response from consumer)".to_string()),
-        })
+        self.host_call_state = HostCallState::Idle;
+    }
+
+    /// Whether this response answers the host call we are actually waiting on.
+    /// A stale response (e.g. the consumer rejecting an input promise after the
+    /// pipeline was already killed and cleaned up) must be dropped, not
+    /// submitted against a dead server-side call.
+    fn host_response_matches(&self, hr: &HostResponse) -> bool {
+        matches!(
+            &self.host_call_state,
+            HostCallState::Waiting { call_id, .. } if *call_id == hr.call_id
+        )
     }
 
     /// Whether the request currently in flight is a Receive (vs. a Send).
@@ -754,6 +788,7 @@ impl<S: SessionBackend> SessionCore<S> {
                 if let UserEvent::PipelineFinished { pipeline } = &event {
                     self.scheduler
                         .note_pipeline_finished(pipeline.id(), self.now_ms());
+                    self.clear_host_call_for_finished_pipeline(pipeline.id());
                 }
                 self.queues.user_events.push(event);
             }
@@ -944,12 +979,11 @@ mod tests {
     }
 
     /// Build a `Waiting` host-call state for testing.
-    fn waiting(call_id: i64) -> HostCallState {
+    fn waiting(call_id: i64, scope: HostCallScope, deadline_ms: u64) -> HostCallState {
         HostCallState::Waiting {
             call_id,
-            scope: HostCallScope::RunspacePool,
-            method: RemoteHostMethodId::GetName,
-            deadline_ms: 0,
+            scope,
+            deadline_ms,
         }
     }
 
@@ -1024,7 +1058,7 @@ mod tests {
         core.queues
             .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.host_call_state = waiting(1);
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         let promoted = core.promote_next_request().unwrap();
         assert!(promoted.is_none());
@@ -1176,7 +1210,7 @@ mod tests {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
         core.queues.host_calls.push_back(dummy_host_call(1));
-        core.host_call_state = waiting(1);
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         assert!(core.poll_host_call().is_none());
     }
@@ -1197,7 +1231,7 @@ mod tests {
     fn buffer_host_response_clears_active_flag() {
         let mock = MockBackend::new();
         let mut core = core_idle(mock);
-        core.host_call_state = waiting(1);
+        core.host_call_state = waiting(1, HostCallScope::RunspacePool, u64::MAX);
 
         core.buffer_host_response(HostResponse {
             call_id: 1,
@@ -1479,57 +1513,137 @@ mod tests {
         );
     }
 
-    // ── Host-call timeout (2 tests) ─────────────────────────────────────
+    // ── Host-call gate (4 tests) ────────────────────────────────────────
 
+    /// Within the grace window a pending host call gates Receives (and sets a
+    /// wake-up); past it, the same waiting call no longer blocks promotion, so
+    /// a slow-to-answer (or never-answering) consumer cannot wedge the session.
     #[test]
-    fn host_call_deadline_reported_only_while_waiting() {
-        let mock = MockBackend::new();
-        let mut core = core_idle(mock);
-        assert!(core.host_call_deadline_ms().is_none());
-        core.host_call_state = waiting(1);
-        assert!(core.host_call_deadline_ms().is_some());
-    }
-
-    /// A host call that never gets answered (dropped consumer promise, e.g. the
-    /// Ctrl+C-during-Read-Host wedge) must be abandonable: clearing the waiting
-    /// state and emitting a cancel so Receive promotion resumes.
-    #[test]
-    fn host_call_timeout_clears_waiting_and_resumes_promotion() {
+    fn host_call_gate_expires_and_promotion_resumes() {
         let mut mock = MockBackend::new();
-        // CancelHostCall → a host-response Send.
-        mock.op_responses
-            .push_back(ActiveSessionOutput::SendBack(vec![dummy_try_send(88)]));
-        // ...then the previously-gated demanded Receive fires.
         mock.receive_results.push_back(dummy_try_send(20));
 
         let mut core = core_idle(mock);
         core.queues
             .demanded_streams
             .push_back(pipeline_stream(Uuid::new_v4()));
-        core.host_call_state = waiting(7);
 
-        // While a host call is outstanding, Receive promotion is gated.
+        // Deadline far in the future → gated, with a wake-up at the deadline.
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, u64::MAX);
         assert!(core.promote_next_request().unwrap().is_none());
+        assert_eq!(core.next_wakeup_at_ms, Some(u64::MAX));
 
-        // Timeout: abandon produces a cancel and clears the waiting state.
-        let op = core
-            .abandon_host_call()
-            .expect("should produce a cancel op");
-        assert!(matches!(
-            op,
-            UserOperation::CancelHostCall { call_id: 7, .. }
-        ));
-        assert!(!core.is_host_call_active());
+        // Deadline already elapsed → the Receive promotes while still Waiting.
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, 0);
+        let promoted = core.promote_next_request().unwrap().unwrap();
+        assert_eq!(promoted.get_connection_id().inner(), 20);
         assert!(
-            core.abandon_host_call().is_none(),
-            "idempotent once cleared"
+            core.is_host_call_active(),
+            "the call must remain answerable after the gate expires"
+        );
+    }
+
+    /// A response for a call we are no longer waiting on (e.g. the consumer
+    /// rejecting an input promise after the pipeline was killed) is dropped,
+    /// never submitted. MockBackend panics on submit, so reaching the backend
+    /// would fail this test.
+    #[test]
+    fn stale_host_response_is_dropped() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, 0);
+
+        core.accept_host_response(HostResponse {
+            call_id: 9,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        })
+        .unwrap();
+        assert!(
+            core.is_host_call_active(),
+            "a mismatched response must not clear the waiting call"
         );
 
-        // Processing the cancel enqueues the host-response Send...
-        core.accept_user_op(op).unwrap();
-        let first = core.promote_next_request().unwrap().unwrap();
-        assert_eq!(first.get_connection_id().inner(), 88);
-        // ...and the previously-gated Receive now promotes.
+        core.buffer_host_response(HostResponse {
+            call_id: 9,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        });
+        assert!(core.is_host_call_active());
+        assert!(
+            core.queues.user_ops.is_empty(),
+            "a stale response must not be buffered for submission"
+        );
+    }
+
+    /// PipelineFinished clears an outstanding host call scoped to that pipeline
+    /// (its consumer promise may be gone after Ctrl+C), letting the next
+    /// pipeline's host calls dispatch. Other scopes are untouched.
+    #[test]
+    fn finished_pipeline_clears_its_outstanding_host_call() {
+        let mock = MockBackend::new();
+        let mut core = core_idle(mock);
+        let pipeline_id = Uuid::new_v4();
+
+        // A call scoped to a different pipeline is untouched.
+        core.host_call_state = waiting(
+            5,
+            HostCallScope::Pipeline {
+                command_id: Uuid::new_v4(),
+            },
+            u64::MAX,
+        );
+        core.route_output(
+            ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished {
+                pipeline: pipeline_handle(pipeline_id),
+            }),
+            SendPriority::Normal,
+        )
+        .unwrap();
+        assert!(core.is_host_call_active());
+
+        // A call scoped to the finished pipeline is cleared.
+        core.host_call_state = waiting(
+            6,
+            HostCallScope::Pipeline {
+                command_id: pipeline_id,
+            },
+            u64::MAX,
+        );
+        core.route_output(
+            ActiveSessionOutput::UserEvent(UserEvent::PipelineFinished {
+                pipeline: pipeline_handle(pipeline_id),
+            }),
+            SendPriority::Normal,
+        )
+        .unwrap();
+        assert!(!core.is_host_call_active());
+    }
+
+    /// The matching response still clears the waiting state and submits.
+    #[test]
+    fn matching_host_response_clears_waiting_and_submits() {
+        let mut mock = MockBackend::new();
+        mock.op_responses.push_back(ActiveSessionOutput::Ignore);
+        // The demanded Receive that was gated behind the host call.
+        mock.receive_results.push_back(dummy_try_send(20));
+
+        let mut core = core_idle(mock);
+        core.queues
+            .demanded_streams
+            .push_back(pipeline_stream(Uuid::new_v4()));
+        core.host_call_state = waiting(7, HostCallScope::RunspacePool, u64::MAX);
+        assert!(core.promote_next_request().unwrap().is_none());
+
+        core.accept_host_response(HostResponse {
+            call_id: 7,
+            scope: HostCallScope::RunspacePool,
+            submission: ironposh_client_core::host::Submission::NoSend,
+        })
+        .unwrap();
+        assert!(!core.is_host_call_active());
+
+        // The previously-gated Receive now promotes.
         let second = core.promote_next_request().unwrap().unwrap();
         assert_eq!(second.get_connection_id().inner(), 20);
     }

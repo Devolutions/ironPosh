@@ -126,18 +126,10 @@ pub async fn start_serial_session_loop(
                 Either::Right(futures::future::pending::<Option<HostResponse>>())
             };
 
-            let now_for_deadline = core.now_ms();
-            let mut host_timeout_guard = core.host_call_deadline_ms().map_or_else(
-                || Either::Right(futures::future::pending::<()>()),
-                |deadline| {
-                    let dur = Duration::from_millis(deadline.saturating_sub(now_for_deadline));
-                    Either::Left(Delay::new(dur).fuse())
-                },
-            );
-
             futures::select! {
                 () = wake_guard => {
-                    // Timer wake-up (e.g. receive backoff window elapsed) — loop again to promote work.
+                    // Timer wake-up (receive backoff window or host-call gate
+                    // grace elapsed) — loop again to promote work.
                 }
                 op = user_input_rx.next() => {
                     if let Some(op) = op {
@@ -152,13 +144,6 @@ pub async fn start_serial_session_loop(
                         core.accept_host_response(hr)?;
                     } else {
                         return Err(anyhow::anyhow!("Host-response channel closed (idle)"));
-                    }
-                }
-                () = host_timeout_guard => {
-                    // Consumer never answered the host call — cancel it so Receive
-                    // promotion resumes instead of staying gated forever.
-                    if let Some(op) = core.abandon_host_call() {
-                        core.accept_user_op(op)?;
                     }
                 }
             }
@@ -195,15 +180,6 @@ async fn send_and_buffer(
         } else {
             Either::Right(futures::future::pending::<Option<HostResponse>>())
         };
-
-        let now_for_deadline = core.now_ms();
-        let mut host_timeout_guard = core.host_call_deadline_ms().map_or_else(
-            || Either::Right(futures::future::pending::<()>()),
-            |deadline| {
-                let dur = Duration::from_millis(deadline.saturating_sub(now_for_deadline));
-                Either::Left(Delay::new(dur).fuse())
-            },
-        );
 
         futures::select! {
             resp = http_future => {
@@ -258,13 +234,6 @@ async fn send_and_buffer(
                         }
                     }
                     None => return Err(anyhow::anyhow!("Host-response channel closed")),
-                }
-            }
-            () = host_timeout_guard => {
-                // Consumer never answered while a request is in flight — buffer a
-                // cancel so it is issued once the current request completes.
-                if let Some(op) = core.abandon_host_call() {
-                    core.buffer_user_op(op);
                 }
             }
         }
