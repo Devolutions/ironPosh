@@ -94,14 +94,6 @@ jobs:
         working-directory: crates/ironposh-web/pkg
         run: NODE_AUTH_TOKEN="" npm publish --provenance --access public
 
-      - name: Update Artifactory Cache
-        run: |
-          gh workflow run update-artifactory-cache.yml \
-            --repo Devolutions/scheduled-tasks \
-            --raw-field package_name='ironposh-web'
-        env:
-          GH_TOKEN: ${{ secrets.DEVOLUTIONSBOT_WRITE_TOKEN }}
-
   # Future: Release Rust crates to crates.io
   # release-rust:
   #   name: Release Rust Crates
