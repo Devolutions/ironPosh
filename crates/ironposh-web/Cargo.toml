@@ -32,6 +32,9 @@ web-sys = { version = "0.3.81", features = [
 ] }
 tracing-wasm = "0.2.1"
 getrandom = { version = "0.2", features = ["js"] }
+# getrandom 0.4 (pulled in by sspi 0.23 -> crypto-bigint 0.7) selects its wasm
+# backend through this feature rather than the `getrandom_backend` cfg flag.
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 anyhow = "1.0"
 futures = "0.3"
 wee_alloc = { version = "0.4", optional = true }

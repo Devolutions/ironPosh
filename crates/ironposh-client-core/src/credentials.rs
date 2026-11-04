@@ -60,7 +60,10 @@ impl ClientUserName {
 
     /// May return an UPN suffix or NetBIOS domain name depending on the internal format
     pub fn domain_name(&self) -> Option<&str> {
-        self.inner.domain_name()
+        match self.inner.parts() {
+            sspi::UsernameParts::UserPrincipalName(upn) => Some(upn.suffix()),
+            sspi::UsernameParts::DownLevelLogonName(dll) => dll.netbios_domain(),
+        }
     }
 
     /// Returns the account name

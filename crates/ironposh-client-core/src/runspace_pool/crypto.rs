@@ -57,7 +57,7 @@ pub(super) fn encrypt_secure_strings_in_value_rec(
                     }
                 }
                 ComplexObjectContent::Container(Container::Dictionary(dict)) => {
-                    for (_k, v) in dict.iter_mut() {
+                    for v in dict.values_mut() {
                         encrypt_secure_strings_in_value_rec(v, session_key)?;
                     }
                 }

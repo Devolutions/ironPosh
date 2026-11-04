@@ -49,7 +49,7 @@ mod tests {
         let restored = PipelineHostCall::try_from(complex_obj).unwrap();
 
         assert_eq!(original, restored);
-        assert!(restored.parameters.is_empty());
+        assert_eq!(restored.parameters.len(), 0);
     }
 
     #[test]

@@ -18,7 +18,11 @@ use crate::PwshCoreError;
 use crate::connector::http::HttpResponse;
 use crate::credentials::ClientAuthIdentity;
 
+/// `'a` borrows the credentials handle, target name and input buffers; the
+/// output buffers live in the same `SspiContext`, so both sspi lifetimes
+/// (`'a` and `'output`) are the same here.
 pub type SecurityContextBuilder<'a, P> = InitializeSecurityContext<
+    'a,
     'a,
     <P as SspiImpl>::CredentialsHandle,
     WithCredentialsHandle,
@@ -187,7 +191,12 @@ where
             );
             buffers.push(SecurityBuffer::new(cb.clone(), BufferType::ChannelBindings));
         }
-        self.inbuf = (!buffers.is_empty()).then_some(buffers);
+        // Always hand SSPI an input list, even an empty one on the first leg:
+        // since sspi 0.23 the Kerberos client runs the AS exchange inside its
+        // first InitializeSecurityContext call and requires `input` to be set
+        // (it looks for ChannelBindings there), failing with "input buffers
+        // must be specified" otherwise. NTLM and SPNEGO accept an empty list.
+        self.inbuf = Some(buffers);
         Ok(())
     }
 }
@@ -363,10 +372,13 @@ impl SspiAuthenticator {
     }
 
     #[instrument(skip_all)]
+    ///
+    /// The provider tracks the per-direction message sequence number itself
+    /// (NTLM: `our_seq_number`; Kerberos: its own wrap-token counter), so each
+    /// call must be made exactly once per outgoing message, in send order.
     pub fn wrap<P: Sspi + SspiImpl>(
         provider: &mut P,
         data: &mut [u8],
-        sequence_number: u32,
     ) -> Result<Vec<u8>, PwshCoreError> {
         let size_result = provider.query_context_sizes()?;
         debug!(?size_result, "SSPI QueryContextSizes");
@@ -377,8 +389,7 @@ impl SspiAuthenticator {
 
         let mut buffers = [sec_token_buffer, sec_data_buffer];
 
-        let res =
-            provider.encrypt_message(EncryptionFlags::empty(), &mut buffers, sequence_number)?;
+        let res = provider.encrypt_message(EncryptionFlags::empty(), &mut buffers)?;
 
         debug!(token=?buffers[0],token_len=?buffers[0].buf_len(), data_len=?buffers[1].buf_len(), "SSPI EncryptMessage");
 
@@ -389,12 +400,14 @@ impl SspiAuthenticator {
         Ok(token_buffer)
     }
 
-    #[instrument(skip(provider, token, encrypted_data), fields(token_len = token.len(), data_len = encrypted_data.len(), sequence_number = sequence_number))]
+    /// The provider checks the incoming sequence number against its own
+    /// receive counter, so each received message must be unwrapped exactly once,
+    /// in receive order.
+    #[instrument(skip(provider, token, encrypted_data), fields(token_len = token.len(), data_len = encrypted_data.len()))]
     pub fn unwrap<P: Sspi + SspiImpl>(
         provider: &mut P,
         token: &[u8],
         encrypted_data: &mut [u8],
-        sequence_number: u32,
     ) -> Result<Vec<u8>, PwshCoreError> {
         debug!("SSPI unwrap called with separate token and data buffers");
 
@@ -414,7 +427,7 @@ impl SspiAuthenticator {
             "Calling SSPI decrypt_message with token and data buffers"
         );
 
-        let result = provider.decrypt_message(&mut buffers, sequence_number);
+        let result = provider.decrypt_message(&mut buffers);
 
         match result {
             Ok(_) => {

@@ -1355,7 +1355,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         let events2 = core.drain_user_events();
-        assert!(events2.is_empty());
+        assert_eq!(events2.len(), 0);
     }
 
     // ── Unsupported ops in serial mode (2 tests) ────────────────────────

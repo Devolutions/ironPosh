@@ -12,8 +12,9 @@ pub struct KerberosConfig {
 impl From<KerberosConfig> for sspi::KerberosConfig {
     fn from(val: KerberosConfig) -> Self {
         Self {
-            kdc_url: val.kdc_url,
-            client_computer_name: Some(val.client_computer_name),
+            // `KdcUrl(None)` keeps the previous behaviour: discover the KDC via DNS SRV.
+            kdc_resolution: sspi::KdcResolution::KdcUrl(val.kdc_url),
+            client_computer_name: val.client_computer_name,
         }
     }
 }
