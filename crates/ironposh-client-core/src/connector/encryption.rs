@@ -25,9 +25,9 @@ pub enum EncryptionOptions {
 #[derive(Debug)]
 pub struct EncryptionProvider {
     id: uuid::Uuid,
+    /// The SSPI context owns the message sequence numbers for both directions
+    /// (sspi >= 0.23), so there is no counter here.
     context: SspiAuthContext,
-    sequence_number: u32,
-    recv_sequence_number: u32,
     require_encryption: bool,
 }
 
@@ -56,28 +56,13 @@ impl EncryptionProvider {
         Self {
             id: uuid::Uuid::new_v4(),
             context,
-            sequence_number: 0,
-            recv_sequence_number: 0,
             require_encryption,
         }
-    }
-
-    fn next_sequence_number(&mut self) -> u32 {
-        let seq = self.sequence_number;
-        self.sequence_number = self.sequence_number.wrapping_add(1);
-        seq
-    }
-
-    fn next_recv_sequence_number(&mut self) -> u32 {
-        let seq = self.recv_sequence_number;
-        self.recv_sequence_number = self.recv_sequence_number.wrapping_add(1);
-        seq
     }
 
     /// High-level method to encrypt a string into an HttpBody
     #[instrument(skip(self, data))]
     pub fn encrypt(&mut self, data: &str) -> Result<HttpBody, PwshCoreError> {
-        let sequence_number = self.next_sequence_number();
         // Exact UTF-8 byte length of the ORIGINAL SOAP prior to sealing
         let plain_len = data.len();
 
@@ -91,7 +76,7 @@ impl EncryptionProvider {
         let mut sealed_bytes = data.as_bytes().to_vec();
 
         // Perform SSPI/NTLM sealing
-        let token = match self.wrap(&mut sealed_bytes, sequence_number)? {
+        let token = match self.wrap(&mut sealed_bytes)? {
             EncryptionResult::Encrypted { token } => token,
             EncryptionResult::EncryptionNotPerformed => {
                 debug!("Encryption not performed, returning original XML body");
@@ -156,7 +141,6 @@ impl EncryptionProvider {
     /// High-level method to decrypt an HttpBody into a string
     #[instrument(skip(self, data))]
     pub fn decrypt(&mut self, data: HttpBody) -> Result<String, PwshCoreError> {
-        let sequence_number = self.next_recv_sequence_number();
         info!(
             body_type = ?data,
             "Decrypting HTTP body"
@@ -221,7 +205,7 @@ impl EncryptionProvider {
             "Extracted encrypted data for decryption"
         );
 
-        match self.unwrap(token, &mut encrypted_data, sequence_number)? {
+        match self.unwrap(token, &mut encrypted_data)? {
             DecryptionResult::Decrypted(items) => {
                 let decrypted = String::from_utf8(items).map_err(|e| {
                     PwshCoreError::InternalError(format!("Failed to decode decrypted body: {e}"))
@@ -255,11 +239,7 @@ impl EncryptionProvider {
     }
 
     /// Extract the binary payload from a multipart/encrypted HTTP body
-    fn wrap(
-        &mut self,
-        data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<EncryptionResult, PwshCoreError> {
+    fn wrap(&mut self, data: &mut [u8]) -> Result<EncryptionResult, PwshCoreError> {
         if !self.require_encryption {
             debug!("Encryption not required, skipping wrap");
             return Ok(EncryptionResult::EncryptionNotPerformed);
@@ -267,25 +247,20 @@ impl EncryptionProvider {
 
         let token = match &mut self.context {
             SspiAuthContext::Ntlm(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::wrap(&mut auth_context.provider, data)
             }
             SspiAuthContext::Kerberos(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::wrap(&mut auth_context.provider, data)
             }
             SspiAuthContext::Negotiate(auth_context) => {
-                SspiAuthenticator::wrap(&mut auth_context.provider, data, sequence_number)
+                SspiAuthenticator::wrap(&mut auth_context.provider, data)
             }
         }?;
 
         Ok(EncryptionResult::Encrypted { token })
     }
 
-    fn unwrap(
-        &mut self,
-        token: &[u8],
-        data: &mut [u8],
-        sequence_number: u32,
-    ) -> Result<DecryptionResult, PwshCoreError> {
+    fn unwrap(&mut self, token: &[u8], data: &mut [u8]) -> Result<DecryptionResult, PwshCoreError> {
         if !self.require_encryption {
             debug!("Decryption not required, skipping unwrap");
             return Ok(DecryptionResult::DecryptionNotPerformed);
@@ -293,13 +268,13 @@ impl EncryptionProvider {
 
         let decrypted = match &mut self.context {
             SspiAuthContext::Ntlm(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data)
             }
             SspiAuthContext::Kerberos(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data)
             }
             SspiAuthContext::Negotiate(auth_context) => {
-                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data, sequence_number)
+                SspiAuthenticator::unwrap(&mut auth_context.provider, token, data)
             }
         }?;
 
