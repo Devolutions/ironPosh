@@ -641,7 +641,7 @@ fn test_deserialize_predefined_session_capability_xml() {
         .get("TimeZone")
         .expect("Missing TimeZone property");
     if let PsValue::Primitive(PsPrimitiveValue::Bytes(bytes)) = timezone {
-        assert!(!bytes.is_empty());
+        assert_ne!(bytes.as_slice(), &[] as &[u8]);
     } else {
         panic!("Expected Bytes value for TimeZone");
     }

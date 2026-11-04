@@ -381,151 +381,142 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
         }
-    } else {
-        // Interactive mode - continuous loop
-        println!("🔍 PowerShell Remoting Protocol Analyzer - Interactive Mode");
-        println!("============================================================");
-        println!();
-        println!("📝 Commands:");
-        println!("   • Enter base64-encoded PowerShell remoting messages to analyze");
-        println!("   • Type 'multi' to enter multi-fragment defragmentation mode");
-        println!("   • Type 'help' for usage information");
-        println!("   • Type 'exit' or 'quit' to end the session");
-        println!();
+    }
 
-        loop {
-            print!("> ");
-            io::stdout().flush()?;
+    // Interactive mode - continuous loop
+    println!("🔍 PowerShell Remoting Protocol Analyzer - Interactive Mode");
+    println!("============================================================");
+    println!();
+    println!("📝 Commands:");
+    println!("   • Enter base64-encoded PowerShell remoting messages to analyze");
+    println!("   • Type 'multi' to enter multi-fragment defragmentation mode");
+    println!("   • Type 'help' for usage information");
+    println!("   • Type 'exit' or 'quit' to end the session");
+    println!();
 
-            let mut input = String::new();
-            match io::stdin().read_line(&mut input) {
-                Ok(_) => {
-                    let input = input.trim().to_string();
+    loop {
+        print!("> ");
+        io::stdout().flush()?;
 
-                    if input.is_empty() {
-                        continue;
-                    }
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                let input = input.trim().to_string();
 
-                    if input.to_lowercase() == "exit" || input.to_lowercase() == "quit" {
-                        println!("Goodbye!");
-                        break;
-                    }
-
-                    if input == "help" || input == "--help" || input == "-h" {
-                        print_usage();
-                        continue;
-                    }
-
-                    if input == "multi" {
-                        println!("🔧 Entering multi-fragment defragmentation mode");
-                        println!("📝 Instructions:");
-                        println!("   • Enter each fragment as base64-encoded data");
-                        println!("   • Type 'done' when all fragments are entered");
-                        println!("   • Type 'cancel' to abort and return to main mode");
-                        println!();
-
-                        let mut fragments = Vec::new();
-
-                        loop {
-                            print!("fragment {}> ", fragments.len() + 1);
-                            io::stdout().flush()?;
-
-                            let mut fragment_input = String::new();
-                            io::stdin().read_line(&mut fragment_input)?;
-                            let fragment_input = fragment_input.trim();
-
-                            if fragment_input.is_empty() {
-                                continue;
-                            }
-
-                            if fragment_input == "done" {
-                                if fragments.is_empty() {
-                                    println!(
-                                        "⚠️  No fragments entered. Please add at least one fragment or type 'cancel'."
-                                    );
-                                    continue;
-                                }
-                                break;
-                            }
-
-                            if fragment_input == "cancel" {
-                                println!("❌ Multi-fragment mode cancelled");
-                                fragments.clear();
-                                break;
-                            }
-
-                            fragments.push(fragment_input.to_string());
-                            println!(
-                                "✅ Added fragment {} (base64 length: {} characters)",
-                                fragments.len(),
-                                fragment_input.len()
-                            );
-                        }
-
-                        if !fragments.is_empty() {
-                            let fragment_refs: Vec<&str> =
-                                fragments.iter().map(String::as_str).collect();
-                            match try_defragment_multiple_messages(&fragment_refs) {
-                                Ok(messages) => {
-                                    if messages.is_empty() {
-                                        println!(
-                                            "ℹ️  No complete messages assembled from fragments"
-                                        );
-                                    } else {
-                                        for (i, message) in messages.iter().enumerate() {
-                                            print_separator(&format!(
-                                                "DEFRAGMENTED MESSAGE {}",
-                                                i + 1
-                                            ));
-                                            println!("📨 Message Type: {:?}", message.message_type);
-                                            println!("🎯 Destination: {:?}", message.destination);
-                                            println!("🆔 Runspace Pool ID: {}", message.rpid);
-                                            if let Some(pid) = message.pid {
-                                                println!("🔗 Pipeline ID: {pid}");
-                                            }
-                                            println!("📏 Data Size: {} bytes", message.data.len());
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("❌ Defragmentation error: {e}");
-                                    eprintln!(
-                                        "💡 Check that fragments are valid and in correct order"
-                                    );
-                                }
-                            }
-                        }
-
-                        println!("\n{}", "=".repeat(80));
-                        println!("🔄 Ready for next message or command...");
-                        continue;
-                    }
-
-                    match analyze_message(&input) {
-                        Ok(()) => {
-                            println!("\n{}", "=".repeat(80));
-                            println!("🔄 Ready for next message or command...");
-                        }
-                        Err(e) => {
-                            eprintln!("\n❌ Analysis failed: {e}");
-                            eprintln!("💡 Troubleshooting tips:");
-                            eprintln!("   • Ensure input is valid base64-encoded data");
-                            eprintln!(
-                                "   • Try 'multi' mode if this is a fragment needing reassembly"
-                            );
-                            eprintln!("   • Type 'help' for more information");
-                            println!("\n🔄 Try again or type 'exit' to quit.");
-                        }
-                    }
+                if input.is_empty() {
+                    continue;
                 }
-                Err(e) => {
-                    eprintln!("❌ Input error: {e}");
-                    eprintln!("💡 Please try again or restart the application");
+
+                if input.to_lowercase() == "exit" || input.to_lowercase() == "quit" {
+                    println!("Goodbye!");
                     break;
                 }
+
+                if input == "help" || input == "--help" || input == "-h" {
+                    print_usage();
+                    continue;
+                }
+
+                if input == "multi" {
+                    println!("🔧 Entering multi-fragment defragmentation mode");
+                    println!("📝 Instructions:");
+                    println!("   • Enter each fragment as base64-encoded data");
+                    println!("   • Type 'done' when all fragments are entered");
+                    println!("   • Type 'cancel' to abort and return to main mode");
+                    println!();
+
+                    let mut fragments = Vec::new();
+
+                    loop {
+                        print!("fragment {}> ", fragments.len() + 1);
+                        io::stdout().flush()?;
+
+                        let mut fragment_input = String::new();
+                        io::stdin().read_line(&mut fragment_input)?;
+                        let fragment_input = fragment_input.trim();
+
+                        if fragment_input.is_empty() {
+                            continue;
+                        }
+
+                        if fragment_input == "done" {
+                            if fragments.is_empty() {
+                                println!(
+                                    "⚠️  No fragments entered. Please add at least one fragment or type 'cancel'."
+                                );
+                                continue;
+                            }
+                            break;
+                        }
+
+                        if fragment_input == "cancel" {
+                            println!("❌ Multi-fragment mode cancelled");
+                            fragments.clear();
+                            break;
+                        }
+
+                        fragments.push(fragment_input.to_string());
+                        println!(
+                            "✅ Added fragment {} (base64 length: {} characters)",
+                            fragments.len(),
+                            fragment_input.len()
+                        );
+                    }
+
+                    if !fragments.is_empty() {
+                        let fragment_refs: Vec<&str> =
+                            fragments.iter().map(String::as_str).collect();
+                        match try_defragment_multiple_messages(&fragment_refs) {
+                            Ok(messages) => {
+                                if messages.is_empty() {
+                                    println!("ℹ️  No complete messages assembled from fragments");
+                                } else {
+                                    for (i, message) in messages.iter().enumerate() {
+                                        print_separator(&format!("DEFRAGMENTED MESSAGE {}", i + 1));
+                                        println!("📨 Message Type: {:?}", message.message_type);
+                                        println!("🎯 Destination: {:?}", message.destination);
+                                        println!("🆔 Runspace Pool ID: {}", message.rpid);
+                                        if let Some(pid) = message.pid {
+                                            println!("🔗 Pipeline ID: {pid}");
+                                        }
+                                        println!("📏 Data Size: {} bytes", message.data.len());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Defragmentation error: {e}");
+                                eprintln!("💡 Check that fragments are valid and in correct order");
+                            }
+                        }
+                    }
+
+                    println!("\n{}", "=".repeat(80));
+                    println!("🔄 Ready for next message or command...");
+                    continue;
+                }
+
+                match analyze_message(&input) {
+                    Ok(()) => {
+                        println!("\n{}", "=".repeat(80));
+                        println!("🔄 Ready for next message or command...");
+                    }
+                    Err(e) => {
+                        eprintln!("\n❌ Analysis failed: {e}");
+                        eprintln!("💡 Troubleshooting tips:");
+                        eprintln!("   • Ensure input is valid base64-encoded data");
+                        eprintln!("   • Try 'multi' mode if this is a fragment needing reassembly");
+                        eprintln!("   • Type 'help' for more information");
+                        println!("\n🔄 Try again or type 'exit' to quit.");
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Input error: {e}");
+                eprintln!("💡 Please try again or restart the application");
+                break;
             }
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
