@@ -19,7 +19,6 @@ use ironposh_psrp::{
 };
 use ironposh_winrm::{soap::SoapEnvelope, ws_management::WsAction};
 use ironposh_xml::mapping::FromXml;
-use rsa::pkcs1v15::Pkcs1v15Encrypt;
 use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 
@@ -518,24 +517,13 @@ impl RunspacePool {
                         let encrypted_bytes = &decoded[12..12 + 256];
                         let state = self.ensure_key_exchange_state()?;
 
-                        let decrypted = state
-                            .private_key
-                            .decrypt(Pkcs1v15Encrypt, encrypted_bytes)
-                            .or_else(|e| {
-                                // Some stacks may provide a representation that requires reversing.
-                                // Try best-effort before failing hard.
-                                let mut reversed = encrypted_bytes.to_vec();
-                                reversed.reverse();
-                                state
-                                    .private_key
-                                    .decrypt(Pkcs1v15Encrypt, &reversed)
-                                    .map_err(|_e2| e)
-                            })
-                            .map_err(|e| {
-                                crate::PwshCoreError::InternalError(format!(
-                                    "failed to decrypt EncryptedSessionKey: {e}"
-                                ))
-                            })?;
+                        let decrypted =
+                            super::crypto::decrypt_session_key(&state.private_key, encrypted_bytes)
+                                .map_err(|e| {
+                                    crate::PwshCoreError::InternalError(format!(
+                                        "failed to decrypt EncryptedSessionKey: {e}"
+                                    ))
+                                })?;
 
                         if decrypted.len() != 32 {
                             return Err(crate::PwshCoreError::InvalidResponse(

@@ -16,6 +16,18 @@ pub(super) struct KeyExchangeState {
     pub(super) session_key: Option<Vec<u8>>,
 }
 
+/// Decrypts the session key in an `ENCRYPTED_SESSION_KEY` blob's ciphertext.
+///
+/// The server exports the key with CryptoAPI, which stores the ciphertext little-endian.
+pub(super) fn decrypt_session_key(
+    private_key: &rsa::RsaPrivateKey,
+    ciphertext: &[u8],
+) -> rsa::Result<Vec<u8>> {
+    let mut ciphertext = ciphertext.to_vec();
+    ciphertext.reverse();
+    private_key.decrypt(rsa::Pkcs1v15Encrypt, &ciphertext)
+}
+
 pub(super) fn encrypt_secure_strings_in_value_rec(
     value: &mut ironposh_psrp::PsValue,
     session_key: Option<&[u8]>,
@@ -117,4 +129,26 @@ fn encrypt_secure_string_bytes_in_place(
 
     *bytes = out;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rsa::pkcs1::DecodeRsaPrivateKey as _;
+
+    use super::decrypt_session_key;
+
+    #[test]
+    fn decrypts_a_session_key_exported_by_cryptoapi() {
+        // A SIMPLEBLOB from CryptExportKey, holding an AES-256 key wrapped with the public key of this test key.
+        let private_key = rsa::RsaPrivateKey::from_pkcs1_der(include_bytes!(
+            "../../test_data/session_key_exchange_rsa_key.der"
+        ))
+        .unwrap();
+        let blob = include_bytes!("../../test_data/session_key_exchange_simple_blob.bin");
+        let session_key = include_bytes!("../../test_data/session_key_exchange_session_key.bin");
+
+        let decrypted = decrypt_session_key(&private_key, &blob[12..12 + 256]).unwrap();
+
+        assert_eq!(decrypted, session_key);
+    }
 }
